@@ -477,11 +477,13 @@ export async function toLegacyEntry(
         appsById?: Map<number, Record<string, unknown>>;
         /** Omitted from the response when undefined. */
         isShared?: boolean | null;
+        /** Skip the mask: the mask is the actor's, and only they can read it. */
+        forOwner?: boolean;
     } = {},
 ): Promise<Record<string, unknown>> {
     // Someone else's entry is published under its masked path; the owner's
     // real one, and everything above the share, stays server-side.
-    const publishedPath = maskEntryPath(entry);
+    const publishedPath = opts.forOwner ? entry.path : maskEntryPath(entry);
     const dirname = pathPosix.dirname(publishedPath);
     const mimeType = fsEntryMimeType(entry);
 

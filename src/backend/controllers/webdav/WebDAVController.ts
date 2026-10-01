@@ -1174,7 +1174,9 @@ export class WebDAVController extends PuterController {
         void Promise.resolve()
             .then(async () => {
                 const response = {
-                    ...(await toLegacyEntry(this.clients.event, entry)),
+                    ...(await toLegacyEntry(this.clients.event, entry, {
+                        forOwner: true,
+                    })),
                     ...extra,
                     from_new_service: true,
                 };

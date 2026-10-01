@@ -45,7 +45,6 @@ import {
 } from '../../util/fileSigning.js';
 import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
 import {
-    expandTildePath,
     joinChildPath,
     normalizeAbsolutePath,
     splitParentAndName,
@@ -83,6 +82,7 @@ import {
     assertAccess,
     assertCanCreate,
     assertCanMoveInto,
+    expandClientPath,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
@@ -702,14 +702,21 @@ export class LegacyFSController extends PuterController {
         // When `parent` is a path string, use it directly without requiring
         // the entry to exist — `services.fs.mkdir` honors `create_missing_parents`
         // and will materialize any missing intermediate directories.
-        let targetPath = rawPath;
+        const username = actor.user?.username;
+        let targetPath = rawPath.startsWith('/')
+            ? await expandClientPath(this.stores.fsEntry, rawPath, username)
+            : rawPath;
         if (body.parent !== undefined && !rawPath.startsWith('/')) {
             let parentPath: string;
             if (
                 typeof body.parent === 'string' &&
                 (body.parent.startsWith('/') || body.parent.startsWith('~'))
             ) {
-                parentPath = expandTildePath(body.parent, actor.user?.username);
+                parentPath = await expandClientPath(
+                    this.stores.fsEntry,
+                    body.parent,
+                    username,
+                );
             } else {
                 const parent = await resolveV1Selector(
                     this.stores.fsEntry,
@@ -910,9 +917,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1045,9 +1050,13 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const parentPath = pathPosix.dirname(
-            rawPath.startsWith('/') ? rawPath : `/${rawPath}`,
+        const expanded = await expandClientPath(
+            this.stores.fsEntry,
+            rawPath,
+            actor.user?.username,
         );
+        const targetPath = expanded.startsWith('/') ? expanded : `/${expanded}`;
+        const parentPath = pathPosix.dirname(targetPath);
         if (parentPath === '/') {
             throw new HttpError(400, 'Cannot touch in root', {
                 legacyCode: 'bad_request',
@@ -1062,7 +1071,7 @@ export class LegacyFSController extends PuterController {
         );
 
         await this.services.fs.touch(userId, {
-            path: rawPath,
+            path: targetPath,
             setAccessed: getBoolean(body, 'set_accessed_to_now') ?? false,
             setModified: getBoolean(body, 'set_modified_to_now') ?? false,
             setCreated: getBoolean(body, 'set_created_to_now') ?? false,
@@ -1359,8 +1368,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1983,10 +1991,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -2114,9 +2119,12 @@ export class LegacyFSController extends PuterController {
         // silently ignores. Run the entry through `toLegacyEntry` first so
         // the event payload matches what /stat et al. return, then overlay
         // per-op extras (e.g. `old_path` for moves).
+        // `forOwner` — the audience is the owner, who can't read the actor's mask.
         try {
             const response = {
-                ...(await toLegacyEntry(this.clients.event, entry)),
+                ...(await toLegacyEntry(this.clients.event, entry, {
+                    forOwner: true,
+                })),
                 ...extra,
                 from_new_service: true,
             };
@@ -2301,7 +2309,8 @@ export class LegacyFSController extends PuterController {
                         getString(record, 'path') ?? '',
                         pathRefs,
                     );
-                    const expandedParent = expandTildePath(
+                    const expandedParent = await expandClientPath(
+                        this.stores.fsEntry,
                         parentPath,
                         username,
                     );
@@ -2363,7 +2372,7 @@ export class LegacyFSController extends PuterController {
                     );
                 } else if (op === 'mkdir') {
                     const { targetPath, writeAclPath } =
-                        this.#resolveBatchMkdirTarget(
+                        await this.#resolveBatchMkdirTarget(
                             record,
                             username,
                             pathRefs,
@@ -2411,7 +2420,8 @@ export class LegacyFSController extends PuterController {
                         this.stores.fsEntry,
                         resolveBatchRef(shortcutToRaw, pathRefs),
                     );
-                    const expandedParent = expandTildePath(
+                    const expandedParent = await expandClientPath(
+                        this.stores.fsEntry,
                         resolveBatchRef(parentPath, pathRefs),
                         username,
                     );
@@ -2715,11 +2725,11 @@ export class LegacyFSController extends PuterController {
      * `parent`, `{ path, name }` with `path` as the parent, or an absolute `{
      * path }`.
      */
-    #resolveBatchMkdirTarget(
+    async #resolveBatchMkdirTarget(
         record: Record<string, unknown>,
         username: string | undefined,
         pathRefs: Map<string, string>,
-    ): { targetPath: string; writeAclPath: string } {
+    ): Promise<{ targetPath: string; writeAclPath: string }> {
         // Write is checked on the immediate parent: a multi-segment relative
         // path must not be authorized by a grant on the target itself. Under
         // `/` there is no parent to check, so the target stands in.
@@ -2734,7 +2744,8 @@ export class LegacyFSController extends PuterController {
         const name = getString(record, 'name');
 
         if (typeof record.parent === 'string' && !name) {
-            const parentPath = expandTildePath(
+            const parentPath = await expandClientPath(
+                this.stores.fsEntry,
                 resolveBatchRef(record.parent, pathRefs),
                 username,
             );
@@ -2754,7 +2765,8 @@ export class LegacyFSController extends PuterController {
         }
 
         if (name) {
-            const parentPath = expandTildePath(
+            const parentPath = await expandClientPath(
+                this.stores.fsEntry,
                 resolveBatchRef(getString(record, 'path') ?? '', pathRefs),
                 username,
             );
@@ -2768,7 +2780,11 @@ export class LegacyFSController extends PuterController {
             });
         }
         const { parentPath, name: derivedName } = splitParentAndName(
-            expandTildePath(resolveBatchRef(rawPath, pathRefs), username),
+            await expandClientPath(
+                this.stores.fsEntry,
+                resolveBatchRef(rawPath, pathRefs),
+                username,
+            ),
         );
         return withAclPath(joinChildPath(parentPath, derivedName));
     }
