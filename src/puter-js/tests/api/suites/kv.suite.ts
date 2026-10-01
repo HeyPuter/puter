@@ -442,6 +442,26 @@ export default suite('kv', {
         t.assert.deepEqual([...keys], ['kv-suite-set-null-ttl']);
     },
 
+    'set with a numeric-string expireAt in the past leaves the key unreadable': async (t) => {
+        await t.puter.kv.set(
+            'kv-suite-set-expired-string',
+            'stale',
+            String(Math.floor(Date.now() / 1000) - 60),
+        );
+        t.assert.equal(
+            await t.puter.kv.get('kv-suite-set-expired-string'),
+            null,
+        );
+    },
+
+    'set with a non-numeric expireAt rejects with bad_request': async (t) => {
+        const err = await t.assert.rejects(
+            () => t.puter.kv.set('kv-suite-set-bad-expireat', 'v', 'soon'),
+            'a non-numeric expireAt should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'bad_request');
+    },
+
     'set tolerates the legacy trailing callback slots': async (t) => {
         // The callbacks sit after the (skipped) expireAt slot; they must not
         // be mistaken for the value or the expiry.
@@ -505,6 +525,15 @@ export default suite('kv', {
             'an oversized key should be rejected',
         );
         t.assert.equal((err as { code?: string })?.code, 'key_too_large');
+    },
+
+    'set stores a long array': async (t) => {
+        const bigArray = Array(130_000).fill(0);
+        await t.puter.kv.set('kv-suite-long-array', bigArray);
+        const value = (await t.puter.kv.get(
+            'kv-suite-long-array',
+        )) as unknown[];
+        t.assert.equal(value.length, 130_000);
     },
 
     'get and del accept the object form': async (t) => {
@@ -581,6 +610,24 @@ export default suite('kv', {
         t.assert.equal((err as { code?: string })?.code, 'arguments_required');
     },
 
+    'add of a bare object onto a list rejects with invalid_path': async (t) => {
+        await t.puter.kv.set('kv-suite-add-invalid-path', [
+            { at: 1, event: 'opened' },
+        ]);
+        const err = await t.assert.rejects(
+            () =>
+                t.puter.kv.add('kv-suite-add-invalid-path', {
+                    at: 2,
+                    event: 'closed',
+                } as never),
+            'a bare object added onto a list should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'invalid_path');
+        t.assert.deepEqual(await t.puter.kv.get('kv-suite-add-invalid-path'), [
+            { at: 1, event: 'opened' },
+        ]);
+    },
+
     'remove validates its paths client-side': async (t) => {
         await t.puter.kv.set('kv-suite-remove-guard', { a: 1, b: 2, c: 3 });
 
@@ -627,6 +674,14 @@ export default suite('kv', {
         await t.puter.kv.set('kv-suite-remove-many', { a: 1, b: 2, c: 3 });
         const updated = await t.puter.kv.remove('kv-suite-remove-many', 'a', 'c');
         t.assert.deepEqual(updated, { b: 2 });
+    },
+
+    'remove of the root path deletes the key': async (t) => {
+        await t.puter.kv.set('kv-suite-remove-root', { a: 1 });
+        const result = await t.puter.kv.remove('kv-suite-remove-root', '');
+        t.assert.equal(result, null);
+        const listed = await t.puter.kv.list('kv-suite-remove-root');
+        t.assert.deepEqual(listed, []);
     },
 
     'update validates the path map and ttl client-side': async (t) => {
@@ -680,6 +735,32 @@ export default suite('kv', {
             pathAndValueMap: { colour: 'green' },
         });
         t.assert.equal((updated as { colour: string }).colour, 'green');
+    },
+
+    'update with a positional numeric-string ttl applies it': async (t) => {
+        await t.puter.kv.set('kv-suite-update-ttl-string', { n: 1 });
+        await t.puter.kv.update(
+            'kv-suite-update-ttl-string',
+            { n: 2 },
+            '-10',
+        );
+        t.assert.equal(
+            await t.puter.kv.get('kv-suite-update-ttl-string'),
+            null,
+        );
+    },
+
+    'update with an empty quoted field name rejects with bad_request': async (
+        t,
+    ) => {
+        const err = await t.assert.rejects(
+            () =>
+                t.puter.kv.update('kv-suite-update-empty-quoted', {
+                    '[""]': 1,
+                }),
+            'an empty quoted field name should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'bad_request');
     },
 
     'update of a missing key rejects with key_undefined when no key is given': async (

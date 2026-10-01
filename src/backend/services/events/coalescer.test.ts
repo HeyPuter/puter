@@ -98,13 +98,52 @@ it('opens a fresh window after one closes', () => {
     ]);
 });
 
+it('says whether a subscription still has anything queued', () => {
+    coalescer.push('sub|fs:a:write', 'a');
+    coalescer.push('sub|fs:b:write', 'b');
+
+    expect(coalescer.hasGroup('sub')).toBe(true);
+    expect(coalescer.hasGroup('other')).toBe(false);
+
+    vi.advanceTimersByTime(EVENTS_COALESCE_WINDOW_MS);
+    expect(coalescer.hasGroup('sub')).toBe(false);
+});
+
 it('drops what a cancelled subscription had queued', () => {
     coalescer.push('gone|fs:a:write', 'a');
     coalescer.push('stays|fs:a:write', 'b');
 
-    coalescer.cancel((key) => key.startsWith('gone|'));
+    coalescer.cancelGroup('gone');
     vi.advanceTimersByTime(EVENTS_COALESCE_WINDOW_MS);
 
     expect(released).toEqual([['stays|fs:a:write', 'b']]);
     expect(coalescer.pendingCount).toBe(0);
+});
+
+it('counts a key whose payload was replaced only once', () => {
+    coalescer.push('sub|fs:a:write', 'a');
+    coalescer.push('sub|fs:a:write', 'b');
+
+    vi.advanceTimersByTime(EVENTS_COALESCE_WINDOW_MS);
+    expect(coalescer.hasGroup('sub')).toBe(false);
+});
+
+it('groups a key by what comes before its first separator', () => {
+    coalescer.push('sub|kv:a|b', 'x');
+
+    expect(coalescer.hasGroup('sub')).toBe(true);
+
+    coalescer.cancelGroup('sub');
+    vi.advanceTimersByTime(EVENTS_COALESCE_WINDOW_MS);
+    expect(released).toEqual([]);
+});
+
+it('cancelling one subscription leaves the others queued', () => {
+    coalescer.push('one|fs:a:write', 'a');
+    coalescer.push('two|fs:a:write', 'b');
+
+    coalescer.cancelGroup('one');
+    vi.advanceTimersByTime(EVENTS_COALESCE_WINDOW_MS);
+
+    expect(released).toEqual([['two|fs:a:write', 'b']]);
 });

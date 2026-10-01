@@ -294,6 +294,23 @@ describe('includeValue', () => {
 });
 
 describe('reconnect', () => {
+    it('keeps the subject as passed, and re-subscribes with it', async () => {
+        const events = makeModule();
+        const pending = events.onLocal('kv:cart', () => {});
+        await Promise.resolve();
+        sockets.at(-1).answer('events.subscribe', okSub('sub-1', 'kv:app-1:cart'));
+        const sub = await pending;
+
+        expect(sub.subject).toBe('kv:cart');
+
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        await Promise.resolve();
+
+        const resend = sockets[0].sent.filter(s => s.verb === 'events.subscribe').at(-1);
+        expect(resend.payload.subject).toBe('kv:cart');
+    });
+
     it('re-subscribes on reconnect and keeps the same handle', async () => {
         const events = makeModule();
         const seen = [];
@@ -1079,6 +1096,19 @@ describe('signing in', () => {
         expect(sockets).toHaveLength(0);
     });
 
+    it('does not ask for a sign-in on a reconnect or reset', async () => {
+        const authenticateWithPuter = vi.fn();
+        const events = makeModule({ ui: { authenticateWithPuter } });
+        await subscribed(events, 'fs:~/a', () => {});
+
+        events.puter.authToken = null;
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        for ( const listener of authStateListeners ) listener();
+
+        expect(authenticateWithPuter).not.toHaveBeenCalled();
+    });
+
     it('does not ask for a sign-in inside an app or when already signed in', async () => {
         const inAppAuth = vi.fn();
         const inApp = makeModule({
@@ -1093,6 +1123,104 @@ describe('signing in', () => {
         const signedIn = makeModule({ ui: { authenticateWithPuter: signedInAuth } });
         await subscribed(signedIn, 'fs:~/b', () => {});
         expect(signedInAuth).not.toHaveBeenCalled();
+    });
+});
+
+describe('a subscription the server ended', () => {
+    it('calls onError with subscription_ended and the reason, never the handler', async () => {
+        const events = makeModule();
+        const seen = [];
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event), {
+            onError: error => lapses.push(error),
+        });
+
+        sockets[0].fire('events.ended', {
+            subId: sub.subId,
+            code: 'subscription_ended',
+            reason: 'anchor_deleted',
+            message: 'gone',
+        });
+
+        expect(lapses).toHaveLength(1);
+        expect(lapses[0].code).toBe('subscription_ended');
+        expect(lapses[0].reason).toBe('anchor_deleted');
+        expect(seen).toEqual([]);
+    });
+
+    it('forgets it: later deliveries are dropped and a reconnect does not re-subscribe it', async () => {
+        const events = makeModule();
+        const seen = [];
+        const sub = await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event), {
+            onError: () => {},
+        }, 'sub-a');
+        // Keeps the socket up so a reconnect still has something to resubscribe.
+        await subscribed(events, 'fs:~/keepalive', () => {}, {}, 'sub-keepalive');
+
+        sockets[0].fire('events.ended', {
+            subId: 'sub-a',
+            code: 'subscription_ended',
+            reason: 'anchor_deleted',
+            message: 'gone',
+        });
+
+        sockets[0].fire('events.delivery', projected('sub-a', '/user/a/late.txt'));
+        expect(seen).toEqual([]);
+
+        const before = sockets[0].sent.filter(s => s.verb === 'events.subscribe').length;
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        await Promise.resolve();
+        const resent = sockets[0].sent.filter(s => s.verb === 'events.subscribe');
+        // Only the surviving subscription resubscribes.
+        expect(resent.length).toBe(before + 1);
+        expect(sub.subId).toBe(null);
+    });
+
+    it('closes the connection when it was the last subscription', async () => {
+        const events = makeModule();
+        const sub = await subscribed(events, 'fs:~/a', () => {}, { onError: () => {} });
+
+        sockets[0].fire('events.ended', {
+            subId: sub.subId,
+            code: 'subscription_ended',
+            reason: 'anchor_deleted',
+            message: 'gone',
+        });
+
+        expect(sockets[0].disconnected).toBe(true);
+    });
+
+    it('warns on the console when no onError was given', async () => {
+        const events = makeModule();
+        const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const sub = await subscribed(events, 'fs:~/a', () => {});
+
+        sockets[0].fire('events.ended', {
+            subId: sub.subId,
+            code: 'subscription_ended',
+            reason: 'anchor_deleted',
+            message: 'gone',
+        });
+
+        expect(warnings).toHaveBeenCalled();
+    });
+
+    it('ignores a notice for an id it does not hold', async () => {
+        const events = makeModule();
+        const seen = [];
+        await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event), {}, 'sub-a');
+
+        sockets[0].fire('events.ended', {
+            subId: 'sub-unknown',
+            code: 'subscription_ended',
+            reason: 'anchor_deleted',
+            message: 'gone',
+        });
+
+        sockets[0].fire('events.delivery', projected('sub-a', '/user/a/one.txt'));
+        expect(seen).toHaveLength(1);
+        expect(sockets[0].disconnected).toBe(false);
     });
 });
 

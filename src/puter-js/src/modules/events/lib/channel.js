@@ -41,6 +41,7 @@ const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
 const ACK_VERB = 'events.ack';
 const DELIVERY_CHANNEL = 'events.delivery';
+const ENDED_CHANNEL = 'events.ended';
 
 /**
  * Handed to a subscription once its connection is back, standing in for
@@ -81,6 +82,19 @@ const ackError = (response) => {
         typeof error?.code === 'string' ? error.code : 'events_failed',
     );
 };
+
+/**
+ * The error a `events.ended` notice becomes, passed to `onError` the same way
+ * a lapse is.
+ * @param {{ code?: unknown, reason?: unknown, message?: unknown }} [notice]
+ * @returns {PuterJSError}
+ */
+const endedError = (notice) =>
+    new PuterJSError(
+        typeof notice?.message === 'string' ? notice.message : 'The subscription was ended by the server',
+        typeof notice?.code === 'string' ? notice.code : 'subscription_ended',
+        typeof notice?.reason === 'string' ? { reason: notice.reason } : {},
+    );
 
 /** The subscription an ack describes, or a failure if it describes none. */
 const viewOf = (response) => {
@@ -332,6 +346,7 @@ export class EventChannel {
             this.fail(failure);
         });
         socket.on(DELIVERY_CHANNEL, envelope => this.route(envelope));
+        socket.on(ENDED_CHANNEL, notice => this.ended(notice));
 
         this.socket = socket;
         return socket;
@@ -503,6 +518,22 @@ export class EventChannel {
         // An event for something this client has already unsubscribed from:
         // in flight when `off()` was called, and no longer anybody's.
         if ( registered ) this.runDurable(registered, envelope);
+    }
+
+    /**
+     * The server ended a session subscription itself — no resubscribe
+     * follows, so the handle is let go the same way a lapse is. The handler
+     * is never called again; anything that arrives for it afterwards is
+     * dropped by `route`.
+     *
+     * @internal
+     * @param {{ subId?: unknown, code?: unknown, reason?: unknown, message?: unknown }} notice
+     * @returns {void}
+     */
+    ended (notice) {
+        const sub = typeof notice?.subId === 'string' ? this.byId.get(notice.subId) : undefined;
+        if ( ! sub ) return;
+        this.lapse(sub, endedError(notice));
     }
 
     /**

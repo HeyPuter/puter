@@ -725,6 +725,18 @@ describe('KVStoreDriver', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        it('rejects a ttl that isn’t a number with ttl_invalid', async () => {
+            await expect(
+                inCtx(() =>
+                    target.update({
+                        key: 'k',
+                        pathAndValueMap: { a: 1 },
+                        ttl: true as never,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, code: 'ttl_invalid' });
+        });
     });
 
     describe('add', () => {
@@ -770,6 +782,21 @@ describe('KVStoreDriver', () => {
             await expect(
                 inCtx(() => target.add({ key: '', pathAndValueMap: { x: 1 } })),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects a bare object on a list with invalid_path', async () => {
+            await expect(
+                inCtx(async () => {
+                    await target.set({
+                        key: 'list-of-objects',
+                        value: [{ at: 1, event: 'opened' }],
+                    });
+                    return target.add({
+                        key: 'list-of-objects',
+                        pathAndValueMap: { at: 2, event: 'closed' },
+                    });
+                }),
+            ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_path' });
         });
     });
 

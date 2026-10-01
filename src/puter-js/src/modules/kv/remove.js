@@ -8,7 +8,8 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 /**
  * Removes values from a key by one or more dot-separated paths (e.g.
  * `"profile.bio"`), returning the updated value. An `optConfig` object may
- * trail the paths.
+ * trail the paths. Removing the root path (`''`) deletes the key and
+ * resolves to `null`.
  *
  * @this {import('./index.js').KVModule}
  * @param {string} key

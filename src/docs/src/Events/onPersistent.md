@@ -125,7 +125,8 @@ Clients connect to the nearest region. Events reach a client wherever it's conne
 A `Promise` that resolves to the subscription:
 
 - `subId` (String): Its id, which [`puter.events.unsubscribe()`](/Events/unsubscribe/) takes. It never changes.
-- `subject`, `anchor`, `match`, `op`: as `onLocal()` returns them.
+- `subject` (String): For `kv:` and `notif:`, the subject in full form: `kv:cart` comes back as `kv:<appId>:cart`. For `fs:`, as you passed it.
+- `anchor`, `match`, `op`: as `onLocal()` returns them.
 - `delivery` (String), `targets` (Array), `handlerName` (String | null), `includeValue` (Boolean).
 - `appUid` (String | null): The app that created it, or `null` if an account session did.
 - `contextKeys` (Array | null), `contextHash` (String | null): the key names and a hash of the stored context, never its values.
@@ -137,7 +138,7 @@ The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `invalid_subject` | The subject is empty, not a string, or can't be parsed. |
+| `invalid_subject` | The subject is empty, not a string, or can't be parsed, or it's a `notif:` subject and this server has notification events turned off. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_handler_name_required` | `handler` was given without `handlerName`. |
 | `events_handler_free_variable` | The handler uses an outside variable. The message names it. |

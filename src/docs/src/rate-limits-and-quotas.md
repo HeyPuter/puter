@@ -105,8 +105,13 @@ Sizes are the same for every account:
 | Key                       | 1 KB                                      |
 | Value                     | 400 KB                                    |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
+| Path nesting (`add`/`update`/`incr`/`decr`/`remove`) | 31 levels |
+| Path segments in one call, all paths together | 1,500 |
+| Nesting depth of a value, counting its path | 32 levels |
 
 A key or value over its size limit is rejected. A number out of range is not rejected: it's stored clamped to the bound, and `NaN` is stored as `null` (as `JSON.stringify()` does). This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
+
+A path such as `a.b.c` may chain at most 31 levels, and one call's paths at most 1,500 segments together. All of a call's paths go into one write of limited size, so in practice a call fits about 140 short paths (about 60 for `incr` and `decr`), fewer when the paths are long. A value nests at most 32 levels deep: the stored value is the first level, and each object or array inside it, or path segment above it, adds one, so `{ a: { b: 1 } }` stored with `set()` is 3 levels deep and written by `update()` at `x.y` is 5; `add()` counts the list it appends to as one more. Past any of these, the call rejects with `bad_request`.
 
 ### Filesystem
 

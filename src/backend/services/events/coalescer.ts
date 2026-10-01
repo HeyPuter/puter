@@ -39,8 +39,20 @@ interface Pending<T> {
     timer: Timer;
 }
 
+/** Coalescing is per (subscription, subject), which is what the key says. */
+export const coalesceKey = (group: string, rest: string): string =>
+    `${group}|${rest}`;
+
+/** Everything before a key's first separator — the subscription it belongs to. */
+const groupOf = (key: string): string => {
+    const i = key.indexOf('|');
+    return i === -1 ? key : key.slice(0, i);
+};
+
 export class DeliveryCoalescer<T> {
     readonly #pending = new Map<string, Pending<T>>();
+    /** Pending keys by subscription, so asking about one is not a scan of all. */
+    readonly #byGroup = new Map<string, Set<string>>();
     readonly #windowMs: number;
     readonly #flush: (key: string, payload: T) => void;
 
@@ -51,6 +63,11 @@ export class DeliveryCoalescer<T> {
 
     get pendingCount(): number {
         return this.#pending.size;
+    }
+
+    /** Whether a subscription still has anything queued. */
+    hasGroup(group: string): boolean {
+        return this.#byGroup.has(group);
     }
 
     /** Queue an event, opening a window if this key does not already have one. */
@@ -64,21 +81,38 @@ export class DeliveryCoalescer<T> {
         const timer = setTimeout(() => this.#release(key), this.#windowMs);
         timer.unref?.();
         this.#pending.set(key, { payload, timer });
+
+        const group = groupOf(key);
+        const keys = this.#byGroup.get(group) ?? new Set<string>();
+        keys.add(key);
+        this.#byGroup.set(group, keys);
     }
 
-    /** Drop everything queued, without delivering — used when a socket goes. */
-    cancel(predicate: (key: string) => boolean): void {
-        for (const [key, pending] of this.#pending) {
-            if (!predicate(key)) continue;
+    /** Drop everything a subscription had queued, without delivering. */
+    cancelGroup(group: string): void {
+        const keys = this.#byGroup.get(group);
+        if (!keys) return;
+        for (const key of keys) {
+            const pending = this.#pending.get(key);
+            if (!pending) continue;
             clearTimeout(pending.timer);
             this.#pending.delete(key);
         }
+        this.#byGroup.delete(group);
     }
 
     #release(key: string): void {
         const pending = this.#pending.get(key);
         if (!pending) return;
         this.#pending.delete(key);
+
+        const group = groupOf(key);
+        const keys = this.#byGroup.get(group);
+        if (keys) {
+            keys.delete(key);
+            if (keys.size === 0) this.#byGroup.delete(group);
+        }
+
         this.#flush(key, pending.payload);
     }
 }
