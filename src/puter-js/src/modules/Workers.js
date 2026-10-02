@@ -262,7 +262,10 @@ export class WorkersHandler extends PuterModule {
      */
     async getLoggingHandle (workerName) {
         const loggingEndpoint = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getLoggingUrl' })(this.puter.authToken, workerName);
-        const socket = new WebSocket(`${loggingEndpoint}/${this.puter.authToken}/${workerName}`);
+        // The token goes in the first message rather than the URL; the
+        // server answers `{ type: 'ready' }` once it has checked it.
+        const socket = new WebSocket(`${loggingEndpoint}/${workerName}`);
+        let authenticated = false;
         const logStreamObject = new EventTarget();
         logStreamObject.onLog = (_data) => {
 
@@ -273,6 +276,7 @@ export class WorkersHandler extends PuterModule {
             enumerable: false,
             value: async (controller) => {
                 socket.addEventListener('message', (event) => {
+                    if ( ! authenticated ) return;
                     controller.enqueue(JSON.parse(event.data));
                 });
                 socket.addEventListener('close', () => {
@@ -291,25 +295,34 @@ export class WorkersHandler extends PuterModule {
             },
         });
 
-        socket.addEventListener('message', (event) => {
-            const logEvent = new MessageEvent('log', { data: JSON.parse(event.data) });
-
-            logStreamObject.dispatchEvent(logEvent);
-            logStreamObject.onLog(logEvent);
-        });
-        logStreamObject.close = socket.close;
+        logStreamObject.close = () => socket.close();
         return new Promise((res, rej) => {
-            let done = false;
+            socket.addEventListener('message', (event) => {
+                const data = JSON.parse(event.data);
+                if ( ! authenticated ) {
+                    if ( data?.type === 'ready' ) {
+                        authenticated = true;
+                        res(logStreamObject);
+                    }
+                    return;
+                }
+                const logEvent = new MessageEvent('log', { data });
+
+                logStreamObject.dispatchEvent(logEvent);
+                logStreamObject.onLog(logEvent);
+            });
+
             socket.onopen = () => {
-                done = true;
-                res(logStreamObject);
+                socket.send(JSON.stringify({ type: 'auth', token: this.puter.authToken }));
             };
 
-            socket.onerror = () => {
-                if ( ! done ) {
+            const fail = () => {
+                if ( ! authenticated ) {
                     rej('Failed to open logging connection');
                 }
             };
+            socket.onerror = fail;
+            socket.onclose = fail;
         });
     }
 

@@ -3,6 +3,10 @@ import APICallLogger from './lib/APICallLogger.js';
 import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import { isFramedDocument } from './lib/appModeGate.js';
+import {
+    isUserSessionTokenPayload,
+    urlWithoutQueryParam,
+} from './lib/launchToken.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
@@ -617,6 +621,12 @@ export class Puter {
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
 
+        // A user session token must never be adopted from storage, and an
+        // earlier boot may have left one behind.
+        if (this.env === 'web' || this.env === 'app') {
+            this.discardStoredSessionToken_();
+        }
+
         // === Start :: Modules === //
 
         // The SDK is running in the Puter GUI (i.e. 'gui')
@@ -628,10 +638,15 @@ export class Puter {
         // Loaded in an iframe in the Puter GUI (i.e. 'app')
         // When SDK is loaded in App mode the initiation process should start when the DOM is ready
         else if (this.env === 'app') {
+            const urlTokenParam = URLParams.has('puter.auth.token')
+                ? 'puter.auth.token'
+                : 'auth_token';
             const bootstrapAuthToken = this.normalizeAuthTokenCandidate(
-                URLParams.get('puter.auth.token') ??
-                    URLParams.get('auth_token'),
+                URLParams.get(urlTokenParam),
             );
+            if (bootstrapAuthToken) {
+                this.stripLaunchTokenFromUrl_(urlTokenParam);
+            }
             try {
                 let selectedAuthToken = bootstrapAuthToken;
                 if (bootstrapAuthToken) {
@@ -971,10 +986,14 @@ export class Puter {
             this.setAppID(tokenAppID);
         }
 
-        // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
+        // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
+        // A user session token (a godmode app's launch token) stays in memory only.
         if (this.env === 'web' || this.env === 'app') {
             try {
-                if (normalizedAuthToken) {
+                if (!normalizedAuthToken) {
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+                } else if (!this.isUserSessionToken_(normalizedAuthToken)) {
                     localStorage.setItem(
                         STORAGE_KEY_V2,
                         normalizedAuthToken,
@@ -985,9 +1004,6 @@ export class Puter {
                         STORAGE_KEY_ORIGIN_V2,
                         this.APIOrigin,
                     );
-                } else {
-                    localStorage.removeItem(STORAGE_KEY_V2);
-                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                 }
                 // Clear the retired key on every write, so a stale value
                 // never outlives the token that replaced it.
@@ -1276,6 +1292,68 @@ export class Puter {
             localStorage.removeItem(STORAGE_KEY_V1);
         } catch (e) {
             // No storage to clean up.
+        }
+    };
+
+    /**
+     * @internal
+     * Whether `token` is a user session token rather than an app token.
+     * Godmode apps are launched with one; it is kept in memory only.
+     *
+     * @param {string | null} token
+     * @returns {boolean}
+     */
+    isUserSessionToken_ = function (token) {
+        return isUserSessionTokenPayload(this.decodeJwtPayload(token));
+    };
+
+    /**
+     * @internal
+     * Delete a user session token persisted by an older SDK build.
+     */
+    discardStoredSessionToken_ = function () {
+        try {
+            if (this.isUserSessionToken_(localStorage.getItem(STORAGE_KEY_V2))) {
+                localStorage.removeItem(STORAGE_KEY_V2);
+                localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+            }
+        } catch (e) {
+            // No storage to clean up.
+        }
+    };
+
+    /**
+     * @internal
+     * Remove the launch token from the address bar after the page loads, so it
+     * stops going out in Referer headers and in anything that records the page
+     * URL. Waiting for `load` keeps it readable to the app's own boot code.
+     *
+     * @param {string} param
+     */
+    stripLaunchTokenFromUrl_ = function (param) {
+        const strip = () => {
+            try {
+                const cleaned = urlWithoutQueryParam(
+                    globalThis.location.href,
+                    param,
+                );
+                if (cleaned) {
+                    globalThis.history.replaceState(
+                        globalThis.history.state,
+                        '',
+                        cleaned,
+                    );
+                }
+            } catch (e) {
+                // No history API, or a document that can't rewrite its URL.
+            }
+        };
+        // One task later, so the app's own `load` listeners still see it.
+        const stripSoon = () => setTimeout(strip, 0);
+        if (globalThis.document?.readyState === 'complete') {
+            stripSoon();
+        } else {
+            globalThis.addEventListener?.('load', stripSoon, { once: true });
         }
     };
 
