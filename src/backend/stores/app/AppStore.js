@@ -51,9 +51,8 @@ const normalizeFiletype = (type) =>
         ? type.trim().toLowerCase().replace(/^\.+/, '')
         : '';
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
-// Old-name redirect window. After this many months an entry in
-// `old_app_names` is considered stale and is deleted on the next read
-// against that name (lazy GC — no background sweep needed).
+// Old-name redirect window. Reads ignore expired entries; the app's next
+// rename prunes them.
 const OLD_APP_NAME_TTL_MONTHS = 3;
 // Cap on placeholders per `IN (?, ?, …)` query. SQLite's default parameter
 // limit is 999; staying well under that keeps `getByIds` portable across
@@ -630,6 +629,11 @@ export class AppStore extends PuterStore {
             `INSERT INTO \`old_app_names\` (\`app_uid\`, \`name\`) VALUES (?, ?) ${upsertClause}`,
             [appUid, oldName],
         );
+        // Reads only filter expired redirects, so this is where they're pruned.
+        await this.clients.db.write(
+            `DELETE FROM \`old_app_names\` WHERE \`app_uid\` = ? AND \`timestamp\` < ${this.#oldNameCutoffClause()}`,
+            [appUid],
+        );
     }
 
     /**
@@ -898,28 +902,24 @@ export class AppStore extends PuterStore {
         return this.#normalizeRow(rows[0]);
     }
 
-    /**
-     * Resolve an app by a previously-used name via `old_app_names`. Lazy-GCs
-     * entries older than {@link OLD_APP_NAME_TTL_MONTHS}: a cutoff DELETE runs
-     * before the JOIN, so an expired redirect is removed and the lookup returns
-     * null on the very same call.
-     */
-    async #resolveByOldName(name) {
-        const cutoffClause = this.clients.db.case({
+    /** `old_app_names` timestamp below which a redirect has expired. */
+    #oldNameCutoffClause() {
+        return this.clients.db.case({
             sqlite: `datetime('now', '-${OLD_APP_NAME_TTL_MONTHS} months')`,
             postgres: `(NOW() - INTERVAL '${OLD_APP_NAME_TTL_MONTHS} months')`,
             otherwise: `(NOW() - INTERVAL ${OLD_APP_NAME_TTL_MONTHS} MONTH)`,
         });
+    }
 
-        await this.clients.db.write(
-            `DELETE FROM \`old_app_names\` WHERE \`name\` = ? AND \`timestamp\` < ${cutoffClause}`,
-            [name],
-        );
-
+    /**
+     * Resolve an app by a previously-used name via `old_app_names`. Read-only:
+     * expired redirects are filtered here and pruned by `#recordOldAppName`.
+     */
+    async #resolveByOldName(name) {
         const rows = await this.clients.db.read(
             `SELECT a.* FROM \`apps\` AS a
              INNER JOIN \`old_app_names\` AS o ON o.\`app_uid\` = a.\`uid\`
-             WHERE o.\`name\` = ?
+             WHERE o.\`name\` = ? AND o.\`timestamp\` >= ${this.#oldNameCutoffClause()}
              ORDER BY o.\`timestamp\` DESC
              LIMIT 1`,
             [name],
