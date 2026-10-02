@@ -165,6 +165,11 @@ export class MistralAIProvider implements IChatProvider {
         });
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `mistral:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -396,7 +401,7 @@ export class MistralAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `mistral:${selectedModel.id}`,
+                    this.meteringModelKey(selectedModel.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

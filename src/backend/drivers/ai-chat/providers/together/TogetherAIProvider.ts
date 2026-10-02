@@ -110,6 +110,11 @@ export class TogetherAIProvider implements IChatProvider {
         return modelLookupNames(await this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `togetherai:${modelId.replace(/^togetherai:/, '')}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -174,7 +179,7 @@ export class TogetherAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `togetherai:${modelIdForParams}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

@@ -79,6 +79,11 @@ export class ZAIProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `zai:${modelId}`;
+    }
+
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
@@ -162,7 +167,7 @@ export class ZAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `zai:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

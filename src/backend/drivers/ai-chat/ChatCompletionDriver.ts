@@ -948,11 +948,21 @@ export class ChatCompletionDriver extends PuterDriver {
         // A prompt estimated past a long-context threshold pays the raised
         // rates on input and output alike.
         const multipliers = longContextMultipliers(model, promptTokenEstimate);
+        // Recorded costs pass through the AI cost factor; the gate prices at
+        // the same rate or it under-reserves on every request.
+        const costFactor = await this.#aiMetering.costFactor(
+            actor,
+            this.#meteringModelKey(model),
+        );
         // `|| 0` also catches NaN from a malformed cost table.
         const inputTokenCost =
-            (Number(model.costs?.[inputKey] ?? 0) || 0) * multipliers.input;
+            (Number(model.costs?.[inputKey] ?? 0) || 0) *
+            multipliers.input *
+            costFactor;
         const outputTokenCost =
-            (Number(model.costs?.[outputKey] ?? 0) || 0) * multipliers.output;
+            (Number(model.costs?.[outputKey] ?? 0) || 0) *
+            multipliers.output *
+            costFactor;
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
         const minimumCredits = Number(model.minimumCredits || 1);
 
@@ -1021,12 +1031,21 @@ export class ChatCompletionDriver extends PuterDriver {
         // What this attempt can cost at worst: the prompt, plus output run to
         // the cap just set. Capped output is what makes the number finite —
         // for a model with no output price the output term is zero and the
-        // prompt estimate stands alone.
+        // prompt estimate stands alone. Already factored, so it's held through
+        // the plain service rather than scaled a second time.
         const worstCaseCost =
             approximateInputCost + (args.max_tokens ?? 0) * outputTokenCost;
         return this.services.metering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
+        );
+    }
+
+    /** The key `model`'s usage is recorded and cost-factored under. */
+    #meteringModelKey(model: IChatModel): string {
+        return (
+            this.#providers[model.provider!]?.meteringModelKey?.(model.id) ??
+            `${model.provider}:${model.id}`
         );
     }
 
@@ -1085,7 +1104,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 [`estimated_${outputKey}`]: outputTokens,
             },
             actor,
-            `${model.provider}:${model.id}`,
+            this.#meteringModelKey(model),
             {
                 // Undefined when the model has no cost table: the entry is
                 // recorded unpriced rather than free.

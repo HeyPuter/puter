@@ -223,6 +223,11 @@ export class InfronProvider implements IChatProvider {
     }
 
     /** AI Chat completion method. See AIChatService for more details. */
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return modelId;
+    }
+
     async complete({
         messages,
         stream,
@@ -311,7 +316,7 @@ export class InfronProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     billedTrackedUsage,
                     actor,
-                    modelUsed.id,
+                    this.meteringModelKey(modelUsed.id),
                     costOverwrites,
                 );
                 (billedTrackedUsage as Record<string, number>).usd_cents =
@@ -331,7 +336,7 @@ export class InfronProvider implements IChatProvider {
             this.#meteringService.utilRecordUsageObject(
                 trackedUsage,
                 actor,
-                modelUsed.id,
+                this.meteringModelKey(modelUsed.id),
                 costOverwrites,
             );
             return trackedUsage;

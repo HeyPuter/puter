@@ -56,6 +56,11 @@ export class XAIProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `xai:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -105,7 +110,7 @@ export class XAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `xai:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return metered;

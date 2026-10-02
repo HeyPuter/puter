@@ -93,6 +93,11 @@ export class OpenRouterProvider implements IChatProvider {
     }
 
     /** AI Chat completion method. See AIChatService for more details. */
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return modelId;
+    }
+
     async complete({
         messages,
         stream,
@@ -194,7 +199,7 @@ export class OpenRouterProvider implements IChatProvider {
                     this.#meteringService.utilRecordUsageObject(
                         trackedUsage,
                         actor,
-                        modelUsed.id,
+                        this.meteringModelKey(modelUsed.id),
                         costOverwrites,
                     );
                     (trackedUsage as Record<string, number>).usd_cents =
@@ -221,7 +226,7 @@ export class OpenRouterProvider implements IChatProvider {
                     this.#meteringService.utilRecordUsageObject(
                         trackedUsage,
                         actor,
-                        modelUsed.id,
+                        this.meteringModelKey(modelUsed.id),
                         costOverwrites,
                     );
                     return trackedUsage;
