@@ -145,6 +145,10 @@ function signOut () {
 document.addEventListener('keydown', event => {
     if ( event.key === 'Escape' ) closePanel();
 });
+// The expanded frame covers part of the host page; a press on its empty area is an outside press.
+$root.on('pointerdown', event => {
+    if ( panel && ! event.target.closest('.toolbar-panel, button, a') ) closePanel();
+});
 
 async function mount () {
     if ( !sessionToken ) throw new Error('Missing session');

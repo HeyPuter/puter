@@ -283,6 +283,17 @@ describe('embedded toolbar', () => {
         } finally { await context.close(); }
     });
 
+    it('closes when the empty part of the expanded frame is pressed', async () => {
+        const { context, page, toolbar } = await openToolbar();
+        try {
+            await toolbar.getByRole('button', { name: 'Your apps', exact: true }).click();
+            await expect.poll(async () => (await page.locator('iframe[data-puter-toolbar]').boundingBox()).width).toBeGreaterThan(300);
+            const frame = await page.locator('iframe[data-puter-toolbar]').boundingBox();
+            await page.mouse.click(frame.x + 10, frame.y + 10);
+            await toolbar.locator('.toolbar-panel').waitFor({ state: 'detached' });
+        } finally { await context.close(); }
+    });
+
     it('labels controls with translated text encoded once', async () => {
         const { context, toolbar } = await openToolbar(undefined, sessionToken, [{ name: 'user_preferences', value: '{"language":"de"}' }]);
         try {
