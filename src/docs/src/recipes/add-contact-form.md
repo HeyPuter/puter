@@ -80,16 +80,20 @@ const form = document.getElementById('contact-form');
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const res = await fetch(`${WORKER_URL}/contact`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.fromEntries(new FormData(form))),
-    });
+    try {
+        const res = await fetch(`${WORKER_URL}/contact`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.fromEntries(new FormData(form))),
+        });
 
-    if (res.ok) {
-        form.reset();
-        alert('Thanks, your message was sent.');
-    } else {
+        if (res.ok) {
+            form.reset();
+            alert('Thanks, your message was sent.');
+        } else {
+            alert('Something went wrong. Please try again.');
+        }
+    } catch {
         alert('Something went wrong. Please try again.');
     }
 });
