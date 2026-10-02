@@ -21,10 +21,10 @@ import bcrypt from 'bcrypt';
 import validator from 'validator';
 import { v4 as uuidv4 } from 'uuid';
 import {
-    RESERVED_USERNAMES,
     USERNAME_MAX_LENGTH,
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
+import { isReservedUsername } from '../../util/reservedUsernames.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
 import { subscriptionSatisfies } from '../metering/enforcement.js';
 import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
@@ -843,7 +843,7 @@ export class TeamService extends PuterService {
         return (
             !USERNAME_REGEX.test(username) ||
             username.length > USERNAME_MAX_LENGTH ||
-            RESERVED_USERNAMES.has(username.toLowerCase())
+            isReservedUsername(username)
         );
     }
 

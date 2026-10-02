@@ -76,6 +76,7 @@ import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
+import { isReservedUsername } from '../../util/reservedUsernames.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
@@ -220,29 +221,6 @@ const SESSION_LIMIT = {
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-export const RESERVED_USERNAMES = new Set([
-    'admin',
-    'administrator',
-    'root',
-    'system',
-    'puter',
-    'www',
-    'api',
-    'support',
-    'help',
-    'info',
-    'contact',
-    'mail',
-    'email',
-    'null',
-    'undefined',
-    'test',
-    'guest',
-    'anonymous',
-    'user',
-    'users',
-]);
 
 /**
  * Auth controller — login/logout, permission grants/revokes, session
@@ -785,7 +763,7 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
-        if (RESERVED_USERNAMES.has(body.username.toLowerCase())) {
+        if (isReservedUsername(body.username)) {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
@@ -2720,7 +2698,7 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
-        if (RESERVED_USERNAMES.has(new_username.toLowerCase())) {
+        if (isReservedUsername(new_username)) {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
@@ -3036,7 +3014,7 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
-        if (RESERVED_USERNAMES.has(username.toLowerCase())) {
+        if (isReservedUsername(username)) {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
