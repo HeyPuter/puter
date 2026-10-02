@@ -109,8 +109,8 @@
  */
 
 /**
- * The three access classes. `delete` is orthogonal to `write`: neither implies
- * the other, so an app that only adds data cannot remove any.
+ * The three access classes. Each implies the ones before it (`delete` >
+ * `write` > `read`), so an app that only adds data cannot remove any.
  *
  * @typedef {'read' | 'write' | 'delete'} AppDataClass
  */
