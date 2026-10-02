@@ -74,6 +74,16 @@ export function isMissingObjectError(err: unknown): boolean {
 }
 
 /**
+ * True when the store rejected an upload because the body ended before the
+ * length it was sent with.
+ */
+export function isIncompleteBodyError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return e.name === 'IncompleteBody' || e.Code === 'IncompleteBody';
+}
+
+/**
  * Store that owns S3 object I/O for fsentries: signed-URL minting, multipart
  * lifecycle, server-driven uploads, and object reads/copies/deletes. Wraps the
  * regional `S3Client` pool exposed by `clients.s3`.

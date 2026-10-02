@@ -72,6 +72,7 @@ import {
     FS_SEARCH_CONCURRENT,
     FS_SEARCH_LIMIT,
     FS_SIGN_LIMIT,
+    FS_SIGN_MAX_ITEMS,
     FS_SIGNED_CONCURRENT,
     FS_SIGNED_READ_LIMIT,
     FS_SIGNED_WRITE_LIMIT,
@@ -1351,6 +1352,12 @@ export class LegacyFSController extends PuterController {
             throw new HttpError(400, '`items` is required', {
                 legacyCode: 'bad_request',
             });
+        if (items.length > FS_SIGN_MAX_ITEMS)
+            throw new HttpError(
+                400,
+                `Too many items in one request (max ${FS_SIGN_MAX_ITEMS})`,
+                { legacyCode: 'bad_request' },
+            );
 
         const actingApp = actor.effectiveApp;
         const signingCfg = signingConfigFromAppConfig(this.config);
