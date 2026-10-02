@@ -22,6 +22,7 @@ import {
     isCardVerificationEnabled,
     type CardFallbackDeps,
 } from '../../../util/cardFallback';
+import { reserveUsernames } from '../../../util/reservedUsernames';
 import { isAppActor, isPlainUserActor, type Actor } from '../../actor';
 import { HttpError } from '../HttpError';
 import type { AccountGateUser, VerificationFactor } from '../types';
@@ -218,6 +219,8 @@ export const adminOnlyGate = (
     const allowList = new Set<string>(
         [...DEFAULT_ADMIN_USERNAMES, ...extras].map((u) => u.toLowerCase()),
     );
+    // Admin follows the name, so a name that grants it must never be claimable.
+    reserveUsernames(allowList);
     return (req, _res, next) => {
         const username = req.actor?.user.username;
         if (!username || !allowList.has(username.toLowerCase())) {

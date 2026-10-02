@@ -36,7 +36,10 @@ import type { EventClient } from '../../clients/event/EventClient.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { requireUserActorGate } from '../../core/http/middleware/gates.js';
+import {
+    adminOnlyGate,
+    requireUserActorGate,
+} from '../../core/http/middleware/gates.js';
 import {
     ROUTES_METADATA_KEY,
     type CollectedRoute,
@@ -393,7 +396,8 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
 
         const rejected = results.find((r) => r.status === 'rejected') as
-            PromiseRejectedResult | undefined;
+            | PromiseRejectedResult
+            | undefined;
         expect(rejected?.reason).toMatchObject({ statusCode: 400 });
     });
 
@@ -676,6 +680,29 @@ describe('AuthController.handleSignup', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects role mailboxes and names an admin gate matches on', async () => {
+        const adminName = `a_${uniq()}`;
+        adminOnlyGate([adminName]);
+        for (const username of ['postmaster', 'Webmaster', adminName]) {
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'username_already_in_use',
+            });
+            expect(
+                await server.stores.user.getByUsername(username),
+            ).toBeFalsy();
+        }
     });
 
     it('rejects a confirmed-email duplicate with 400', async () => {
@@ -5860,6 +5887,15 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         await expect(
             controller.handleChangeUsername(
                 makeReq({ new_username: 'admin' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        // A name an admin gate matches on, freed by its holder, stays unclaimable.
+        const adminName = `a_${uniq()}`;
+        adminOnlyGate([adminName]);
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: adminName }, { actor }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
