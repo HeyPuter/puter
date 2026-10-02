@@ -28,10 +28,7 @@ await puter.kv.update('todos', {
 });
 ```
 
-The id becomes the key you reference later to update or delete that item. Any
-unique string works, and
-[`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)
-is a safe default.
+The id becomes the key you reference later to update or delete that item. Because it is used as a KV path, use a path-safe unique string; [`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID) is a safe default.
 
 ## Show the List
 
