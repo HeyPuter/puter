@@ -2439,8 +2439,7 @@ export class EventsService extends PuterService {
         permission: string,
     ): Promise<void> {
         // Consequential enough to require the app's own session, whatever a
-        // token it minted happens to carry — the same posture already taken
-        // for an access token wanting a socket of its own (SocketService).
+        // token it minted happens to carry.
         if (isAccessTokenActor(actor)) throw handleAccessTokenForbidden();
         // The consent surface refuses a namespace-root delegation because no
         // prompt can describe it; refused here too, so a row written any other
