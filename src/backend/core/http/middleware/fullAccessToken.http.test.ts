@@ -100,6 +100,7 @@ describe('full-access token route admissions', () => {
         ['POST', '/auth/revoke-all-sessions'],
         ['POST', '/auth/get-user-app-token', { origin: 'https://probe.test' }],
         ['POST', '/auth/grant-user-app', { app_uid: 'app-x', permission: 'p' }],
+        ['POST', '/open_item', { path: '~/' }],
     ];
 
     it.each(REFUSED)(

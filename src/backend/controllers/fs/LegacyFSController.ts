@@ -283,8 +283,8 @@ export class LegacyFSController extends PuterController {
                 // Opening an item grants an app access to a file on the user's
                 // behalf, so only the user's own credential may drive it — an
                 // app calling it for itself would be widening its own ACL.
+                // Session-only: the user-app token it returns is a session mint.
                 requireUserActor: true,
-                allowFullAccessToken: true,
                 rateLimit: FS_HELPER_LIMIT,
             },
             this.openItem,
@@ -1854,7 +1854,8 @@ export class LegacyFSController extends PuterController {
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        if (actor.effectiveApp) {
+        // Refused before the grant, so a token never leaves an orphaned ACL row.
+        if (actor.effectiveApp || actor.accessToken) {
             throw new HttpError(
                 403,
                 'This endpoint is only available to user sessions',
