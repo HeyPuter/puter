@@ -119,8 +119,22 @@ minutes. Change `COOLDOWN_SECONDS` to fit your app:
 const CONTACT_TO = 'you@example.com';
 const COOLDOWN_SECONDS = 3 * 60;
 
+function toPrefix48(addr) {
+  if (!addr.includes(':')) return addr; // IPv4: leave unchanged
+
+  const [head, tail = ''] = addr.split('%')[0].split('::'); // drop zone ID
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const full = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+
+  const parts = full.slice(0, 3).map(h => parseInt(h || '0', 16).toString(16));
+  while (parts.length && parts[parts.length - 1] === '0') parts.pop();
+
+  return `${parts.join(':')}::/48`;
+}
+
 async function isRateLimited (request) {
-    const key = `contact:${request.headers.get('x-real-ip')}`;
+    const key = `contact:${toPrefix48(request.headers.get('x-real-ip'))}`;
 
     if ( await me.puter.kv.get(key) ) {
         return true;
@@ -153,7 +167,9 @@ router.post('/contact', async ({ request }) => {
 ```
 
 The `x-real-ip` header carries the visitor's IP address, and it cannot be faked to get around
-the limit. The [`puter.kv.set()`](/KV/set/) method takes the expiry as a Unix
+the limit. The `toPrefix48()` helper handles both IPv4 and IPv6. An IPv4 address is used
+as is. One IPv6 connection usually comes with a whole block of addresses, so an
+IPv6 address is rate limited by its /48 prefix instead of the single address. The [`puter.kv.set()`](/KV/set/) method takes the expiry as a Unix
 timestamp in seconds, and once it passes, the key is removed and the visitor
 can send again.
 
