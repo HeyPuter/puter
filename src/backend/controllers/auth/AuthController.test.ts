@@ -6043,6 +6043,48 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         expect(after!.username).toBe(mover.username);
     });
 
+    it('change-username: a name just vacated stays closed to other accounts, not to its last holder', async () => {
+        const { user: leaver, actor: leaverActor } = await makeUserAndActor();
+        const vacated = leaver.username;
+        // Warm the entry cache under the old path, as any read would.
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${vacated}/Documents`,
+        ))!;
+        await controller.handleChangeUsername(
+            makeReq({ new_username: `r_${uniq()}` }, { actor: leaverActor }),
+            makeRes(),
+        );
+
+        // The cache still maps the old path to the leaver's folder, so a new
+        // holder of the name would pass ACL on it.
+        const cached = await server.stores.fsEntry.getEntryByPath(
+            `/${vacated}/Documents`,
+        );
+        expect(cached?.uuid).toBe(docs.uuid);
+
+        const { user: claimer, actor: claimerActor } = await makeUserAndActor();
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: vacated }, { actor: claimerActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'username_already_in_use',
+        });
+        const after = await server.stores.user.getById(claimer.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(claimer.username);
+
+        const res = makeRes();
+        await controller.handleChangeUsername(
+            makeReq({ new_username: vacated }, { actor: leaverActor }),
+            res,
+        );
+        expect(res.body).toEqual({ username: vacated });
+    });
+
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
