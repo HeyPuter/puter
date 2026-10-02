@@ -27,6 +27,7 @@ import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
     DETAIL_PATH_COUNTER,
+    FREE_SUBSCRIPTION_IDS,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
     METRICS_V2_PREFIX,
@@ -2111,13 +2112,74 @@ export class MeteringService extends PuterService {
             availablePolicies.find((p) => p.id === resolvedUser) ??
             availablePolicies.find((p) => p.id === resolvedDefault) ??
             availablePolicies.find((p) => p.id === fallbackDefault);
-        if (policy) return policy;
+        if (policy) return this.#withMonthAllowance(actor.user.uuid!, policy);
         console.warn(
             `[metering] no registered policy for '${resolvedUser}' or` +
                 ` '${resolvedDefault}' — falling back to` +
                 ` '${REGISTERED_USER_FREE.id}'`,
         );
         return REGISTERED_USER_FREE as SubscriptionPolicy;
+    }
+
+    /**
+     * `policy` with the month's allowance override applied, if one is set for
+     * it (see `setMonthAllowance`). Free and unmetered policies never carry
+     * one, so they skip the read.
+     */
+    async #withMonthAllowance(
+        userUuid: string,
+        policy: SubscriptionPolicy,
+        month: string = this.monthYearString(),
+    ): Promise<SubscriptionPolicy> {
+        if (
+            FREE_SUBSCRIPTION_IDS.has(policy.id) ||
+            policy.id === UNLIMITED_SUBSCRIPTION ||
+            !(policy.monthUsageAllowance > 0)
+        ) {
+            return policy;
+        }
+        try {
+            const allowance = await this.#readMonthAllowance(
+                userUuid,
+                policy.id,
+                month,
+            );
+            return allowance === null
+                ? policy
+                : ({
+                      ...policy,
+                      monthUsageAllowance: allowance,
+                  } as SubscriptionPolicy);
+        } catch (e) {
+            // The policy's own allowance is what applied before any override.
+            console.warn(
+                `[metering] month allowance read failed for ${userUuid}: ${(e as Error).message}`,
+            );
+            return policy;
+        }
+    }
+
+    #monthAllowanceKey(
+        userUuid: string,
+        policyId: string,
+        month: string,
+    ): string {
+        return `${POLICY_PREFIX}:actor:${userUuid}:allowance:${policyId}:${month}`;
+    }
+
+    async #readMonthAllowance(
+        userUuid: string,
+        policyId: string,
+        month: string,
+    ): Promise<number | null> {
+        const { res } = await this.stores.kv.get({
+            key: this.#monthAllowanceKey(userUuid, policyId, month),
+        });
+        // Non-positive reads as unmetered everywhere downstream, so it is
+        // never applied.
+        return typeof res === 'number' && Number.isFinite(res) && res > 0
+            ? res
+            : null;
     }
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {
@@ -2206,6 +2268,61 @@ export class MeteringService extends PuterService {
         // Credit that lands while the account is being turned away has to take
         // effect on the next request, not at the end of the cache window.
         this.invalidateActorCredits(userId);
+    }
+
+    /**
+     * Replace one actor's allowance for a month (`YYYY-MM` UTC, the current one
+     * by default) while they resolve to `policyId`, until `until` (epoch
+     * seconds) if given. It never applies on any other policy, so leaving the
+     * plan drops it. For a change that should count for only part of a month,
+     * such as a plan change billed for part of a period.
+     */
+    async setMonthAllowance(
+        userUuid: string,
+        policyId: string,
+        allowance: number,
+        opts: { month?: string; until?: number } = {},
+    ): Promise<void> {
+        if (!userUuid || !policyId) {
+            throw new Error('User and policy needed to set a month allowance');
+        }
+        const value = Math.round(allowance);
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error('Month allowance must be a positive number');
+        }
+        const month = opts.month ?? this.monthYearString();
+        const parsed = /^(\d{4})-(\d{2})$/.exec(month);
+        if (!parsed) throw new Error('Month must be YYYY-MM');
+        // Nothing reads a month's key once the month is over.
+        const monthOver =
+            Date.UTC(Number(parsed[1]), Number(parsed[2]), 1) / 1000;
+        const until = opts.until;
+        if (until !== undefined && !(Number.isFinite(until) && until > 0)) {
+            throw new Error('`until` must be a timestamp in seconds');
+        }
+        await this.stores.kv.set({
+            key: this.#monthAllowanceKey(userUuid, policyId, month),
+            value,
+            expireAt: Math.min(until ?? monthOver, monthOver),
+        });
+        // Every node drops its cached policy, and the budget answer with it.
+        this.invalidateActorSubscription(userUuid);
+    }
+
+    /**
+     * A month's allowance for `policyId` (`YYYY-MM` UTC, the current one by
+     * default): the override `setMonthAllowance` left, else the policy's own.
+     * Null for a policy nobody registered.
+     */
+    async getMonthAllowance(
+        userUuid: string,
+        policyId: string,
+        month?: string,
+    ): Promise<number | null> {
+        const policy = this.getRegisteredPolicy(policyId);
+        if (!policy) return null;
+        return (await this.#withMonthAllowance(userUuid, policy, month))
+            .monthUsageAllowance;
     }
 
     // -- Internals ----------------------------------------------------
