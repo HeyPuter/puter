@@ -202,8 +202,8 @@ describe('embedded app browser', () => {
 
 
 describe('embedded toolbar', () => {
-    async function openToolbar (viewport = { width: 1100, height: 720 }, token = sessionToken, storage = []) {
-        const context = await browser.newContext({ viewport, storageState: {
+    async function openToolbar (viewport = { width: 1100, height: 720 }, token = sessionToken, storage = [], contextOptions = {}) {
+        const context = await browser.newContext({ viewport, ...contextOptions, storageState: {
             cookies: [], origins: [{ origin, localStorage: [
                 ...storage,
                 { name: 'auth_token_v2', value: token },
@@ -300,6 +300,15 @@ describe('embedded toolbar', () => {
             await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
             await toolbar.getByText('first@example.test').waitFor();
             expect(await toolbar.locator('[data-account="0"] small').count()).toBe(0);
+        } finally { await context.close(); }
+    });
+
+    it('keeps the sign-out confirmation readable in dark mode', async () => {
+        const { context, toolbar } = await openToolbar(undefined, sessionToken, [], { colorScheme: 'dark' });
+        try {
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
+            await toolbar.locator('.toolbar-logout').click();
+            expect(await toolbar.locator('.toolbar-confirm-logout').evaluate(el => getComputedStyle(el).color)).toBe('rgb(248, 113, 113)');
         } finally { await context.close(); }
     });
 

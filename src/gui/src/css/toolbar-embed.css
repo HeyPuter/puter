@@ -35,4 +35,4 @@ html, body {
 #puter-toolbar [hidden] { display: none; }
 .toolbar-confirm { border-top: 1px solid var(--dashboard-border); }
 .toolbar-confirm p { margin: 12px 16px; font-size: 14px; line-height: 1.5; }
-.toolbar-confirm-logout { color: #c03535; }
+.toolbar-confirm-logout { color: var(--dashboard-danger-text); }
