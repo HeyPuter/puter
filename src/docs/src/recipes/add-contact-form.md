@@ -91,7 +91,7 @@ form.addEventListener('submit', async (e) => {
             form.reset();
             alert('Thanks, your message was sent.');
         } else {
-            alert('Something went wrong. Please try again.');
+            alert(await res.text());
         }
     } catch {
         alert('Something went wrong. Please try again.');
