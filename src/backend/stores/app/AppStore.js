@@ -59,6 +59,8 @@ const OLD_APP_NAME_TTL_MONTHS = 3;
 // limit is 999; staying well under that keeps `getByIds` portable across
 // backends without splitting the cap by driver.
 const BULK_QUERY_CHUNK_SIZE = 200;
+// Placeholders per index_url `IN (…)` chunk; under SQLite's old 999 default.
+const INDEX_URL_CHUNK_SIZE = 900;
 
 // Top-level all-time open/user counts: hot path, slow to compute. Cached
 // lazily on read (pipelined MGET on every app list/read; misses query the
@@ -300,15 +302,105 @@ export class AppStore extends PuterStore {
     /**
      * Every app whose `index_url` matches one of `candidates`, with the owner
      * and the app that built it. Used by the subdomain driver to decide who may
-     * re-create a hosted name that apps still point at.
+     * re-create a hosted name that apps still point at, and to derive a
+     * subdomain row's associated app.
      */
     async listByIndexUrlCandidates(candidates) {
-        if (!Array.isArray(candidates) || candidates.length === 0) return [];
-        const placeholders = candidates.map(() => '?').join(', ');
-        return this.clients.db.read(
-            `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`app_owner\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders})`,
-            [...candidates],
+        const uniqueCandidates = [
+            ...new Set(
+                (Array.isArray(candidates) ? candidates : []).filter(
+                    (c) => typeof c === 'string' && c.length > 0,
+                ),
+            ),
+        ];
+        if (uniqueCandidates.length === 0) return [];
+
+        const rowsById = new Map();
+        for (
+            let offset = 0;
+            offset < uniqueCandidates.length;
+            offset += INDEX_URL_CHUNK_SIZE
+        ) {
+            const chunk = uniqueCandidates.slice(
+                offset,
+                offset + INDEX_URL_CHUNK_SIZE,
+            );
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = await this.clients.db.read(
+                `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`app_owner\`, \`index_url\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders})`,
+                chunk,
+            );
+            for (const row of rows) rowsById.set(row.id, row);
+        }
+        return [...rowsById.values()];
+    }
+
+    /**
+     * Canonical app uid among rows matching `candidates`: private first, then
+     * oldest.
+     */
+    async findCanonicalUidByIndexUrlCandidates(candidates) {
+        const uniqueCandidates = [
+            ...new Set(
+                (Array.isArray(candidates) ? candidates : []).filter(
+                    (c) => typeof c === 'string' && c.length > 0,
+                ),
+            ),
+        ];
+        if (uniqueCandidates.length === 0) return null;
+
+        const placeholders = uniqueCandidates.map(() => '?').join(', ');
+        const rows = await this.clients.db.read(
+            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ` +
+                `ORDER BY CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\` ASC LIMIT 1`,
+            uniqueCandidates,
         );
+        const uid = rows[0]?.uid;
+        return typeof uid === 'string' && uid ? uid : null;
+    }
+
+    /**
+     * One row per distinct `index_url` in `candidates` with its lowest private
+     * id (`private_id`, null if none) and lowest id (`min_id`). An external
+     * index_url can be shared by thousands of apps, so batch callers pick
+     * canonical winners from these instead of every matching row.
+     */
+    async listIndexUrlWinners(candidates) {
+        const uniqueCandidates = [
+            ...new Set(
+                (Array.isArray(candidates) ? candidates : []).filter(
+                    (c) => typeof c === 'string' && c.length > 0,
+                ),
+            ),
+        ];
+        if (uniqueCandidates.length === 0) return [];
+
+        const winnersByIndexUrl = new Map();
+        for (
+            let offset = 0;
+            offset < uniqueCandidates.length;
+            offset += INDEX_URL_CHUNK_SIZE
+        ) {
+            const chunk = uniqueCandidates.slice(
+                offset,
+                offset + INDEX_URL_CHUNK_SIZE,
+            );
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = await this.clients.db.read(
+                `SELECT \`index_url\`, ` +
+                    `MIN(CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN \`id\` END) AS private_id, ` +
+                    `MIN(\`id\`) AS min_id ` +
+                    `FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) GROUP BY \`index_url\``,
+                chunk,
+            );
+            // Deduped candidates land in one chunk each, so groups never span chunks.
+            for (const row of rows) {
+                if (typeof row.index_url === 'string') {
+                    winnersByIndexUrl.set(row.index_url, row);
+                }
+            }
+        }
+        return [...winnersByIndexUrl.values()];
     }
 
     /**
