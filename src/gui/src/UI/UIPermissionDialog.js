@@ -710,13 +710,13 @@ async function get_permission_description (permission, options = {}) {
  * explicitly: a scope that can remove another app's entries must not read as
  * "change".
  */
-// `write` satisfies a read check via the exploder, so its wording names
-// reading too — "change" alone would understate the grant.
+// Classes imply the ones below them (delete > write > read), so their wording
+// names those too: "change" or "delete" alone would understate the grant.
 const APP_DATA_VERBS = {
     read: 'read', get: 'read', list: 'read',
     write: 'change', set: 'change', add: 'change',
     incr: 'change', decr: 'change', update: 'change',
-    delete: 'delete', del: 'delete', remove: 'delete',
+    delete: 'store_all', del: 'delete', remove: 'delete',
     expire: 'delete', expireAt: 'delete',
 };
 

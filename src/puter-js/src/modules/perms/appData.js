@@ -170,7 +170,7 @@ export async function appDataRequest (puter, appIdentifier, scopes) {
 /**
  * Ask the user to let this app use another app's KV namespace and AppData
  * directory. Scopes take a shorthand for both stores, `store:name` pairs, or a
- * per-store object. `delete` is separate from `write` and must be asked for.
+ * per-store object. `delete` includes `write` and `read`, and must be asked for.
  *
  *     await puter.perms.request('appData', { app: 'contacts', scopes: 'read' });
  *
