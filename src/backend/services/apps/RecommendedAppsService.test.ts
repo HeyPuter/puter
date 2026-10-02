@@ -20,7 +20,7 @@ describe('RecommendedAppsService', () => {
             free_storage: 1024,
             requires_email_confirmation: false,
         });
-        for (const name of ['editor', 'camera', 'custom-recommendation']) {
+        for (const name of ['builder', 'contacts', 'custom-recommendation']) {
             if (!(await server.stores.app.getByName(name))) {
                 await server.stores.app.create(
                     {
@@ -52,8 +52,10 @@ describe('RecommendedAppsService', () => {
         const apps = await server.services.recommendedApps.getRecommendedApps();
         expect(apps).toEqual(defaults);
         const names = apps.map((app) => app.name);
-        expect(names).toContain('editor');
-        expect(names.indexOf('editor')).toBeLessThan(names.indexOf('camera'));
+        expect(names).toContain('builder');
+        expect(names.indexOf('builder')).toBeLessThan(
+            names.indexOf('contacts'),
+        );
         expect(names).not.toContain(customApp.name);
     });
 
@@ -61,18 +63,18 @@ describe('RecommendedAppsService', () => {
         extension.on('app.recommended', async (_key, data) => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             data.appNames = [
-                'camera',
+                'contacts',
                 'custom-recommendation',
                 'missing-recommendation',
-                'editor',
+                'builder',
             ];
         });
 
         const apps = await server.services.recommendedApps.getRecommendedApps();
         expect(apps.map((app) => app.name)).toEqual([
-            'camera',
+            'contacts',
             'custom-recommendation',
-            'editor',
+            'builder',
         ]);
         expect(apps[1]).toMatchObject({
             uuid: customApp.uid,
