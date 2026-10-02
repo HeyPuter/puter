@@ -20,9 +20,12 @@
 import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
@@ -71,8 +74,12 @@ export class VoiceChangerDriver extends PuterDriver {
     readonly concurrent = AI_CONCURRENT;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override getReportedCosts(): Record<string, unknown>[] {

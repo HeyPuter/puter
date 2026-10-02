@@ -28,8 +28,11 @@ import { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
 import { OCR_COSTS } from './costs.js';
@@ -173,8 +176,12 @@ export class OCRDriver extends PuterDriver {
     readonly concurrent = AI_CONCURRENT;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override getReportedCosts() {

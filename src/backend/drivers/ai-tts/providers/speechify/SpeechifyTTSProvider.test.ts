@@ -41,6 +41,7 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
@@ -62,8 +63,12 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as `TTSDriver` hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(server.services.metering, server.clients.event, 'ai-tts');
+
 const makeProvider = () =>
-    new SpeechifyTTSProvider(server.services.metering, { apiKey: 'test-key' });
+    new SpeechifyTTSProvider(aiMetering(), { apiKey: 'test-key' });
 
 const audioResponse = (audioData = Buffer.from('audio-bytes').toString('base64'), audioFormat = 'mp3') =>
     new Response(JSON.stringify({ audio_data: audioData, audio_format: audioFormat }), {
@@ -87,7 +92,7 @@ describe('SpeechifyTTSProvider construction', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
-                new SpeechifyTTSProvider(server.services.metering, {
+                new SpeechifyTTSProvider(aiMetering(), {
                     apiKey: '',
                 }),
         ).toThrow(/API key/i);

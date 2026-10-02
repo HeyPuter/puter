@@ -26,9 +26,12 @@ import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { FREE_SUBSCRIPTION_IDS } from '../../services/metering/consts.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,
@@ -326,8 +329,12 @@ export class ChatCompletionDriver extends PuterDriver {
     #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override onServerStart() {

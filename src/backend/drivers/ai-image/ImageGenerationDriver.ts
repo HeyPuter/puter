@@ -25,9 +25,12 @@ import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
@@ -82,8 +85,12 @@ export class ImageGenerationDriver extends PuterDriver {
     >();
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override async onServerStart() {

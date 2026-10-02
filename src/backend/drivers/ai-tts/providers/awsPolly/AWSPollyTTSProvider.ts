@@ -27,7 +27,7 @@ import {
 } from '@aws-sdk/client-polly';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
@@ -63,7 +63,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
         null;
 
     constructor(
-        meteringService: MeteringService,
+        meteringService: AiMeteringService,
         config: {
             access_key: string;
             secret_key: string;

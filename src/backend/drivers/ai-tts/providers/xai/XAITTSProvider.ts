@@ -20,7 +20,7 @@
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
@@ -56,7 +56,10 @@ export class XAITTSProvider extends TTSProvider {
 
     #apiKey: string;
 
-    constructor(meteringService: MeteringService, config: { apiKey: string }) {
+    constructor(
+        meteringService: AiMeteringService,
+        config: { apiKey: string },
+    ) {
         super(meteringService, config);
         if (!config.apiKey) {
             throw new Error('xAI TTS requires an API key');
