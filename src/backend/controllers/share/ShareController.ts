@@ -322,6 +322,8 @@ export class ShareController extends PuterController {
     @Get('/shared-by-me/apps', {
         subdomain: 'api',
         requireUserActor: true,
+        // `shared-by-me` already answers one, and this is its index.
+        allowFullAccessToken: true,
         requireVerified: true,
         rateLimit: SHARE_LIST_LIMIT,
     })
@@ -405,6 +407,7 @@ export class ShareController extends PuterController {
     @Get('/audit', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         requireVerified: true,
         rateLimit: SHARE_LIST_LIMIT,
     })
@@ -439,7 +442,8 @@ export class ShareController extends PuterController {
     }
 
     // -- Blocking -----------------------------------------------------
-    // User sessions only: a block list is a safety control, not an app's to touch.
+    // User sessions only, access tokens included: a block list is a safety
+    // control, not an app's to touch.
 
     /**
      * GET /share/blocks — who the caller is refusing shares from, and whether

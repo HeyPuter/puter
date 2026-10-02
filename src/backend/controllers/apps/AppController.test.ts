@@ -948,6 +948,68 @@ describe('AppController POST /rao actor gating', () => {
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
     });
 
+    it('records an open for a full-access token — the account itself', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        const patActor = makeActor({
+            user: owner.actor.user,
+            accessToken: {
+                uid: uuidv4(),
+                issuer: owner.actor,
+                authorized: null,
+                fullAccess: true,
+            },
+        });
+
+        const { res, captured } = makeRes();
+        await withActor(patActor, () =>
+            callRoute(
+                'post',
+                '/rao',
+                makeReq({ body: { app_uid: app.uid }, actor: patActor }),
+                res,
+            ),
+        );
+        expect(captured.body).toEqual({});
+
+        await server.controllers.apps.drainPendingAppOpens();
+        const rows = (await server.clients.db.read(
+            'SELECT `app_uid` FROM `app_opens` WHERE `app_uid` = ? AND `user_id` = ?',
+            [app.uid, owner.userId],
+        )) as unknown[];
+        expect(rows).toHaveLength(1);
+    });
+
+    it('refuses a full-access claim on an app-issued token', async () => {
+        const { actor } = await makeUser();
+        const app = await createApp(actor);
+        const issuer = makeActor({ ...actor, app: { uid: app.uid as string } });
+        const tokenActor = makeActor({
+            user: actor.user,
+            accessToken: {
+                uid: uuidv4(),
+                issuer,
+                authorized: null,
+                fullAccess: true,
+            },
+        });
+
+        const { res } = makeRes();
+        await expect(
+            withActor(tokenActor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({
+                        body: { app_uid: app.uid },
+                        actor: tokenActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+
     it("refuses to let an app actor record another app's open", async () => {
         const { actor } = await makeUser();
         const own = await createApp(actor);

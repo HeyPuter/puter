@@ -3978,9 +3978,11 @@ export class AuthController extends PuterController {
 
     // -- Permission listing ------------------------------------------
 
+    // A read of what was granted, not a grant; the mutations stay session-only.
     @Get('/auth/list-permissions', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleListPermissions(req: Request, res: Response): Promise<void> {
@@ -4524,6 +4526,7 @@ export class AuthController extends PuterController {
     @Get('/get-dev-profile', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {

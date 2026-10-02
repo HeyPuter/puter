@@ -21,7 +21,11 @@ import { createAdapter } from '@socket.io/redis-streams-adapter';
 import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
-import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
+import {
+    isAccessTokenActor,
+    isAccountContext,
+    isAppActor,
+} from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     assertNotSuspended,
@@ -81,9 +85,10 @@ export interface SocketAuthOptions {
  * 1. `reauth` → structured `reauth_required` error so the client can drive the
  *    same migration / re-login flow it does for HTTP.
  * 2. Missing actor → generic `socket auth failed`.
- * 3. Access-token actor → rejected, always. App-under-user actor → rejected unless
- *    `allowAppActors`, since a subscription feed is the only thing an app
- *    connection is for.
+ * 3. Scoped access-token actor → rejected; a full-access one is the account's own
+ *    reach and is admitted like a session. App-under-user actor → rejected
+ *    unless `allowAppActors`, since a subscription feed is the only thing an
+ *    app connection is for.
  * 4. Suspended, or pending a verification → rejected. A socket carries the same
  *    filesystem entries, upload paths and notification bodies as the HTTP
  *    routes, which get these two from `requireAuthGate` /
@@ -104,8 +109,9 @@ export const decideSocketAuth = (
     if (!actor || !actor.user) {
         return { reject: new Error('socket auth failed') };
     }
+    // `isAccountContext`, not `fullAccess`: an app in the chain stays out.
     if (
-        isAccessTokenActor(actor) ||
+        (isAccessTokenActor(actor) && !isAccountContext(actor)) ||
         (isAppActor(actor) && !options.allowAppActors)
     ) {
         return { reject: new Error('socket auth: only user tokens accepted') };
@@ -218,9 +224,10 @@ interface AuthenticatedSocket extends Socket {
  * Socket.io wrapper with:
  *
  * 1. Auth middleware — reads `handshake.auth.auth_token`, validates it via
- *    `AuthService`, rejects access-token actors (and app-under-user actors
- *    unless events are enabled), and joins the socket to its room: the per-user
- *    room keyed by `user.id` for a session, a per-(user, app) room for an app.
+ *    `AuthService`, rejects scoped access-token actors (and app-under-user
+ *    actors unless events are enabled), and joins the socket to its room: the
+ *    per-user room keyed by `user.id` for a session, a per-(user, app) room for
+ *    an app.
  * 2. Event bus → socket fan-out — subscribes to the known set of `outer.gui.*`
  *    mutation events and pushes each to the affected users' rooms. Strips the
  *    `outer.gui.` prefix before emitting.
