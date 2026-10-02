@@ -29,6 +29,7 @@ import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import {
     clampSignedUploadExpirySeconds,
+    isIncompleteBodyError,
     isMissingObjectError,
     S3ObjectStore,
 } from './S3ObjectStore.js';
@@ -181,6 +182,21 @@ describe('isMissingObjectError', () => {
         expect(isMissingObjectError({ name: 'NoSuchBucket' })).toBe(false);
         expect(isMissingObjectError(null)).toBe(false);
         expect(isMissingObjectError('NotFound')).toBe(false);
+    });
+});
+
+describe('isIncompleteBodyError', () => {
+    it('reads a short upload body off name or Code', () => {
+        expect(isIncompleteBodyError({ name: 'IncompleteBody' })).toBe(true);
+        expect(isIncompleteBodyError({ Code: 'IncompleteBody' })).toBe(true);
+    });
+
+    it('never reads other upload failures as a short body', () => {
+        expect(isIncompleteBodyError({ name: 'SlowDown' })).toBe(false);
+        expect(isIncompleteBodyError({ name: 'BadDigest' })).toBe(false);
+        expect(isIncompleteBodyError(new Error('socket hang up'))).toBe(false);
+        expect(isIncompleteBodyError(null)).toBe(false);
+        expect(isIncompleteBodyError('IncompleteBody')).toBe(false);
     });
 });
 

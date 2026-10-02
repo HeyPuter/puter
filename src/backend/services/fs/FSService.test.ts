@@ -19,7 +19,7 @@
  */
 
 import { Readable } from 'node:stream';
-import { CreateBucketCommand } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
@@ -503,6 +503,75 @@ describe('FSService write payload handling', () => {
         // Generous timeout: the object-store client retries the torn-off body
         // before giving up, which puts the rejection just past the default.
     }, 20_000);
+
+    /**
+     * Answer every PutObject the way the real store does when the body ends
+     * before the length it was sent with; the in-memory store doesn't check.
+     */
+    const rejectShortPuts = () => {
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(null),
+        );
+        const original = client.send.bind(client);
+        return vi.spyOn(client, 'send').mockImplementation((async (
+            command: unknown,
+        ) => {
+            if (!(command instanceof PutObjectCommand)) {
+                return original(command as never);
+            }
+            const body = command.input.Body;
+            if (body instanceof Readable) {
+                for await (const _chunk of body) {
+                    // drain
+                }
+            }
+            throw Object.assign(
+                new Error(
+                    'You did not provide the number of bytes specified by the Content-Length HTTP header',
+                ),
+                { name: 'IncompleteBody', Code: 'IncompleteBody' },
+            );
+        }) as never);
+    };
+
+    it('rejects a stream shorter than its declared size as a bad request', async () => {
+        const send = rejectShortPuts();
+        try {
+            const error = await caught(() =>
+                fs.write(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/short.bin`,
+                        size: 57,
+                        contentType: 'text/plain',
+                    },
+                    fileContent: Readable.from(['x'.repeat(54)]),
+                }),
+            );
+            expect(error.statusCode).toBe(400);
+            expect(error.message).toBe(
+                'File content is shorter than its declared size',
+            );
+        } finally {
+            send.mockRestore();
+        }
+        expect(await entryAt(user, '/Documents/short.bin')).toBeNull();
+    });
+
+    it('leaves a short-body rejection of a measured payload as a server error', async () => {
+        // A buffer's length is measured here, not declared by the caller, so
+        // the store refusing it is not the caller's fault.
+        const send = rejectShortPuts();
+        try {
+            const error = await write('measured.bin', Buffer.from('abc')).then(
+                () => null,
+                (e: unknown) => e,
+            );
+            expect(error).not.toBeInstanceOf(HttpError);
+            expect((error as { name?: string })?.name).toBe('IncompleteBody');
+        } finally {
+            send.mockRestore();
+        }
+    });
 });
 
 describe('FSService overwrite and dedupe resolution', () => {
