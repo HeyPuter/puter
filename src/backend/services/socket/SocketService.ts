@@ -158,6 +158,10 @@ export const appSocketRoom = (
 export const accountSocketRoom = (userId: number | string): string =>
     `u${userId}:all`;
 
+/** The handle a single access token's sockets are revoked by. */
+export const accessTokenSocketRoom = (tokenUid: string): string =>
+    `tok:${tokenUid}`;
+
 /**
  * Which rooms a socket joins. An app socket gets its own per-(user, app) room
  * and never the user room, which carries the whole `outer.gui.*` fan and is the
@@ -168,9 +172,11 @@ export const accountSocketRoom = (userId: number | string): string =>
 export const socketRoomsFor = (actor: Actor): string[] => {
     const userId = String(actor.user!.id);
     const appUid = actor.effectiveApp?.uid;
+    const tokenUid = actor.accessToken?.uid;
     return [
         appUid ? appSocketRoom(userId, appUid) : userId,
         accountSocketRoom(userId),
+        ...(tokenUid ? [accessTokenSocketRoom(tokenUid)] : []),
     ];
 };
 
@@ -711,6 +717,13 @@ export class SocketService extends PuterService {
         await io.in(accountSocketRoom(userId)).disconnectSockets(true);
     }
 
+    /** Close one revoked token's connections; the account's others stay up. */
+    async #evictAccessTokenSockets(tokenUid: string): Promise<void> {
+        const io = this.#io;
+        if (!io || !tokenUid) return;
+        await io.in(accessTokenSocketRoom(tokenUid)).disconnectSockets(true);
+    }
+
     async #allowSocketEvent(userId: number, event: string): Promise<boolean> {
         return checkRateLimit(
             `socket:${event}:${userId}`,
@@ -822,6 +835,18 @@ export class SocketService extends PuterService {
                 this.#evictUserSockets(user_id).catch((err: unknown) => {
                     console.error('[socket] session eviction failed', err);
                 });
+            },
+        );
+
+        this.clients.event.on(
+            'auth.access-token.revoked',
+            (_key: string, data: unknown) => {
+                const { token_uid } = data as { token_uid: string };
+                this.#evictAccessTokenSockets(token_uid).catch(
+                    (err: unknown) => {
+                        console.error('[socket] token eviction failed', err);
+                    },
+                );
             },
         );
     }

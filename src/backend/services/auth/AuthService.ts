@@ -2067,6 +2067,13 @@ export class AuthService extends PuterService {
                 ));
             if (row) await this.stores.session.removeByUuid(row.uuid);
         }
+
+        // `revoked_at` is otherwise only read at the next handshake.
+        this.clients.event?.emit(
+            'auth.access-token.revoked',
+            { token_uid: tokenUid },
+            {},
+        );
     }
 
     // -- Internals ---------------------------------------------------

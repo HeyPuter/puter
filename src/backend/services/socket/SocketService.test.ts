@@ -30,6 +30,7 @@ import {
 } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
 import type { PuterServer } from '../../server.js';
 import {
     allocateEphemeralPort,
@@ -255,6 +256,20 @@ describe('socketRoomsFor', () => {
         ).toEqual(['7', accountSocketRoom(7)]);
     });
 
+    it('gives an access token a room of its own to be revoked by', () => {
+        const rooms = socketRoomsFor(
+            makeActor({
+                user: { id: 7, uuid: 'u-7', username: 'u' },
+                accessToken: {
+                    uid: 'tok-9',
+                    issuer: { user: { id: 7, uuid: 'u-7', username: 'u' } },
+                    fullAccess: true,
+                },
+            }),
+        );
+        expect(rooms).toEqual(['7', accountSocketRoom(7), 'tok:tok-9']);
+    });
+
     it('keeps an app out of the user room and in its own', () => {
         const rooms = socketRoomsFor(
             makeActor({
@@ -354,6 +369,31 @@ describe('SocketService (live socket.io)', () => {
         expect(socket.connected).toBe(true);
         expect(socketService.has({ room: String(userId) })).toBe(true);
         socket.disconnect();
+    });
+
+    it('drops a revoked token`s socket and leaves the session`s alone', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row as never });
+        const doomed = await runWithContext({ actor }, () =>
+            server.services.auth.createAccessToken(actor, [[FULL_API_ACCESS]], {
+                label: 'revoke-probe',
+            }),
+        );
+
+        const tokenSocket = await connect({ auth_token: doomed });
+        const sessionSocket = await connect({ auth_token: user.token });
+        expect(tokenSocket.connected).toBe(true);
+        expect(sessionSocket.connected).toBe(true);
+
+        await runWithContext({ actor }, () =>
+            server.services.auth.revokeAccessToken(actor, doomed),
+        );
+
+        await vi.waitFor(() => expect(tokenSocket.connected).toBe(false), {
+            timeout: 5000,
+        });
+        expect(sessionSocket.connected).toBe(true);
+        sessionSocket.disconnect();
     });
 
     it('rejects an app-under-user token while events are off', async () => {

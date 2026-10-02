@@ -687,6 +687,9 @@ export type EventMap = {
      */
     'auth.sessions.revoked': { user_id: number; session_uids: string[] };
 
+    /** One access token was revoked; only its own connections should drop. */
+    'auth.access-token.revoked': { token_uid: string };
+
     /**
      * A grant was withdrawn, so whatever was standing on it has to be settled
      * rather than left to fail its next check.

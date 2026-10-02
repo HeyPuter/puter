@@ -119,6 +119,35 @@ describe('full-access token route admissions', () => {
         expect(res.status).toBe(403);
     });
 
+    it('answers the developer profile, payout address behind a session', async () => {
+        const row = await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        );
+        await env.server.clients.db.write(
+            'UPDATE `user` SET `dev_first_name` = ?, `dev_paypal` = ? WHERE `id` = ?',
+            ['Ada', 'payouts@example.test', row!.id],
+        );
+        await env.server.stores.user.invalidateById(row!.id);
+
+        const toToken = await call('GET', '/get-dev-profile', pat);
+        expect(toToken.status).toBe(200);
+        expect(await toToken.json()).toMatchObject({
+            first_name: 'Ada',
+            paypal: null,
+        });
+
+        const toSession = await call(
+            'GET',
+            '/get-dev-profile',
+            env.users.user.token,
+        );
+        expect(toSession.status).toBe(200);
+        expect(await toSession.json()).toMatchObject({
+            first_name: 'Ada',
+            paypal: 'payouts@example.test',
+        });
+    });
+
     it('reports the open an app launched on a full-access token', async () => {
         const res = await call('POST', '/rao', pat, {
             app_uid: 'app-0b37f054-07d4-4627-8765-11bd23e889d4',
