@@ -19,7 +19,7 @@
 
 import type { Actor } from '../../core/actor';
 import type { MeteringService } from './MeteringService.js';
-import type { UsageByType, UsageInput } from './types';
+import type { CreditHold, UsageByType, UsageInput } from './types';
 
 /** Anything past this is read as a mistake and the cost is left as-is. */
 export const MAX_AI_COST_FACTOR = 10;
@@ -169,14 +169,37 @@ export function withAiCostFactor(
             );
     };
 
+    const reserveAiCredits = async (
+        actor: Actor,
+        usageType: string,
+        amount: number,
+    ): Promise<CreditHold | null> => {
+        const scaled = hooked({
+            usageType,
+            usageAmount: 0,
+            costOverride: amount,
+        })
+            ? scaleCost(
+                  amount,
+                  await metering.resolveAiCostFactor(
+                      actor,
+                      driver,
+                      aiModelKey(usageType),
+                  ),
+              )
+            : amount;
+        return metering.reserveAiCredits(actor, usageType, scaled);
+    };
+
     const overrides: Record<string, unknown> = {
         incrementUsage,
         batchIncrementUsages,
         utilRecordUsageObject,
+        reserveAiCredits,
     };
 
     // A proxy, not a wrapper: providers use far more of the service than the
-    // three recording methods.
+    // methods that price.
     const facade = new Proxy(metering, {
         get(target, prop, receiver) {
             if (prop in overrides) return overrides[prop as string];

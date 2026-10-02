@@ -207,48 +207,53 @@ export class OpenAITTSProvider extends TTSProvider {
         const ucentsPerChar = OPENAI_TTS_COSTS[model] ?? 0;
         const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
+        const hold = await this.meteringService.reserveAiCredits(
             actor,
+            usageType,
             totalCost,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient funds', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const payload: any = {
-            model,
-            voice,
-            input: text,
-        };
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const payload: any = {
+                model,
+                voice,
+                input: text,
+            };
 
-        if (instructions) {
-            payload.instructions = instructions;
+            if (instructions) {
+                payload.instructions = instructions;
+            }
+
+            if (response_format) {
+                payload.response_format = response_format;
+            }
+
+            const response = await this.openai.audio.speech.create(payload);
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const stream = Readable.from(buffer);
+
+            this.meteringService.incrementUsage(
+                actor,
+                usageType,
+                text.length,
+                totalCost,
+            );
+
+            return {
+                dataType: 'stream',
+                content_type: contentType,
+                chunked: true,
+                stream,
+            };
+        } finally {
+            await hold.release();
         }
-
-        if (response_format) {
-            payload.response_format = response_format;
-        }
-
-        const response = await this.openai.audio.speech.create(payload);
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const stream = Readable.from(buffer);
-
-        this.meteringService.incrementUsage(
-            actor,
-            usageType,
-            text.length,
-            totalCost,
-        );
-
-        return {
-            dataType: 'stream',
-            content_type: contentType,
-            chunked: true,
-            stream,
-        };
     }
 }

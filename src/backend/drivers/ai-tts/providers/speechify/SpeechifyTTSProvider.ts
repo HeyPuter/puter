@@ -150,104 +150,109 @@ export class SpeechifyTTSProvider extends TTSProvider {
         const ucentsPerChar = SPEECHIFY_TTS_COSTS[model] ?? 0;
         const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
+        const hold = await this.meteringService.reserveAiCredits(
             actor,
+            usageType,
             totalCost,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient funds', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        // Speechify's synthesis endpoint expects SSML; wrap plain text so
-        // callers can keep passing bare strings like every other provider.
-        const input = /<speak[\s>]/i.test(text)
-            ? text
-            : `<speak>${text}</speak>`;
+        try {
+            // Speechify's synthesis endpoint expects SSML; wrap plain text so
+            // callers can keep passing bare strings like every other provider.
+            const input = /<speak[\s>]/i.test(text)
+                ? text
+                : `<speak>${text}</speak>`;
 
-        const response = await fetch(`${API_BASE}/v1/audio/speech`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.#apiKey}`,
-                'Content-Type': 'application/json',
-                [CALLER_HEADER]: CALLER_VALUE,
-            },
-            body: JSON.stringify({
-                input,
-                voice_id: voice,
-                model,
-                audio_format: format,
-            }),
-        });
+            const response = await fetch(`${API_BASE}/v1/audio/speech`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.#apiKey}`,
+                    'Content-Type': 'application/json',
+                    [CALLER_HEADER]: CALLER_VALUE,
+                },
+                body: JSON.stringify({
+                    input,
+                    voice_id: voice,
+                    model,
+                    audio_format: format,
+                }),
+            });
 
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            console.error(
-                `[SpeechifyTTSProvider] API returned ${response.status}: ${errText}`,
-            );
-            // Map upstream status to an `upstream_*` HttpError so the
-            // alarm gate skips it. Mirrors ElevenLabs/xAI's translator —
-            // 4xx and 5xx both surface as 400 to the client (with the
-            // appropriate legacyCode), 429 stays 429, auth stays 500.
-            const legacyCode =
-                response.status >= 500
-                    ? 'upstream_provider_unavailable'
-                    : response.status === 401 || response.status === 403
-                      ? 'upstream_auth_failed'
-                      : response.status === 429
-                        ? 'upstream_rate_limited'
-                        : 'upstream_bad_request';
-            const exposedStatus =
-                legacyCode === 'upstream_rate_limited'
-                    ? 429
-                    : legacyCode === 'upstream_auth_failed'
-                      ? 500
-                      : 400;
-            throw new HttpError(
-                exposedStatus,
-                errText ||
-                    `Speechify TTS request failed (status ${response.status})`,
-                {
-                    legacyCode,
-                    fields: {
-                        provider: 'speechify',
-                        upstreamStatus: response.status,
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                console.error(
+                    `[SpeechifyTTSProvider] API returned ${response.status}: ${errText}`,
+                );
+                // Map upstream status to an `upstream_*` HttpError so the
+                // alarm gate skips it. Mirrors ElevenLabs/xAI's translator —
+                // 4xx and 5xx both surface as 400 to the client (with the
+                // appropriate legacyCode), 429 stays 429, auth stays 500.
+                const legacyCode =
+                    response.status >= 500
+                        ? 'upstream_provider_unavailable'
+                        : response.status === 401 || response.status === 403
+                          ? 'upstream_auth_failed'
+                          : response.status === 429
+                            ? 'upstream_rate_limited'
+                            : 'upstream_bad_request';
+                const exposedStatus =
+                    legacyCode === 'upstream_rate_limited'
+                        ? 429
+                        : legacyCode === 'upstream_auth_failed'
+                          ? 500
+                          : 400;
+                throw new HttpError(
+                    exposedStatus,
+                    errText ||
+                        `Speechify TTS request failed (status ${response.status})`,
+                    {
+                        legacyCode,
+                        fields: {
+                            provider: 'speechify',
+                            upstreamStatus: response.status,
+                        },
                     },
-                },
+                );
+            }
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const data: any = await response.json();
+            if (!data?.audio_data) {
+                throw new HttpError(
+                    400,
+                    'Speechify TTS did not return audio data',
+                    {
+                        legacyCode: 'upstream_bad_request',
+                        fields: { provider: 'speechify' },
+                    },
+                );
+            }
+
+            const buffer = Buffer.from(data.audio_data, 'base64');
+            const stream = Readable.from(buffer);
+            const contentType =
+                CONTENT_TYPES[data.audio_format ?? format] || 'audio/mpeg';
+
+            this.meteringService.incrementUsage(
+                actor,
+                usageType,
+                text.length,
+                totalCost,
             );
+
+            return {
+                dataType: 'stream',
+                content_type: contentType,
+                chunked: true,
+                stream,
+            };
+        } finally {
+            await hold.release();
         }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await response.json();
-        if (!data?.audio_data) {
-            throw new HttpError(
-                400,
-                'Speechify TTS did not return audio data',
-                {
-                    legacyCode: 'upstream_bad_request',
-                    fields: { provider: 'speechify' },
-                },
-            );
-        }
-
-        const buffer = Buffer.from(data.audio_data, 'base64');
-        const stream = Readable.from(buffer);
-        const contentType =
-            CONTENT_TYPES[data.audio_format ?? format] || 'audio/mpeg';
-
-        this.meteringService.incrementUsage(
-            actor,
-            usageType,
-            text.length,
-            totalCost,
-        );
-
-        return {
-            dataType: 'stream',
-            content_type: contentType,
-            chunked: true,
-            stream,
-        };
     }
 }

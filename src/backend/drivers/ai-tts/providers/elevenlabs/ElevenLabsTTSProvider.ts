@@ -243,52 +243,60 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId];
         const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
+        const hold = await this.meteringService.reserveAiCredits(
             actor,
+            usageKey,
             totalCost,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient funds', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const payload: any = {
-            text,
-            model_id: modelId,
-            output_format: desiredFormat,
-        };
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const payload: any = {
+                text,
+                model_id: modelId,
+                output_format: desiredFormat,
+            };
 
-        const finalVoiceSettings = voice_settings ?? voiceSettings;
-        if (finalVoiceSettings) {
-            payload.voice_settings = finalVoiceSettings;
+            const finalVoiceSettings = voice_settings ?? voiceSettings;
+            if (finalVoiceSettings) {
+                payload.voice_settings = finalVoiceSettings;
+            }
+
+            const response = await this.request(
+                `/v1/text-to-speech/${voiceId}`,
+                {
+                    method: 'POST',
+                    body: payload,
+                },
+            );
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const stream = Readable.from(buffer);
+
+            this.meteringService.incrementUsage(
+                actor,
+                usageKey,
+                text.length,
+                totalCost,
+            );
+
+            const contentType =
+                response.headers.get('content-type') || 'audio/mpeg';
+
+            return {
+                dataType: 'stream',
+                content_type: contentType,
+                chunked: true,
+                stream,
+            };
+        } finally {
+            await hold.release();
         }
-
-        const response = await this.request(`/v1/text-to-speech/${voiceId}`, {
-            method: 'POST',
-            body: payload,
-        });
-
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const stream = Readable.from(buffer);
-
-        this.meteringService.incrementUsage(
-            actor,
-            usageKey,
-            text.length,
-            totalCost,
-        );
-
-        const contentType =
-            response.headers.get('content-type') || 'audio/mpeg';
-
-        return {
-            dataType: 'stream',
-            content_type: contentType,
-            chunked: true,
-            stream,
-        };
     }
 }

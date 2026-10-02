@@ -34,6 +34,7 @@ import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
 import type { MeteringService } from '../services/metering/MeteringService.js';
+import { NO_CREDIT_HOLD } from '../services/metering/types.js';
 
 /**
  * Returns the env var value, or `undefined` if missing/empty. Used as the gate
@@ -69,6 +70,7 @@ export const makeMeteringStub = (): MeteringService =>
         incrementUsage: () => Promise.resolve({} as never),
         batchIncrementUsages: () => Promise.resolve([] as never),
         hasEnoughCredits: () => Promise.resolve(true),
+        reserveAiCredits: () => Promise.resolve(NO_CREDIT_HOLD),
         getRemainingUsage: () => Promise.resolve(Number.MAX_SAFE_INTEGER),
         getReportedCosts: () => [],
     }) as unknown as MeteringService;

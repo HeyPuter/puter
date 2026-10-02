@@ -179,54 +179,60 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         const usageType = `openai:${selectedModel}:second`;
         const ucentsPerSecond = SPEECH_TO_TEXT_COSTS[usageType] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
-        const allowed = await this.deps.metering.hasEnoughCredits(
+        const hold = await this.deps.metering.reserveAiCredits(
             actor,
+            usageType,
             estimatedCost,
         );
-        if (!allowed)
+        if (!hold)
             throw new HttpError(402, 'Insufficient credits', {
                 legacyCode: 'insufficient_funds',
             });
 
-        const openaiFile = await toFile(
-            loaded.buffer,
-            loaded.filename,
-            loaded.mimeType ? { type: loaded.mimeType } : undefined,
-        );
+        try {
+            const openaiFile = await toFile(
+                loaded.buffer,
+                loaded.filename,
+                loaded.mimeType ? { type: loaded.mimeType } : undefined,
+            );
 
-        const payload: Record<string, unknown> = {
-            file: openaiFile,
-            model: selectedModel,
-        };
-        if (args.response_format)
-            payload.response_format = args.response_format;
-        if (args.language) payload.language = args.language;
-        if (typeof args.temperature === 'number')
-            payload.temperature = args.temperature;
-        if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
-        // The API ignores a bare `logprobs` flag; it only honors `include`.
-        if (args.logprobs && caps.canLogprobs) payload.include = ['logprobs'];
-        if (args.extra_body) payload.extra_body = args.extra_body;
+            const payload: Record<string, unknown> = {
+                file: openaiFile,
+                model: selectedModel,
+            };
+            if (args.response_format)
+                payload.response_format = args.response_format;
+            if (args.language) payload.language = args.language;
+            if (typeof args.temperature === 'number')
+                payload.temperature = args.temperature;
+            if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
+            // The API ignores a bare `logprobs` flag; it only honors `include`.
+            if (args.logprobs && caps.canLogprobs)
+                payload.include = ['logprobs'];
+            if (args.extra_body) payload.extra_body = args.extra_body;
 
-        const result = await this.#openai.audio.transcriptions.create(
-            payload as unknown as Parameters<
-                OpenAI['audio']['transcriptions']['create']
-            >[0],
-        );
+            const result = await this.#openai.audio.transcriptions.create(
+                payload as unknown as Parameters<
+                    OpenAI['audio']['transcriptions']['create']
+                >[0],
+            );
 
-        this.deps.metering.incrementUsage(
-            actor,
-            usageType,
-            estimatedSeconds,
-            ucentsPerSecond * estimatedSeconds,
-        );
+            this.deps.metering.incrementUsage(
+                actor,
+                usageType,
+                estimatedSeconds,
+                ucentsPerSecond * estimatedSeconds,
+            );
 
-        // Text response_format: return raw string; otherwise forward the OpenAI object.
-        if (args.response_format === 'text') {
-            return typeof result === 'string'
-                ? result
-                : ((result as { text?: string }).text ?? '');
+            // Text response_format: return raw string; otherwise forward the OpenAI object.
+            if (args.response_format === 'text') {
+                return typeof result === 'string'
+                    ? result
+                    : ((result as { text?: string }).text ?? '');
+            }
+            return result;
+        } finally {
+            await hold.release();
         }
-        return result;
     }
 }

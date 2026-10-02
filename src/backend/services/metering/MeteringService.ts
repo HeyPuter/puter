@@ -1649,6 +1649,24 @@ export class MeteringService extends PuterService {
         };
     }
 
+    /**
+     * Check that an AI operation is affordable and hold its cost while it runs.
+     *
+     * `usageType` is what the cost will be recorded under. Called through
+     * `withAiCostFactor`, `amount` is scaled by that model's factor first, so
+     * the gate and the hold match what will actually be charged. Null when the
+     * actor can't afford it.
+     */
+    async reserveAiCredits(
+        actor: Actor,
+        // Read by the cost-factor facade, which overrides this method.
+        _usageType: string,
+        amount: number,
+    ): Promise<CreditHold | null> {
+        if (!(await this.hasEnoughCredits(actor, amount))) return null;
+        return this.reserveCredits(actor, amount);
+    }
+
     /** Budget this actor has committed to requests that are still running. */
     async #outstandingHolds(actor: Actor): Promise<number> {
         const userId = actor?.user?.uuid;

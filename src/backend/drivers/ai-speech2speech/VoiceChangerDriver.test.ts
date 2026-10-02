@@ -287,6 +287,31 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect(String(calledUrl)).toMatch(/enable_logging=false/);
     });
 
+    it('holds the estimated cost while ElevenLabs runs and releases it afterwards', async () => {
+        const { actor } = await makeUser();
+        let heldDuringCall = -1;
+        fetchSpy.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user.uuid,
+            );
+            return okResponse(new ArrayBuffer(0), 'audio/mpeg');
+        });
+
+        // 32 KB audio at 16 kbit/s = 2 seconds.
+        await withActor(actor, () =>
+            driver.convert({
+                audio: dataUrl(Buffer.alloc(32_000), 'audio/mpeg'),
+            }),
+        );
+
+        const perSecond =
+            VOICE_CHANGER_COSTS['elevenlabs:eleven_multilingual_sts_v2:second'];
+        expect(heldDuringCall).toBe(perSecond * 2);
+        expect(
+            await server.stores.creditHold.outstanding(actor.user.uuid),
+        ).toBe(0);
+    });
+
     it('meters one usage line at the per-second rate from costs.ts', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(

@@ -41,6 +41,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -282,6 +283,46 @@ describe('OpenAITTSProvider.synthesize credit gate', () => {
             withTestActor(() => provider.synthesize({ text: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(speechCreateMock).not.toHaveBeenCalled();
+    });
+    // Concurrent requests read the same balance; the hold is what lets each
+    // see the others' spend before it's recorded.
+    it('holds the cost while OpenAI runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 7, uuid: `tts-hold-${Date.now()}`, username: 'hold' },
+        });
+        const userId = actor.user!.uuid;
+        hasCreditsSpy.mockResolvedValue(true);
+        let heldDuringCall = -1;
+        speechCreateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(userId);
+            return mockAudioResponse();
+        });
+
+        const text = 'hold me';
+        await withTestActor(
+            () => provider.synthesize({ text, model: 'tts-1' }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(OPENAI_TTS_COSTS['tts-1'] * text.length);
+        expect(await server.stores.creditHold.outstanding(userId)).toBe(0);
+    });
+
+    it('releases the hold when OpenAI fails', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 8, uuid: `tts-fail-${Date.now()}`, username: 'fail' },
+        });
+        hasCreditsSpy.mockResolvedValue(true);
+        speechCreateMock.mockRejectedValueOnce(new Error('upstream down'));
+
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi' }), actor),
+        ).rejects.toThrow('upstream down');
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

@@ -246,6 +246,67 @@ describe('AI cost factor', () => {
         expect(result.total).toBe(1040);
     });
 
+    describe('reserveAiCredits', () => {
+        it('gates and holds at the factored cost', async () => {
+            listen(1.3);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            const reserve = vi.spyOn(metering, 'reserveCredits');
+            try {
+                const hold = await scoped.reserveAiCredits(
+                    actor,
+                    'openai:tts-1:character',
+                    1000,
+                );
+                await hold?.release();
+                expect(check).toHaveBeenCalledWith(actor, 1300);
+                expect(reserve).toHaveBeenCalledWith(actor, 1300);
+            } finally {
+                check.mockRestore();
+                reserve.mockRestore();
+            }
+        });
+
+        it('takes no hold when the factored cost is unaffordable', async () => {
+            listen(1.3);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockImplementation(async (_actor, amount) => amount <= 1000);
+            const reserve = vi.spyOn(metering, 'reserveCredits');
+            try {
+                const hold = await scoped.reserveAiCredits(
+                    actor,
+                    'openai:tts-1:character',
+                    1000,
+                );
+                expect(hold).toBeNull();
+                expect(reserve).not.toHaveBeenCalled();
+            } finally {
+                check.mockRestore();
+                reserve.mockRestore();
+            }
+        });
+
+        it('does not scale through the unscoped service', async () => {
+            listen(1.3);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                const hold = await metering.reserveAiCredits(
+                    actor,
+                    'openai:tts-1:character',
+                    1000,
+                );
+                await hold?.release();
+                expect(check).toHaveBeenCalledWith(actor, 1000);
+            } finally {
+                check.mockRestore();
+            }
+        });
+    });
+
     it('survives a listener that throws', async () => {
         const boom = vi.fn(() => {
             throw new Error('nope');

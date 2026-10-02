@@ -522,6 +522,29 @@ describe('XAISpeechToTextProvider response shape', () => {
 // ── Metering ────────────────────────────────────────────────────────
 
 describe('XAISpeechToTextProvider metering', () => {
+    it('holds the estimated cost while xAI runs and releases it afterwards', async () => {
+        const { actor } = await makeUser();
+        let heldDuringCall = -1;
+        fetchSpy.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user.uuid,
+            );
+            return sttResponse({ text: 'ok', duration: 1 });
+        });
+
+        // 32000 bytes → estimated 2s.
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.alloc(32000, 0), 'audio/mp3'),
+            }),
+        );
+
+        expect(heldDuringCall).toBe(UCENTS_PER_SECOND * 2);
+        expect(
+            await server.stores.creditHold.outstanding(actor.user.uuid),
+        ).toBe(0);
+    });
+
     it('meters ceil(duration) seconds × per-second ucents using the API duration', async () => {
         const { actor } = await makeUser();
         // Upstream reports 3.2s → driver should ceil to 4s.
