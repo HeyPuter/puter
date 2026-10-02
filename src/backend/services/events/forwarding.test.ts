@@ -870,6 +870,54 @@ describe('a broadcast delivery', () => {
     });
 });
 
+describe('a delivery the worker takes', () => {
+    it('carries the mark through a forwarded delivery, to the socket', async () => {
+        const east = makeRegion('east', ['west']);
+
+        await east.events.deliverForwarded({
+            kind: 'delivery',
+            userId,
+            appUid: null,
+            subId: 'sub-marked',
+            event: {
+                id: 'e-marked',
+                subject: anchorPath(),
+                op: 'write',
+                uid: 'node-1',
+                path: `${anchorPath()}/notes.txt`,
+                self: true,
+                seq: 0,
+                ts: 1,
+            },
+            skipHandler: true,
+        });
+
+        expect(east.sent[0]).toMatchObject({
+            subId: 'sub-marked',
+            skipHandler: true,
+        });
+    });
+
+    it('fans the mark out with a broadcast the worker takes', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        await register(west, {
+            targets: ['socket', 'worker'] as SubscriptionTarget[],
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+        await arrived(east);
+
+        expect(west.invoked).toHaveLength(1);
+        expect(deliveriesIn(west)[0]).toMatchObject({ skipHandler: true });
+        expect(east.sent[0]).toMatchObject({ skipHandler: true });
+    });
+});
+
 // -- Lazy repair ------------------------------------------------------
 
 describe('a row naming a region that holds nothing', () => {
@@ -1182,6 +1230,46 @@ describe('a forward queue that cannot keep up', () => {
             expect(
                 east.sent.some((envelope) => envelope.event.id === 'ev-5'),
             ).toBe(true);
+        } finally {
+            EventForwardService.MAX_QUEUED = 5_000;
+        }
+    });
+
+    it('sends its marker unmarked even when the shed copies skipped the client handler', async () => {
+        EventForwardService.MAX_QUEUED = 2;
+        try {
+            const west = makeRegion('west', ['east']);
+            const east = makeRegion('east', ['west']);
+            east.rooms.add(String(userId));
+            await east.forward.noteConnect(actorFor());
+            const row = await register(west);
+
+            for (let i = 0; i < 6; i++)
+                west.forward.handOff('east', {
+                    holderUserId: userId,
+                    appUid: null,
+                    subId: row.subId,
+                    event: {
+                        id: `ev-${i}`,
+                        subject: `fs:${anchorPath()}`,
+                        op: 'write',
+                        uid: `file-${i}`,
+                        path: `${anchorPath()}/n${i}.txt`,
+                        self: true,
+                        seq: 0,
+                        ts: Date.now(),
+                    },
+                    skipHandler: true,
+                });
+
+            await posted(west);
+            await arrived(east, 2);
+
+            const gaps = east.sent.filter(
+                (envelope) => envelope.event.op === 'gap',
+            );
+            expect(gaps).toHaveLength(1);
+            expect(gaps[0].skipHandler).toBeUndefined();
         } finally {
             EventForwardService.MAX_QUEUED = 5_000;
         }

@@ -932,12 +932,13 @@ export const TOOLS = [
                 background: { type: 'boolean', description: 'Run the app in the background (no visible window).' },
                 filetype_associations: {
                     type: 'array',
-                    items: { type: 'string' },
+                    items: { type: 'string', maxLength: 60 },
+                    maxItems: 200,
                     description: 'File extensions or MIME types this app can open (e.g. [".txt", ".md", "image/png"]).',
                 },
                 metadata: {
                     type: 'object',
-                    description: 'Arbitrary developer metadata stored with the app.',
+                    description: 'Arbitrary developer metadata stored with the app (max 16 KiB as JSON).',
                     additionalProperties: true,
                 },
                 dedupe_name: {
@@ -988,12 +989,13 @@ export const TOOLS = [
                 background: { type: 'boolean', description: 'Run the app in the background (no visible window).' },
                 filetype_associations: {
                     type: 'array',
-                    items: { type: 'string' },
+                    items: { type: 'string', maxLength: 60 },
+                    maxItems: 200,
                     description: 'File extensions or MIME types this app can open.',
                 },
                 metadata: {
                     type: 'object',
-                    description: 'Arbitrary developer metadata to store with the app.',
+                    description: 'Arbitrary developer metadata to store with the app (max 16 KiB as JSON).',
                     additionalProperties: true,
                 },
             },

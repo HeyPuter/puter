@@ -794,10 +794,12 @@ export class AuthService extends PuterService {
     async appUidFromOrigin(origin: string): Promise<string> {
         const appOrigin = await this.#appOriginFor(origin);
         if (!appOrigin) {
-            console.error('[auth] failed to parse origin URL', { origin });
-            throw new HttpError(400, 'Invalid origin URL', {
-                legacyCode: 'bad_request',
-            });
+            // Not logged: caller input, counted as a per-route 400.
+            throw new HttpError(
+                400,
+                'Origin must be an http(s) or browser-extension URL — a `file://` page or a sandboxed iframe has no origin an app can be identified by',
+                { legacyCode: 'bad_request' },
+            );
         }
 
         // Blocked origins can't acquire an app token (or have one minted /
@@ -820,6 +822,102 @@ export class AuthService extends PuterService {
     }
 
     /**
+     * Batched sibling of {@link appUidFromOrigin} for listing paths that need a
+     * uid per origin without a round trip each. Unparseable or blocked origins
+     * resolve to null instead of throwing.
+     */
+    async appUidsFromOrigins(
+        origins: string[],
+    ): Promise<Map<string, string | null>> {
+        const result = new Map<string, string | null>();
+        const uniqueOrigins = [...new Set(origins)];
+
+        const appOriginByOrigin = new Map<string, string | null>();
+        await Promise.all(
+            uniqueOrigins.map(async (origin) => {
+                try {
+                    appOriginByOrigin.set(
+                        origin,
+                        await this.#appOriginFor(origin),
+                    );
+                } catch {
+                    appOriginByOrigin.set(origin, null);
+                }
+            }),
+        );
+
+        const uniqueAppOrigins = [
+            ...new Set(
+                [...appOriginByOrigin.values()].filter(
+                    (o): o is string => o !== null,
+                ),
+            ),
+        ];
+        const blockedByAppOrigin = new Map<string, boolean>();
+        await Promise.all(
+            uniqueAppOrigins.map(async (appOrigin) => {
+                try {
+                    const block =
+                        await this.services.appOriginBlocklist.isOriginBlocked(
+                            appOrigin,
+                        );
+                    blockedByAppOrigin.set(appOrigin, block.blocked);
+                } catch {
+                    blockedByAppOrigin.set(appOrigin, true);
+                }
+            }),
+        );
+
+        const resolvableAppOrigins = uniqueAppOrigins.filter(
+            (appOrigin) => !blockedByAppOrigin.get(appOrigin),
+        );
+        const canonicalByAppOrigin =
+            await this.#findCanonicalAppUidsForOrigins(resolvableAppOrigins);
+
+        // Gen-0 derived uid per app origin that missed the canonical lookup,
+        // prefetched in one batch so `#derivedAppUidForOrigin`'s loop doesn't
+        // pay a round trip for the common (no repoint) case.
+        const missedAppOrigins = resolvableAppOrigins.filter(
+            (appOrigin) => !canonicalByAppOrigin.get(appOrigin),
+        );
+        const gen0ByAppOrigin = new Map<string, string>();
+        for (const appOrigin of missedAppOrigins) {
+            gen0ByAppOrigin.set(appOrigin, this.#originUid(appOrigin, 0));
+        }
+        const gen0Uids = [...new Set(gen0ByAppOrigin.values())];
+        const prefetched =
+            gen0Uids.length > 0
+                ? await this.stores.app.getByUids(gen0Uids)
+                : new Map<string, { index_url?: unknown }>();
+
+        const derivedByAppOrigin = new Map<string, string>();
+        for (const appOrigin of missedAppOrigins) {
+            const gen0Uid = gen0ByAppOrigin.get(appOrigin)!;
+            const uid = await this.#derivedAppUidForOrigin(appOrigin, (uid) =>
+                uid === gen0Uid
+                    ? Promise.resolve(prefetched.get(uid) ?? null)
+                    : this.stores.app.getByUid(uid),
+            );
+            derivedByAppOrigin.set(appOrigin, uid);
+        }
+
+        for (const origin of origins) {
+            const appOrigin = appOriginByOrigin.get(origin) ?? null;
+            if (appOrigin === null || blockedByAppOrigin.get(appOrigin)) {
+                result.set(origin, null);
+                continue;
+            }
+            const canonicalUid = canonicalByAppOrigin.get(appOrigin);
+            result.set(
+                origin,
+                canonicalUid ?? derivedByAppOrigin.get(appOrigin) ?? null,
+            );
+        }
+
+        return result;
+    }
+
+    /**
      * Normalized origin of `url` with aliased hosts and hosting-domain variants
      * collapsed, after `app.from-origin` listeners have rewritten it. Null when
      * `url` isn't a usable web or extension URL.
@@ -834,17 +932,29 @@ export class AuthService extends PuterService {
         return event.origin;
     }
 
+    /** `app-<uuidv5(origin)>` for generation `gen` (0 is the first-visit uid). */
+    #originUid(origin: string, gen: number): string {
+        const name = gen === 0 ? origin : `${origin}#${gen}`;
+        return `app-${uuidv5(name, APP_ORIGIN_UUID_NAMESPACE)}`;
+    }
+
     /**
      * `app-<uuidv5(origin)>`, unless that uid's row now lives at another
      * origin. A repointed row keeps its uid (and the data and grants keyed to
      * it), so the origin it left moves on to a successor uid instead of
-     * resolving to someone's app it no longer serves.
+     * resolving to someone's app it no longer serves. `getByUid` is injectable
+     * so a batch caller can serve prefetched rows.
      */
-    async #derivedAppUidForOrigin(origin: string): Promise<string> {
+    async #derivedAppUidForOrigin(
+        origin: string,
+        getByUid: (
+            uid: string,
+        ) => Promise<{ index_url?: unknown } | null | undefined> = (uid) =>
+            this.stores.app.getByUid(uid),
+    ): Promise<string> {
         for (let gen = 0; gen <= MAX_ORIGIN_UID_GENERATIONS; gen++) {
-            const name = gen === 0 ? origin : `${origin}#${gen}`;
-            const uid = `app-${uuidv5(name, APP_ORIGIN_UUID_NAMESPACE)}`;
-            const app = await this.stores.app.getByUid(uid);
+            const uid = this.#originUid(origin, gen);
+            const app = await getByUid(uid);
             if (!app) return uid;
             if (
                 typeof app.index_url === 'string' &&
@@ -1058,21 +1168,17 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Find the real app row whose `index_url` canonically matches `origin`.
-     *
-     * Build candidate URLs from the origin's subdomain crossed with every
-     * configured hosting domain (static + private, with and without ports).
-     * Prefer private rows, then the oldest match, for deterministic
-     * tie-breaking across historically-duplicated rows.
+     * Every `index_url` string that would canonically match `origin` — the
+     * origin's subdomain crossed with every configured hosting domain (static
+     * and private, with and without ports), alias-group hosts, and protocol
+     * variants.
      */
-    async #findCanonicalAppUidForOrigin(
-        origin: string,
-    ): Promise<string | null> {
+    #indexUrlCandidatesForOrigin(origin: string): string[] {
         let parsed: URL;
         try {
             parsed = new URL(origin);
         } catch {
-            return null;
+            return [];
         }
 
         const config = this.config as { protocol?: string };
@@ -1120,18 +1226,103 @@ export class AuthService extends PuterService {
                 urlCandidates.push(base, `${base}/`, `${base}/index.html`);
             }
         }
-        const uniqueCandidates = [...new Set(urlCandidates)];
-        if (uniqueCandidates.length === 0) return null;
+        return [...new Set(urlCandidates)];
+    }
 
-        const placeholders = uniqueCandidates.map(() => '?').join(', ');
-        // Private rows win over public duplicates; oldest id breaks ties.
-        const rows = (await this.clients.db.read(
-            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ` +
-                `ORDER BY CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\` ASC LIMIT 1`,
-            uniqueCandidates,
-        )) as Array<{ uid?: string }>;
-        const uid = rows[0]?.uid;
-        return typeof uid === 'string' && uid ? uid : null;
+    /**
+     * Uid of the real app row whose `index_url` canonically matches `origin`;
+     * private rows first, then the oldest, across historical duplicates.
+     */
+    async #findCanonicalAppUidForOrigin(
+        origin: string,
+    ): Promise<string | null> {
+        return this.stores.app.findCanonicalUidByIndexUrlCandidates(
+            this.#indexUrlCandidatesForOrigin(origin),
+        );
+    }
+
+    /**
+     * Batched {@link #findCanonicalAppUidForOrigin}, keyed by the origins passed
+     * in, with the same private-first, oldest-id rule.
+     */
+    async #findCanonicalAppUidsForOrigins(
+        origins: string[],
+    ): Promise<Map<string, string | null>> {
+        const result = new Map<string, string | null>();
+        const candidateSetByOrigin = new Map<string, Set<string>>();
+        const allCandidates = new Set<string>();
+
+        for (const origin of origins) {
+            const candidates = this.#indexUrlCandidatesForOrigin(origin);
+            candidateSetByOrigin.set(
+                origin,
+                new Set(candidates.map((c) => c.toLowerCase())),
+            );
+            for (const c of candidates) allCandidates.add(c);
+        }
+
+        if (allCandidates.size === 0) {
+            for (const origin of origins) result.set(origin, null);
+            return result;
+        }
+
+        const winners = (await this.stores.app.listIndexUrlWinners([
+            ...allCandidates,
+        ])) as Array<{
+            index_url: unknown;
+            private_id: unknown;
+            min_id: unknown;
+        }>;
+        const winnerByIndexUrl = new Map<string, (typeof winners)[number]>();
+        for (const winner of winners) {
+            if (typeof winner.index_url === 'string') {
+                winnerByIndexUrl.set(winner.index_url.toLowerCase(), winner);
+            }
+        }
+
+        // Lowest private id across the origin's matching groups, else lowest id.
+        const winnerIdByOrigin = new Map<string, number>();
+        for (const origin of origins) {
+            const candidateSet = candidateSetByOrigin.get(origin);
+            if (!candidateSet) continue;
+
+            let bestPrivateId: number | null = null;
+            let bestMinId: number | null = null;
+            for (const candidate of candidateSet) {
+                const winner = winnerByIndexUrl.get(candidate);
+                if (!winner) continue;
+                if (winner.private_id != null) {
+                    const id = Number(winner.private_id);
+                    if (bestPrivateId === null || id < bestPrivateId) {
+                        bestPrivateId = id;
+                    }
+                }
+                if (winner.min_id != null) {
+                    const id = Number(winner.min_id);
+                    if (bestMinId === null || id < bestMinId) {
+                        bestMinId = id;
+                    }
+                }
+            }
+            const winnerId = bestPrivateId ?? bestMinId;
+            if (winnerId !== null) winnerIdByOrigin.set(origin, winnerId);
+        }
+
+        const uniqueIds = [...new Set(winnerIdByOrigin.values())];
+        // Aggregates can come back as strings; they were Number()-ed above to
+        // match `getByIds` keys.
+        const appsById =
+            uniqueIds.length > 0
+                ? await this.stores.app.getByIds(uniqueIds)
+                : new Map<number, { uid?: unknown }>();
+
+        for (const origin of origins) {
+            const id = winnerIdByOrigin.get(origin);
+            const uid = id !== undefined ? appsById.get(id)?.uid : undefined;
+            result.set(origin, typeof uid === 'string' && uid ? uid : null);
+        }
+
+        return result;
     }
 
     async getUserAppToken(actor: Actor, appUid: string): Promise<string> {

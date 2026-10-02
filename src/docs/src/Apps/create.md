@@ -45,11 +45,11 @@ An object containing the options for the app to create. The object can contain t
 - `description` (String) (optional): The description of the app aimed at the end user.
 - `icon` (String) (optional): The new icon of the app.
 - `maximizeOnStart` (Boolean) (optional): Whether the app should be maximized when it is started. Defaults to `false`.
-- `filetypeAssociations` (Array<String>) (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files.
+- `filetypeAssociations` (Array<String>) (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files. At most 200 entries, each at most 60 characters.
 - `dedupeName` (Boolean) (optional) - Whether to deduplicate the app name if it already exists. Defaults to `false`.
 - `background` (Boolean) (optional) - Whether the app should run in the background. Defaults to `false`.
 - `feedbackEnabled` (Boolean) (optional) - Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Defaults to `false`.
-- `metadata` (Object) (optional) - An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app.
+- `metadata` (Object) (optional) - An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app. At most 16 KiB when serialized as JSON.
 
 ## Return value
 

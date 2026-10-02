@@ -111,6 +111,8 @@ const CACHE_TTL_SECONDS = 60 * 60;
 // Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
 const NEGATIVE_CACHE_MARKER = '__none__';
 const NEGATIVE_CACHE_TTL_SECONDS = 10;
+// Cap on placeholders per `IN (?, ?, …)` chunk — mirrors AppStore/UserStore.
+const BULK_QUERY_CHUNK_SIZE = 200;
 
 export class SubdomainStore extends PuterStore {
     // -- Reads --------------------------------------------------------
@@ -170,32 +172,113 @@ export class SubdomainStore extends PuterStore {
             : await this.clients.db.read(sql, [subdomain]);
         const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
-        // These writes are fire-and-forget, so a mutation that lands between
-        // the SELECT above and the SET below would otherwise be overwritten
-        // by the row we just read — stranding the pre-write row in cache for
-        // the full TTL (an hour of a site serving its old root_dir after
-        // `hosting.update`). A replica read is not authoritative, so it only
-        // *populates* an absent key (`NX`) and can never clobber a fresher
-        // write. A `primary` read is read-after-write on the primary, so it
-        // writes through — that's what heals a stale negative marker.
-        const populate = (value: string, ttlSeconds: number) =>
-            (primary
-                ? this.clients.redis.set(cacheKey, value, 'EX', ttlSeconds)
-                : this.clients.redis.set(
-                      cacheKey,
-                      value,
-                      'EX',
-                      ttlSeconds,
-                      'NX',
-                  )
-            ).catch(() => {});
-
         if (row) {
-            populate(JSON.stringify(row), CACHE_TTL_SECONDS);
+            void this.#populateCache(
+                cacheKey,
+                JSON.stringify(row),
+                CACHE_TTL_SECONDS,
+                primary,
+            );
         } else {
-            populate(NEGATIVE_CACHE_MARKER, NEGATIVE_CACHE_TTL_SECONDS);
+            void this.#populateCache(
+                cacheKey,
+                NEGATIVE_CACHE_MARKER,
+                NEGATIVE_CACHE_TTL_SECONDS,
+                primary,
+            );
         }
         return row;
+    }
+
+    /**
+     * Batched sibling of {@link getBySubdomain} — one cache pipeline plus one
+     * chunked `IN (…)` query for the misses, instead of one lookup per name.
+     * Keyed by the requested names; a name with no row (negative-cached or
+     * genuinely absent) is simply missing from the returned map.
+     */
+    async getBySubdomains(
+        names: string[],
+        { primary = false }: { primary?: boolean } = {},
+    ): Promise<Map<string, SubdomainRow>> {
+        const result = new Map<string, SubdomainRow>();
+        const uniqueNames = [
+            ...new Set(
+                (Array.isArray(names) ? names : []).filter(
+                    (n): n is string => typeof n === 'string' && n.length > 0,
+                ),
+            ),
+        ];
+        if (uniqueNames.length === 0) return result;
+
+        let missingNames = uniqueNames;
+        if (!primary) {
+            missingNames = [];
+            try {
+                const pipeline = this.clients.redis.pipeline();
+                for (const name of uniqueNames) {
+                    pipeline.get(this.#cacheKey(name));
+                }
+                const cacheResults = (await pipeline.exec()) ?? [];
+                for (let i = 0; i < uniqueNames.length; i++) {
+                    const name = uniqueNames[i]!;
+                    const raw = cacheResults[i]?.[1];
+                    if (raw === NEGATIVE_CACHE_MARKER) continue; // cached miss
+                    if (typeof raw === 'string') {
+                        try {
+                            const parsed = JSON.parse(
+                                raw,
+                            ) as SubdomainRow | null;
+                            if (parsed) {
+                                result.set(name, parsed);
+                                continue;
+                            }
+                        } catch {
+                            // Fall through to DB on any parse failure.
+                        }
+                    }
+                    missingNames.push(name);
+                }
+            } catch {
+                missingNames = uniqueNames;
+            }
+        }
+        if (missingNames.length === 0) return result;
+
+        const rowsByName = new Map<string, SubdomainRow>();
+        for (
+            let offset = 0;
+            offset < missingNames.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = missingNames.slice(
+                offset,
+                offset + BULK_QUERY_CHUNK_SIZE,
+            );
+            const placeholders = chunk.map(() => '?').join(', ');
+            const sql = `SELECT * FROM \`subdomains\` WHERE \`subdomain\` IN (${placeholders})`;
+            const rows = (primary
+                ? await this.clients.db.pread(sql, chunk)
+                : await this.clients.db.read(
+                      sql,
+                      chunk,
+                  )) as unknown as SubdomainRow[];
+            // Keyed lowercase: a case-insensitive collation can return a row
+            // cased differently from the name, which `getBySubdomain` accepts.
+            for (const row of rows) {
+                if (typeof row.subdomain !== 'string') continue;
+                const key = row.subdomain.toLowerCase();
+                if (!rowsByName.has(key)) rowsByName.set(key, row);
+            }
+        }
+
+        for (const name of missingNames) {
+            const row = rowsByName.get(name.toLowerCase());
+            if (row) result.set(name, row);
+        }
+
+        void this.#populateCacheForNames(missingNames, result, primary);
+
+        return result;
     }
 
     async listByUserId(
@@ -632,6 +715,61 @@ export class SubdomainStore extends PuterStore {
 
     #prefixListTrackerKey(userId: number) {
         return `${CACHE_KEY_PREFIX}:listByUserPrefixKeys:${userId}`;
+    }
+
+    /**
+     * Write-through on a primary read (heals a stale negative marker); `NX` on
+     * a replica read so an in-flight fresher write can't be clobbered by a
+     * stale value landing after it.
+     */
+    async #populateCache(
+        cacheKey: string,
+        value: string,
+        ttlSeconds: number,
+        primary: boolean,
+    ): Promise<void> {
+        try {
+            if (primary) {
+                await this.clients.redis.set(cacheKey, value, 'EX', ttlSeconds);
+            } else {
+                await this.clients.redis.set(
+                    cacheKey,
+                    value,
+                    'EX',
+                    ttlSeconds,
+                    'NX',
+                );
+            }
+        } catch {
+            /* best-effort */
+        }
+    }
+
+    /** Pipelined sibling of {@link #populateCache} for `getBySubdomains`. */
+    async #populateCacheForNames(
+        names: string[],
+        rowsByName: Map<string, SubdomainRow>,
+        primary: boolean,
+    ): Promise<void> {
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const name of names) {
+                const row = rowsByName.get(name);
+                const cacheKey = this.#cacheKey(name);
+                const value = row ? JSON.stringify(row) : NEGATIVE_CACHE_MARKER;
+                const ttl = row
+                    ? CACHE_TTL_SECONDS
+                    : NEGATIVE_CACHE_TTL_SECONDS;
+                if (primary) {
+                    pipeline.set(cacheKey, value, 'EX', ttl);
+                } else {
+                    pipeline.set(cacheKey, value, 'EX', ttl, 'NX');
+                }
+            }
+            await pipeline.exec();
+        } catch {
+            /* best-effort */
+        }
     }
 
     async #refreshCache(row: { subdomain?: string }) {

@@ -169,6 +169,27 @@ const subscribe = async (token: string = appToken): Promise<string> => {
     return body.subId;
 };
 
+/** A `broadcast` subscription, left at its default targets (socket + worker). */
+const subscribeBroadcast = async (
+    token: string = appToken,
+): Promise<string> => {
+    const response = await fetch(new URL('/events/subscribe', env.apiOrigin), {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+            subject: `fs:${anchor}`,
+            delivery: 'broadcast',
+            handlerName: HANDLER,
+        }),
+    });
+    const body = (await response.json()) as { subId: string };
+    expect(response.status).toBe(200);
+    return body.subId;
+};
+
 /**
  * A second app, isolated from the shared fixture, for tests that revoke or
  * uninstall — so they don't take the rest of the suite's app down with them.
@@ -695,6 +716,63 @@ describe('what each answer does to the delivery', () => {
             expect(await heldForMs(subId)).toBeGreaterThan(0),
         );
         expect(await pending().depth(subId)).toBe(1);
+    });
+});
+
+describe('a broadcast delivery, with a worker to take it', () => {
+    it('hands the run to the worker and marks the socket copy', async () => {
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        try {
+            await subscribeBroadcast();
+
+            await touch('broadcast.txt');
+            await invoked(1);
+
+            expect(calls).toHaveLength(1);
+            expect(send).toHaveBeenCalledWith(
+                expect.anything(),
+                'events.delivery',
+                expect.objectContaining({ skipHandler: true }),
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('marks the copy and calls no worker for an event as deep as the plan lets a chain go', async () => {
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        try {
+            // Created before the subscription exists, so this write itself
+            // does not also dispatch at depth 0.
+            const path = `${anchor}/deep-broadcast.txt`;
+            await touch('deep-broadcast.txt');
+            await subscribeBroadcast();
+
+            const { actor } = await env.server.services.auth.authenticate(
+                env.users.user.token,
+            );
+            const plan =
+                await env.server.services.metering.getActorSubscription(actor!);
+            const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
+            const entry =
+                (await env.server.stores.fsEntry.getEntryByPath(path))!;
+
+            await events().dispatchFs('fs.write.file', entry, {
+                handlerDepth: maxDepth,
+                ancestors: () => env.server.services.fs.getAncestorChain(path),
+            });
+
+            await waitUntil(() =>
+                expect(send).toHaveBeenCalledWith(
+                    expect.anything(),
+                    'events.delivery',
+                    expect.objectContaining({ skipHandler: true }),
+                ),
+            );
+            expect(calls).toEqual([]);
+        } finally {
+            send.mockRestore();
+        }
     });
 });
 

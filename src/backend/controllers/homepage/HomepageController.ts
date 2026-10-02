@@ -32,6 +32,17 @@ import type {
 export const APP_META_DESCRIPTION_MAX = 150;
 
 /**
+ * Unauthenticated, rendered on every request, so the bucket is the network
+ * address rather than an account.
+ */
+const APP_LANDING_LIMIT = {
+    scope: 'app-landing',
+    limit: 600,
+    window: 60_000,
+    key: 'ip' as const,
+};
+
+/**
  * App descriptions can run long; search snippets and social cards want a
  * short blurb. Collapses whitespace, then cuts at a word boundary with an
  * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
@@ -160,8 +171,16 @@ export class HomepageController extends PuterController {
             });
         };
 
-        router.get('/app/:name', {}, sendAppShell);
-        router.get('/desktop/app/:name', {}, sendAppShell);
+        router.get(
+            '/app/:name',
+            { rateLimit: APP_LANDING_LIMIT },
+            sendAppShell,
+        );
+        router.get(
+            '/desktop/app/:name',
+            { rateLimit: APP_LANDING_LIMIT },
+            sendAppShell,
+        );
 
         // -- /show/* - launch explorer with the requested file path --
 

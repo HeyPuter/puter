@@ -630,6 +630,8 @@ window.update_auth_data = async (auth_token, user) => {
         if ( profile?.picture ) {
             window.user.profile.picture = html_encode(profile.picture);
             $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
+            // the account tab may have rendered before the profile arrived
+            $('.dashboard-profile-remove-picture').prop('hidden', false);
         }
     }).catch((error) => {
         console.error('Error loading profile:', error);

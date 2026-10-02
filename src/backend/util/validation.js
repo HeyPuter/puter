@@ -141,7 +141,10 @@ export function validateBool(value, { key, required = false } = {}) {
     return Boolean(value);
 }
 
-export function validateJsonObject(value, { key, required = false } = {}) {
+export function validateJsonObject(
+    value,
+    { key, required = false, maxBytes } = {},
+) {
     if (value === undefined || value === null) {
         if (required)
             throw new HttpError(400, `Missing \`${key}\``, {
@@ -163,10 +166,23 @@ export function validateJsonObject(value, { key, required = false } = {}) {
             legacyCode: 'bad_request',
         });
     }
+    if (
+        maxBytes &&
+        Buffer.byteLength(JSON.stringify(value), 'utf8') > maxBytes
+    ) {
+        throw new HttpError(
+            400,
+            `\`${key}\` must be at most ${maxBytes} bytes as JSON`,
+            { legacyCode: 'bad_request' },
+        );
+    }
     return value;
 }
 
-export function validateArrayOfStrings(value, { key, required = false } = {}) {
+export function validateArrayOfStrings(
+    value,
+    { key, required = false, maxItems, maxItemLen } = {},
+) {
     if (value === undefined || value === null) {
         if (required)
             throw new HttpError(400, `Missing \`${key}\``, {
@@ -179,11 +195,25 @@ export function validateArrayOfStrings(value, { key, required = false } = {}) {
             legacyCode: 'bad_request',
         });
     }
+    if (maxItems && value.length > maxItems) {
+        throw new HttpError(
+            400,
+            `\`${key}\` must have at most ${maxItems} entries`,
+            { legacyCode: 'bad_request' },
+        );
+    }
     for (let i = 0; i < value.length; i++) {
         if (typeof value[i] !== 'string') {
             throw new HttpError(400, `\`${key}[${i}]\` must be a string`, {
                 legacyCode: 'bad_request',
             });
+        }
+        if (maxItemLen && value[i].length > maxItemLen) {
+            throw new HttpError(
+                400,
+                `\`${key}[${i}]\` must be at most ${maxItemLen} characters`,
+                { legacyCode: 'bad_request' },
+            );
         }
     }
     return value;

@@ -739,6 +739,26 @@ describe('where a durable delivery is addressed', () => {
         );
         send.mockRestore();
     });
+
+    it('sends an unmarked copy for an app row that only targets the socket', async () => {
+        await clearRows();
+        await subscribe(appOneToken, { targets: ['socket'] });
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        delivered.length = 0;
+
+        const path = `${anchor}/socket-only-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path });
+        await settle(path);
+
+        expect(send).toHaveBeenCalledWith(
+            { room: appSocketRoom(userId, appOneUid) },
+            'events.delivery',
+            expect.objectContaining({ subId: expect.any(String) }),
+        );
+        const [, , envelope] = send.mock.calls.at(-1)!;
+        expect((envelope as DeliveryEnvelope).skipHandler).toBeUndefined();
+        send.mockRestore();
+    });
 });
 
 describe('a durable row`s match filter', () => {

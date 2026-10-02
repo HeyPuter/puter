@@ -1074,3 +1074,48 @@ describe('SubdomainDriver associated_app derivation', () => {
         expect(read.associated_app).toBeNull();
     });
 });
+
+// -- associated_app derivation at scale --
+//
+// ~24 index_url candidates per subdomain: a page this size must be chunked
+// to stay under SQLite's bound-parameter limit.
+
+describe('SubdomainDriver.select at scale', () => {
+    it('resolves associated_app for 1,400 subdomains without tripping the SQL variable limit', async () => {
+        const { actor, userId } = await makeUser();
+        const prefix = `scale-${Math.random().toString(36).slice(2, 8)}-`;
+        const count = 1400;
+        const names: string[] = [];
+        for (let i = 0; i < count; i++) {
+            names.push(`${prefix}${i}`);
+        }
+
+        // Bulk-insert directly — bypasses the driver's per-user quota, the
+        // same way a bulk-provisioned fleet of sites would exist in prod.
+        const placeholders = names.map(() => '(?, ?, ?)').join(', ');
+        const values: unknown[] = [];
+        for (const name of names) {
+            values.push(uuidv4(), name, userId);
+        }
+        await server.clients.db.write(
+            `INSERT INTO \`subdomains\` (\`uuid\`, \`subdomain\`, \`user_id\`) VALUES ${placeholders}`,
+            values,
+        );
+
+        const lastSub = names[names.length - 1]!;
+        const app = await createAppWithIndexUrl(
+            userId,
+            `http://${lastSub}.site.puter.localhost/`,
+        );
+
+        const result = (await withActor(actor, () =>
+            driver.select({}),
+        )) as Array<Record<string, unknown>>;
+
+        expect(result.length).toBe(count);
+        const lastItem = result.find((r) => r.subdomain === lastSub);
+        expect(
+            (lastItem?.associated_app as { uid: string } | null)?.uid,
+        ).toBe(app.uid);
+    }, 30_000);
+});

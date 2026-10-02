@@ -34,7 +34,11 @@ import {
 } from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
 import { isPlainUserActor, makeActor } from '../../core/actor.js';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    checkRateLimit,
+    consumeRouteRateLimit,
+    peekRouteRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
     STEP_UP_COOKIE_NAME,
@@ -217,6 +221,26 @@ const SESSION_LIMIT = {
     window: 60_000,
     key: 'user',
 } as const;
+
+/**
+ * Completed renames. Charged by the handler after the rename lands, so a wrong
+ * password or a taken name doesn't spend it.
+ */
+const CHANGE_USERNAME_LIMIT = {
+    scope: 'change-username-done',
+    limit: 2,
+    window: 30 * 24 * 60 * 60_000,
+    key: 'user',
+} as const;
+
+/** Rename attempts, success or not. Bounds password guessing through the gate. */
+const CHANGE_USERNAME_ATTEMPT_LIMIT = {
+    scope: 'change-username-attempt',
+    limit: 10,
+    window: 60 * 60_000,
+    key: 'user',
+} as const;
+
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -2745,9 +2769,18 @@ export class AuthController extends PuterController {
             });
         }
 
+        if (!(await peekRouteRateLimit(req, CHANGE_USERNAME_LIMIT))) {
+            throw new HttpError(
+                429,
+                'You can only change your username twice every 30 days.',
+                { legacyCode: 'too_many_requests' },
+            );
+        }
+
         await this.stores.user.update(req.actor!.user.id!, {
             username: new_username,
         });
+        await consumeRouteRateLimit(req, CHANGE_USERNAME_LIMIT);
 
         // Rename the user's FS home from `/<old>` to `/<new>` and
         // cascade the prefix to all descendants. Without this, any
@@ -4794,12 +4827,7 @@ export class AuthController extends PuterController {
             {
                 requireUserActor: true,
                 requireVerified: true,
-                rateLimit: {
-                    scope: 'change-username',
-                    limit: 2,
-                    window: 30 * 24 * 60 * 60_000,
-                    key: 'user',
-                },
+                rateLimit: CHANGE_USERNAME_ATTEMPT_LIMIT,
                 middleware: [
                     createUserProtectedGate(
                         userProtectedDeps as never,

@@ -69,6 +69,11 @@ const APP_ICON_LIMIT = {
     key: 'ip',
 };
 
+// Shared by `GET /apps/:name` (pipe-separated) and `POST /query/app`, which
+// both fan out one lookup per name.
+const APP_LOOKUP_MAX_ENTRIES = 200;
+const APP_LOOKUP_MAX_SELECTOR_LEN = 200;
+
 export class AppController extends PuterController {
     get appStore() {
         return this.stores.app;
@@ -266,11 +271,21 @@ export class AppController extends PuterController {
             async (req, res) => {
                 const raw = req.params.name;
                 const names = raw.split('|').filter(Boolean);
+                if (names.length > APP_LOOKUP_MAX_ENTRIES) {
+                    throw new HttpError(
+                        400,
+                        `at most ${APP_LOOKUP_MAX_ENTRIES} app names per request`,
+                        { legacyCode: 'bad_request' },
+                    );
+                }
 
                 const userUid = req.actor?.user?.uuid ?? null;
 
                 const results = await Promise.all(
                     names.map(async (name) => {
+                        if (name.length > APP_LOOKUP_MAX_SELECTOR_LEN) {
+                            return null;
+                        }
                         const app = await this.appStore.getByName(name);
                         if (!app) return null;
                         let shaped;
@@ -327,9 +342,6 @@ export class AppController extends PuterController {
         // included for public/owned apps only, consistent with
         // marketplace semantics.
 
-        const QUERY_APP_MAX_ENTRIES = 200;
-        const QUERY_APP_MAX_SELECTOR_LEN = 200;
-
         router.post(
             '/query/app',
             {
@@ -339,10 +351,10 @@ export class AppController extends PuterController {
             },
             async (req, res) => {
                 const appList = Array.isArray(req.body) ? req.body : [];
-                if (appList.length > QUERY_APP_MAX_ENTRIES) {
+                if (appList.length > APP_LOOKUP_MAX_ENTRIES) {
                     throw new HttpError(
                         400,
-                        `request body must contain at most ${QUERY_APP_MAX_ENTRIES} selectors`,
+                        `request body must contain at most ${APP_LOOKUP_MAX_ENTRIES} selectors`,
                         { legacyCode: 'bad_request' },
                     );
                 }
@@ -354,7 +366,7 @@ export class AppController extends PuterController {
                     if (
                         typeof selector !== 'string' ||
                         selector.length === 0 ||
-                        selector.length > QUERY_APP_MAX_SELECTOR_LEN
+                        selector.length > APP_LOOKUP_MAX_SELECTOR_LEN
                     ) {
                         continue;
                     }

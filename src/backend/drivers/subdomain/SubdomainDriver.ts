@@ -188,10 +188,9 @@ export class SubdomainDriver extends PuterDriver {
         // they have open is not them.
         // See `util/hostedAppBacking.ts` for the wider rule.
         //
-        // Last check before the insert on purpose: `apps.index_url` is
-        // unindexed, so this scan only runs for a request that would otherwise
-        // have created the row, and it stays behind the same root_dir gate as
-        // the existing uniqueness answer.
+        // Last check before the insert on purpose: it stays behind the same
+        // root_dir gate as the existing uniqueness answer, so it only runs
+        // for a request that would otherwise have created the row.
         const appsHoldingName = (await this.stores.app.listByIndexUrlCandidates(
             buildHostedSubdomainIndexUrlCandidates(subdomain, this.config),
         )) as Array<Record<string, unknown>>;
@@ -737,7 +736,8 @@ export class SubdomainDriver extends PuterDriver {
      * hosting domains × protocols × paths). Returns a `rowUuid → appId` map.
      * Rows with no matching app are absent.
      *
-     * Runs one batched DB query regardless of input size.
+     * Goes through the batched `listByIndexUrlCandidates` store lookup rather
+     * than one query per row, regardless of input size.
      */
     async #deriveAssociatedAppIdByRowUuid(
         rows: Array<Record<string, unknown>>,
@@ -782,16 +782,14 @@ export class SubdomainDriver extends PuterDriver {
             return result;
         }
 
-        const userIds = [...userIdToRowMeta.keys()];
-        const userPlaceholders = userIds.map(() => '?').join(', ');
         const candidateList = [...allCandidates];
-        const urlPlaceholders = candidateList.map(() => '?').join(', ');
-        const matches = (await this.clients.db.read(
-            `SELECT \`id\`, \`owner_user_id\`, \`index_url\` FROM \`apps\`
-             WHERE \`owner_user_id\` IN (${userPlaceholders})
-               AND \`index_url\` IN (${urlPlaceholders})`,
-            [...userIds, ...candidateList],
+        const matches = (await this.stores.app.listByIndexUrlCandidates(
+            candidateList,
         )) as Array<Record<string, unknown>>;
+        // Oldest row wins when more than one app matches the same candidate
+        // for the same owner — the owner-match filter below is what actually
+        // restricts matches to rows this batch cares about.
+        matches.sort((a, b) => Number(a.id) - Number(b.id));
 
         for (const m of matches) {
             const appId = typeof m.id === 'number' ? m.id : Number(m.id);

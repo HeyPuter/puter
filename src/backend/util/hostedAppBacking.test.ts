@@ -17,13 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
+import { PuterServer } from '../server.js';
+import { setupTestServer } from '../testUtil.js';
 import {
     buildHostedBackingDenial,
     buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
     getPuterHostedDomains,
     hostedIndexUrlBackingIsUnavailable,
+    hostedIndexUrlBackingsAreUnavailable,
 } from './hostedAppBacking.js';
 
 // Pure-unit companion to the integration coverage in
@@ -352,5 +356,161 @@ describe('buildHostedBackingDenial', () => {
             reason: 'hosted_backing_unavailable',
             checkedBy: 'core/hosted-subdomain-guard',
         });
+    });
+});
+
+// Matches the hosting domains in config.default.json, so subdomain rows
+// created through the real store resolve the same way `AppDriver` would see
+// them in production.
+const HOSTING_CONFIG = {
+    static_hosting_domain: 'site.puter.localhost',
+    static_hosting_domain_alt: 'host.puter.localhost',
+    private_app_hosting_domain: 'app.puter.localhost',
+    private_app_hosting_domain_alt: 'dev.puter.localhost',
+};
+const hostedUrl = (sub: string) => `https://${sub}.site.puter.localhost/`;
+
+describe('hostedIndexUrlBackingsAreUnavailable (batched, against a real store)', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const makeUser = async () => {
+        const username = `hab-${Math.random().toString(36).slice(2, 10)}`;
+        return server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+    };
+
+    it('resolves a mix of apps in input order with one batched call', async () => {
+        const owner = await makeUser();
+        const attacker = await makeUser();
+
+        const liveSub = `live-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: liveSub,
+        });
+        const reclaimedSub = `reclaimed-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: attacker.id,
+            subdomain: reclaimedSub,
+        });
+        const danglingSub = `dangling-${Math.random().toString(36).slice(2, 8)}`;
+
+        const external = {
+            index_url: 'https://elsewhere.example.com/',
+            owner_user_id: owner.id,
+        };
+        const live = { index_url: hostedUrl(liveSub), owner_user_id: owner.id };
+        const reclaimed = {
+            index_url: hostedUrl(reclaimedSub),
+            owner_user_id: owner.id,
+        };
+        const dangling = {
+            index_url: hostedUrl(danglingSub),
+            owner_user_id: owner.id,
+        };
+
+        const getBySubdomains = vi.spyOn(
+            server.stores.subdomain,
+            'getBySubdomains',
+        );
+        try {
+            const results = await hostedIndexUrlBackingsAreUnavailable({
+                apps: [external, live, reclaimed, dangling],
+                subdomainStore: server.stores.subdomain,
+                config: HOSTING_CONFIG,
+            });
+            // Input order preserved; external → false, live → false, a
+            // reclaimed owner → true, a gone subdomain → true.
+            expect(results).toEqual([false, false, true, true]);
+
+            // One non-primary batch carrying only the three hosted names —
+            // the external app never touches the store.
+            expect(getBySubdomains).toHaveBeenCalledTimes(2);
+            expect([...getBySubdomains.mock.calls[0]![0]].sort()).toEqual(
+                [liveSub, reclaimedSub, danglingSub].sort(),
+            );
+            // Primary follow-up only for the one name still missing.
+            expect(getBySubdomains.mock.calls[1]).toEqual([
+                [danglingSub],
+                { primary: true },
+            ]);
+        } finally {
+            getBySubdomains.mockRestore();
+        }
+    });
+
+    it('makes no store call when every app is non-hosted', async () => {
+        const owner = await makeUser();
+        const external = {
+            index_url: 'https://elsewhere.example.com/',
+            owner_user_id: owner.id,
+        };
+        const builtin = { index_url: undefined, owner_user_id: owner.id };
+
+        const getBySubdomains = vi.spyOn(
+            server.stores.subdomain,
+            'getBySubdomains',
+        );
+        try {
+            const results = await hostedIndexUrlBackingsAreUnavailable({
+                apps: [external, builtin],
+                subdomainStore: server.stores.subdomain,
+                config: HOSTING_CONFIG,
+            });
+            expect(results).toEqual([false, false]);
+            expect(getBySubdomains).not.toHaveBeenCalled();
+        } finally {
+            getBySubdomains.mockRestore();
+        }
+    });
+
+    it('does exactly one primary batch covering every still-missing name', async () => {
+        const owner = await makeUser();
+        const goneA = `gone-a-${Math.random().toString(36).slice(2, 6)}`;
+        const goneB = `gone-b-${Math.random().toString(36).slice(2, 6)}`;
+        const danglingA = {
+            index_url: hostedUrl(goneA),
+            owner_user_id: owner.id,
+        };
+        const danglingB = {
+            index_url: hostedUrl(goneB),
+            owner_user_id: owner.id,
+        };
+
+        const getBySubdomains = vi.spyOn(
+            server.stores.subdomain,
+            'getBySubdomains',
+        );
+        try {
+            const results = await hostedIndexUrlBackingsAreUnavailable({
+                apps: [danglingA, danglingB],
+                subdomainStore: server.stores.subdomain,
+                config: HOSTING_CONFIG,
+            });
+            expect(results).toEqual([true, true]);
+            expect(getBySubdomains).toHaveBeenCalledTimes(2);
+            expect(getBySubdomains.mock.calls[1]![1]).toEqual({
+                primary: true,
+            });
+            expect([...getBySubdomains.mock.calls[1]![0]].sort()).toEqual(
+                [goneA, goneB].sort(),
+            );
+        } finally {
+            getBySubdomains.mockRestore();
+        }
     });
 });

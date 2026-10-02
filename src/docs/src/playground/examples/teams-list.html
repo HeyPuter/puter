@@ -3,16 +3,7 @@
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            let teams;
-            try {
-                teams = await puter.teams.list();
-            } catch (e) {
-                // No /teams route at all when the feature is off, so this
-                // rejects rather than returning an empty list.
-                if (e.code !== 'not_found') throw e;
-                puter.print('Teams are not available on this Puter.');
-                return;
-            }
+            const teams = await puter.teams.list();
 
             if (teams.length === 0) {
                 puter.print('You are not on a team.');

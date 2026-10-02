@@ -348,7 +348,9 @@ const en = {
         process_type_ui: 'UI',
         profile_picture_adjust_hint: 'Drag to reposition. Scroll or use the slider to zoom.',
         profile_picture_adjust_hint_touch: 'Drag to move. Pinch or use the slider to zoom.',
+        profile_picture_hint: 'Click the avatar to change your profile picture',
         profile_picture_load_failed: 'This image could not be opened. Please try another file.',
+        profile_picture_remove_failed: 'Your photo could not be removed. Please try again.',
         properties: 'Properties',
         public: 'Public',
         publish: 'Publish',
@@ -365,6 +367,7 @@ const en = {
         refresh: 'Refresh',
         release_address_confirmation: 'Are you sure you want to release this address?',
         remove_from_taskbar: 'Remove from Taskbar',
+        remove_profile_picture: 'Remove photo',
         rename: 'Rename',
         repeat: 'Repeat',
         replace: 'Replace',
@@ -908,6 +911,7 @@ const en = {
         sign_up_with_provider: 'Sign up with %%',
         sign_up_with_email: 'Sign up using email',
         popup_opener_uses_puter: '%strong% is powered by Puter for its AI and cloud features.\nUse your Puter account to continue.',
+        popup_opener_origin_unsupported: 'Puter cannot sign you in to this page because the browser gives it no identifiable address. Pages opened straight from a file (file://) and iframes sandboxed without allow-same-origin are not supported — serve the page over http://localhost or a real domain and try again.',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window
