@@ -33,6 +33,7 @@ const RECOMMENDED_APP_NAMES = [
     'meetings',
     'teamchat',
     'email',
+    'whiteboard',
     'spreadsheet',
     'word-processor',
     'presentation',
