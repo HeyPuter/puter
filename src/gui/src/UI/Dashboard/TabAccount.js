@@ -49,7 +49,9 @@ const TabAccount = {
         h += '<div class="dashboard-profile-info">';
         h += `<h3>${html_encode(window.user?.username || 'User')}</h3>`;
         h += `<p>${html_encode(window.user?.email || '')}</p>`;
-        h += '<span class="dashboard-profile-hint">Click the avatar to change your profile picture</span>';
+        h += `<span class="dashboard-profile-hint">${i18n('profile_picture_hint')}</span>`;
+        // Shown only while there is a picture to remove.
+        h += `<button type="button" class="dashboard-profile-remove-picture" ${window.user?.profile?.picture ? '' : 'hidden'}>${i18n('remove_profile_picture')}</button>`;
         h += '</div>';
         h += '</div>';
         h += '</div>';
@@ -261,9 +263,30 @@ const TabAccount = {
                     $('.profile-pic').css('background-image', `url(${ html_encode(dataUrl) })`);
                     $('.profile-image').css('background-image', `url(${ html_encode(dataUrl) })`);
                     $('.profile-image').addClass('profile-image-has-picture');
+                    $el_window.find('.dashboard-profile-remove-picture').prop('hidden', false);
                     update_profile(window.user.username, { picture: dataUrl });
                 },
             });
+        });
+        $el_window.find('.dashboard-section-account .dashboard-profile-remove-picture').on('click', async function () {
+            const $btn = $(this);
+            const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
+            $btn.prop('disabled', true);
+            // update_profile resolves with no profile when the request failed.
+            const profile = await update_profile(window.user.username, { picture: null });
+            $btn.prop('disabled', false);
+            if ( ! profile ) {
+                $hint.text(i18n('profile_picture_remove_failed', [], false));
+                return;
+            }
+            $hint.text(i18n('profile_picture_hint', [], false));
+            // fall back to the default avatar everywhere the picture was shown
+            const defaultPicture = window.icons['profile.svg'];
+            $('.profile-pic').css('background-image', `url(${ html_encode(defaultPicture) })`);
+            $('.profile-image').css('background-image', `url(${ html_encode(defaultPicture) })`);
+            $('.profile-image').removeClass('profile-image-has-picture');
+            $btn.prop('hidden', true);
+            $el_window.find('.dashboard-section-account .change-profile-picture').trigger('focus');
         });
     },
 };
