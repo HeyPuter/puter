@@ -22,6 +22,7 @@ import path from 'node:path';
 import { PuterController } from '../types.js';
 import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
+import type { IConfig } from '../../types';
 import type {
     PuterHomepageService,
     PageMeta,
@@ -43,9 +44,9 @@ const APP_LANDING_LIMIT = {
 };
 
 /**
- * App descriptions can run long; search snippets and social cards want a
- * short blurb. Collapses whitespace, then cuts at a word boundary with an
- * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
+ * App descriptions can run long; search snippets and social cards want a short
+ * blurb. Collapses whitespace, then cuts at a word boundary with an ellipsis so
+ * the result never exceeds `APP_META_DESCRIPTION_MAX`.
  */
 export function appMetaDescription(text: string): string {
     const clean = text.replace(/\s+/g, ' ').trim();
@@ -54,6 +55,53 @@ export function appMetaDescription(text: string): string {
     const wordEnd = head.lastIndexOf(' ');
     const cut = wordEnd > 0 ? head.slice(0, wordEnd) : head;
     return `${cut.replace(/[\s,;:.!?…—-]+$/, '')}…`;
+}
+
+/**
+ * `frame-ancestors` for the embed routes. A wildcard over `*.<domain>` would
+ * also admit user-hosted sites whenever the hosting domains sit under it, so
+ * the embedding page is named exactly, from the request's referrer. A nested
+ * embed (the toolbar's app browser) has the GUI as its parent; the GUI frame
+ * above it was already held to that page's own exact-origin policy.
+ */
+export function embedFrameAncestors(
+    config: Pick<
+        IConfig,
+        | 'origin'
+        | 'domain'
+        | 'static_hosting_domain'
+        | 'static_hosting_domain_alt'
+        | 'private_app_hosting_domain'
+        | 'private_app_hosting_domain_alt'
+    >,
+    referer: string | undefined,
+): string {
+    const gui = new URL(config.origin ?? `https://${config.domain}`);
+    let parent: URL;
+    try {
+        parent = new URL(referer ?? '');
+    } catch {
+        return "'self'";
+    }
+    if (parent.origin === gui.origin) {
+        const port = gui.port ? `:${gui.port}` : '';
+        return `'self' ${gui.protocol}//*.${config.domain}${port}`;
+    }
+    const host = parent.hostname.toLowerCase();
+    const hostingDomains = [
+        config.static_hosting_domain,
+        config.static_hosting_domain_alt,
+        config.private_app_hosting_domain,
+        config.private_app_hosting_domain_alt,
+    ]
+        .map((d) => (d ?? '').toLowerCase().split(':')[0])
+        .filter(Boolean);
+    const allowed =
+        parent.protocol === gui.protocol &&
+        parent.port === gui.port &&
+        host.endsWith(`.${config.domain.toLowerCase()}`) &&
+        !hostingDomains.some((d) => host === d || host.endsWith(`.${d}`));
+    return allowed ? `'self' ${parent.origin}` : "'self'";
 }
 
 /**
@@ -104,6 +152,23 @@ export class HomepageController extends PuterController {
         // -- Root + path-aliased shell routes ------------------------
 
         router.get('/', {}, (req, res) => sendShell(req, res));
+
+        for (const embed of ['apps', 'toolbar'] as const) {
+            router.get(`/embed/${embed}`, {}, (req, res) => {
+                // SDK bootstrap parameters must not change this page's account or API origin.
+                if (Object.keys(req.query).length) {
+                    res.redirect(`/embed/${embed}`);
+                    return;
+                }
+                res.removeHeader('X-Frame-Options');
+                res.setHeader(
+                    'Content-Security-Policy',
+                    `frame-ancestors ${embedFrameAncestors(this.config, req.get('referer'))}`,
+                );
+                res.setHeader('Cache-Control', 'no-store');
+                res.send(homepage.renderAppBrowserEmbed(embed));
+            });
+        }
 
         router.get('/settings', {}, (req, res) => sendShell(req, res));
         router.get('/settings/*splat', {}, (req, res) => sendShell(req, res));

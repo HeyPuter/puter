@@ -17,11 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import translations from './translations/translations.js';
+import en from './translations/en.js';
 import { installI18n } from './i18nCore.js';
 
-window.listSupportedLanguages = () => Object.keys(translations).map(lang => translations[lang]);
+installI18n({ en });
 
-installI18n(translations);
-
-export default {};
+/**
+ * Loads only the preferred language, so embeds don't ship every translation.
+ * Unknown or unavailable languages keep English.
+ * @param {string} locale
+ */
+export async function loadLocale (locale) {
+    if ( typeof locale !== 'string' || locale === 'en' || ! /^[a-z]+$/.test(locale) ) return;
+    try {
+        const { default: language } = await import(
+            /* webpackExclude: /translations\.js$/ */ `./translations/${locale}.js`
+        );
+        installI18n({ en, [locale]: language });
+    } catch {
+        // English is already installed.
+    }
+}
