@@ -1419,3 +1419,168 @@ describe('AppStore deleted-row tombstones', () => {
         expect(await redis.get(`apps:uid:${uid}`)).not.toBeNull();
     });
 });
+
+describe('AppStore listByIndexUrlCandidates', () => {
+    let server;
+    let appStore;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        appStore = server.stores.app;
+        // Shared mock redis persists `apps:id:*` across servers while each
+        // fresh sqlite db restarts its id sequence at 1 — without this a
+        // freshly-created row can read back a stale cached row at the same id.
+        await clearAppCache(server.clients.redis);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const createApp = async (indexUrl) => {
+        const name = `idxurl-${Math.random().toString(36).slice(2, 10)}`;
+        return appStore.create(
+            { name, title: name, index_url: indexUrl },
+            { ownerUserId: 1 },
+        );
+    };
+
+    it('chunks a candidate list spanning more than one page and still finds the real URL at the end', async () => {
+        const real = await createApp('https://real-target.example.com/');
+        // 2,000 candidates is more than one 900-wide chunk; the real URL
+        // sits past the first chunk boundary.
+        const candidates = [];
+        for (let i = 0; i < 2000; i++) {
+            candidates.push(`https://decoy-${i}.example.com/`);
+        }
+        candidates.push(real.index_url);
+
+        const rows = await appStore.listByIndexUrlCandidates(candidates);
+        expect(rows.map((r) => r.id)).toEqual([real.id]);
+    });
+
+    it('dedupes a candidate repeated across chunk boundaries to one row', async () => {
+        const real = await createApp('https://dup-target.example.com/');
+        const candidates = Array.from({ length: 2000 }, () => real.index_url);
+
+        const rows = await appStore.listByIndexUrlCandidates(candidates);
+        expect(rows.length).toBe(1);
+        expect(rows[0].id).toBe(real.id);
+    });
+
+    it('returns [] for an empty or non-array candidate list', async () => {
+        expect(await appStore.listByIndexUrlCandidates([])).toEqual([]);
+        expect(await appStore.listByIndexUrlCandidates(null)).toEqual([]);
+    });
+});
+
+describe('AppStore findCanonicalUidByIndexUrlCandidates', () => {
+    let server;
+    let appStore;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        appStore = server.stores.app;
+        await clearAppCache(server.clients.redis);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('prefers the private row, then the oldest match', async () => {
+        const url = `https://canon-${Math.random().toString(36).slice(2, 10)}.example.com/`;
+        const pub = await appStore.create(
+            { name: `pub-${Math.random().toString(36).slice(2, 8)}`, title: 't', index_url: url },
+            { ownerUserId: 1 },
+        );
+        const privUid = `app-${Math.random().toString(36).slice(2, 10)}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
+            [privUid, `priv-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+        );
+
+        const uid = await appStore.findCanonicalUidByIndexUrlCandidates([url]);
+        expect(uid).toBe(privUid);
+        expect(uid).not.toBe(pub.uid);
+    });
+
+    it('returns null for an empty, non-array, or non-matching candidate list', async () => {
+        expect(await appStore.findCanonicalUidByIndexUrlCandidates([])).toBeNull();
+        expect(await appStore.findCanonicalUidByIndexUrlCandidates(null)).toBeNull();
+        expect(
+            await appStore.findCanonicalUidByIndexUrlCandidates([
+                'https://nothing-here.example.com/',
+            ]),
+        ).toBeNull();
+    });
+});
+
+describe('AppStore listIndexUrlWinners', () => {
+    let server;
+    let appStore;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        appStore = server.stores.app;
+        await clearAppCache(server.clients.redis);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const createApp = async (indexUrl) => {
+        const name = `winner-${Math.random().toString(36).slice(2, 10)}`;
+        return appStore.create(
+            { name, title: name, index_url: indexUrl },
+            { ownerUserId: 1 },
+        );
+    };
+
+    it('collapses many apps sharing one index_url into a single winner row', async () => {
+        // An external dev-server default — the exact shape that can be
+        // shared by thousands of apps and would blow up a row-per-app query.
+        const sharedUrl = `http://localhost:${5000 + Math.floor(Math.random() * 1000)}/`;
+        for (let i = 0; i < 50; i++) {
+            await createApp(sharedUrl);
+        }
+        const otherUrl = `https://distinct-${Math.random().toString(36).slice(2, 10)}.example.com/`;
+        await createApp(otherUrl);
+
+        const rows = await appStore.listIndexUrlWinners([sharedUrl, otherUrl]);
+        expect(rows.length).toBe(2);
+        // One row per distinct index_url, never one per matching app.
+        expect(rows.length).toBeLessThanOrEqual(2);
+        const shared = rows.find((r) => r.index_url === sharedUrl);
+        expect(shared).toBeTruthy();
+        expect(shared.private_id == null).toBe(true);
+        expect(Number(shared.min_id)).toBeGreaterThan(0);
+    });
+
+    it('reports the lowest private id and the lowest id overall per index_url', async () => {
+        const url = `https://winner-${Math.random().toString(36).slice(2, 10)}.example.com/`;
+        const pub = await createApp(url);
+        const priv1Uid = `app-${Math.random().toString(36).slice(2, 10)}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
+            [priv1Uid, `priv1-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+        );
+        const priv1 = await appStore.getByUid(priv1Uid);
+        const priv2Uid = `app-${Math.random().toString(36).slice(2, 10)}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
+            [priv2Uid, `priv2-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+        );
+        const priv2 = await appStore.getByUid(priv2Uid);
+
+        const [winner] = await appStore.listIndexUrlWinners([url]);
+        expect(Number(winner.min_id)).toBe(pub.id);
+        expect(Number(winner.private_id)).toBe(Math.min(priv1.id, priv2.id));
+    });
+
+    it('returns [] for an empty or non-array candidate list', async () => {
+        expect(await appStore.listIndexUrlWinners([])).toEqual([]);
+        expect(await appStore.listIndexUrlWinners(null)).toEqual([]);
+    });
+});

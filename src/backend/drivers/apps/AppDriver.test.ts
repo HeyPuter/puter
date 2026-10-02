@@ -1983,3 +1983,358 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         ).not.toBe(false);
     });
 });
+
+// -- select: batched #toClient query counts --
+//
+// Canonical index_url resolution and the hosted-backing check are batched per
+// page, so these counts must stay flat as the page grows.
+
+describe('AppDriver.select query-count regression', () => {
+    const makeMixedApps = async (count: number) => {
+        const { actor, userId } = await makeUser();
+        for (let i = 0; i < count; i++) {
+            const kind = i % 3;
+            if (kind === 0) {
+                // Live hosted: owns the subdomain it points at.
+                const sub = uniqueName(`qclive${i}`);
+                await server.stores.subdomain.create({ userId, subdomain: sub });
+                await withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName(`qc-live-${i}`),
+                            title: 't',
+                            index_url: `https://${sub}.site.puter.localhost/`,
+                        },
+                    }),
+                );
+            } else if (kind === 1) {
+                // Dangling hosted: the subdomain is gone by the time we read.
+                const sub = uniqueName(`qcdang${i}`);
+                const row = await server.stores.subdomain.create({
+                    userId,
+                    subdomain: sub,
+                });
+                await withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName(`qc-dangling-${i}`),
+                            title: 't',
+                            index_url: `https://${sub}.site.puter.localhost/`,
+                        },
+                    }),
+                );
+                await server.stores.subdomain.deleteByUuid(
+                    String((row as { uuid: string }).uuid),
+                    { userId },
+                );
+            } else {
+                // External, with a path — not puter-hosted at all.
+                await withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName(`qc-ext-${i}`),
+                            title: 't',
+                            index_url: `${uniqueIndexUrl()}some/path`,
+                        },
+                    }),
+                );
+            }
+        }
+        return actor;
+    };
+
+    const countQueriesForSelect = async (actor: Actor) => {
+        const read = vi.spyOn(server.clients.db, 'read');
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            const items = (await withActor(actor, () =>
+                driver.select({ predicate: ['user-can-edit'] }),
+            )) as Array<Record<string, unknown>>;
+            const counts = { indexUrlIn: 0, subdomains: 0, appsUidEq: 0 };
+            for (const call of read.mock.calls) {
+                const sql = call[0] as string;
+                if (/`index_url`\s+IN\s*\(/i.test(sql)) {
+                    counts.indexUrlIn++;
+                } else if (sql.includes('`subdomains`')) {
+                    counts.subdomains++;
+                } else if (
+                    sql.includes('`apps`') &&
+                    /`uid`\s*=\s*\?/.test(sql)
+                ) {
+                    counts.appsUidEq++;
+                }
+            }
+            return {
+                counts,
+                pread: pread.mock.calls.length,
+                itemCount: items.length,
+            };
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    };
+
+    it('keeps index_url / subdomains / per-app-uid query counts constant from 3 apps to 30 apps', async () => {
+        const actor3 = await makeMixedApps(3);
+        const actor30 = await makeMixedApps(30);
+
+        const small = await countQueriesForSelect(actor3);
+        const large = await countQueriesForSelect(actor30);
+
+        expect(small.itemCount).toBe(3);
+        expect(large.itemCount).toBe(30);
+        // Sanity check the classifier actually saw the shapes it's counting.
+        expect(small.counts.indexUrlIn).toBeGreaterThan(0);
+        expect(small.counts.subdomains).toBeGreaterThan(0);
+
+        expect(large.counts).toEqual(small.counts);
+        expect(large.pread).toBe(small.pread);
+    });
+});
+
+// -- select / read parity --
+
+describe('AppDriver.select / read parity', () => {
+    const findViaBroadSelect = async (
+        actor: Actor,
+        uid: string,
+    ): Promise<Record<string, unknown> | undefined> => {
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await withActor(actor, () =>
+                driver.select({ limit: 50, cursor }),
+            )) as { items: Array<Record<string, unknown>>; cursor?: string };
+            const found = page.items.find((r) => r.uid === uid);
+            if (found) return found;
+            cursor = page.cursor;
+        } while (cursor);
+        return undefined;
+    };
+
+    it('every select item (minus stats) deep-equals the corresponding read', async () => {
+        const { actor } = await makeUser();
+        const names: string[] = [];
+        for (let i = 0; i < 4; i++) {
+            const name = uniqueName(`parity${i}`);
+            names.push(name);
+            await withActor(actor, () =>
+                driver.create({
+                    object: { name, title: 't', index_url: uniqueIndexUrl() },
+                }),
+            );
+        }
+
+        const selectResult = (await withActor(actor, () =>
+            driver.select({ predicate: ['user-can-edit'] }),
+        )) as Array<Record<string, unknown>>;
+        const ours = selectResult.filter((item) =>
+            names.includes(item.name as string),
+        );
+        expect(ours.length).toBe(names.length);
+
+        for (const item of ours) {
+            const read = await withActor(actor, () =>
+                driver.read({ uid: item.uid as string }),
+            );
+            const { stats: _itemStats, ...itemRest } = item;
+            const { stats: _readStats, ...readRest } = read;
+            expect(itemRest).toEqual(readRest);
+        }
+    });
+
+    it('sets created_from_origin on the canonical hosted row and null on a duplicate', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('cfo');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const url = `https://${sub}.site.puter.localhost/`;
+        const canonical = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('cfo-canon'),
+                    title: 't',
+                    index_url: url,
+                },
+            }),
+        );
+        // A duplicate row at the same index_url — `create` would normally
+        // refuse this; direct insert mirrors the pre-existing-data shape
+        // the canonical resolver has to cope with.
+        const dupUid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+            [dupUid, uniqueName('cfo-dup'), 'dup', url, userId],
+        );
+
+        const result = (await withActor(actor, () =>
+            driver.select({ predicate: ['user-can-edit'] }),
+        )) as Array<Record<string, unknown>>;
+        const canonItem = result.find((r) => r.uid === canonical.uid);
+        const dupItem = result.find((r) => r.uid === dupUid);
+        expect(canonItem?.created_from_origin).toBe(
+            `https://${sub}.site.puter.localhost`,
+        );
+        expect(dupItem?.created_from_origin).toBeNull();
+    });
+
+    it('gates the canonical-private row: a public duplicate withholds index_url and denies access', async () => {
+        const ownerA = await makeUser();
+        const ownerB = await makeUser();
+
+        const sharedUrl = uniqueIndexUrl();
+        const uidA = `app-${uuidv4()}`;
+        const uidB = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                uidA,
+                uniqueName('priv-a'),
+                'Private A',
+                sharedUrl,
+                ownerA.userId,
+                1,
+            ],
+        );
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                uidB,
+                uniqueName('pub-b'),
+                'Public B',
+                sharedUrl,
+                ownerB.userId,
+                0,
+            ],
+        );
+
+        // B's own owner is not A's owner, so the gate still applies to them.
+        const result = (await withActor(ownerB.actor, () =>
+            driver.select({ predicate: ['user-can-edit'] }),
+        )) as Array<Record<string, unknown>>;
+        const bItem = result.find((r) => r.uid === uidB);
+        expect(bItem).toBeTruthy();
+        expect(bItem!.index_url).toBeUndefined();
+        expect(
+            (bItem!.privateAccess as { hasAccess?: boolean }).hasAccess,
+        ).toBe(false);
+    });
+
+    it('dangling hosted app via select: owner keeps index_url, others do not', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const sub = uniqueName('qcdangsel');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const created = await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('dangling-sel'),
+                    title: 't',
+                    index_url: `https://${sub}.site.puter.localhost/`,
+                },
+            }),
+        );
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const ownerResult = (await withActor(owner.actor, () =>
+            driver.select({ predicate: ['user-can-edit'] }),
+        )) as Array<Record<string, unknown>>;
+        const ownerItem = ownerResult.find((r) => r.uid === created.uid);
+        expect(ownerItem?.index_url).toBe(created.index_url);
+        expect(
+            (ownerItem?.privateAccess as { reason?: string } | undefined)
+                ?.reason,
+        ).toBe('hosted_backing_unavailable');
+
+        const otherItem = await findViaBroadSelect(
+            other.actor,
+            created.uid as string,
+        );
+        expect(otherItem?.index_url).toBeUndefined();
+        expect(
+            (otherItem?.privateAccess as { hasAccess?: boolean } | undefined)
+                ?.hasAccess,
+        ).toBe(false);
+    });
+
+    it('a blocked origin resolves created_from_origin to null without select throwing', async () => {
+        const { actor } = await makeUser();
+        const blockedHost = `blocked-${Math.random().toString(36).slice(2, 10)}.test`;
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('blocked-sel'),
+                    title: 't',
+                    index_url: `https://${blockedHost}/app`,
+                },
+            }),
+        );
+        await server.clients.db.write(
+            'INSERT INTO `blocked_app_origins` (`domain`, `include_subdomains`) VALUES (?, ?)',
+            [blockedHost, 0],
+        );
+        (
+            server.services.appOriginBlocklist as { invalidate: () => void }
+        ).invalidate();
+
+        const result = (await withActor(actor, () =>
+            driver.select({ predicate: ['user-can-edit'] }),
+        )) as Array<Record<string, unknown>>;
+        const item = result.find((r) => r.uid === created.uid);
+        expect(item).toBeTruthy();
+        expect(item!.created_from_origin).toBeNull();
+    });
+});
+
+// -- read: prefetched-shaped params cannot be spoofed --
+
+describe('AppDriver.read prefetched-param isolation', () => {
+    it('ignores caller-supplied hostedBackingUnavailable/canonical/filetypes on a dangling app', async () => {
+        const owner = await makeUser();
+        const attacker = await makeUser();
+        const sub = uniqueName('sec-dangling');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const created = await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('sec-app'),
+                    title: 't',
+                    index_url: `https://${sub}.site.puter.localhost/`,
+                    filetype_associations: ['.puter'],
+                },
+            }),
+        );
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const result = await withActor(attacker.actor, () =>
+            driver.read({
+                uid: created.uid,
+                params: {
+                    hostedBackingUnavailable: false,
+                    canonical: null,
+                    filetypes: ['x'],
+                },
+            }),
+        );
+
+        // The spoofed `hostedBackingUnavailable: false` doesn't suppress the
+        // real denial, so the dangling app's index_url is still withheld.
+        expect(result.index_url).toBeUndefined();
+        // The spoofed `filetypes` doesn't override the DB-backed list.
+        expect(result.filetype_associations).toEqual(
+            expect.arrayContaining(['puter']),
+        );
+        expect(result.filetype_associations).not.toContain('x');
+    });
+});

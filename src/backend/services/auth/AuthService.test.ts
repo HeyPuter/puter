@@ -1811,6 +1811,155 @@ describe('AuthService (integration)', () => {
         });
     });
 
+    describe('appUidsFromOrigins', () => {
+        it('matches appUidFromOrigin across hosting variants, an unknown external, and a repointed origin', async () => {
+            const sub = `batch-${Math.random().toString(36).slice(2, 10)}`;
+            const origins = [
+                `https://${sub}.site.puter.localhost`,
+                `https://${sub}.host.puter.localhost`,
+                `http://${sub}.app.puter.localhost`,
+                `https://external-${uuidv4()}.example.com`,
+                `chrome-extension://${uuidv4()}`,
+            ];
+
+            const repointOrigin = `https://repoint-batch-${uuidv4()}.example.com`;
+            const repointed = await server.stores.app.createFromOrigin(
+                await authService.appUidFromOrigin(repointOrigin),
+                authService.canonicalizeOrigin(repointOrigin),
+            );
+            await server.stores.app.update(repointed.id, {
+                index_url: `https://repoint-new-${uuidv4()}.example.com`,
+            });
+            origins.push(repointOrigin);
+
+            const expected = new Map<string, string>();
+            for (const origin of origins) {
+                expected.set(
+                    origin,
+                    await authService.appUidFromOrigin(origin),
+                );
+            }
+
+            const batched = await authService.appUidsFromOrigins(origins);
+            for (const origin of origins) {
+                expect(batched.get(origin)).toBe(expected.get(origin));
+            }
+            // Every hosting variant of the same subdomain collapses to one uid.
+            expect(batched.get(origins[0])).toBe(batched.get(origins[1]));
+            expect(batched.get(origins[0])).toBe(batched.get(origins[2]));
+            // The repointed origin moved on to a successor uid, not the
+            // stale row's.
+            expect(batched.get(repointOrigin)).not.toBe(repointed.uid);
+        });
+
+        it('resolves unparseable origins to null instead of throwing', async () => {
+            const result = await authService.appUidsFromOrigins([
+                'not-a-url',
+                'javascript:alert(document.domain)',
+            ]);
+            expect(result.get('not-a-url')).toBeNull();
+            expect(result.get('javascript:alert(document.domain)')).toBeNull();
+        });
+
+        it('resolves a blocked origin to null without throwing or affecting other origins', async () => {
+            const blockedHost = `blocked-batch-${uuidv4()}.example.com`;
+            await server.clients.db.write(
+                'INSERT INTO `blocked_app_origins` (`domain`, `include_subdomains`) VALUES (?, ?)',
+                [blockedHost, 0],
+            );
+            (
+                server.services.appOriginBlocklist as { invalidate: () => void }
+            ).invalidate();
+
+            const okOrigin = `https://ok-batch-${uuidv4()}.example.com`;
+            const expectedOk = await authService.appUidFromOrigin(okOrigin);
+
+            const result = await authService.appUidsFromOrigins([
+                `https://${blockedHost}`,
+                okOrigin,
+            ]);
+            expect(result.get(`https://${blockedHost}`)).toBeNull();
+            expect(result.get(okOrigin)).toBe(expectedOk);
+        });
+
+        it('prefers a private row over an older public stub, breaking ties by lowest id, in one batch', async () => {
+            const user = await makeUser();
+            const sub = `batch-priv-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.app.createFromOrigin(
+                `app-${uuidv4()}`,
+                `https://${sub}.host.puter.localhost`,
+                { ownerUserId: user.id },
+            );
+            const realUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    realUid,
+                    `real-${sub}`,
+                    'Real app',
+                    `https://${sub}.app.puter.localhost`,
+                    user.id,
+                    1,
+                ],
+            );
+
+            const origin = `https://${sub}.host.puter.localhost`;
+            const result = await authService.appUidsFromOrigins([origin]);
+            expect(result.get(origin)).toBe(realUid);
+        });
+
+        it('a private row on one index_url variant wins over a lower-id public row on another, in both paths', async () => {
+            // Both rows match the same origin's candidate set but live under
+            // different exact `index_url` strings — the winners reduction has
+            // to look across every matching variant, not just one.
+            const base = `https://variant-${uuidv4()}.example.com`;
+            const publicUid = `app-${uuidv4()}`;
+            const privateUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
+                [publicUid, `pub-${uuidv4()}`, 'Public', `${base}/`, 0],
+            );
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
+                [
+                    privateUid,
+                    `priv-${uuidv4()}`,
+                    'Private',
+                    `${base}/index.html`,
+                    1,
+                ],
+            );
+
+            await expect(authService.appUidFromOrigin(base)).resolves.toBe(
+                privateUid,
+            );
+            const batched = await authService.appUidsFromOrigins([base]);
+            expect(batched.get(base)).toBe(privateUid);
+        });
+
+        it('does not cross-assign uids between origins that each have their own canonical row', async () => {
+            const subA = `batch-cross-a-${Math.random().toString(36).slice(2, 8)}`;
+            const subB = `batch-cross-b-${Math.random().toString(36).slice(2, 8)}`;
+            const originA = `https://${subA}.site.puter.localhost`;
+            const originB = `https://${subB}.site.puter.localhost`;
+            const appA = await server.stores.app.createFromOrigin(
+                await authService.appUidFromOrigin(originA),
+                authService.canonicalizeOrigin(originA),
+            );
+            const appB = await server.stores.app.createFromOrigin(
+                await authService.appUidFromOrigin(originB),
+                authService.canonicalizeOrigin(originB),
+            );
+
+            const result = await authService.appUidsFromOrigins([
+                originA,
+                originB,
+            ]);
+            expect(result.get(originA)).toBe(appA.uid);
+            expect(result.get(originB)).toBe(appB.uid);
+        });
+    });
+
     describe('subdomainOwnerIdFromOrigin', () => {
         // Test servers inherit the four hosting domains (production:
         // puter.site / puter.host / puter.app / puter.dev) from
@@ -2936,6 +3085,23 @@ describe('AuthService.appUidFromOrigin — aliased hosts', () => {
             'https://alpha.example.com',
         );
         expect(withPort).not.toBe(withoutPort);
+    });
+
+    it('appUidsFromOrigins collapses an alias group onto one uid, batched', async () => {
+        const alphaOrigin = 'https://alpha.example.com';
+        const betaOrigin = 'https://beta.example.com';
+        const ungroupedOrigin = 'https://gamma.example.com';
+
+        const result = await authService.appUidsFromOrigins([
+            alphaOrigin,
+            betaOrigin,
+            ungroupedOrigin,
+        ]);
+        expect(result.get(betaOrigin)).toBe(result.get(alphaOrigin));
+        expect(result.get(ungroupedOrigin)).not.toBe(result.get(alphaOrigin));
+        expect(result.get(alphaOrigin)).toBe(
+            await authService.appUidFromOrigin(alphaOrigin),
+        );
     });
 });
 
