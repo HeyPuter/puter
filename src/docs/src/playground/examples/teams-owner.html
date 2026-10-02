@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const teams = await puter.teams.list().catch(() => []);
+
+            for (const team of teams) {
+                puter.print(`<b>${team.name ?? team.handle}</b><br>`);
+                // A UI hint only — the server enforces ownership on every route.
+                puter.print(team.isOwner
+                    ? 'You own this team — billing tab shown<br><br>'
+                    : 'You are a member — billing tab hidden<br><br>');
+            }
+
+            if (teams.length === 0) puter.print('No team');
+        })();
+    </script>
+</body>
+</html>
