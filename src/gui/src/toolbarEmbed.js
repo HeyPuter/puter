@@ -58,13 +58,13 @@ function showPanel (next) {
     closePanel();
     panel = next;
     $root.find(`[data-panel="${next}"]`).attr('aria-expanded', 'true');
-    $root.append(`<section class="toolbar-panel dashboard-card" aria-label="${escape(i18n(next === 'apps' ? 'toolbar_apps' : 'account'))}">
-        <header><strong>${i18n(next === 'apps' ? 'toolbar_apps' : 'account')}</strong><button class="toolbar-close" type="button" aria-label="${escape(i18n('close'))}">×</button></header>
+    $root.append(`<section class="toolbar-panel dashboard-card" aria-label="${i18n(next === 'apps' ? 'toolbar_apps' : 'account')}">
+        <header><strong>${i18n(next === 'apps' ? 'toolbar_apps' : 'account')}</strong><button class="toolbar-close" type="button" aria-label="${i18n('close')}">×</button></header>
         <div class="toolbar-panel-content"></div></section>`);
     $root.find('.toolbar-close').on('click', closePanel);
     const $content = $root.find('.toolbar-panel-content');
     if ( next === 'apps' ) {
-        $content.html(`<iframe class="toolbar-apps" title="${escape(i18n('toolbar_apps'))}" src="/embed/apps"></iframe>`);
+        $content.html(`<iframe class="toolbar-apps" title="${i18n('toolbar_apps')}" src="/embed/apps"></iframe>`);
         $content.find('iframe').on('load', event => {
             const frameDocument = event.currentTarget.contentDocument;
             frameDocument?.addEventListener('keydown', keyEvent => {
@@ -109,7 +109,7 @@ async function accountAction (action) {
     busy = true;
     $root.find('.toolbar-account, .toolbar-logout, .toolbar-confirm-logout').prop('disabled', true);
     try { await action(); }
-    catch { $root.find('.toolbar-error').text(i18n('toolbar_account_error')).prop('hidden', false); }
+    catch { $root.find('.toolbar-error').html(i18n('toolbar_account_error')).prop('hidden', false); }
     finally {
         busy = false;
         $root.find('.toolbar-account, .toolbar-logout, .toolbar-confirm-logout').prop('disabled', false);
@@ -148,10 +148,10 @@ async function mount () {
     if ( !sessionToken ) throw new Error('Missing session');
     user = await (await request('/whoami')).json();
     if ( !user.uuid ) throw new Error('Missing account');
-    $root.html(`<nav class="toolbar-row" aria-label="${escape(i18n('toolbar_label'))}">
+    $root.html(`<nav class="toolbar-row" aria-label="${i18n('toolbar_label')}">
         ${shouldShowUpgrade(user) ? `<a class="button button-primary toolbar-upgrade" href="/dashboard?upgrade=1#usage" target="_blank" rel="noopener noreferrer">${i18n('toolbar_upgrade')}</a>` : ''}
-        <button type="button" class="toolbar-button" data-panel="apps" aria-expanded="false" aria-label="${escape(i18n('toolbar_apps'))}"><span class="toolbar-grid" aria-hidden="true">${'<i></i>'.repeat(9)}</span></button>
-        <button type="button" class="toolbar-button toolbar-avatar" data-panel="account" aria-expanded="false" aria-label="${escape(i18n('account'))}">${escape(user.username?.[0]?.toUpperCase() || '?')}</button>
+        <button type="button" class="toolbar-button" data-panel="apps" aria-expanded="false" aria-label="${i18n('toolbar_apps')}"><span class="toolbar-grid" aria-hidden="true">${'<i></i>'.repeat(9)}</span></button>
+        <button type="button" class="toolbar-button toolbar-avatar" data-panel="account" aria-expanded="false" aria-label="${i18n('account')}">${escape(user.username?.[0]?.toUpperCase() || '?')}</button>
         </nav>`);
     $root.find('[data-panel]').on('click', event => showPanel(event.currentTarget.dataset.panel));
     try {

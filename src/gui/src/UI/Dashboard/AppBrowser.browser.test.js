@@ -202,9 +202,10 @@ describe('embedded app browser', () => {
 
 
 describe('embedded toolbar', () => {
-    async function openToolbar (viewport = { width: 1100, height: 720 }, token = sessionToken) {
+    async function openToolbar (viewport = { width: 1100, height: 720 }, token = sessionToken, storage = []) {
         const context = await browser.newContext({ viewport, storageState: {
             cookies: [], origins: [{ origin, localStorage: [
+                ...storage,
                 { name: 'auth_token_v2', value: token },
                 { name: 'logged_in_users', value: JSON.stringify([
                     { uuid: 'first', username: 'First', auth_token: sessionToken },
@@ -263,6 +264,14 @@ describe('embedded toolbar', () => {
             expect(positions.after).toBe(positions.before);
             expect(positions.scroll).toBe(0);
             expect(positions.focused).toBe('toolbar-close');
+        } finally { await context.close(); }
+    });
+
+    it('labels controls with translated text encoded once', async () => {
+        const { context, toolbar } = await openToolbar(undefined, sessionToken, [{ name: 'user_preferences', value: '{"language":"de"}' }]);
+        try {
+            await toolbar.getByRole('button', { name: 'Konto', exact: true }).click();
+            await toolbar.getByRole('button', { name: 'Schließen', exact: true }).waitFor();
         } finally { await context.close(); }
     });
 
