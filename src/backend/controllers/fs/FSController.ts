@@ -52,7 +52,9 @@ import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterController } from '../types.js';
 import { STORAGE_OP_COSTS } from '../../services/metering/costs.js';
 import {
+    FS_BATCH_WRITE_MAX_ITEMS,
     FS_MULTIPART_LIMIT,
+    FS_MULTIPART_MAX_PARTS,
     FS_MUTATE_LIMIT,
     FS_READ_CONCURRENT,
     FS_READ_LIMIT,
@@ -222,6 +224,7 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const appUidLookupCache = new Map<string, Promise<number | null>>();
+        this.#assertBatchItemCount(req.body);
         const requests = Array.isArray(req.body)
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
@@ -367,6 +370,7 @@ export class FSController extends PuterController {
         res: Response<ClientCompleteWriteResponse[]>,
     ) {
         const userId = this.#getActorUserId(req);
+        this.#assertBatchItemCount(req.body);
         const requests = Array.isArray(req.body)
             ? req.body.map((requestBody) => {
                   return this.#withGuiMetadata(
@@ -443,6 +447,17 @@ export class FSController extends PuterController {
         res: Response<ClientSignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
+        const partNumbers = req.body?.partNumbers;
+        if (
+            Array.isArray(partNumbers) &&
+            partNumbers.length > FS_MULTIPART_MAX_PARTS
+        ) {
+            throw new HttpError(
+                400,
+                `Too many partNumbers in one request (max ${FS_MULTIPART_MAX_PARTS})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
         await this.#assertUploadSessionWriteAccess(req, userId, [
             req.body?.uploadId,
         ]);
@@ -863,6 +878,7 @@ export class FSController extends PuterController {
             return;
         }
 
+        this.#assertBatchItemCount(req.body);
         const requests = Array.isArray(req.body)
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
@@ -2382,6 +2398,16 @@ export class FSController extends PuterController {
         return guiMetadata;
     }
 
+    #assertBatchItemCount(items: unknown): void {
+        if (Array.isArray(items) && items.length > FS_BATCH_WRITE_MAX_ITEMS) {
+            throw new HttpError(
+                400,
+                `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+    }
+
     /**
      * The write handlers build on `req.body` being an object. A request whose
      * body never parsed leaves it undefined, and the first field read after
@@ -3019,6 +3045,7 @@ export class FSController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
+        this.#assertBatchItemCount(manifest.items);
 
         const manifestGuiMetadata = this.#extractGuiMetadata(
             manifest,

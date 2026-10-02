@@ -1694,6 +1694,206 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('setMonthAllowance / getMonthAllowance', () => {
+        const paidPolicy = (id: string, dollars: number) => {
+            const policy = {
+                id,
+                monthUsageAllowance: toMicroCents(dollars),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            };
+            target.registerPolicy(policy);
+            return policy;
+        };
+
+        it('replaces the allowance for the rest of the month on that policy', async () => {
+            const paid = paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+            // Cached before the override lands, so this also covers the drop.
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                paid.monthUsageAllowance - 1_000,
+            );
+
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-paid',
+                toMicroCents(4),
+            );
+
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.monthUsageAllowance).toBe(toMicroCents(4));
+            expect(allowed.remaining).toBe(toMicroCents(4) - 1_000);
+            expect(
+                await target.getMonthAllowance(actor.user.uuid!, 'month-paid'),
+            ).toBe(toMicroCents(4));
+        });
+
+        it('settles spend past the override against purchased credits', async () => {
+            paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-paid',
+                3_000_000,
+            );
+
+            await target.incrementUsage(actor, 'kv:read', 1, 4_000_000);
+
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+            });
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                4_000_000,
+            );
+        });
+
+        it('never applies on another policy', async () => {
+            const basic = paidPolicy('month-basic', 5);
+            paidPolicy('month-pro', 50);
+            let tier = 'month-pro';
+            target.registerSubscriptionResolver(async () => tier);
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-pro',
+                toMicroCents(20),
+            );
+
+            // Leaving the plan drops the override with it.
+            tier = 'month-basic';
+            target.invalidateActorSubscription(actor.user.uuid!);
+            expect(
+                (await target.getActorSubscription(actor)).monthUsageAllowance,
+            ).toBe(basic.monthUsageAllowance);
+            expect(
+                await target.getMonthAllowance(actor.user.uuid!, 'month-basic'),
+            ).toBe(basic.monthUsageAllowance);
+        });
+
+        it('lapses when the month ends', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                const paid = paidPolicy('month-paid', 10);
+                target.registerSubscriptionResolver(async () => 'month-paid');
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                await target.setMonthAllowance(
+                    actor.user.uuid!,
+                    'month-paid',
+                    toMicroCents(4),
+                );
+
+                vi.setSystemTime(OCTOBER_MONTH_ISO);
+                target.invalidateActorSubscription(actor.user.uuid!);
+                expect(
+                    (await target.getActorSubscription(actor))
+                        .monthUsageAllowance,
+                ).toBe(paid.monthUsageAllowance);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('holds an override for a later month until it is due to end', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                const paid = paidPolicy('month-paid', 10);
+                target.registerSubscriptionResolver(async () => 'month-paid');
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                await target.setMonthAllowance(
+                    actor.user.uuid!,
+                    'month-paid',
+                    toMicroCents(4),
+                    { month: '2026-10', until: Date.UTC(2026, 9, 5) / 1000 },
+                );
+                const allowanceNow = async () => {
+                    target.invalidateActorSubscription(actor.user.uuid!);
+                    return (await target.getActorSubscription(actor))
+                        .monthUsageAllowance;
+                };
+
+                expect(await allowanceNow()).toBe(paid.monthUsageAllowance);
+                vi.setSystemTime('2026-10-02T12:00:00Z');
+                expect(await allowanceNow()).toBe(toMicroCents(4));
+                expect(
+                    await target.getMonthAllowance(
+                        actor.user.uuid!,
+                        'month-paid',
+                        '2026-10',
+                    ),
+                ).toBe(toMicroCents(4));
+                vi.setSystemTime('2026-10-06T12:00:00Z');
+                expect(await allowanceNow()).toBe(paid.monthUsageAllowance);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('leaves free policies alone without reading for an override', async () => {
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                DEFAULT_FREE_SUBSCRIPTION,
+                1,
+            );
+            const getSpy = vi.spyOn(server.stores.kv, 'get');
+
+            const policy = await target.getActorSubscription(actor);
+
+            expect(policy.id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+            expect(policy.monthUsageAllowance).toBeGreaterThan(1);
+            const allowanceReads = getSpy.mock.calls.filter(([{ key }]) =>
+                String(key).includes(':allowance:'),
+            );
+            expect(allowanceReads).toHaveLength(0);
+            getSpy.mockRestore();
+        });
+
+        it('falls back to the policy allowance when the override cannot be read', async () => {
+            const paid = paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            const getSpy = vi
+                .spyOn(server.stores.kv, 'get')
+                .mockRejectedValueOnce(new Error('kv down'));
+
+            const policy = await target.getActorSubscription(actor);
+
+            expect(policy.monthUsageAllowance).toBe(paid.monthUsageAllowance);
+            getSpy.mockRestore();
+        });
+
+        it('refuses an allowance that would read as unmetered', async () => {
+            await expect(
+                target.setMonthAllowance(actor.user.uuid!, 'month-paid', 0),
+            ).rejects.toThrow();
+            await expect(
+                target.setMonthAllowance(actor.user.uuid!, 'month-paid', 1, {
+                    month: 'October',
+                }),
+            ).rejects.toThrow();
+            // 0 would read as "never expires" to the store.
+            await expect(
+                target.setMonthAllowance(actor.user.uuid!, 'month-paid', 1, {
+                    until: 0,
+                }),
+            ).rejects.toThrow();
+            for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 0.4]) {
+                await expect(
+                    target.setMonthAllowance(
+                        actor.user.uuid!,
+                        'month-paid',
+                        bad,
+                    ),
+                ).rejects.toThrow();
+            }
+        });
+
+        it('has no month allowance for a policy nobody registered', async () => {
+            expect(
+                await target.getMonthAllowance(actor.user.uuid!, 'ghost-plan'),
+            ).toBeNull();
+        });
+    });
+
     // ── hasAnyUsageCached ────────────────────────────────────────────
 
     describe('hasAnyUsageCached', () => {

@@ -285,9 +285,11 @@ export class AppPermissionService extends PuterService {
                         push(cls);
                     }
                 }
-                // fs:read is satisfied by fs:write. `delete` is orthogonal —
-                // it implies neither, and neither implies it.
+                // Same ladder as kv: fs:delete > fs:write > fs:read.
                 if (store === 'fs' && op === 'read') push('write');
+                if (store === 'fs' && (op === 'read' || op === 'write')) {
+                    push('delete');
+                }
                 return out;
             },
         });

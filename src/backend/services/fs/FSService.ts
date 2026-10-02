@@ -53,11 +53,13 @@ import {
 } from '../../stores/fs/FSEntry.js';
 import {
     clampSignedUploadExpirySeconds,
+    isIncompleteBodyError,
     isMissingObjectError,
 } from '../../stores/fs/S3ObjectStore.js';
 import { toUploadReservationBytes } from '../../stores/fs/UploadReservationStore.js';
 import type {
     MultipartCompletePart,
+    ServerUploadInput,
     SignedUploadResult,
 } from '../../stores/fs/s3Types.js';
 import type { puterStores } from '../../stores/index.js';
@@ -1533,6 +1535,30 @@ export class FSService extends PuterService {
         });
     }
 
+    async #uploadContent(
+        input: ServerUploadInput,
+        region: string,
+        uploadBody: UploadPayload,
+    ): Promise<void> {
+        try {
+            await this.stores.s3Object.uploadFromServer(input, region);
+        } catch (error) {
+            // A stream is sent with the caller's declared size as its length,
+            // so a body that ends short of it is a bad request.
+            if (
+                uploadBody.contentLength === undefined &&
+                isIncompleteBodyError(error)
+            ) {
+                throw new HttpError(
+                    400,
+                    'File content is shorter than its declared size',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            throw error;
+        }
+    }
+
     async #cleanupPreparedBatchUploads(
         preparedBatch: PreparedBatchWrite,
         uploadedItems: UploadedBatchWriteItem[],
@@ -1896,7 +1922,7 @@ export class FSService extends PuterService {
             input.uploadTracker,
         );
 
-        await this.stores.s3Object.uploadFromServer(
+        await this.#uploadContent(
             {
                 bucket: preparedItem.normalizedInput.bucket,
                 objectKey: preparedItem.objectKey,
@@ -1910,6 +1936,7 @@ export class FSService extends PuterService {
                     : {}),
             },
             preparedItem.normalizedInput.bucketRegion,
+            uploadBody,
         );
 
         const uploadedSize = uploadBody.uploadedSize();
@@ -3360,7 +3387,7 @@ export class FSService extends PuterService {
             uploadTracker,
         );
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        await this.stores.s3Object.uploadFromServer(
+        await this.#uploadContent(
             {
                 bucket: normalizedInput.bucket,
                 objectKey,
@@ -3374,6 +3401,7 @@ export class FSService extends PuterService {
                     : {}),
             },
             normalizedInput.bucketRegion,
+            uploadBody,
         );
 
         const uploadedSize = uploadBody.uploadedSize();

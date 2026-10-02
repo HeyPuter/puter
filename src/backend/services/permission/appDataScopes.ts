@@ -27,12 +27,11 @@ export type AppDataStore = 'kv' | 'fs';
  * Access classes a grant may be written at. Coarser than a concrete op, so a
  * single `…:kv:read` row covers `get` and `list`.
  *
- * `delete` is orthogonal: `write` does not imply it and it does not imply
- * `write`. That is what lets a grant say "may add invites but not remove them",
- * and conversely "may cancel an invite" without handing over the ability to
- * rewrite everything. Coarser grants (`app-data:X:kv`, `app-data:X`) still
- * cover all three by prefix implication, which is why the consent dialog has to
- * name deletion whenever it prompts for one.
+ * Each class implies the ones below it: `delete` > `write` > `read`. An app
+ * can't remove an entry it may not see or change, so `delete` carries both;
+ * `write` still never reaches a deletion. Coarser grants (`app-data:X:kv`,
+ * `app-data:X`) cover all three by prefix implication, which is why the consent
+ * dialog has to name deletion whenever it prompts for one.
  */
 export const APP_DATA_CLASSES = ['read', 'write', 'delete'] as const;
 export type AppDataClass = (typeof APP_DATA_CLASSES)[number];
@@ -57,7 +56,7 @@ export type AppDataKvOp = (typeof APP_DATA_KV_OPS)[number];
  * Parameters that turn a write into a deletion: both set an expiry, and an
  * expiry in the past makes the key vanish (the store filters it out on read and
  * DynamoDB reaps it later). A cross-app call carrying either one therefore
- * needs the `delete` class on top of `write` — otherwise `kv:set` alone would
+ * needs the `delete` class, not just `write` — otherwise `kv:set` alone would
  * be a delete capability under another name.
  */
 export const APP_DATA_KV_TTL_PARAMS = ['expireAt', 'ttl'] as const;
@@ -67,13 +66,13 @@ export const APP_DATA_KV_OP_CLASSES: Record<
     AppDataKvOp,
     readonly AppDataClass[]
 > = {
-    get: ['read', 'write'],
-    list: ['read', 'write'],
-    set: ['write'],
-    add: ['write'],
-    incr: ['write'],
-    decr: ['write'],
-    update: ['write'],
+    get: ['read', 'write', 'delete'],
+    list: ['read', 'write', 'delete'],
+    set: ['write', 'delete'],
+    add: ['write', 'delete'],
+    incr: ['write', 'delete'],
+    decr: ['write', 'delete'],
+    update: ['write', 'delete'],
     del: ['delete'],
     remove: ['delete'],
     expire: ['delete'],
