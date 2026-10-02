@@ -3978,9 +3978,11 @@ export class AuthController extends PuterController {
 
     // -- Permission listing ------------------------------------------
 
+    // A read of what was granted, not a grant; the mutations stay session-only.
     @Get('/auth/list-permissions', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleListPermissions(req: Request, res: Response): Promise<void> {
@@ -4524,6 +4526,7 @@ export class AuthController extends PuterController {
     @Get('/get-dev-profile', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {
@@ -4535,21 +4538,32 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
+        // The columns are `dev_`-prefixed; unprefixed is the fallback.
         const u = user as unknown as {
+            dev_first_name?: string | null;
+            dev_last_name?: string | null;
+            dev_approved_for_incentive_program?: number | boolean;
+            dev_joined_incentive_program?: number | boolean;
+            dev_paypal?: string | null;
             first_name?: string | null;
             last_name?: string | null;
             approved_for_incentive_program?: number | boolean;
             joined_incentive_program?: number | boolean;
             paypal?: string | null;
         };
+        const paypal = u.dev_paypal ?? u.paypal ?? null;
         res.json({
-            first_name: u.first_name ?? null,
-            last_name: u.last_name ?? null,
+            first_name: u.dev_first_name ?? u.first_name ?? null,
+            last_name: u.dev_last_name ?? u.last_name ?? null,
             approved_for_incentive_program: Boolean(
+                u.dev_approved_for_incentive_program ??
                 u.approved_for_incentive_program,
             ),
-            joined_incentive_program: Boolean(u.joined_incentive_program),
-            paypal: u.paypal ?? null,
+            joined_incentive_program: Boolean(
+                u.dev_joined_incentive_program ?? u.joined_incentive_program,
+            ),
+            // The payout address stays behind a session.
+            paypal: isPlainUserActor(req.actor) ? paypal : null,
         });
     }
 

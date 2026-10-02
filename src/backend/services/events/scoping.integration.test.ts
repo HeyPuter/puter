@@ -106,14 +106,19 @@ const writeAsUser = async (path: string): Promise<void> => {
 };
 
 const heldBy = async (actor: Actor): Promise<string[]> =>
-    (await events().listSubscriptions(actor, SOCKET_ID)).map((sub) => sub.subId);
+    (await events().listSubscriptions(actor, SOCKET_ID)).map(
+        (sub) => sub.subId,
+    );
 
 const absent = (err: unknown) =>
     isHttpError(err) &&
     err.statusCode === 404 &&
     err.legacyCode === 'subscription_does_not_exist';
 
-/** Attempt a live handshake; resolves with the rejection message, or throws if it connects. */
+/**
+ * Attempt a live handshake; resolves with the rejection message, or throws if
+ * it connects.
+ */
 const attemptConnect = (token: string): Promise<string> =>
     new Promise((resolve, reject) => {
         const socket: ClientSocket = ioClient(env.origin, {
@@ -123,11 +128,31 @@ const attemptConnect = (token: string): Promise<string> =>
         });
         socket.on('connect', () => {
             socket.disconnect();
-            reject(new Error('socket connected; expected a handshake rejection'));
+            reject(
+                new Error('socket connected; expected a handshake rejection'),
+            );
         });
         socket.on('connect_error', (err: Error) => {
             socket.disconnect();
             resolve(err.message);
+        });
+    });
+
+/** Resolves true once a live handshake is admitted. */
+const connects = (token: string): Promise<boolean> =>
+    new Promise((resolve, reject) => {
+        const socket: ClientSocket = ioClient(env.origin, {
+            auth: { auth_token: token },
+            transports: ['websocket'],
+            reconnection: false,
+        });
+        socket.on('connect', () => {
+            socket.disconnect();
+            resolve(true);
+        });
+        socket.on('connect_error', (err: Error) => {
+            socket.disconnect();
+            reject(err);
         });
     });
 
@@ -170,30 +195,29 @@ describe('which credentials reach the session verbs at all', () => {
         return 'accept' in decision;
     };
 
-    it('admits a session, an app and a worker, and refuses access tokens', () => {
+    it('admits a session, an app, a worker and the account`s own token', () => {
         expect(accepted(session)).toBe(true);
         expect(accepted(appOne)).toBe(true);
         // A worker session is user-shaped — no app, no access token — so it
         // connects like one and is scoped by what it was minted with.
         expect(worker.session?.kind).toBe('worker');
         expect(accepted(worker)).toBe(true);
+        // No app, so it is scoped exactly as the session is.
+        expect(personalAccessToken.effectiveApp).toBeNull();
+        expect(accepted(personalAccessToken)).toBe(true);
 
-        // Both access-token shapes are refused at the handshake, so neither
-        // ever holds a socket to call a session verb on.
+        // A scoped token is neither, so it never holds a socket at all.
         expect(accepted(appAccessToken)).toBe(false);
-        expect(accepted(personalAccessToken)).toBe(false);
     });
 
-    it('refuses both access-token shapes at a live handshake, even with events on', async () => {
+    it('sorts the two token shapes at a live handshake, even with events on', async () => {
         // `accepted` above is the pure decision function; this drives an
         // actual connection against a server booted with events enabled, so
         // the wiring — not just the predicate — is what is on the hook.
-        await expect(
-            attemptConnect(env.users.user.apiToken),
-        ).resolves.toMatch(/only user tokens/);
         await expect(attemptConnect(appAccessTokenStr)).resolves.toMatch(
             /only user tokens/,
         );
+        await expect(connects(env.users.user.apiToken)).resolves.toBe(true);
     });
 
     it('refuses an app while events are off, whatever the token says', () => {

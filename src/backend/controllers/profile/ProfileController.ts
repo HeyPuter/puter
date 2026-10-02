@@ -87,6 +87,7 @@ export class ProfileController extends PuterController {
     @Post('/', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: {
             scope: 'profile-write',
             limit: 30,

@@ -29,6 +29,8 @@ import {
     vi,
 } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
 import type { PuterServer } from '../../server.js';
 import {
     allocateEphemeralPort,
@@ -133,6 +135,36 @@ describe('decideSocketAuth', () => {
         expect(decision.reject.message).toMatch(/only user tokens/);
     });
 
+    it('accepts a full-access token — the account acting as itself', () => {
+        const pat = makeActor({
+            user: { id: 1, uuid: 'u-1', username: 'u' },
+            accessToken: {
+                uid: 'tok-full',
+                issuer: { user: { id: 1, uuid: 'u-1', username: 'u' } },
+                authorized: null,
+                fullAccess: true,
+            },
+        });
+        expect(decideSocketAuth({ actor: pat } as AuthResult)).toEqual({
+            accept: pat,
+        });
+    });
+
+    it('rejects a full-access claim on a token with an app in its chain', () => {
+        const issuedByApp = makeActor({
+            user: { id: 1, uuid: 'u-1', username: 'u' },
+            accessToken: {
+                uid: 'tok-full-app',
+                issuer: appActor,
+                authorized: null,
+                fullAccess: true,
+            },
+        });
+        const decision = decideSocketAuth({ actor: issuedByApp } as AuthResult);
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(/only user tokens/);
+    });
+
     it('keeps rejecting an access-token actor where app sockets are allowed', () => {
         // Including one an app issued: the allowance is for app-under-user
         // credentials, not for anything that resolves to an app.
@@ -157,7 +189,10 @@ describe('decideSocketAuth', () => {
     it('applies the account gates to an admitted app actor', () => {
         const decision = decideSocketAuth(
             {
-                actor: { ...appActor, user: { ...appActor.user, suspended: 1 } },
+                actor: {
+                    ...appActor,
+                    user: { ...appActor.user, suspended: 1 },
+                },
             } as unknown as AuthResult,
             { allowAppActors: true },
         );
@@ -219,6 +254,20 @@ describe('socketRoomsFor', () => {
         expect(
             socketRoomsFor({ user: { id: 7, uuid: 'u-7', username: 'u' } }),
         ).toEqual(['7', accountSocketRoom(7)]);
+    });
+
+    it('gives an access token a room of its own to be revoked by', () => {
+        const rooms = socketRoomsFor(
+            makeActor({
+                user: { id: 7, uuid: 'u-7', username: 'u' },
+                accessToken: {
+                    uid: 'tok-9',
+                    issuer: { user: { id: 7, uuid: 'u-7', username: 'u' } },
+                    fullAccess: true,
+                },
+            }),
+        );
+        expect(rooms).toEqual(['7', accountSocketRoom(7), 'tok:tok-9']);
     });
 
     it('keeps an app out of the user room and in its own', () => {
@@ -298,12 +347,53 @@ describe('SocketService (live socket.io)', () => {
         await expect(connect({ auth_token: 'not-a-token' })).rejects.toThrow();
     });
 
-    it('rejects an app-scoped credential — sockets take user tokens only', async () => {
-        // A full-access API token is an access-token actor, which the socket
-        // handshake refuses even though it authenticates fine over HTTP.
-        await expect(connect({ auth_token: user.apiToken })).rejects.toThrow(
+    it('rejects a scoped access token — sockets take user tokens only', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row as never });
+        const scoped = await runWithContext({ actor }, () =>
+            server.services.auth.createAccessToken(actor, [
+                ['service:foo:ii:read'],
+            ]),
+        );
+
+        await expect(connect({ auth_token: scoped })).rejects.toThrow(
             /only user tokens/,
         );
+    });
+
+    it('accepts a full-access token into the user room', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const userId = row!.id;
+
+        const socket = await connect({ auth_token: user.apiToken });
+        expect(socket.connected).toBe(true);
+        expect(socketService.has({ room: String(userId) })).toBe(true);
+        socket.disconnect();
+    });
+
+    it('drops a revoked token`s socket and leaves the session`s alone', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row as never });
+        const doomed = await runWithContext({ actor }, () =>
+            server.services.auth.createAccessToken(actor, [[FULL_API_ACCESS]], {
+                label: 'revoke-probe',
+            }),
+        );
+
+        const tokenSocket = await connect({ auth_token: doomed });
+        const sessionSocket = await connect({ auth_token: user.token });
+        expect(tokenSocket.connected).toBe(true);
+        expect(sessionSocket.connected).toBe(true);
+
+        await runWithContext({ actor }, () =>
+            server.services.auth.revokeAccessToken(actor, doomed),
+        );
+
+        await vi.waitFor(() => expect(tokenSocket.connected).toBe(false), {
+            timeout: 5000,
+        });
+        expect(sessionSocket.connected).toBe(true);
+        sessionSocket.disconnect();
     });
 
     it('rejects an app-under-user token while events are off', async () => {

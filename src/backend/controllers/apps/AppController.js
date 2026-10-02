@@ -17,7 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
+import {
+    isAccessTokenActor,
+    isAccountContext,
+    isAppActor,
+} from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
 import {
@@ -195,10 +199,10 @@ export class AppController extends PuterController {
         // before 400-ing for a missing body field.
         //
         // Authorization: only two callers are trusted to report opens —
-        //   1. a root user actor (plain session, no `.app` and no access
+        //   1. the account acting as itself (plain session or full-access
         //      token), e.g. the GUI launching apps on behalf of the user;
         //   2. the app-under-user actor for the app being reported.
-        // Everything else — access tokens (regardless of issuer), asset
+        // Everything else — scoped and app-issued access tokens, asset
         // tokens, app actors reporting for a *different* app — is denied,
         // otherwise any authenticated party could inflate another app's
         // open count.
@@ -223,14 +227,11 @@ export class AppController extends PuterController {
                     });
                 }
 
-                // Access tokens (and any other non-user/non-app identity,
-                // e.g. asset tokens) are not allowed to report opens —
-                // they're shared / scoped credentials and shouldn't drive
-                // analytics counters.
-                if (isAccessTokenActor(actor)) {
+                // Shared credentials shouldn't drive analytics counters.
+                if (isAccessTokenActor(actor) && !isAccountContext(actor)) {
                     throw new HttpError(
                         403,
-                        'Access tokens cannot report app opens',
+                        'This token cannot report app opens',
                         { legacyCode: 'forbidden' },
                     );
                 }

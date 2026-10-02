@@ -2296,6 +2296,34 @@ describe('AuthService (integration)', () => {
             expect(rows).toHaveLength(0);
         });
 
+        // Only a full-access token is admitted to a socket, so only its revoke
+        // is worth a cluster-wide eviction broadcast.
+        it('announces a revoked full-access token, and no other kind', async () => {
+            const user = await makeUser();
+            const actor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            });
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const announced = () =>
+                emit.mock.calls.filter(
+                    (c) => c[0] === 'auth.access-token.revoked',
+                ).length;
+
+            const scoped = await authService.createAccessToken(actor, [
+                [`user:${user.uuid}:email:read`],
+            ]);
+            await authService.revokeAccessToken(actor, scoped);
+            expect(announced()).toBe(0);
+
+            const full = await authService.createAccessToken(actor, [
+                [FULL_API_ACCESS],
+            ]);
+            await authService.revokeAccessToken(actor, full);
+            expect(announced()).toBe(1);
+
+            emit.mockRestore();
+        });
+
         it('revokeAccessToken rejects with 404 when the token belongs to another user', async () => {
             const u1 = await makeUser();
             const u2 = await makeUser();

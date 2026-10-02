@@ -1885,6 +1885,8 @@ export class AuthService extends PuterService {
         let tokenUid: string;
         let issuerUuidFromJwt: string | undefined;
         let sessionUidFromJwt: string | undefined;
+        // A uuid says nothing about the token; assume it held one.
+        let couldHoldSocket = true;
         const isJwt = /^[\w-]+\.[\w-]+\.[\w-]+$/.test(tokenOrUuid.trim());
         if (isJwt) {
             const decoded = this.services.token.verify<AccessTokenPayload>(
@@ -1899,6 +1901,7 @@ export class AuthService extends PuterService {
             tokenUid = decoded.token_uid;
             issuerUuidFromJwt = decoded.user_uid;
             sessionUidFromJwt = decoded.session_uid;
+            couldHoldSocket = !decoded.app_uid && decoded.full_access === true;
         } else {
             tokenUid = tokenOrUuid;
         }
@@ -1935,6 +1938,7 @@ export class AuthService extends PuterService {
             tokenUid,
             sessionUidFromJwt,
             sessionRow,
+            { couldHoldSocket },
         );
     }
 
@@ -2003,10 +2007,12 @@ export class AuthService extends PuterService {
             );
         }
 
+        // Full access is refused above, so nothing here ever held a socket.
         await this.#revokeAccessTokenTail(
             decoded.token_uid,
             decoded.session_uid,
             null,
+            { couldHoldSocket: false },
         );
     }
 
@@ -2052,6 +2058,7 @@ export class AuthService extends PuterService {
         tokenUid: string,
         sessionUidFromJwt: string | undefined,
         sessionRow: SessionRow | null,
+        opts: { couldHoldSocket?: boolean } = {},
     ): Promise<void> {
         await this.#dropAccessTokenGrants(tokenUid);
 
@@ -2066,6 +2073,15 @@ export class AuthService extends PuterService {
                     tokenUid,
                 ));
             if (row) await this.stores.session.removeByUuid(row.uuid);
+        }
+
+        // Only a token the handshake admits has a socket to drop.
+        if (opts.couldHoldSocket !== false) {
+            this.clients.event?.emit(
+                'auth.access-token.revoked',
+                { token_uid: tokenUid },
+                {},
+            );
         }
     }
 
