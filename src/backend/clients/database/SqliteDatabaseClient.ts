@@ -119,6 +119,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [82, ['0087_feedback-attachments.sql']],
     [83, ['0088_apps-index-url.sql']],
     [84, ['0089_team-require-2fa.sql']],
+    [85, ['0090_user-app-permission-index.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

@@ -1553,6 +1553,12 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
         this.assertGrantableFsPermission(permission);
+        // Post-rewrite, for the same reason as the user-app grant above.
+        if (permission.length > PERMISSION_MAX_LEN) {
+            throw new HttpError(400, 'Invalid `permission`', {
+                legacyCode: 'bad_request',
+            });
+        }
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
             throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
