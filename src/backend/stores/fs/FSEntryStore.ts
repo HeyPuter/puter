@@ -95,6 +95,12 @@ const descendantSortValue = (row: FSEntryRow, sortBy: DescendantSortField) => {
 };
 
 const ENTRY_CACHE_TTL_SECONDS = 60;
+// A renamed home's descendants stay cached under the old path until their TTL
+// (longer behind a lagging replica), and ACL grants a home by path prefix, so
+// no other account may take the vacated name until well after that.
+const VACATED_HOME_HOLD_SECONDS = 60 * 60;
+const vacatedHomeKey = (username: string) =>
+    `prodfsv2:vacated-home:${username.toLowerCase()}`;
 const BULK_QUERY_CHUNK_SIZE = 200;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 
@@ -2617,8 +2623,7 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            | { v: unknown; id: number; s?: string; o?: string }
-            | undefined;
+            { v: unknown; id: number; s?: string; o?: string } | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -3091,14 +3096,25 @@ export class FSEntryStore extends PuterStore {
      * the primary: a racing signup has to see the row just written.
      *
      * `includeDescendants` also reports a foreign row under `/{username}/…`
-     * (ACL grants by path prefix). Claim sites only — the heal and the
-     * provisioning backstop stay exact-path.
+     * (ACL grants by path prefix) and a home another account vacated recently.
+     * Claim sites only — the heal and the provisioning backstop stay
+     * exact-path.
      */
     async findHomePathConflict(
         username: string,
         ownerUserId?: number,
+        options?: { includeDescendants?: false },
+    ): Promise<FSEntry | null>;
+    async findHomePathConflict(
+        username: string,
+        ownerUserId: number | undefined,
+        options: { includeDescendants: true },
+    ): Promise<boolean>;
+    async findHomePathConflict(
+        username: string,
+        ownerUserId?: number,
         options?: { includeDescendants?: boolean },
-    ): Promise<FSEntry | null> {
+    ): Promise<FSEntry | null | boolean> {
         const path = this.#normalizePath(`/${username}`);
 
         if (!options?.includeDescendants) {
@@ -3117,19 +3133,41 @@ export class FSEntryStore extends PuterStore {
             return null;
         }
 
-        // One read for both; callers only test truthiness. No ORDER BY, so the
-        // planner stays on the path index.
+        if (await this.#isVacatedHomeHeld(username, ownerUserId)) return true;
+
+        // One read for both. No ORDER BY, so the planner stays on the path
+        // index.
         const likePattern = `${this.#escapeLikePattern(path)}/%`;
         const params: unknown[] = [path, likePattern];
         if (ownerUserId !== undefined) params.push(ownerUserId);
         const rows = (await this.clients.db.pread(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+            `SELECT id FROM fsentries
              WHERE (path = ? OR path LIKE ? ESCAPE '!')${ownerUserId !== undefined ? ' AND user_id <> ?' : ''}
              LIMIT 1`,
             params,
-        )) as unknown as FSEntryRow[];
-        const row = rows[0];
-        return row ? this.#mapFSEntryRow(row) : null;
+        )) as unknown as Array<{ id: number }>;
+        return rows.length > 0;
+    }
+
+    async #holdVacatedHome(homePath: string, userId: number): Promise<void> {
+        const name = homePath.slice(1);
+        if (!name || name.includes('/')) return;
+        await this.stores.kv.set({
+            key: vacatedHomeKey(name),
+            value: userId,
+            expireAt: Math.floor(Date.now() / 1000) + VACATED_HOME_HOLD_SECONDS,
+        });
+    }
+
+    async #isVacatedHomeHeld(
+        username: string,
+        ownerUserId?: number,
+    ): Promise<boolean> {
+        const { res } = await this.stores.kv.get({
+            key: vacatedHomeKey(username),
+            consistentRead: true,
+        });
+        return res !== null && res !== undefined && Number(res) !== ownerUserId;
     }
 
     // Heal a user's home tree to `/{username}`: if the root entry's path/name
@@ -3160,6 +3198,12 @@ export class FSEntryStore extends PuterStore {
 
         const oldPath = root.path;
         const now = Math.floor(Date.now() / 1000);
+
+        // Before the rewrite, so a claim never sees the old path empty and
+        // unheld.
+        if (oldPath && oldPath !== newPath) {
+            await this.#holdVacatedHome(oldPath, userId);
+        }
 
         await this.clients.db.write(
             `UPDATE fsentries SET name = ?, path = ?, modified = ?

@@ -1499,17 +1499,18 @@ describe('FSEntryStore home and prefix rewrites', () => {
         );
         await store.invalidateEntryCacheByUuid(docs.uuid);
 
-        const foreign = await store.findHomePathConflict(freeName, undefined, {
-            includeDescendants: true,
-        });
-        expect(foreign?.userId).toBe(owner.userId);
+        await expect(
+            store.findHomePathConflict(freeName, undefined, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBe(true);
 
         // The name's own owner is excluded, same as the exact-path check.
         await expect(
             store.findHomePathConflict(freeName, owner.userId, {
                 includeDescendants: true,
             }),
-        ).resolves.toBeNull();
+        ).resolves.toBe(false);
 
         // Without the flag, a descendant-only conflict is invisible — the
         // exact-path check this call used to be stays unchanged.
@@ -1532,6 +1533,35 @@ describe('FSEntryStore home and prefix rewrites', () => {
             store.findHomePathConflict('free_abc', undefined, {
                 includeDescendants: true,
             }),
+        ).resolves.toBe(false);
+    });
+
+    it('holds a vacated home against every claimant but the account that left it', async () => {
+        const leaver = await makeUser();
+        const other = await makeUser();
+        await store.renameUserHome(leaver.userId, `${leaver.username}-moved`);
+
+        // No row sits under the old home any more; only the hold remains.
+        await expect(
+            store.findHomePathConflict(leaver.username, other.userId, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBe(true);
+        await expect(
+            store.findHomePathConflict(
+                leaver.username.toUpperCase(),
+                undefined,
+                { includeDescendants: true },
+            ),
+        ).resolves.toBe(true);
+        await expect(
+            store.findHomePathConflict(leaver.username, leaver.userId, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBe(false);
+        // Exact-path callers (heal, provisioning backstop) see rows only.
+        await expect(
+            store.findHomePathConflict(leaver.username, other.userId),
         ).resolves.toBeNull();
     });
 
