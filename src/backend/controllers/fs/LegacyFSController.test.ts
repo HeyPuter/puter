@@ -33,7 +33,7 @@ import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
-import { FS_MUTATE_LIMIT } from './limits.js';
+import { FS_MUTATE_LIMIT, FS_SIGN_MAX_ITEMS } from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -1917,6 +1917,53 @@ describe('LegacyFSController.sign', () => {
                 controller.sign(makeReq({ body: { items: [] }, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    // The missing app would 404 if any item or the grant were looked at first.
+    it('rejects items over the cap before resolving anything', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.sign(
+                    makeReq({
+                        body: {
+                            items: Array(FS_SIGN_MAX_ITEMS + 1).fill({
+                                path: '/x',
+                                action: 'read',
+                            }),
+                            app_uid: `does-not-exist-${uuidv4()}`,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: `Too many items in one request (max ${FS_SIGN_MAX_ITEMS})`,
+        });
+    });
+
+    it('accepts exactly the cap', async () => {
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.sign(
+                makeReq({
+                    body: {
+                        items: Array(FS_SIGN_MAX_ITEMS).fill({
+                            action: 'read',
+                        }),
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { signatures: Array<unknown> };
+        expect(body.signatures).toHaveLength(FS_SIGN_MAX_ITEMS);
     });
 
     it('signs a valid entry by path and returns a signature', async () => {

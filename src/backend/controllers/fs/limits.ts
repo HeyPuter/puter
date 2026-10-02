@@ -185,6 +185,27 @@ export const FS_HELPER_LIMIT = userWindow('fs:helper', 120, 60, 30);
  */
 export const FS_POLL_LIMIT = userWindow('fs:poll', 240, 240, 120);
 
+// -- Per-request item caps -------------------------------------------
+//
+// The windows above count requests; these bound what one request can fan out
+// to. Each item costs its own path resolution and ACL check, and an upload item
+// also a pending session and presigned URLs. Checked before any per-item work.
+
+/**
+ * `startBatchWrite` / `completeBatchWrite` / `batchWrite`. Puter.js chunks
+ * uploads at this size.
+ */
+export const FS_BATCH_WRITE_MAX_ITEMS = 500;
+
+/** Entries per `/sign`. Each may also write an app grant. */
+export const FS_SIGN_MAX_ITEMS = 500;
+
+/**
+ * Part numbers per `signMultipartParts`: every part a multipart upload can have
+ * (1-10,000).
+ */
+export const FS_MULTIPART_MAX_PARTS = 10_000;
+
 // -- Legacy multipart upload -----------------------------------------
 
 /**
