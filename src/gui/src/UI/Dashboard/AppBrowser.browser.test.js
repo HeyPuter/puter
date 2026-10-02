@@ -294,6 +294,15 @@ describe('embedded toolbar', () => {
         } finally { await context.close(); }
     });
 
+    it('omits the email line for accounts without one', async () => {
+        const { context, toolbar } = await openToolbar();
+        try {
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
+            await toolbar.getByText('first@example.test').waitFor();
+            expect(await toolbar.locator('[data-account="0"] small').count()).toBe(0);
+        } finally { await context.close(); }
+    });
+
     it('labels controls with translated text encoded once', async () => {
         const { context, toolbar } = await openToolbar(undefined, sessionToken, [{ name: 'user_preferences', value: '{"language":"de"}' }]);
         try {

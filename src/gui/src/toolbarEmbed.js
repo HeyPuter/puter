@@ -75,8 +75,8 @@ function showPanel (next) {
         });
     } else {
         const accounts = readSavedAccounts().filter(account => account.uuid !== user.uuid);
-        $content.html(`<div class="toolbar-account-content"><div class="toolbar-current"><strong>${escape(user.username)}</strong><span>${escape(user.email)}</span></div>
-            <div class="toolbar-accounts">${accounts.map((account, index) => `<button type="button" class="toolbar-account" data-account="${index}"><span class="toolbar-avatar">${escape(account.username[0]?.toUpperCase())}</span><span><strong>${escape(account.username)}</strong><small>${escape(account.email)}</small></span></button>`).join('')}</div>
+        $content.html(`<div class="toolbar-account-content"><div class="toolbar-current"><strong>${escape(user.username)}</strong>${user.email ? `<span>${escape(user.email)}</span>` : ''}</div>
+            <div class="toolbar-accounts">${accounts.map((account, index) => `<button type="button" class="toolbar-account" data-account="${index}"><span class="toolbar-avatar">${escape(account.username[0]?.toUpperCase())}</span><span><strong>${escape(account.username)}</strong>${account.email ? `<small>${escape(account.email)}</small>` : ''}</span></button>`).join('')}</div>
             <a class="toolbar-item" href="/action/login" target="_blank" rel="noopener noreferrer">${i18n('toolbar_add_account')}</a>
             <a class="toolbar-item" href="/dashboard#account" target="_blank" rel="noopener noreferrer">${i18n('toolbar_settings')}</a>
             <button type="button" class="toolbar-item toolbar-logout">${i18n('log_out')}</button>
