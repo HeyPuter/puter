@@ -77,11 +77,16 @@ alone does not populate the main GUI origin's storage; the main GUI session must
 already exist.
 
 The route's `Content-Security-Policy: frame-ancestors` allows the GUI origin and
-all subdomains of `config.domain`, using the scheme and port from `config.origin`.
-For example, `https://puter.com` permits `https://spreadsheet.puter.com`, and
-`http://puter.localhost:4100` permits `http://spreadsheet.puter.localhost:4100`.
-All ancestors in a nested iframe chain must be allowed. Other GUI routes retain
-`X-Frame-Options: SAMEORIGIN`.
+the embedding page's origin when it is a subdomain of `config.domain` with the
+scheme and port from `config.origin`, and not under one of the user-content
+hosting domains (`static_hosting_domain`, `private_app_hosting_domain`, and their
+`_alt` variants). For example, `https://puter.com` permits
+`https://spreadsheet.puter.com`, and `http://puter.localhost:4100` permits
+`http://spreadsheet.puter.localhost:4100` but not
+`http://someone.site.puter.localhost:4100`. The embedding page is read from the
+iframe request's referrer, so the host must not suppress it (the browser default
+`strict-origin-when-cross-origin` is enough). All ancestors in a nested iframe
+chain must be allowed. Other GUI routes retain `X-Frame-Options: SAMEORIGIN`.
 
 The embed accepts no query parameters. Requests with a query string redirect to
 the same embed path so SDK bootstrap parameters cannot override the session or API

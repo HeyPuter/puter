@@ -305,22 +305,50 @@ describe('PuterServer host header validation', () => {
     });
 
     it('allows deployment subdomains to frame the dedicated embeds', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
         for (const path of ['/embed/apps', '/embed/apps/', '/embed/toolbar', '/embed/toolbar/']) {
-            const res = await request(path, { host: `puter.localhost:${port}` });
+            const res = await request(path, {
+                host: `puter.localhost:${port}`,
+                referer: `${parent}/sheet/1`,
+            });
             expect(res.status).toBe(200);
             expect(res.headers['x-frame-options']).toBeUndefined();
             expect(res.headers['content-security-policy']).toBe(
-                `frame-ancestors 'self' http://*.puter.localhost:${port}`,
+                `frame-ancestors 'self' ${parent}`,
             );
             expect(res.headers['cache-control']).toBe('no-store');
             expect(res.body).toContain(path.includes('toolbar') ? '/dist/toolbar-embed.min.js' : '/dist/apps-embed.min.js');
             expect(res.body).not.toContain('/dist/bundle.min.js');
             expect(res.body).toContain(`http://api.puter.localhost:${port}`);
         }
+        const nested = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            referer: `http://puter.localhost:${port}/embed/toolbar`,
+        });
+        expect(nested.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' http://*.puter.localhost:${port}`,
+        );
         const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
         expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
         const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });
         expect(api.status).toBe(404);
+    });
+
+    it.each([
+        ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
+        ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
+        ['another site', 'http://evil.test:PORT/'],
+        ['another port', 'http://spreadsheet.puter.localhost:1/'],
+        ['a suppressed referrer', undefined],
+    ])('keeps the embeds same-origin only when framed by %s', async (_label, referer) => {
+        for (const embed of ['apps', 'toolbar']) {
+            const res = await request(`/embed/${embed}`, {
+                host: `puter.localhost:${port}`,
+                ...(referer ? { referer: referer.replace('PORT', String(port)) } : {}),
+            });
+            expect(res.status).toBe(200);
+            expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        }
     });
 
     it.each(['apps', 'toolbar'])('strips SDK bootstrap query parameters from the %s embed route', async (embed) => {
