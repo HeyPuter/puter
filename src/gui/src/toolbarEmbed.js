@@ -49,7 +49,7 @@ function closePanel () {
     panel = null;
     $root.find('.toolbar-panel').remove();
     $root.find('[aria-expanded]').attr('aria-expanded', 'false');
-    if ( previous ) $root.find(`[data-panel="${previous}"]`).trigger('focus');
+    if ( previous ) $root.find(`[data-panel="${previous}"]`)[0]?.focus({ preventScroll: true });
     notify('panel', { panel });
 }
 
@@ -100,7 +100,8 @@ function showPanel (next) {
         panelObserver.observe(accountContent);
     }
     notify('panel', { panel });
-    $root.find('.toolbar-close').trigger('focus');
+    // The parent resizes asynchronously; focusing outside the compact frame must not scroll it.
+    $root.find('.toolbar-close')[0]?.focus({ preventScroll: true });
 }
 
 async function accountAction (action) {

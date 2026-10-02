@@ -250,6 +250,22 @@ describe('embedded toolbar', () => {
             await toolbar.locator('.toolbar-panel').waitFor({ state: 'detached' });
         } finally { await context.close(); }
     }, 30000);
+    it.each(['apps', 'account'])('keeps the toolbar row stationary before the host expands the %s menu', async panel => {
+        const { context, toolbar } = await openToolbar();
+        try {
+            await toolbar.getByRole('button', { name: 'Your apps', exact: true }).waitFor();
+            const positions = await toolbar.locator('body').evaluate((body, panel) => {
+                const row = body.querySelector('.toolbar-row');
+                const before = row.getBoundingClientRect().top;
+                body.querySelector(`[data-panel="${panel}"]`).click();
+                return { before, after: row.getBoundingClientRect().top, scroll: window.scrollY, focused: document.activeElement.className };
+            }, panel);
+            expect(positions.after).toBe(positions.before);
+            expect(positions.scroll).toBe(0);
+            expect(positions.focused).toBe('toolbar-close');
+        } finally { await context.close(); }
+    });
+
     it('opens upgrade, settings, and add-account in new tabs', async () => {
         const { context, page, toolbar } = await openToolbar();
         try {
