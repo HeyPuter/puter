@@ -4552,7 +4552,8 @@ export class AuthController extends PuterController {
                 u.approved_for_incentive_program,
             ),
             joined_incentive_program: Boolean(u.joined_incentive_program),
-            paypal: u.paypal ?? null,
+            // The payout address stays behind a session.
+            paypal: isPlainUserActor(req.actor) ? (u.paypal ?? null) : null,
         });
     }
 

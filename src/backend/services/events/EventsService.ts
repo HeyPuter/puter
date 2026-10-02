@@ -858,8 +858,7 @@ const handleNotDelegated = (): HttpError =>
 
 /**
  * A delegation is the app's to hold, not to pass on: a token it minted may
- * carry the `manage:` permission and still not mint through it, the same way an
- * access token is refused a socket of its own (`SocketService`). The user's own
+ * carry the `manage:` permission and still not mint through it. The user's own
  * token is not this case — it acts for the user, who needs no delegation.
  */
 const handleAccessTokenForbidden = (): HttpError =>

@@ -442,8 +442,8 @@ export class ShareController extends PuterController {
     }
 
     // -- Blocking -----------------------------------------------------
-    // User sessions only, access tokens included: a block list is a safety
-    // control, not an app's to touch.
+    // User sessions only — no app, and no access token either: a block list is
+    // a safety control, not an app's to touch.
 
     /**
      * GET /share/blocks — who the caller is refusing shares from, and whether

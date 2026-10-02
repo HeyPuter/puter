@@ -109,7 +109,6 @@ export const decideSocketAuth = (
     if (!actor || !actor.user) {
         return { reject: new Error('socket auth failed') };
     }
-    // `isAccountContext`, not `fullAccess`: an app in the chain stays out.
     if (
         (isAccessTokenActor(actor) && !isAccountContext(actor)) ||
         (isAppActor(actor) && !options.allowAppActors)
