@@ -951,6 +951,160 @@ describe('AppDriver.create additional branches', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    // -- metadata size cap -------------------------------------------
+
+    it('accepts metadata at exactly the 16 KiB JSON byte cap and rejects one byte over', async () => {
+        const { actor } = await makeUser();
+        // `{"a":"` + value + `"}` is 8 bytes of fixed JSON around the value.
+        const maxBytes = 16 * 1024;
+        const atCap = { a: 'x'.repeat(maxBytes - 8) };
+        const overCap = { a: 'x'.repeat(maxBytes - 7) };
+        expect(Buffer.byteLength(JSON.stringify(atCap))).toBe(maxBytes);
+
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('meta-cap'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    metadata: atCap,
+                },
+            }),
+        );
+        const meta =
+            typeof created.metadata === 'string'
+                ? JSON.parse(created.metadata)
+                : created.metadata;
+        expect(meta).toEqual(atCap);
+
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('meta-over'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                        metadata: overCap,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects metadata whose byte length (not char length) exceeds the cap', async () => {
+        const { actor } = await makeUser();
+        // Each 'é' is one JS string character but two UTF-8 bytes: this value
+        // is well under 16,384 *characters* but over it in bytes.
+        const value = 'é'.repeat(8200);
+        expect(JSON.stringify({ a: value }).length).toBeLessThan(16 * 1024);
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('meta-bytes'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                        metadata: { a: value },
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an oversize metadata update and leaves the row unchanged', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('meta-upd'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    metadata: { ok: true },
+                },
+            }),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                driver.update({
+                    uid: created.uid,
+                    object: { metadata: { a: 'x'.repeat(16 * 1024) } },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await withActor(actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        const meta =
+            typeof after.metadata === 'string'
+                ? JSON.parse(after.metadata)
+                : after.metadata;
+        expect(meta).toEqual({ ok: true });
+    });
+
+    // -- filetype_associations caps ------------------------------------
+
+    it('rejects more than 200 filetype_associations and accepts exactly 200', async () => {
+        const { actor } = await makeUser();
+        const tooMany = Array.from({ length: 201 }, (_, i) => `t${i}`);
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('ft-over'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                        filetype_associations: tooMany,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const atCap = Array.from({ length: 200 }, (_, i) => `t${i}`);
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ft-ok'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    filetype_associations: atCap,
+                },
+            }),
+        );
+        expect(created.filetype_associations).toHaveLength(200);
+    });
+
+    it('rejects a filetype entry over 60 characters and accepts one at 60', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('ft-len-over'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                        filetype_associations: ['x'.repeat(61)],
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ft-len-ok'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    filetype_associations: ['x'.repeat(60)],
+                },
+            }),
+        );
+        expect(created.filetype_associations).toEqual(
+            expect.arrayContaining(['x'.repeat(60)]),
+        );
+    });
 });
 
 // ── update: additional branches ────────────────────────────────────

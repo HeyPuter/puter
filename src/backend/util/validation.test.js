@@ -311,6 +311,44 @@ describe('validateJsonObject', () => {
             'Missing `metadata`',
         );
     });
+
+    it('enforces maxBytes on the serialized JSON size, at the boundary', () => {
+        // `{"a":"` + value + `"}` — 8 bytes of fixed JSON around the value.
+        const atLimit = { a: 'x'.repeat(92) };
+        const overLimit = { a: 'x'.repeat(93) };
+        expect(Buffer.byteLength(JSON.stringify(atLimit))).toBe(100);
+        expect(
+            validateJsonObject(atLimit, { key: 'metadata', maxBytes: 100 }),
+        ).toEqual(atLimit);
+        expectBadRequest(
+            () =>
+                validateJsonObject(overLimit, {
+                    key: 'metadata',
+                    maxBytes: 100,
+                }),
+            '`metadata` must be at most 100 bytes as JSON',
+        );
+    });
+
+    it('measures maxBytes in UTF-8 bytes, not string length', () => {
+        // Each 'é' is one JS string character but two UTF-8 bytes, so a
+        // char-length check would wrongly let this through.
+        const value = { a: 'é'.repeat(10) };
+        expect(JSON.stringify(value).length).toBeLessThan(30);
+        expectBadRequest(
+            () => validateJsonObject(value, { key: 'metadata', maxBytes: 20 }),
+            'must be at most 20 bytes as JSON',
+        );
+    });
+
+    it('omitting maxBytes never rejects on size', () => {
+        expect(
+            validateJsonObject(
+                { a: 'x'.repeat(10_000) },
+                { key: 'metadata' },
+            ),
+        ).toEqual({ a: 'x'.repeat(10_000) });
+    });
 });
 
 describe('validateArrayOfStrings', () => {
@@ -344,5 +382,45 @@ describe('validateArrayOfStrings', () => {
                 validateArrayOfStrings(null, { key: 'types', required: true }),
             'Missing `types`',
         );
+    });
+
+    it('enforces maxItems before checking element types', () => {
+        const tooMany = new Array(11).fill('x');
+        expectBadRequest(
+            () =>
+                validateArrayOfStrings(tooMany, { key: 'types', maxItems: 10 }),
+            '`types` must have at most 10 entries',
+        );
+        expect(
+            validateArrayOfStrings(new Array(10).fill('x'), {
+                key: 'types',
+                maxItems: 10,
+            }),
+        ).toHaveLength(10);
+    });
+
+    it('enforces maxItemLen per element, naming the offending index', () => {
+        expect(
+            validateArrayOfStrings(['ab', 'cd'], {
+                key: 'types',
+                maxItemLen: 2,
+            }),
+        ).toEqual(['ab', 'cd']);
+        expectBadRequest(
+            () =>
+                validateArrayOfStrings(['ab', 'abc'], {
+                    key: 'types',
+                    maxItemLen: 2,
+                }),
+            '`types[1]` must be at most 2 characters',
+        );
+    });
+
+    it('omitting maxItems/maxItemLen never rejects on size', () => {
+        expect(
+            validateArrayOfStrings(new Array(500).fill('x'.repeat(500)), {
+                key: 'types',
+            }),
+        ).toHaveLength(500);
     });
 });

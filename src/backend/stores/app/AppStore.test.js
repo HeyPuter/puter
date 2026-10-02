@@ -611,7 +611,7 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getByName(originalName)).id).toBe(second.id);
     });
 
-    it('expires an old-name redirect older than the retention window', async () => {
+    it('ignores an old-name redirect older than the retention window, without writing', async () => {
         const app = await createApp();
         const oldName = app.name;
         await appStore.update(app.id, { name: freshName() });
@@ -621,13 +621,52 @@ describe('AppStore CRUD and cache invalidation', () => {
             [oldName],
         );
 
-        expect(await appStore.getByName(oldName)).toBeNull();
-        // Lazy GC removed the row on that same read.
+        const writeSpy = vi.spyOn(db, 'write');
+        try {
+            expect(await appStore.getByName(oldName)).toBeNull();
+            expect(writeSpy).not.toHaveBeenCalled();
+        } finally {
+            writeSpy.mockRestore();
+        }
+
+        // The stale row is left in place — a read never prunes it.
         const rows = await db.read(
             'SELECT * FROM `old_app_names` WHERE `name` = ?',
             [oldName],
         );
-        expect(rows).toHaveLength(0);
+        expect(rows).toHaveLength(1);
+    });
+
+    it('getByName never writes to the database on a miss', async () => {
+        const writeSpy = vi.spyOn(db, 'write');
+        try {
+            expect(
+                await appStore.getByName(`missing-${freshName()}`),
+            ).toBeNull();
+            expect(writeSpy).not.toHaveBeenCalled();
+        } finally {
+            writeSpy.mockRestore();
+        }
+    });
+
+    it("prunes an app's expired redirects the next time it is renamed", async () => {
+        const app = await createApp();
+        const nameA = app.name;
+        const nameB = freshName();
+        const nameC = freshName();
+
+        await appStore.update(app.id, { name: nameB }); // A -> B, records A
+        await db.write(
+            "UPDATE `old_app_names` SET `timestamp` = '2000-01-01 00:00:00' WHERE `app_uid` = ? AND `name` = ?",
+            [app.uid, nameA],
+        );
+        await appStore.update(app.id, { name: nameC }); // B -> C, records B, prunes A
+
+        const rows = await db.read(
+            'SELECT `name` FROM `old_app_names` WHERE `app_uid` = ?',
+            [app.uid],
+        );
+        expect(rows.map((r) => r.name)).toEqual([nameB]);
     });
 
     it('refreshes the redirect timestamp when a name is re-recorded', async () => {

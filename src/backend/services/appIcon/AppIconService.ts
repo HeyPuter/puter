@@ -27,6 +27,11 @@ import { PuterService } from '../types.js';
 const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const APP_ICONS_PATH_PREFIX = '/system/app_icons';
 
+// Minimum gap between read-triggered runs for one uid, so an icon that fails
+// to process isn't retried on every GET.
+const ICON_RETRY_COOLDOWN_MS = 10 * 60_000;
+const ICON_ATTEMPTS_MAX_KEYS = 10_000;
+
 const ORIGINAL_ICON_FILENAME = (uid: string) => `${uid}.png`;
 const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
 
@@ -53,6 +58,16 @@ export class AppIconService extends PuterService {
     #dirReady: Promise<void> | null = null;
     #ownerUserId: number | null = null;
 
+    // Per-uid in-flight run, so N concurrent GETs for an un-migrated icon
+    // share one sharp/fs/db pass instead of each kicking off their own.
+    #inFlight = new Map<
+        string,
+        { next?: Record<string, unknown>; done: Promise<void> }
+    >();
+    // Per-uid timestamp of the last attempt (success or failure), gating
+    // read-triggered retries during `ICON_RETRY_COOLDOWN_MS`.
+    #lastAttempt = new Map<string, number>();
+
     override async onServerStart(): Promise<void> {
         try {
             this.#sharp = (await import('sharp')).default;
@@ -67,11 +82,9 @@ export class AppIconService extends PuterService {
         this.clients.event.on(
             'app.new-icon',
             async (_key: string, data: unknown) => {
-                try {
-                    await this.#processIcon(data as Record<string, unknown>);
-                } catch (err) {
-                    console.warn('[app-icon] icon processing failed', err);
-                }
+                await this.#scheduleIcon(data as Record<string, unknown>, {
+                    fromRead: true,
+                });
             },
         );
 
@@ -89,10 +102,10 @@ export class AppIconService extends PuterService {
                     | string
                     | undefined;
                 if (icon?.startsWith('data:')) {
-                    await this.#processIcon({
-                        app_uid: d.app_uid,
-                        data_url: icon,
-                    });
+                    await this.#scheduleIcon(
+                        { app_uid: d.app_uid, data_url: icon },
+                        { fromRead: false },
+                    );
                 }
             },
         );
@@ -218,6 +231,73 @@ export class AppIconService extends PuterService {
     }
 
     // -- Icon pipeline -----------------------------------------------
+
+    /**
+     * Runs `#processIcon` at most once at a time per uid. A write arriving
+     * mid-run queues its payload for one more run (newest wins); a read joins
+     * the current run, or is skipped within `ICON_RETRY_COOLDOWN_MS` of the
+     * last attempt. Never rejects.
+     */
+    async #scheduleIcon(
+        data: Record<string, unknown>,
+        { fromRead }: { fromRead: boolean },
+    ): Promise<void> {
+        let uid = (data.appUid ?? data.app_uid) as string | undefined;
+        if (!uid) return;
+        if (!uid.startsWith('app-')) uid = `app-${uid}`;
+
+        const inFlight = this.#inFlight.get(uid);
+        if (inFlight) {
+            if (!fromRead) inFlight.next = data;
+            return inFlight.done;
+        }
+
+        if (fromRead) {
+            const lastAttempt = this.#lastAttempt.get(uid);
+            if (
+                lastAttempt !== undefined &&
+                Date.now() - lastAttempt < ICON_RETRY_COOLDOWN_MS
+            ) {
+                return;
+            }
+        }
+
+        // Registered before the first await so concurrent callers join it.
+        const state: { next?: Record<string, unknown>; done: Promise<void> } = {
+            next: data,
+            done: Promise.resolve(),
+        };
+        this.#inFlight.set(uid, state);
+        const runningUid = uid;
+        state.done = (async () => {
+            try {
+                while (state.next) {
+                    const payload = state.next;
+                    state.next = undefined;
+                    this.#noteAttempt(runningUid);
+                    try {
+                        await this.#processIcon(payload);
+                    } catch (err) {
+                        console.warn('[app-icon] icon processing failed', err);
+                    }
+                }
+            } finally {
+                this.#inFlight.delete(runningUid);
+            }
+        })();
+        return state.done;
+    }
+
+    #noteAttempt(uid: string): void {
+        // Re-inserting moves the key to the end, so eviction below is FIFO
+        // by last-attempt order, not insertion order.
+        this.#lastAttempt.delete(uid);
+        if (this.#lastAttempt.size >= ICON_ATTEMPTS_MAX_KEYS) {
+            const oldest = this.#lastAttempt.keys().next().value;
+            if (oldest !== undefined) this.#lastAttempt.delete(oldest);
+        }
+        this.#lastAttempt.set(uid, Date.now());
+    }
 
     async #processIcon(data: Record<string, unknown>): Promise<void> {
         if (this.#dirReady) await this.#dirReady;

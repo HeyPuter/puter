@@ -78,6 +78,10 @@ const APP_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const APP_NAME_MAX_LEN = 100;
 const APP_TITLE_MAX_LEN = 100;
 const APP_DESCRIPTION_MAX_LEN = 7000;
+const APP_METADATA_MAX_BYTES = 16 * 1024;
+const APP_FILETYPE_ASSOCIATIONS_MAX = 200;
+// `type` in `app_filetype_association` is varchar(60).
+const APP_FILETYPE_MAX_LEN = 60;
 
 // Index-url uniqueness exemptions: legacy "coming soon" placeholder apps
 // that intentionally share the same hosted index_url. Anything starting
@@ -719,6 +723,7 @@ export class AppDriver extends PuterDriver {
         if (object.metadata !== undefined) {
             const meta = validateJsonObject(object.metadata, {
                 key: 'metadata',
+                maxBytes: APP_METADATA_MAX_BYTES,
             });
             out.metadata = JSON.stringify(meta);
         }
@@ -727,6 +732,8 @@ export class AppDriver extends PuterDriver {
                 object.filetype_associations,
                 {
                     key: 'filetype_associations',
+                    maxItems: APP_FILETYPE_ASSOCIATIONS_MAX,
+                    maxItemLen: APP_FILETYPE_MAX_LEN,
                 },
             );
         }
