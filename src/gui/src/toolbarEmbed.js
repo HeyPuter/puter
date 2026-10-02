@@ -1,11 +1,12 @@
 import jQuery from './lib/jquery-3.6.1/jquery-3.6.1.min.js';
 import { encode } from 'html-entities';
-import './i18n/i18n.js';
+import { loadLocale } from './i18n/embedI18n.js';
 import { isToolbarParent, readSavedAccounts, shouldShowUpgrade, toolbarChannel } from './helpers/toolbarEmbed.js';
 
 window.$ = window.jQuery = jQuery;
 window.locale = 'en';
 try { window.locale = JSON.parse(localStorage.getItem('user_preferences'))?.language || 'en'; } catch {}
+const localeReady = loadLocale(window.locale);
 const config = JSON.parse(document.querySelector('#app-browser-config').textContent);
 const $root = $('#puter-toolbar');
 const escape = value => encode(String(value ?? ''), { mode: 'nonAsciiPrintable' });
@@ -146,7 +147,7 @@ document.addEventListener('keydown', event => {
 
 async function mount () {
     if ( !sessionToken ) throw new Error('Missing session');
-    user = await (await request('/whoami')).json();
+    [user] = await Promise.all([request('/whoami').then(response => response.json()), localeReady]);
     if ( !user.uuid ) throw new Error('Missing account');
     $root.html(`<nav class="toolbar-row" aria-label="${i18n('toolbar_label')}">
         ${shouldShowUpgrade(user) ? `<a class="button button-primary toolbar-upgrade" href="/dashboard?upgrade=1#usage" target="_blank" rel="noopener noreferrer">${i18n('toolbar_upgrade')}</a>` : ''}
@@ -165,4 +166,7 @@ async function mount () {
         }
     } catch { /* An avatar is optional. */ }
 }
-mount().catch(() => $root.html(`<p class="toolbar-unavailable" role="status">${i18n('toolbar_unavailable')}</p>`));
+mount().catch(async () => {
+    await localeReady;
+    $root.html(`<p class="toolbar-unavailable" role="status">${i18n('toolbar_unavailable')}</p>`);
+});
