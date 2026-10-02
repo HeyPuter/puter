@@ -19,6 +19,7 @@
 
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
+import { openRequestedUpgrade } from '../../helpers/upgradeLink.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
 // render credits or fall back to dollars.
@@ -168,6 +169,7 @@ function setupPlanButton ($el_window, retryDelay = 250) {
         }
         return;
     }
+    openRequestedUpgrade();
     const hasSubscription = window.user?.subscription?.active;
     $planBtn
         .text(hasSubscription ? 'Manage Plan' : 'Upgrade')

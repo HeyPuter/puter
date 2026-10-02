@@ -1,0 +1,38 @@
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--dashboard-text);
+}
+#puter-toolbar { display: flex; flex-direction: column; width: 100%; height: 100%; box-sizing: border-box; padding: 4px; gap: 8px; background: transparent; }
+#puter-toolbar * { box-sizing: border-box; }
+.toolbar-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; height: 40px; flex-shrink: 0; }
+.toolbar-button, .toolbar-close { border: 0; background: transparent; color: var(--dashboard-text); cursor: pointer; border-radius: 8px; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.toolbar-button:hover, .toolbar-close:hover, .toolbar-item:hover, .toolbar-account:hover { background: var(--dashboard-input-background, #edf0f6); }
+.toolbar-upgrade { background: var(--dashboard-link, #5271ff); color: white; border-radius: 8px; padding: 10px 16px; text-decoration: none; font-size: 14px; font-weight: 600; }
+.toolbar-grid { display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
+.toolbar-grid i { width: 4px; height: 4px; border-radius: 1px; background: currentColor; }
+.toolbar-avatar { border-radius: 50%; background: #e5eaff; color: #3755c4; font-size: 18px; font-weight: 600; flex-shrink: 0; }
+.toolbar-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.toolbar-panel { min-height: 0; flex: 1; display: flex; flex-direction: column; padding: 0; margin: 0; border: 1px solid var(--dashboard-border); border-radius: 12px; background: var(--dashboard-background); overflow: hidden; box-shadow: 0 2px 8px #0002; }
+.toolbar-panel header { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 4px 16px; border-bottom: 1px solid var(--dashboard-border); flex-shrink: 0; font-size: 14px; }
+.toolbar-close { font-size: 24px; width: 32px; height: 32px; }
+.toolbar-panel-content { flex: 1; min-height: 0; overflow: auto; }
+.toolbar-apps { border: 0; width: 100%; height: 100%; display: block; }
+.toolbar-current { display: flex; flex-direction: column; gap: 5px; padding: 20px 16px; overflow-wrap: anywhere; }
+.toolbar-current span, .toolbar-account small { color: var(--dashboard-text-secondary); font-size: 13px; }
+.toolbar-account, .toolbar-item { display: flex; width: 100%; padding: 12px 16px; gap: 12px; align-items: center; text-align: left; background: transparent; color: var(--dashboard-text); border: 0; cursor: pointer; font-size: 14px; text-decoration: none; }
+.toolbar-account > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.toolbar-account strong, .toolbar-account small { display: block; margin: 3px 0; }
+.toolbar-account .toolbar-avatar { display: flex; width: 36px; height: 36px; align-items: center; justify-content: center; }
+.toolbar-accounts { border-bottom: 1px solid var(--dashboard-border); }
+.toolbar-error, .toolbar-unavailable { font-size: 13px; padding: 8px; margin: 0; }
+#puter-toolbar :focus-visible { outline: 2px solid var(--dashboard-link, #5271ff); outline-offset: -2px; }
+
+#puter-toolbar [hidden] { display: none; }
+.toolbar-confirm { border-top: 1px solid var(--dashboard-border); }
+.toolbar-confirm p { margin: 12px 16px; font-size: 14px; line-height: 1.5; }
+.toolbar-confirm-logout { color: #c03535; }

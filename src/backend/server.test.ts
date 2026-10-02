@@ -304,6 +304,34 @@ describe('PuterServer host header validation', () => {
         expect(api.headers['x-frame-options']).toBeUndefined();
     });
 
+    it('allows deployment subdomains to frame the dedicated embeds', async () => {
+        for (const path of ['/embed/apps', '/embed/apps/', '/embed/toolbar', '/embed/toolbar/']) {
+            const res = await request(path, { host: `puter.localhost:${port}` });
+            expect(res.status).toBe(200);
+            expect(res.headers['x-frame-options']).toBeUndefined();
+            expect(res.headers['content-security-policy']).toBe(
+                `frame-ancestors 'self' http://*.puter.localhost:${port}`,
+            );
+            expect(res.headers['cache-control']).toBe('no-store');
+            expect(res.body).toContain(path.includes('toolbar') ? '/dist/toolbar-embed.min.js' : '/dist/apps-embed.min.js');
+            expect(res.body).not.toContain('/dist/bundle.min.js');
+            expect(res.body).toContain(`http://api.puter.localhost:${port}`);
+        }
+        const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
+        expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
+        const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });
+        expect(api.status).toBe(404);
+    });
+
+    it.each(['apps', 'toolbar'])('strips SDK bootstrap query parameters from the %s embed route', async (embed) => {
+        const res = await request(`/embed/${embed}?puter.app_instance_id=other&puter.api_origin=https://other.test`, {
+            host: `puter.localhost:${port}`,
+        });
+        expect(res.status).toBe(302);
+        expect(res.headers.location).toBe(`/embed/${embed}`);
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
     it('blocks a request the ip.validate listeners veto', async () => {
         const handler = (_key: unknown, data: unknown) => {
             (data as { allow: boolean }).allow = false;

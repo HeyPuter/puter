@@ -43,9 +43,9 @@ const APP_LANDING_LIMIT = {
 };
 
 /**
- * App descriptions can run long; search snippets and social cards want a
- * short blurb. Collapses whitespace, then cuts at a word boundary with an
- * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
+ * App descriptions can run long; search snippets and social cards want a short
+ * blurb. Collapses whitespace, then cuts at a word boundary with an ellipsis so
+ * the result never exceeds `APP_META_DESCRIPTION_MAX`.
  */
 export function appMetaDescription(text: string): string {
     const clean = text.replace(/\s+/g, ' ').trim();
@@ -104,6 +104,27 @@ export class HomepageController extends PuterController {
         // -- Root + path-aliased shell routes ------------------------
 
         router.get('/', {}, (req, res) => sendShell(req, res));
+
+        for (const embed of ['apps', 'toolbar'] as const) {
+            router.get(`/embed/${embed}`, {}, (req, res) => {
+                // SDK bootstrap parameters must not change this page's account or API origin.
+                if (Object.keys(req.query).length) {
+                    res.redirect(`/embed/${embed}`);
+                    return;
+                }
+                const origin = new URL(
+                    this.config.origin ?? `https://${this.config.domain}`,
+                );
+                const port = origin.port ? `:${origin.port}` : '';
+                res.removeHeader('X-Frame-Options');
+                res.setHeader(
+                    'Content-Security-Policy',
+                    `frame-ancestors 'self' ${origin.protocol}//*.${this.config.domain}${port}`,
+                );
+                res.setHeader('Cache-Control', 'no-store');
+                res.send(homepage.renderAppBrowserEmbed(embed));
+            });
+        }
 
         router.get('/settings', {}, (req, res) => sendShell(req, res));
         router.get('/settings/*splat', {}, (req, res) => sendShell(req, res));

@@ -163,6 +163,36 @@ export class PuterHomepageService extends PuterService {
         this.#guiParams[key] = val;
     }
 
+    renderAppBrowserEmbed(mode: 'apps' | 'toolbar' = 'apps'): string {
+        const configJson = JSON.stringify({
+            apiOrigin: this.config.api_base_url,
+            domain: this.config.domain,
+            sdkUrl:
+                this.config.env === 'dev'
+                    ? '/sdk/puter.dev.js'
+                    : (this.config.gui_puterjs_bundle ??
+                      'https://js.puter.com/v2/'),
+        }).replace(/</g, '\\u003c');
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>${encode(String(this.config.gui_params?.title ?? 'Puter'))}</title>
+    <link rel="stylesheet" href="/css/normalize.css">
+    <link rel="stylesheet" href="/css/dashboard.css">
+    <link rel="stylesheet" href="/css/${mode}-embed.css">
+</head>
+<body>
+    <main id="${mode === 'apps' ? 'app-browser' : 'puter-toolbar'}" class="dashboard"></main>
+    <script type="application/json" id="app-browser-config">${configJson}</script>
+    <script defer src="/dist/${mode}-embed.min.js"></script>
+</body>
+</html>`;
+    }
+
     /**
      * Render and send the shell HTML. Returns the rendered string so callers
      * that want to cache or post-process can opt in; `res.send` is already
