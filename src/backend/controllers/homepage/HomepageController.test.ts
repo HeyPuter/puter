@@ -427,6 +427,25 @@ describe('HomepageController GET /app/:name', () => {
     });
 });
 
+// -- app landing rate limit --
+
+describe('HomepageController app landing rate limit', () => {
+    it('rate-limits /app/:name and /desktop/app/:name per network', () => {
+        for (const path of ['/app/:name', '/desktop/app/:name']) {
+            const route = router.routes.find(
+                (r) => r.method === 'get' && r.path === path,
+            );
+            if (!route) throw new Error(`No GET ${path} route`);
+            expect(route.options.rateLimit).toEqual({
+                scope: 'app-landing',
+                limit: 600,
+                window: 60_000,
+                key: 'ip',
+            });
+        }
+    });
+});
+
 // ── /show/* ─────────────────────────────────────────────────────────
 
 describe('HomepageController GET /show/*splat', () => {

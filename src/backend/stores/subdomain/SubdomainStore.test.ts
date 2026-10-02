@@ -563,3 +563,90 @@ describe('SubdomainStore reads and writes', () => {
         ).resolves.toBeUndefined();
     });
 });
+
+// -- getBySubdomains (batched) --
+
+describe('SubdomainStore.getBySubdomains', () => {
+    it('is keyed by the requested names and omits names with no row', async () => {
+        const owner = await makeUser();
+        const a = `gbs-a-${Math.random().toString(36).slice(2, 8)}`;
+        const b = `gbs-b-${Math.random().toString(36).slice(2, 8)}`;
+        const missing = `gbs-missing-${Math.random().toString(36).slice(2, 8)}`;
+        await store.create({ userId: owner, subdomain: a } as never);
+        await store.create({ userId: owner, subdomain: b } as never);
+
+        const found = await store.getBySubdomains([a, b, missing]);
+
+        expect(found.size).toBe(2);
+        expect(found.get(a)?.subdomain).toBe(a);
+        expect(found.get(b)?.subdomain).toBe(b);
+        expect(found.has(missing)).toBe(false);
+    });
+
+    it('serves a cache hit with no DB read', async () => {
+        const owner = await makeUser();
+        const name = `gbs-cached-${Math.random().toString(36).slice(2, 8)}`;
+        // `create` writes through the cache, so the row is already warm.
+        await store.create({ userId: owner, subdomain: name } as never);
+
+        const read = vi.spyOn(server.clients.db, 'read');
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            const found = await store.getBySubdomains([name]);
+            expect(found.get(name)?.subdomain).toBe(name);
+            expect(read).not.toHaveBeenCalled();
+            expect(pread).not.toHaveBeenCalled();
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
+    it('a cached negative marker is absent from the result with no DB read', async () => {
+        const name = `gbs-neg-${Math.random().toString(36).slice(2, 8)}`;
+        // Poison the negative-cache marker first.
+        expect(await store.getBySubdomains([name])).toEqual(new Map());
+
+        const read = vi.spyOn(server.clients.db, 'read');
+        try {
+            const found = await store.getBySubdomains([name]);
+            expect(found.has(name)).toBe(false);
+            expect(read).not.toHaveBeenCalled();
+        } finally {
+            read.mockRestore();
+        }
+    });
+
+    it('treats a cached JSON null as a miss and reads the DB, like getBySubdomain', async () => {
+        const owner = await makeUser();
+        const name = `gbs-null-${Math.random().toString(36).slice(2, 8)}`;
+        await store.create({ userId: owner, subdomain: name } as never);
+        await server.clients.redis.set(cacheKey(name), 'null');
+
+        const found = await store.getBySubdomains([name]);
+        expect(found.get(name)?.subdomain).toBe(name);
+    });
+
+    it('a primary read uses pread and writes through, healing a stale negative marker', async () => {
+        const owner = await makeUser();
+        const name = `gbs-heal-${Math.random().toString(36).slice(2, 8)}`;
+        // Poison the cache with a negative marker, then create the row.
+        expect(await store.getBySubdomains([name])).toEqual(new Map());
+        await store.create({ userId: owner, subdomain: name } as never);
+
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            const primaryFound = await store.getBySubdomains([name], {
+                primary: true,
+            });
+            expect(primaryFound.get(name)?.subdomain).toBe(name);
+            expect(pread).toHaveBeenCalled();
+        } finally {
+            pread.mockRestore();
+        }
+
+        // The write-through heals the replica-path cache too.
+        const healedFound = await store.getBySubdomains([name]);
+        expect(healedFound.get(name)?.subdomain).toBe(name);
+    });
+});

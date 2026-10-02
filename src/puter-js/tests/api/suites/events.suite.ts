@@ -884,12 +884,14 @@ export default suite('events', {
             if (! live) return;
 
             // Default delivery: `broadcast`, not `single` — nobody owes an
-            // `ack`, but the environment is the same either way.
+            // `ack`, but the environment is the same either way. Pinned to
+            // `socket` so this client runs it whether or not a worker could.
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
                 handlerName: 'ingestBroadcastEnv',
                 handler: BROADCAST_ENV_HANDLER,
                 context: { label: 'broadcast-env' },
+                targets: ['socket'],
             });
             try {
                 await t.puter.fs.write(`${dir}/first.txt`, 'one');

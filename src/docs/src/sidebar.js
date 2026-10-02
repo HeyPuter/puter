@@ -1389,6 +1389,20 @@ let sidebar = [
                 path: '/Objects/subdomain',
             },
             {
+                title: '<code>Team</code>',
+                title_tag: 'Team',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/team.md',
+                path: '/Objects/team',
+            },
+            {
+                title: '<code>TeamDirectoryEntry</code>',
+                title_tag: 'TeamDirectoryEntry',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/teamdirectoryentry.md',
+                path: '/Objects/teamdirectoryentry',
+            },
+            {
                 title: '<code>TTSEngine</code>',
                 title_tag: 'TTSEngine',
                 icon: '/assets/img/object.svg',
