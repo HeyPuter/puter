@@ -794,10 +794,12 @@ export class AuthService extends PuterService {
     async appUidFromOrigin(origin: string): Promise<string> {
         const appOrigin = await this.#appOriginFor(origin);
         if (!appOrigin) {
-            console.error('[auth] failed to parse origin URL', { origin });
-            throw new HttpError(400, 'Invalid origin URL', {
-                legacyCode: 'bad_request',
-            });
+            // Not logged: caller input, counted as a per-route 400.
+            throw new HttpError(
+                400,
+                'Origin must be an http(s) or browser-extension URL — a `file://` page or a sandboxed iframe has no origin an app can be identified by',
+                { legacyCode: 'bad_request' },
+            );
         }
 
         // Blocked origins can't acquire an app token (or have one minted /

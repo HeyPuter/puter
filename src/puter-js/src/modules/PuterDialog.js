@@ -1,4 +1,5 @@
-import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
+import { hasOpaqueOrigin, hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
+import { isFramedDocument } from '../lib/appModeGate.js';
 
 class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall back to only extending Object in environments without a DOM
     // Similar to `#messageID` in Auth.js. We start at an arbitrary high number to avoid
@@ -402,19 +403,25 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             }
         }
         </style>`;
-        // Error message for unsupported protocol
-        if ( window.location.protocol === 'file:' ) {
+        // Error message for a page the browser gives no origin to
+        if ( hasOpaqueOrigin() ) {
+            // Framing, not the scheme: a missing `location` is opaque too.
+            const isFileProtocol = ! isFramedDocument();
             h += `<dialog>
                     <div class="puter-dialog-content" style="padding: 20px 40px; font-size: 15px;">
                         <span class="close-btn">&#x2715</span>
                         <div class="error-container">
-                            <h1>Puter.js Error: Unsupported Protocol</h1>
-                            <p>It looks like you've opened this file directly in your browser (using the <code style="font-family: monospace;">file:///</code> protocol) which is not supported by Puter.js for security reasons.</p>
-                            <p>To view this content properly, you need to serve it through a web server. Here are some options:</p>
+                            <h1>Puter.js Error: Unsupported Origin</h1>
+                            <p>${isFileProtocol
+                                ? 'It looks like you\'ve opened this file directly in your browser (using the <code style="font-family: monospace;">file:///</code> protocol), which gives the page no origin.'
+                                : 'This page is in an iframe sandboxed without <code style="font-family: monospace;">allow-same-origin</code>, which gives it no origin.'
+                            } Puter.js signs a page in by its origin, so it cannot sign this one in.</p>
+                            <p>To use Puter.js here:</p>
                             <ul>
-                                <li>Use a local development server (e.g., Python's built-in server or Node.js http-server)</li>
-                                <li>Upload the files to a web hosting service</li>
-                                <li>Use a local server application like XAMPP or MAMP</li>
+                                ${isFileProtocol
+                                    ? '<li>Serve the page from a local development server (e.g., Python\'s built-in server or Node.js http-server)</li><li>Or upload the files to a web hosting service</li>'
+                                    : '<li>Add <code style="font-family: monospace;">allow-same-origin</code> to the iframe\'s <code style="font-family: monospace;">sandbox</code> attribute</li><li>Or load Puter.js from the parent page instead</li>'
+                                }
                             </ul>
                             <p class="help-text">If you're not familiar with these options, consider reaching out to your development team or IT support for assistance.</p>
                         </div>
@@ -579,6 +586,18 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         return this.options.popupName
             ? openAuthPopup(this.#popupURL(), this.options.popupName)
             : openAuthPopup(this.#popupURL());
+    }
+
+    /**
+     * Shows the dialog as a notice: no popup to offer, and no throw where
+     * modals are blocked (`<iframe sandbox>` without `allow-modals`).
+     */
+    openNotice () {
+        try {
+            this.shadowRoot.querySelector('dialog').showModal();
+        } catch (e) {
+            console.error('Puter.js: could not show the notice dialog', e);
+        }
     }
 
     open () {

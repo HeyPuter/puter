@@ -19,7 +19,7 @@
 
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -1617,6 +1617,24 @@ describe('AuthService (integration)', () => {
                 authService.appUidFromOrigin('not-a-url'),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        // What a browser sends for a sandboxed iframe and a `file://` page.
+        it.each(['null', 'file://'])(
+            'throws 400 for the opaque origin %s without logging an error',
+            async (origin) => {
+                const spy = vi
+                    .spyOn(console, 'error')
+                    .mockImplementation(() => {});
+                try {
+                    await expect(
+                        authService.appUidFromOrigin(origin),
+                    ).rejects.toMatchObject({ statusCode: 400 });
+                    expect(spy).not.toHaveBeenCalled();
+                } finally {
+                    spy.mockRestore();
+                }
+            },
+        );
 
         it('returns a deterministic app-<uuid> for arbitrary origins', async () => {
             const origin = `https://stable-${uuidv4()}.example.com`;

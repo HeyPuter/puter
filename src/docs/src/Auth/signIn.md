@@ -47,6 +47,8 @@ The promise will reject with an object containing an `error` code and a human-re
 
 - `not_available_in_app`: `signIn()` was called from an app running on Puter. An app is already signed in as the user who launched it — the Puter session hands it a token at launch — so there is nothing for the popup to do. Use `puter.auth.getUser()` to read who that is.
 
+- `unsupported_origin`: the page has no origin the browser will vouch for, so there is no app for Puter to issue a token to and no address to deliver it to. This happens when the page is opened straight from disk (`file://`) or sits in an iframe sandboxed without `allow-same-origin`. Serve the page over `http://localhost` or a real domain, or add `allow-same-origin` to the iframe's `sandbox` attribute.
+
 The promise may also reject with the failure response returned by the authentication window itself.
 
 ## Example
