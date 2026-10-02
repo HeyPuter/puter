@@ -49,9 +49,9 @@ import type {
  *
  * A `single` is owed to exactly one consumer: the socket if someone is there,
  * the handler once the socket has had its turns, and never both. A `broadcast`
- * is at-most-once to everyone who is: its handler runs alongside the socket
- * copies rather than instead of them, and a row nothing can carry delivers —
- * and meters — nothing at all.
+ * is at-most-once to everyone who is: the worker runs the handler when it can,
+ * connected clients otherwise, and a row nothing can carry delivers — and
+ * meters — nothing at all.
  */
 
 let seq = 0;
@@ -622,7 +622,29 @@ describe('a delivery owed to exactly one consumer', () => {
 });
 
 describe('a delivery everyone connected gets', () => {
-    it('runs the handler once, alongside the socket copy', async () => {
+    it('hands the run to the worker and marks the socket copy', async () => {
+        const row = await register({ delivery: 'broadcast' });
+
+        await dispatch();
+        await flushed();
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toMatchObject({ subId: row.subId, skipHandler: true });
+        expect(sent[0].ackRequired).toBeUndefined();
+        expect(invoked).toHaveLength(1);
+        expect(invoked[0]).toMatchObject({ subId: row.subId });
+        // One delivery is one line, however many transports carried it.
+        expect(delivered).toHaveLength(1);
+    });
+
+    it('leaves the socket copy unmarked, and never invokes the worker, when it has no runtime', async () => {
+        service.worker = {
+            invoke: async (invocation: WorkerInvocation) => {
+                invoked.push(invocation);
+                return workerOutcome;
+            },
+            available: () => false,
+        };
         const row = await register({ delivery: 'broadcast' });
 
         await dispatch();
@@ -630,11 +652,33 @@ describe('a delivery everyone connected gets', () => {
 
         expect(sent).toHaveLength(1);
         expect(sent[0]).toMatchObject({ subId: row.subId });
-        expect(sent[0].ackRequired).toBeUndefined();
-        expect(invoked).toHaveLength(1);
-        expect(invoked[0]).toMatchObject({ subId: row.subId });
-        // One delivery is one line, however many transports carried it.
-        expect(delivered).toHaveLength(1);
+        expect(sent[0].skipHandler).toBeUndefined();
+        expect(invoked).toEqual([]);
+    });
+
+    it("leaves the socket copy unmarked for whichever delivery lands once the app's invocations for the minute are spent", async () => {
+        const appUid = `app-${seq}`;
+        await register({ delivery: 'broadcast', appUid });
+        const total = EVENTS_WORKER_INVOCATION_LIMIT.limit + 1;
+
+        // Distinct nodes, so nothing is coalesced away upstream — each is its
+        // own delivery, and together they spend the one shared budget.
+        for (let i = 0; i < total; i++)
+            await dispatch(
+                entry({
+                    uid: `file-${seq}-${i}`,
+                    path: `${anchorPath()}/n${i}.txt`,
+                }),
+            );
+        await flushed(total);
+
+        expect(invoked).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
+        expect(
+            sent.filter((envelope) => envelope.skipHandler === true),
+        ).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
+        expect(
+            sent.filter((envelope) => envelope.skipHandler === undefined),
+        ).toHaveLength(1);
     });
 
     it('runs the handler once per delivery, not once per transport', async () => {

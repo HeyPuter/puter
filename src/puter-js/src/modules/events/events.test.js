@@ -942,6 +942,40 @@ describe('persistent delivery routing', () => {
         expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
     });
 
+    it('runs nothing for a delivery the server marked as handled by the worker', async () => {
+        const events = makeModule();
+        const seen = [];
+        events.channel.registerDurable('app-1#sub', ({ event }) => seen.push(event));
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sub', '/user/a/skip.txt', { skipHandler: true }),
+        );
+        expect(seen).toEqual([]);
+
+        sockets[0].fire('events.delivery', durable('app-1#sub', '/user/a/run.txt'));
+        expect(seen).toHaveLength(1);
+    });
+
+    it('still runs and acks a marked delivery that also requires one', async () => {
+        const events = makeModule();
+        events.channel.registerDurable('app-1#sub', delivery => delivery.ack());
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sub', '/user/a/single.txt', {
+                skipHandler: true,
+                ackRequired: true,
+                ackId: 'entry-skip',
+            }),
+        );
+        await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toMatchObject([
+            { payload: { subId: 'app-1#sub', id: 'entry-skip' } },
+        ]);
+    });
+
     it('hands a delivery owed to one consumer the environment its worker gets', async () => {
         const events = makeModule();
         let handed;
