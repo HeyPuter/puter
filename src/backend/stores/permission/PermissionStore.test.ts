@@ -232,6 +232,23 @@ describe('PermissionStore', () => {
     // -- prefix deletion -----------------------------------------------
 
     describe('deleteAppGrantsByPermissionPrefix', () => {
+        it.each(['user_to_app_permissions', 'dev_to_app_permissions'])(
+            'has an index leading with `permission` on %s',
+            async (table) => {
+                // Every other index on these tables leads with another column.
+                const postgres = server.clients.db.engineName === 'postgres';
+                const rows = (await server.clients.db.read(
+                    postgres
+                        ? 'SELECT indexname AS name FROM pg_indexes WHERE tablename = ?'
+                        : "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?",
+                    [table],
+                )) as Array<{ name: string }>;
+                expect(rows.map((r) => r.name)).toContain(
+                    `idx_${table}_permission`,
+                );
+            },
+        );
+
         it('removes the exact permission and its subtree, across both tables', async () => {
             const user = await makeUser();
             const app = await makeApp(user.id);
