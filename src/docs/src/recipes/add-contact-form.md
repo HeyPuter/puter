@@ -103,3 +103,59 @@ The request is a plain `fetch()`, so visitors do not need a Puter account to
 use the form.
 
 Every message sent through the form now arrives in your email inbox.
+
+## Limit How Often a Visitor Can Send
+
+Anyone who knows the worker's URL can call the `/contact` route, and every call
+sends an email billed to you. To keep a bot from flooding your inbox, add a
+rate limit. Record the visitor's IP address in [`puter.kv`](/KV/) with an
+expiry time, and while the key exists, the route answers `429` and sends
+nothing.
+
+Here is the complete worker file with a rate limit of one message every 3
+minutes. Change `COOLDOWN_SECONDS` to fit your app:
+
+```js
+const CONTACT_TO = 'you@example.com';
+const COOLDOWN_SECONDS = 3 * 60;
+
+async function isRateLimited (request) {
+    const key = `contact:${request.headers.get('x-real-ip')}`;
+
+    if ( await me.puter.kv.get(key) ) {
+        return true;
+    }
+
+    const expireAt = Math.floor(Date.now() / 1000) + COOLDOWN_SECONDS;
+    await me.puter.kv.set(key, true, expireAt);
+    return false;
+}
+
+router.post('/contact', async ({ request }) => {
+    const { name, email, message } = await request.json();
+    if (!name || !email || !message) {
+        return new Response('name, email and message are required', { status: 400 });
+    }
+
+    if ( await isRateLimited(request) ) {
+        return new Response('Please wait a few minutes before sending another message', { status: 429 });
+    }
+
+    await me.puter.email.sendTransactional({
+        to: CONTACT_TO,
+        replyTo: email,
+        subject: `Contact form: ${name}`,
+        text: `From: ${name} <${email}>\n\n${message}`,
+    });
+
+    return { ok: true };
+});
+```
+
+The `x-real-ip` header carries the visitor's IP address, and it cannot be faked to get around
+the limit. The [`puter.kv.set()`](/KV/set/) method takes the expiry as a Unix
+timestamp in seconds, and once it passes, the key is removed and the visitor
+can send again.
+
+The limit is checked after the fields are validated, so a form with a missing
+field does not start the cooldown.
