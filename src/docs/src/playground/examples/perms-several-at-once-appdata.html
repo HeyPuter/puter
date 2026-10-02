@@ -1,0 +1,29 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Calendar widget</h3>
+    <input id="app" value="notes" placeholder="app name or uid">
+    <button id="go">Read its entries</button>
+    <script>
+        // A companion widget surfacing another app's data — read-only, and
+        // saying so precisely rather than asking for everything.
+        document.getElementById('go').addEventListener('click', async () => {
+            const name = document.getElementById('app').value.trim();
+            if (!name) return;
+
+            try {
+                // delete is NOT part of write, so a reader asks for neither.
+                const granted = await puter.perms.request('appData', {
+                    app: { name },
+                    scopes: { kv: ['get', 'list'], fs: 'read' },
+                });
+                puter.print(granted
+                    ? `Can read ${name} entries — widget enabled`
+                    : `Widget stays empty without access to ${name}`);
+            } catch (e) {
+                puter.print(`${e.code}: ${e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>
