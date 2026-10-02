@@ -12,6 +12,7 @@ const recipeTags = {
     kv: 'Key-Value',
     hosting: 'Hosting',
     workers: 'Workers',
+    email: 'Email',
     ui: 'UI',
     teams: 'Teams',
     performance: 'Performance',
