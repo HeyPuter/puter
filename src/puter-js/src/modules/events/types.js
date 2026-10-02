@@ -200,7 +200,8 @@
  * @property {Function | string | { file: string }} [handler] The handler
  *   source this subscription was written against. Sent as a hash, not as
  *   source: the subscription binds only if it matches what is published under
- *   `handlerName`, which is also required when this is given.
+ *   `handlerName`, which is also required when this is given. A function also
+ *   runs in this client, on the deliveries the server leaves to clients.
  * @property {Record<string, unknown>} [context] Values the handler needs,
  *   evaluated **now** and delivered as a frozen `ctx` on every invocation.
  *   Capped at 4 KB serialized.
@@ -213,10 +214,10 @@
  * @property {(error: Error & { code?: string }) => void} [onError] Called if
  *   this client stops running `handler` because its events connection could
  *   not be restored (`reauth_required` when this session was signed out). The
- *   subscription itself is not ended; the handler runs here again once the
- *   connection is back — signing in again, or a new subscription. Only used
- *   with a function `handler`; without it, the stop is reported on the
- *   console.
+ *   subscription itself is not ended, and this client takes its deliveries
+ *   again once the connection is back — signing in again, or a new
+ *   subscription. Only used with a function `handler`; without it, the stop is
+ *   reported on the console.
  */
 
 /**

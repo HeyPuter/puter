@@ -27,11 +27,11 @@ puter.events.onPersistent(options)
 - `delivery` (String): `'broadcast'` (default) delivers to every listener. `'single'` delivers each event to exactly one consumer, which must acknowledge it, and requires `handlerName`.
 - `targets` (Array): Where deliveries may go: any of `'socket'`, `'worker'`, `'push'`. Defaults to `['socket', 'worker']` when an app subscribes and `['socket']` when an account session with no app does. A subscription with no app can't target `'worker'`, because the [events worker](/Events/workers/) belongs to an app. `'push'` is reserved for future device notifications: it's accepted (except with `single`) but delivers nothing yet.
 - `handlerName` (String): The published handler to run. Required for `single`.
-- `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client (see below).
+- `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client, on the deliveries the server leaves to clients (see below).
 - `context` (Object): Values the handler needs, passed to it as a frozen `ctx`. **Up to 4 KB serialized**; see below.
 - `expiresAt` (Number | String): When the subscription ends on its own, as unix seconds or an ISO-8601 string. Must be in the future.
 - `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, when more than 128 subscriptions match the change in that region, or when the filter-check limit stops the count early. Refused on other subjects.
-- `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going (in the events worker, if it targets `worker`), and runs here again once this client reconnects. Only used with a function `handler`; without it, the stop is logged to the console.
+- `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going (in the events worker, if it targets `worker`), and resumes taking deliveries here once this client reconnects. Only used with a function `handler`; without it, the stop is logged to the console.
 
 ## Background delivery needs consent
 
@@ -47,7 +47,15 @@ Background handlers run as a worker session for your app, which appears in the u
 
 ## Where the handler runs
 
-The handler runs **in this client while it's connected**, and in the app's [events worker](/Events/workers/) when it isn't. It's the same code either way, called with:
+A connected client always *receives* the event, but doesn't always run the handler for it. A `broadcast` delivery runs in the events worker or in the connected clients, never both:
+
+| Delivery | Runs |
+| --- | --- |
+| `broadcast`, default `targets` (`['socket', 'worker']`) | The app's [events worker](/Events/workers/). Connected clients run it instead only when the worker can't take it: no worker runtime on this deployment, or the [handler-run limit](/rate-limits-and-quotas/#events) for this user and app is used up for the minute. A run that fails in the worker isn't retried in a client. |
+| `broadcast`, `targets: ['socket']` | Every connected client. Nothing runs it otherwise. |
+| `single` | Connected clients first; the worker once sockets are spent. It's offered again until acknowledged (see [below](#acknowledging-a-single-delivery)). |
+
+Whichever place runs it, it's the same code, called with:
 
 | Binding | What it is |
 | --- | --- |
@@ -57,13 +65,13 @@ The handler runs **in this client while it's connected**, and in the app's [even
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. |
 | `ack` | On a `single` subscription only; see below. |
 
-Only a **function** `handler` runs in this client. A source string or `{ file }` is only used for its hash. The connection reconnects on its own when it drops, so the handler keeps running here unless `onError` is called.
+Only a **function** `handler` runs in this client. A source string or `{ file }` is only used for its hash. The connection reconnects on its own when it drops, so this client keeps taking deliveries unless `onError` is called.
 
 Those five bindings are the handler's whole environment. The events worker has no ambient `puter`: a handler that names `puter` or `me` is refused at publish time. Use `user` instead.
 
 ### Handlers that trigger handlers
 
-In the events worker, a write made through `user` is one run deeper than the event the handler ran for, and it can run handlers of its own, including this one. A chain stops at **12 runs on a paid plan and 4 on a free one**, by the plan of the account holding the subscription. An event past that still reaches connected clients but runs no handler: the delivery is dropped without a gap marker and doesn't count as a failure. Writes made anywhere else, including from a handler running in a client, start a new chain. See [handler chains](/rate-limits-and-quotas/#handler-chains).
+In the events worker, a write made through `user` is one run deeper than the event the handler ran for, and it can run handlers of its own, including this one. A chain stops at **12 runs on a paid plan and 4 on a free one**, by the plan of the account holding the subscription. An event past that runs no handler in the events worker. A `broadcast` one still reaches connected clients without running the handler there; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a failure. Writes made anywhere else, including from a handler running in a client, start a new chain. See [handler chains](/rate-limits-and-quotas/#handler-chains).
 
 `user` in the events worker is valid for 15 minutes, so don't keep it past the run.
 

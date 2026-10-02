@@ -94,6 +94,8 @@ export interface ForwardableDelivery {
     event: DeliverableEvent;
     ackRequired?: true;
     ackId?: string;
+    /** Client skips its handler: the worker has it, or it is too deep. */
+    skipHandler?: true;
 }
 
 /** What stands in for events a full queue could not carry across. */
@@ -705,6 +707,7 @@ export class EventForwardService extends PuterService {
                       origin: this.region,
                   }
                 : {}),
+            ...(delivery.skipHandler ? { skipHandler: true as const } : {}),
         };
         this.#queueFor().push(region, item);
     }
@@ -804,7 +807,9 @@ export class EventForwardService extends PuterService {
             // the next attempt is what the expiry is for.
             if (item.ackRequired || pending.has(item.subId)) continue;
             pending.add(item.subId);
-            markers.push({ ...item, event: overflowGap(item.event) });
+            // A gap always reaches the client's handler, like a local one.
+            const { skipHandler, ...unmarked } = item;
+            markers.push({ ...unmarked, event: overflowGap(item.event) });
         }
 
         this.clients.alarm.create(

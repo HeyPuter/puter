@@ -122,6 +122,7 @@ import {
 } from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import type { IConfig } from '../../types.js';
 import {
     resolveFsAnchor,
     resolveKvAnchor,
@@ -475,6 +476,8 @@ export interface DeliveryEnvelope {
      * receives it knows where to send it.
      */
     origin?: string;
+    /** Client skips its handler: the worker has it, or it is too deep. */
+    skipHandler?: true;
 }
 
 /**
@@ -1008,6 +1011,10 @@ const targetsOf = (row: DispatchSubscription): SubscriptionTarget[] =>
         ? (row.targets ?? DEFAULT_DURABLE_TARGETS)
         : SESSION_TARGETS;
 
+/** Whether this deployment can address an events worker at all. */
+const workerRuntimeReady = (config: IConfig): boolean =>
+    config.events?.workerRuntime === true && !!config.events?.internalSecret;
+
 /**
  * Whether this pass has anywhere to put the row. A `single` is queued whether
  * or not anything is listening right now — that is what it is for — while a
@@ -1396,6 +1403,7 @@ export class EventsService extends PuterService {
                 this.clients.eventsWorkerInvoker,
                 (invocation) => this.#mintSubscriberToken(invocation),
                 (appUid) => this.#addressEventsWorker(appUid),
+                () => workerRuntimeReady(this.config),
             );
 
         this.clients.event.on(
@@ -1624,6 +1632,7 @@ export class EventsService extends PuterService {
                       origin: item.origin,
                   }
                 : {}),
+            ...(item.skipHandler ? { skipHandler: true as const } : {}),
         };
         await this.services.socket.send(
             forwardTarget(item.userId, item.appUid),
@@ -5508,8 +5517,8 @@ export class EventsService extends PuterService {
     async #addressEventsWorker(
         appUid: string,
     ): Promise<{ script: string; key: string } | null> {
-        const secret = this.config.events?.internalSecret;
-        if (this.config.events?.workerRuntime !== true || !secret) return null;
+        if (!workerRuntimeReady(this.config)) return null;
+        const secret = this.config.events!.internalSecret!;
 
         const set = await this.stores.eventHandler.setForApp(appUid);
         if (set.length === 0) return null;
@@ -5654,18 +5663,38 @@ export class EventsService extends PuterService {
     /**
      * Addressed at a socket id — which socket.io joins every socket to — or at
      * a room, so either way the adapter carries it to whichever node terminates
-     * the connection. A durable row may also want its handler run, which
-     * happens alongside the socket copy and at most once per delivery.
+     * the connection. For a durable row that also targets the worker, where the
+     * handler runs is decided before anything goes out: the socket copy carries
+     * `skipHandler` when the worker takes it or the event is too deep.
      */
     async #send(delivery: AddressedDelivery): Promise<void> {
+        let gate: 'too-deep' | 'over-budget' | 'ok' | null = null;
+        if (delivery.worker) {
+            try {
+                gate = await this.#handlerGate(delivery.worker);
+            } catch (err) {
+                // Unknown whether the worker could take it — fall back to the
+                // client running it, the same as a delivery with no worker at
+                // all.
+                console.warn('[events] handler gate failed', err);
+            }
+        }
+        // `available` is a deployment-wide fact (is there a worker runtime to
+        // call at all), separate from whether this one invocation succeeds.
+        const toWorker =
+            gate === 'ok' &&
+            (this.worker.available?.() ?? true) &&
+            delivery.worker!.handlerName !== null;
+        // Past the depth cap nothing may run it, in the worker or a client.
+        const skipHandler = toWorker || gate === 'too-deep';
+        const envelope: DeliveryEnvelope = skipHandler
+            ? { ...delivery.envelope, skipHandler: true }
+            : delivery.envelope;
+
         if (delivery.socket) {
             try {
                 void this.services.socket
-                    .send(
-                        delivery.target,
-                        EVENTS_DELIVERY_CHANNEL,
-                        delivery.envelope,
-                    )
+                    .send(delivery.target, EVENTS_DELIVERY_CHANNEL, envelope)
                     .catch((err: unknown) => {
                         console.warn('[events] socket send failed', err);
                     });
@@ -5682,6 +5711,7 @@ export class EventsService extends PuterService {
                         appUid: delivery.meter.appUid,
                         subId: delivery.envelope.subId,
                         event: delivery.envelope.event,
+                        ...(skipHandler ? { skipHandler: true as const } : {}),
                     })
                     .catch((err: unknown) => {
                         console.warn('[events] forward failed', err);
@@ -5689,17 +5719,14 @@ export class EventsService extends PuterService {
         }
 
         let invoked = false;
-        if (delivery.worker) {
+        if (toWorker) {
             // At-most-once by construction: a `broadcast` invocation is never
-            // retried, which is why the docs ask handlers to be idempotent
-            // rather than promising them each event exactly once. It counts
-            // toward nothing either — a row whose socket copies are arriving
-            // must not be stopped by a handler nobody is waiting on. Only a
-            // settled outcome counts as delivered — a failed or still-retrying
-            // run must not bill or report a broadcast that never landed.
+            // retried. The socket copy above was already marked for this run,
+            // so a failure here is not retried by the client either — only a
+            // settled outcome counts as delivered.
             try {
                 invoked =
-                    (await this.#invokeHandler(delivery.worker)) === 'settled';
+                    (await this.worker.invoke(delivery.worker!)) === 'settled';
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
             }
@@ -5819,22 +5846,35 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * Run a handler, unless this (account, app) has spent its invocations for
-     * the minute. `null` says nothing ran: a `single` stays owed and its lease
-     * paces the next attempt, and a `broadcast` copy is simply not made.
-     * `too-deep` says nothing ever will: the event is as many handler runs deep
-     * as the holder's plan lets a chain go.
+     * Whether a handler may run for this invocation. Asking spends from this
+     * minute's invocations for the (account, app), so ask once per delivery.
+     * `too-deep` is permanent for this event and spends nothing.
      */
-    async #invokeHandler(
+    async #handlerGate(
         invocation: WorkerInvocation,
-    ): Promise<WorkerInvocationOutcome | 'too-deep' | null> {
+    ): Promise<'too-deep' | 'over-budget' | 'ok'> {
         if (await this.#tooDeep(invocation)) return 'too-deep';
         const allowed = await checkRateLimit(
             `${EVENTS_WORKER_INVOCATION_LIMIT.scope}:${invocation.holderUserId}:${invocation.appUid ?? ''}`,
             EVENTS_WORKER_INVOCATION_LIMIT.limit,
             EVENTS_WORKER_INVOCATION_LIMIT.window,
         );
-        if (!allowed) return null;
+        return allowed ? 'ok' : 'over-budget';
+    }
+
+    /**
+     * Gate then invoke, for `single` — which decides between socket and worker
+     * itself rather than marking anything. `null` says nothing ran: a `single`
+     * stays owed and its lease paces the next attempt. `too-deep` says nothing
+     * ever will: the event is as many handler runs deep as the holder's plan
+     * lets a chain go.
+     */
+    async #invokeHandler(
+        invocation: WorkerInvocation,
+    ): Promise<WorkerInvocationOutcome | 'too-deep' | null> {
+        const gate = await this.#handlerGate(invocation);
+        if (gate === 'too-deep') return 'too-deep';
+        if (gate === 'over-budget') return null;
         return this.worker.invoke(invocation);
     }
 

@@ -11,12 +11,15 @@ import { assertSubject } from './lib/validate.js';
  *
  * Unlike `onLocal()`, the subscription is stored against the account, keeps
  * matching while the app is closed, and is ended by
- * `puter.events.unsubscribe()` rather than by navigating away. What runs it
- * while nothing is open is the app's published handler, named by `handlerName`.
+ * `puter.events.unsubscribe()` rather than by navigating away. By default
+ * (`broadcast`, targeting the worker) the app's published handler, named by
+ * `handlerName`, is the one that runs — whether or not this client is open.
  *
- * While this client *is* open it runs the handler itself, if one was passed as
- * a function: the same body, the same `{ event, ctx }`, plus `user`, `fetch`
- * and — for a subscription owed to one consumer — `ack`.
+ * Passing a function as `handler` also runs it in this client, on the
+ * deliveries the server leaves to clients (see
+ * [Where the handler runs](/Events/onPersistent/#where-the-handler-runs)):
+ * the same body, the same `{ event, ctx }`, plus `user`, `fetch` and — for a
+ * subscription owed to one consumer — `ack`.
  *
  * `context` is evaluated **here, now** — serialized once and delivered to every
  * invocation as a frozen `ctx`. It never re-evaluates, so a value read from the
