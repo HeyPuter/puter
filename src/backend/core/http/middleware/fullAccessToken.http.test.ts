@@ -101,6 +101,8 @@ describe('full-access token route admissions', () => {
         ['POST', '/auth/get-user-app-token', { origin: 'https://probe.test' }],
         ['POST', '/auth/grant-user-app', { app_uid: 'app-x', permission: 'p' }],
         ['POST', '/open_item', { path: '~/' }],
+        // Only `requireAuth` on the route; the refusal is AuthService's.
+        ['POST', '/auth/create-access-token', { permissions: ['fs:read'] }],
     ];
 
     it.each(REFUSED)(
