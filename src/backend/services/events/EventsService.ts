@@ -151,7 +151,7 @@ import {
     type KvSharedRegionDeps,
     type SubscriptionGrant,
 } from './authorization.js';
-import { DeliveryCoalescer } from './coalescer.js';
+import { coalesceKey, DeliveryCoalescer } from './coalescer.js';
 import { forwardTarget } from './EventForwardService.js';
 import type { ForwardDelivery, ForwardEvent } from './forwardQueue.js';
 import {
@@ -161,6 +161,7 @@ import {
     type EventsUsageType,
 } from './costs.js';
 import { DeliveryAuthCache } from './deliveryAuthCache.js';
+import { EndedSubscriptions } from './endedSubscriptions.js';
 import {
     FILTER_EVALUATIONS_PER_EVENT,
     compileMatch,
@@ -638,6 +639,22 @@ export const EVENTS_SUBSCRIBE_VERB = 'events.subscribe';
 export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
 export const EVENTS_ACK_VERB = 'events.ack';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
+/** Server→client, no ack: the server ended a session subscription itself. */
+export const EVENTS_ENDED_CHANNEL = 'events.ended';
+
+/** Sent on `events.ended` when the server ends a session subscription itself. */
+export interface EndedNotice {
+    subId: string;
+    code: 'subscription_ended';
+    reason: SubscriptionEndReason;
+    message: string;
+}
+
+const ENDED_MESSAGES: Record<SubscriptionEndReason, string> = {
+    anchor_deleted: 'The node this subscription was attached to was deleted',
+    permission_revoked:
+        'Access to what this subscription watched was withdrawn',
+};
 
 // -- Expiry sweep -----------------------------------------------------
 
@@ -655,6 +672,9 @@ const EXPIRY_MAX_BATCHES = 50;
  * listing.
  */
 const ENDED_SUBJECTS_LISTED = 20;
+
+/** Re-reads an unsubscribe takes to catch a row racing a reanchor. */
+const UNSUBSCRIBE_READS = 3;
 
 /**
  * Worker sessions one page of the stray-session sweep reads, and pages one pass
@@ -965,10 +985,6 @@ const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
     suspendedAt: sub.suspendedAt,
     suspendedReason: sub.suspendedReason,
 });
-
-/** Coalescing is per (subscription, subject), which is what the key says. */
-const coalesceKey = (subId: string, subject: string): string =>
-    `${subId}|${subject}`;
 
 /**
  * Where one row's deliveries go. A session row is addressed at the connection
@@ -1341,6 +1357,14 @@ export class EventsService extends PuterService {
         { actor: Actor; expiresAt: number }
     >();
     #coalescer: DeliveryCoalescer<AddressedDelivery> | null = null;
+    /** End notices held until what is coalesced for their subscription ships. */
+    readonly #endNotices = new Map<
+        string,
+        { target: SocketSpecifier; notice: EndedNotice }
+    >();
+    readonly #ended = new EndedSubscriptions();
+    /** Flushes per subscription that have left the coalescer but not yet sent. */
+    readonly #flushing = new Map<string, number>();
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
@@ -1380,10 +1404,13 @@ export class EventsService extends PuterService {
                 // Our own emit reaches local listeners too, and that half has
                 // already been applied.
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
-                const { userId, durable } = (data ?? {}) as {
+                const { userId, durable, ended } = (data ?? {}) as {
                     userId?: number;
                     durable?: boolean;
+                    ended?: string[];
                 };
+                if (Array.isArray(ended))
+                    for (const subId of ended) this.#endedElsewhere(subId);
                 if (typeof userId !== 'number') return;
                 this.invalidateUser(userId, { rebuild: durable === true });
             },
@@ -1703,22 +1730,30 @@ export class EventsService extends PuterService {
         await this.#spendUnsubscribeBudget(holderUserId);
 
         const subId = String(request?.subId ?? '');
-        const sub = subId
-            ? await this.stores.eventSubscription.getForSocket(
-                  holderUserId,
-                  socketId,
-                  subId,
-              )
-            : null;
-        // An id this socket never held — or one another app created — reads as
-        // absent rather than refused: a 403 here is an oracle for subIds.
-        if (!sub || !rowInActorScope(actor, sub)) throw unknownSubscription();
+        if (!subId) throw unknownSubscription();
 
-        const bump = await this.stores.eventSubscription.remove(sub);
-        // A concurrent duplicate of this same call already removed it.
-        if (!bump) throw unknownSubscription();
-        this.#forget(subId);
-        this.#publishGeneration(bump, false);
+        for (let read = 0; read < UNSUBSCRIBE_READS; read++) {
+            const sub = await this.stores.eventSubscription.getForSocket(
+                holderUserId,
+                socketId,
+                subId,
+            );
+            // An id this socket never held — or one another app created —
+            // reads as absent rather than refused: a 403 here is an oracle
+            // for subIds.
+            if (!sub || !rowInActorScope(actor, sub))
+                throw unknownSubscription();
+
+            const bump = await this.stores.eventSubscription.remove(sub);
+            if (bump) {
+                this.#forget(subId);
+                this.#publishGeneration(bump, false);
+                return;
+            }
+            // Lost to a duplicate (the next read finds nothing) or to a move
+            // (the next read finds where it went).
+        }
+        throw unknownSubscription();
     }
 
     /** What this actor holds on one connection, scoped to what it may see. */
@@ -4071,7 +4106,7 @@ export class EventsService extends PuterService {
             }
 
             const targets = targetsOf(row);
-            this.#coalesce().push(coalesceKey(row.subId, event.subject), {
+            this.#queue(row, event.subject, {
                 target: deliveryTarget(row),
                 envelope: { subId: row.subId, event },
                 socket: targets.includes('socket'),
@@ -4436,7 +4471,7 @@ export class EventsService extends PuterService {
             // A marker rides the socket; a row with none has nowhere to hear
             // it, and sending nothing must not count as a delivery.
             if (!targetsOf(row).includes('socket')) continue;
-            this.#coalesce().push(coalesceKey(row.subId, marker.subject), {
+            this.#queue(row, marker.subject, {
                 target: deliveryTarget(row),
                 socket: targetsOf(row).includes('socket'),
                 remote: row.socketId === undefined,
@@ -4720,6 +4755,7 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         anchorPath: string,
         ancestors: ReadonlyArray<{ uid: string; path: string }>,
+        notify: boolean,
     ): Promise<void> {
         let current = row;
         let currentAnchorPath = anchorPath;
@@ -4733,7 +4769,7 @@ export class EventsService extends PuterService {
             // subscribed: the re-check would deny every delivery, but the row
             // would still hold an anchor slot and a filter evaluation there.
             if (!next || !(await this.#reachable(current, next))) {
-                await this.#endSubscription(current, 'anchor_deleted');
+                await this.#endSubscription(current, 'anchor_deleted', notify);
                 return;
             }
             // A concurrent unsubscribe already took the row.
@@ -4771,8 +4807,22 @@ export class EventsService extends PuterService {
         );
         if (onAnchor.length === 0) return;
 
+        // Told only if it can still see the node — rows the final `remove`'s
+        // own match never reached get a fresh check here.
+        const told = new Set(
+            (
+                await this.#stillAuthorized(
+                    onAnchor.filter((row) => row.durable !== true),
+                    context,
+                )
+            ).map((row) => row.subId),
+        );
+
         for (const row of onAnchor) {
             try {
+                // Durable rows are never in `told` (they're filtered out
+                // above) — that must never read as "don't notify".
+                const notify = row.durable === true || told.has(row.subId);
                 // The removed node's live path, not `row.anchorPath` — a
                 // rename or move before this delete left that stale.
                 if (row.match)
@@ -4780,8 +4830,9 @@ export class EventsService extends PuterService {
                         row,
                         context.entry.path,
                         context.ancestors,
+                        notify,
                     );
-                else await this.#endSubscription(row, 'anchor_deleted');
+                else await this.#endSubscription(row, 'anchor_deleted', notify);
             } catch (err) {
                 console.warn(
                     '[events] could not settle a subscription whose anchor was removed',
@@ -4847,25 +4898,29 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         next: ReanchorInput,
     ): Promise<boolean> {
-        const bumps =
-            row.durable === true
-                ? (
-                      await this.stores.durableSubscription.reanchor(
-                          row as DurableSubscription,
-                          next,
-                      )
-                  ).bumps
-                : await this.stores.eventSubscription.reanchorSession(
-                      row as SessionSubscription,
-                      { ...(row as SessionSubscription), ...next },
-                  );
+        let bumps: GenerationBump[];
+        let moved: boolean;
+        if (row.durable === true) {
+            ({ bumps } = await this.stores.durableSubscription.reanchor(
+                row as DurableSubscription,
+                next,
+            ));
+            moved = bumps.length > 0;
+        } else {
+            ({ moved, bumps } =
+                await this.stores.eventSubscription.reanchorSession(
+                    row as SessionSubscription,
+                    { ...(row as SessionSubscription), ...next },
+                ));
+        }
         // The matcher cache keys on the pattern it compiled, so it corrects
         // itself; the access decisions were about a node this row no longer
         // watches.
         this.#deliveryAuth.forget(row.subId);
         for (const bump of bumps)
             this.#publishGeneration(bump, row.durable === true);
-        return bumps.length > 0;
+        // `false` when an unsubscribe or a disconnect won first.
+        return moved;
     }
 
     /**
@@ -4877,6 +4932,7 @@ export class EventsService extends PuterService {
     async #endSubscription(
         row: DispatchSubscription,
         reason: SubscriptionEndReason,
+        notify = true,
     ): Promise<void> {
         this.#compiled.delete(row.subId);
         this.#deliveryAuth.forget(row.subId);
@@ -4886,7 +4942,11 @@ export class EventsService extends PuterService {
                 row as SessionSubscription,
             );
             // A concurrent unsubscribe (or another settle pass) already took it.
-            if (bump) this.#publishGeneration(bump, false);
+            if (bump) {
+                this.#ended.mark(row.subId);
+                this.#publishGeneration(bump, false, [row.subId]);
+                if (notify) this.#tellEnded(row, reason);
+            }
             return;
         }
 
@@ -4942,6 +5002,71 @@ export class EventsService extends PuterService {
                 );
             }
         }
+    }
+
+    /**
+     * Tell the connection a session subscription the server itself ended. Held
+     * until what was still owed to it has gone out, so a removal already
+     * underway arrives first.
+     */
+    #tellEnded(row: DispatchSubscription, reason: SubscriptionEndReason): void {
+        const held = {
+            target: deliveryTarget(row),
+            notice: {
+                subId: row.subId,
+                code: 'subscription_ended' as const,
+                reason,
+                message: ENDED_MESSAGES[reason],
+            },
+        };
+        if (this.#owed(row.subId)) {
+            this.#endNotices.set(row.subId, held);
+            return;
+        }
+        void this.#sendEnded(held);
+    }
+
+    /**
+     * Whether a delivery for this subscription is still coalescing or
+     * mid-flush.
+     */
+    #owed(subId: string): boolean {
+        return (
+            (this.#flushing.get(subId) ?? 0) > 0 ||
+            this.#coalescer?.hasGroup(subId) === true
+        );
+    }
+
+    async #sendEnded(held: {
+        target: SocketSpecifier;
+        notice: EndedNotice;
+    }): Promise<void> {
+        try {
+            await this.services.socket.send(
+                held.target,
+                EVENTS_ENDED_CHANNEL,
+                held.notice,
+            );
+        } catch (err) {
+            console.warn(
+                '[events] could not tell a connection its subscription ended',
+                err,
+            );
+        }
+    }
+
+    /**
+     * Release a subscription's held end notice once nothing is left owed to it:
+     * not still coalescing, and not a flush of it already in flight.
+     * `SocketService.send` emits synchronously before its first await, so once
+     * this sends, whatever was owed is already on the wire.
+     */
+    #releaseEnded(subId: string): void {
+        const held = this.#endNotices.get(subId);
+        if (!held) return;
+        if (this.#owed(subId)) return;
+        this.#endNotices.delete(subId);
+        void this.#sendEnded(held);
     }
 
     // -- Owed deliveries ---------------------------------------------
@@ -5466,7 +5591,24 @@ export class EventsService extends PuterService {
         return this.#coalescer;
     }
 
+    /**
+     * Coalesce one delivery, unless this subscription ended since the candidate
+     * rows for this dispatch were read.
+     */
+    #queue(
+        row: DispatchSubscription,
+        subject: string,
+        delivery: AddressedDelivery,
+    ): void {
+        if (this.#ended.has(row.subId)) return;
+        this.#coalesce().push(coalesceKey(row.subId, subject), delivery);
+    }
+
     async #flush(delivery: AddressedDelivery): Promise<void> {
+        // Counted before the first await, so `#owed` never sees a gap between
+        // leaving the coalescer and reaching the wire.
+        const subId = delivery.envelope.subId;
+        this.#flushing.set(subId, (this.#flushing.get(subId) ?? 0) + 1);
         try {
             if (
                 !(await this.#chargeable(
@@ -5501,6 +5643,11 @@ export class EventsService extends PuterService {
             });
         } catch (err) {
             console.warn('[events] delivery failed', err);
+        } finally {
+            const left = (this.#flushing.get(subId) ?? 1) - 1;
+            if (left > 0) this.#flushing.set(subId, left);
+            else this.#flushing.delete(subId);
+            this.#releaseEnded(subId);
         }
     }
 
@@ -5816,13 +5963,22 @@ export class EventsService extends PuterService {
      * unsubscribe, socket reap and reanchor keep the remote-watch index honest,
      * since all of them land here.
      */
-    #publishGeneration(bump: GenerationBump, durable: boolean): void {
+    #publishGeneration(
+        bump: GenerationBump,
+        durable: boolean,
+        ended?: readonly string[],
+    ): void {
         const { userId, generation } = bump;
         this.#cache.bump(userId, generation);
         try {
             this.clients.event.emit(
                 'outer.pubsub.events.generationBumped',
-                { userId, generation, durable },
+                {
+                    userId,
+                    generation,
+                    durable,
+                    ...(ended?.length ? { ended: [...ended] } : {}),
+                },
                 {},
             );
         } catch {
@@ -5846,7 +6002,16 @@ export class EventsService extends PuterService {
     #forget(subId: string): void {
         this.#compiled.delete(subId);
         this.#deliveryAuth.forget(subId);
-        this.#coalesce().cancel((key) => key.startsWith(`${subId}|`));
+        this.#coalesce().cancelGroup(subId);
+        this.#endNotices.delete(subId);
+    }
+
+    /** A sibling process ended this subscription; stop queueing for it here too. */
+    #endedElsewhere(subId: string): void {
+        this.#ended.mark(subId);
+        this.#coalescer?.cancelGroup(subId);
+        // Cancelling may be the last thing this subId was owed here.
+        this.#releaseEnded(subId);
     }
 
     #anchorDeps(): FsAnchorDeps {

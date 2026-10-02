@@ -17,6 +17,8 @@ await puter.events.workers.destroy(items[0].appUid);      // removes every handl
 
 An account session or API token sees every app you own. An app sees only its own worker (0 or 1 item), and only if the signed-in user owns the app.
 
+On a website with nobody signed in, each method asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 The worker starts on the first delivery that needs it, and again after it's been idle long enough to be shut down, so the first background delivery after a publish has a short cold start. Only the platform can invoke it.
 
 ## `list()`
@@ -53,6 +55,7 @@ Both methods reject with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_worker_owner_only` | `list()` was called with a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL. |
 | `events_handler_not_found` | `destroy()` named an app with no published handlers. |
 | `events_handler_forbidden` | The caller doesn't own the app (or it doesn't exist), or is a scoped access token. |

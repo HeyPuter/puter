@@ -18,6 +18,9 @@ import { request } from './api.js';
  * An account session or full-access token sees every app it owns; an app
  * token's `list()` sees only its own worker (0 or 1 item), the same scope
  * `destroy()` already used.
+ *
+ * On a website with nobody signed in, each method opens the sign-in first;
+ * rejects `auth_canceled` if the visitor closes it.
  */
 
 const invalidAppUid = () =>

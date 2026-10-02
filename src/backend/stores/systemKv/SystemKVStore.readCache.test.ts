@@ -336,6 +336,53 @@ describe('SystemKVStore read cache', () => {
             expect(result.res).toBe('new');
             expect(dynamoCallsHere(after)).toHaveLength(0);
         });
+
+        it('serves what is stored after a path write fails once its containers were built', async () => {
+            const key = 'fails-after-containers';
+            // Cache a miss so a stale cached absence can't hide the bug on its own.
+            await target.get({ key }, opts);
+            await settle();
+
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation(
+                    async (...args: Parameters<typeof real>) => {
+                        const expression = String(args[2]);
+                        if (expression.includes(':value')) {
+                            throw Object.assign(
+                                new Error(
+                                    'The document path provided in the update expression is invalid for update',
+                                ),
+                                { name: 'ValidationException' },
+                            );
+                        }
+                        return real(...args);
+                    },
+                );
+            try {
+                await expect(
+                    target.update(
+                        { key, pathAndValueMap: { 'a.b': 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ code: 'invalid_path' });
+            } finally {
+                update.mockRestore();
+            }
+            vi.restoreAllMocks();
+
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace, key },
+            );
+            expect(raw.Item?.value).toEqual({ a: {} });
+
+            const result = await target.get({ key }, opts);
+            expect(result.res).toEqual({ a: {} });
+        });
     });
 
     describe('cross-region broadcast', () => {

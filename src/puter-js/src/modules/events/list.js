@@ -32,6 +32,9 @@ import { request } from './lib/api.js';
  * from. `context` values are never returned; a row reports its key names and a
  * hash instead.
  *
+ * On a website with nobody signed in, opens the sign-in first; rejects
+ * `auth_canceled` if the visitor closes it.
+ *
  * @this {import('./index.js').EventsModule}
  * @param {...unknown} args
  * @returns {Promise<PersistentSubscription[]> | Promise<SubscriptionPage> | AsyncIterableIterator<SubscriptionPage>}
