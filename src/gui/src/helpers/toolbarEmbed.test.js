@@ -34,6 +34,21 @@ describe('toolbar integration', () => {
             }
         }
     });
+    it('keeps the toolbar buttons in place when the menu fits beside them', () => {
+        for ( const [viewport, anchor] of [
+            [{ width: 390, height: 700 }, { right: 374, top: 8 }],
+            [{ width: 320, height: 560 }, { right: 304, top: 12 }],
+            [{ width: 1100, height: 600 }, { right: 1084, top: 12 }],
+        ] ) {
+            for ( const panel of ['apps', 'account'] ) {
+                const box = toolbarBounds(anchor, viewport, panel);
+                expect(box.left + box.width).toBe(anchor.right);
+                expect(box.top).toBe(anchor.top);
+                expect(box.left).toBeGreaterThanOrEqual(8);
+                expect(box.top + box.height).toBeLessThanOrEqual(viewport.height - 8);
+            }
+        }
+    });
     it('opens an upgrade deep link once the billing UI is ready', () => {
         let opens = 0;
         const target = { location: { href: 'https://puter.com/dashboard?upgrade=1#usage' } };
