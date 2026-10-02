@@ -53,6 +53,8 @@ export interface ForwardDelivery {
     ackId?: string;
     /** The region holding the lease, which is where the ack has to end up. */
     origin?: string;
+    /** Client skips its handler: the worker has it, or it is too deep. */
+    skipHandler?: true;
 }
 
 /** A client's settle, on its way back to the region that owns the lease. */

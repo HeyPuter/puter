@@ -538,6 +538,57 @@ describe('AppController GET /apps/:name', () => {
         });
     });
 
+    it('throws 400 when the pipe-batch exceeds the 200-name cap', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        const names = new Array(201).fill('x').join('|');
+        await expect(
+            withActor(actor, () =>
+                callRoute(
+                    'get',
+                    '/apps/:name',
+                    makeReq({ params: { name: names }, actor }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('accepts a pipe-batch at exactly the 200-name cap', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        const names = [app.name, ...new Array(199).fill('missing-app')].join(
+            '|',
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(owner.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: names }, actor: owner.actor }),
+                res,
+            ),
+        );
+        expect(Array.isArray(captured.body)).toBe(true);
+        expect(captured.body as unknown[]).toHaveLength(200);
+    });
+
+    it('throws 404 for a single name over the per-name length cap', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                callRoute(
+                    'get',
+                    '/apps/:name',
+                    makeReq({ params: { name: 'x'.repeat(201) }, actor }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
     it('omits the stale index_url for a non-owner', async () => {
         const owner = await makeUser();
         const stranger = await makeUser();

@@ -13,8 +13,11 @@ import {
     chunkPathsForIncr,
     INCR_EXPRESSION_BUDGET_BYTES,
     incrExpressionBytes,
+    KV_GLOBAL_APP_KEY,
+    kvNamespace,
     type SystemKVStore,
 } from './SystemKVStore.ts';
+import { PUTER_KV_STORE_TABLE_NAME } from './tableDefinition.ts';
 import { PuterServer } from '../../server.ts';
 import type { Actor } from '../../core/actor.ts';
 
@@ -50,11 +53,12 @@ describe('incr expression sizing', () => {
 
     it('still batches a path that cannot fit on its own', () => {
         // A caller narrowing down a rejection needs the single-path attempt to
-        // happen rather than being handed nothing to try.
-        const enormous = `${'x'.repeat(INCR_EXPRESSION_BUDGET_BYTES)}.units`;
-        expect(chunkPathsForIncr([enormous, 'total'])).toEqual([
-            [enormous],
+        // happen rather than being handed nothing to try, even under a budget
+        // nothing could ever fit (a truncated alias keeps one real path from
+        // reaching this on its own).
+        expect(chunkPathsForIncr(['total', 'ai:chat.units'], 1)).toEqual([
             ['total'],
+            ['ai:chat.units'],
         ]);
     });
 
@@ -706,6 +710,23 @@ describe('SystemKVStore', () => {
                 target.expireAt({ key: '', timestamp: 0 }, opts),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        it('both resolve true', async () => {
+            await target.set({ key: 'resolveTrue', value: 1 }, opts);
+            const expireAtResult = await target.expireAt(
+                {
+                    key: 'resolveTrue',
+                    timestamp: Math.floor(Date.now() / 1000) + 60,
+                },
+                opts,
+            );
+            expect(expireAtResult.res).toBe(true);
+            const expireResult = await target.expire(
+                { key: 'resolveTrue', ttl: 60 },
+                opts,
+            );
+            expect(expireResult.res).toBe(true);
+        });
     });
 
     describe('incr / decr', () => {
@@ -814,15 +835,21 @@ describe('SystemKVStore', () => {
                 .spyOn(server.clients.dynamo, 'update')
                 .mockRejectedValue(oversized);
 
-            await expect(
-                target.incr(
-                    { key: 'oversized', pathAndAmountMap: { 'a.b': 1 } },
-                    opts,
-                ),
-            ).rejects.toThrow(/Expression size/);
-            expect(update).toHaveBeenCalledTimes(1);
-
-            update.mockRestore();
+            try {
+                await expect(
+                    target.incr(
+                        { key: 'oversized', pathAndAmountMap: { 'a.b': 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                    message: expect.not.stringMatching(/UpdateExpression|Expression size/),
+                });
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
         });
 
         it('still builds paths for a ValidationException about the item', async () => {
@@ -848,14 +875,17 @@ describe('SystemKVStore', () => {
                     return real(...args);
                 });
 
-            const result = await target.incr(
-                { key: 'guardedNest', pathAndAmountMap: { 'x.y.z': 4 } },
-                opts,
-            );
+            try {
+                const result = await target.incr(
+                    { key: 'guardedNest', pathAndAmountMap: { 'x.y.z': 4 } },
+                    opts,
+                );
 
-            expect(result.res).toMatchObject({ x: { y: { z: 4 } } });
-            expect(update.mock.calls.length).toBeGreaterThan(1);
-            update.mockRestore();
+                expect(result.res).toMatchObject({ x: { y: { z: 4 } } });
+                expect(update.mock.calls.length).toBeGreaterThan(1);
+            } finally {
+                update.mockRestore();
+            }
         });
 
         it('decr subtracts via the same machinery', async () => {
@@ -900,6 +930,118 @@ describe('SystemKVStore', () => {
                     opts,
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects a text value with value_not_a_number and a plain message', async () => {
+            await target.set({ key: 'textCounter', value: 'hello' }, opts);
+            await expect(
+                target.incr(
+                    { key: 'textCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+                message: expect.not.stringMatching(/operand|expression/i),
+            });
+            const got = await target.get({ key: 'textCounter' }, opts);
+            expect(got.res).toBe('hello');
+        });
+
+        it('rejects a numeric string the same way', async () => {
+            await target.set({ key: 'numericStringCounter', value: '5' }, opts);
+            await expect(
+                target.incr(
+                    {
+                        key: 'numericStringCounter',
+                        pathAndAmountMap: { '': 1 },
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('rejects an object value when no field is named', async () => {
+            await target.set(
+                { key: 'objectCounter', value: { foo: 1 } },
+                opts,
+            );
+            await expect(
+                target.incr(
+                    { key: 'objectCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('rejects a null value', async () => {
+            await target.set({ key: 'nullCounter', value: null }, opts);
+            await expect(
+                target.incr(
+                    { key: 'nullCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('decr rejects a text value the same way', async () => {
+            await target.set({ key: 'decrTextCounter', value: 'hello' }, opts);
+            await expect(
+                target.decr(
+                    { key: 'decrTextCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('does not try to build paths for a type mismatch', async () => {
+            await target.set({ key: 'noPathBuildCounter', value: 'hello' }, opts);
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.incr(
+                        {
+                            key: 'noPathBuildCounter',
+                            pathAndAmountMap: { '': 1 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ code: 'value_not_a_number' });
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('rejects a nested path through a stored number with invalid_path', async () => {
+            await target.set({ key: 'nestedNumber', value: { a: 5 } }, opts);
+            await expect(
+                target.incr(
+                    { key: 'nestedNumber', pathAndAmountMap: { 'a.b': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_path' });
+            await expect(
+                target.decr(
+                    { key: 'nestedNumber', pathAndAmountMap: { 'a.b': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_path' });
+            expect((await target.get({ key: 'nestedNumber' }, opts)).res).toEqual(
+                { a: 5 },
+            );
         });
     });
 
@@ -947,6 +1089,61 @@ describe('SystemKVStore', () => {
                 target.add({ key: 'k', pathAndValueMap: {} }, opts),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        it('rejects a bare object on a list with invalid_path and leaves the list unchanged', async () => {
+            const key = 'list-of-objects';
+            await target.set(
+                { key, value: [{ at: 1, event: 'opened' }] },
+                opts,
+            );
+            await expect(
+                target.add(
+                    { key, pathAndValueMap: { at: 2, event: 'closed' } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'invalid_path',
+                message: expect.stringMatching(/`at`/),
+            });
+            await expect(
+                target.add(
+                    { key, pathAndValueMap: { at: 2, event: 'closed' } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                message: expect.stringMatching(/`event`/),
+            });
+            await expect(
+                target.add(
+                    { key, pathAndValueMap: { at: 2, event: 'closed' } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                message: expect.stringContaining(`\`${key}\``),
+            });
+            expect((await target.get({ key }, opts)).res).toEqual([
+                { at: 1, event: 'opened' },
+            ]);
+        });
+
+        it.each([
+            ['a non-list field', { tags: 'alpha' }, { tags: 'beta' }],
+            ['the whole root value', 'text', { '': 'x' }],
+        ])(
+            'rejects appending to a value that is not a list with value_not_a_list (%s)',
+            async (_label, value, pathAndValueMap) => {
+                const key = 'not-a-list';
+                await target.set({ key, value }, opts);
+                await expect(
+                    target.add({ key, pathAndValueMap }, opts),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    code: 'value_not_a_list',
+                });
+                expect((await target.get({ key }, opts)).res).toEqual(value);
+            },
+        );
     });
 
     describe('update', () => {
@@ -1033,6 +1230,26 @@ describe('SystemKVStore', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        it('rejects a path through a text value with invalid_path and a plain message', async () => {
+            const key = 'name-is-text';
+            await target.set({ key, value: { name: 'Ada' } }, opts);
+            await expect(
+                target.update(
+                    { key, pathAndValueMap: { 'name.first': 'A' } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'invalid_path',
+                message: expect.not.stringMatching(
+                    /document path|UpdateExpression|ValidationException|#value|#p\d/i,
+                ),
+            });
+            expect((await target.get({ key }, opts)).res).toEqual({
+                name: 'Ada',
+            });
+        });
     });
 
     describe('createPaths write bounding', () => {
@@ -1067,6 +1284,30 @@ describe('SystemKVStore', () => {
                     opts,
                 );
                 expect(result.res).toMatchObject({ items: { a: ['x', 'y'] } });
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('rejects a write that would grow the value past the size limit with value_too_large, without building paths', async () => {
+            const key = 'log-near-cap';
+            await target.set(
+                { key, value: { log: ['x'.repeat(398 * 1024)] } },
+                opts,
+            );
+
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.add(
+                        { key, pathAndValueMap: { log: 'y'.repeat(4096) } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    code: 'value_too_large',
+                });
                 expect(update).toHaveBeenCalledTimes(1);
             } finally {
                 update.mockRestore();
@@ -1110,7 +1351,11 @@ describe('SystemKVStore', () => {
                         },
                         opts,
                     ),
-                ).rejects.toThrow(/Expression size/);
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                    message: expect.not.stringMatching(/UpdateExpression|Expression size/),
+                });
                 expect(update).toHaveBeenCalledTimes(1);
             } finally {
                 update.mockRestore();
@@ -1143,7 +1388,11 @@ describe('SystemKVStore', () => {
                         },
                         opts,
                     ),
-                ).rejects.toThrow(/Expression size/);
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                    message: expect.not.stringMatching(/UpdateExpression|Expression size/),
+                });
                 expect(update).toHaveBeenCalledTimes(1);
             } finally {
                 update.mockRestore();
@@ -1354,7 +1603,8 @@ describe('SystemKVStore', () => {
                 ];
                 for (const attempt of attempts) {
                     await expect(attempt()).rejects.toMatchObject({
-                        name: 'ValidationException',
+                        statusCode: 400,
+                        code: 'invalid_path',
                     });
                 }
                 expect((await target.get({ key }, opts)).res).toEqual(value);
@@ -1396,9 +1646,481 @@ describe('SystemKVStore', () => {
                 target.remove({ key: 'k', paths: [] }, opts),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        it('rejects the same path twice instead of silently removing nothing', async () => {
+            const key = 'doc-rm-dup';
+            await target.update({ key, pathAndValueMap: { a: 1 } }, opts);
+            await expect(
+                target.remove({ key, paths: ['a', 'a'] }, opts),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect((await target.get({ key }, opts)).res).toMatchObject({
+                a: 1,
+            });
+        });
+
+        it('rejects an oversized expression instead of treating it as a no-op', async () => {
+            const key = 'doc-rm-oversized';
+            await target.update({ key, pathAndValueMap: { a: 1 } }, opts);
+            const oversized = Object.assign(
+                new Error(
+                    '1 validation error detected: Invalid UpdateExpression: Expression size has exceeded the maximum allowed size;',
+                ),
+                { name: 'ValidationException' },
+            );
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockRejectedValue(oversized);
+            try {
+                await expect(
+                    target.remove({ key, paths: ['a'] }, opts),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it.each(['', '.'])(
+            'removing the root path %j deletes the key instead of leaving it empty',
+            async (rootPath) => {
+                const key = `remove-root-${rootPath === '' ? 'empty' : 'dot'}`;
+                await target.set({ key, value: { a: 1 } }, opts);
+                const result = await target.remove(
+                    { key, paths: [rootPath] },
+                    opts,
+                );
+                expect(result.res).toBeNull();
+                const raw = await server.clients.dynamo.get(
+                    PUTER_KV_STORE_TABLE_NAME,
+                    {
+                        namespace: kvNamespace(
+                            actor.user.uuid!,
+                            KV_GLOBAL_APP_KEY,
+                        ),
+                        key,
+                    },
+                );
+                expect(raw.Item).toBeUndefined();
+                const listed = await target.list({ as: 'keys' }, opts);
+                expect(listed.res).not.toContain(key);
+            },
+        );
     });
 
     describe('document paths', () => {
+        describe('empty quoted names', () => {
+            const plainMessage = expect.not.stringMatching(
+                /document path|UpdateExpression|ValidationException|Nesting Levels|attribute name|#value|#p\d/i,
+            );
+
+            it.each(['[""]', "['']", 'a[""]', 'a[""].b'])(
+                'rejects %s in every path method with bad_request before any write',
+                async (badPath) => {
+                    const update = vi.spyOn(server.clients.dynamo, 'update');
+                    try {
+                        for (const method of [
+                            'update',
+                            'add',
+                            'incr',
+                            'decr',
+                            'remove',
+                        ] as const) {
+                            const key =
+                                `empty-quoted-${method}-${badPath}`.replace(
+                                    /[^\w-]/g,
+                                    '_',
+                                );
+                            const run =
+                                method === 'remove'
+                                    ? target.remove(
+                                          { key, paths: [badPath] },
+                                          opts,
+                                      )
+                                    : method === 'incr' || method === 'decr'
+                                      ? target[method](
+                                            {
+                                                key,
+                                                pathAndAmountMap: {
+                                                    [badPath]: 1,
+                                                },
+                                            },
+                                            opts,
+                                        )
+                                      : target[method](
+                                            {
+                                                key,
+                                                pathAndValueMap: {
+                                                    [badPath]: 1,
+                                                },
+                                            },
+                                            opts,
+                                        );
+                            await expect(run).rejects.toMatchObject({
+                                statusCode: 400,
+                                legacyCode: 'bad_request',
+                                message: plainMessage,
+                            });
+                        }
+                        expect(update).not.toHaveBeenCalled();
+                    } finally {
+                        update.mockRestore();
+                    }
+                },
+            );
+        });
+
+        describe('overlapping paths', () => {
+            const overlapCases: Array<[string, string]> = [
+                ['a', 'a.b'],
+                ['a', '.a'],
+                ['', 'a'],
+            ];
+            const methods = ['update', 'add', 'incr'] as const;
+
+            it.each(methods)(
+                '%s rejects overlapping paths before writing anything',
+                async (method) => {
+                    const update = vi.spyOn(server.clients.dynamo, 'update');
+                    try {
+                        for (const [first, second] of overlapCases) {
+                            const key = `overlap-${method}-${first}-${second}`.replace(
+                                /[^\w-]/g,
+                                '_',
+                            );
+                            const pathAndValueMap = { [first]: 1, [second]: 1 };
+                            const run =
+                                method === 'incr'
+                                    ? target.incr(
+                                          {
+                                              key,
+                                              pathAndAmountMap: pathAndValueMap,
+                                          },
+                                          opts,
+                                      )
+                                    : method === 'add'
+                                      ? target.add({ key, pathAndValueMap }, opts)
+                                      : target.update({ key, pathAndValueMap }, opts);
+                            await expect(run).rejects.toMatchObject({
+                                statusCode: 400,
+                                legacyCode: 'bad_request',
+                            });
+                            expect(
+                                (await target.get({ key }, opts)).res,
+                            ).toBeNull();
+                        }
+                        expect(update).not.toHaveBeenCalled();
+                    } finally {
+                        update.mockRestore();
+                    }
+                },
+            );
+        });
+
+        describe('conflicting paths', () => {
+            // A path pair that differs in token type (list index vs field
+            // name) at the same shared position, so no single container can
+            // satisfy both.
+            const conflictCases: Array<[string, string]> = [
+                ['a[0]', 'a.b'],
+                ['a[0].b', 'a[0][1]'],
+            ];
+            const methods = ['update', 'add', 'incr', 'remove'] as const;
+
+            it.each(methods)(
+                '%s rejects conflicting paths before writing anything',
+                async (method) => {
+                    const update = vi.spyOn(server.clients.dynamo, 'update');
+                    try {
+                        for (const [first, second] of conflictCases) {
+                            const key = `conflict-${method}-${first}-${second}`.replace(
+                                /[^\w-]/g,
+                                '_',
+                            );
+                            const run =
+                                method === 'remove'
+                                    ? target.remove(
+                                          { key, paths: [first, second] },
+                                          opts,
+                                      )
+                                    : method === 'incr'
+                                      ? target.incr(
+                                            {
+                                                key,
+                                                pathAndAmountMap: {
+                                                    [first]: 1,
+                                                    [second]: 1,
+                                                },
+                                            },
+                                            opts,
+                                        )
+                                      : method === 'add'
+                                        ? target.add(
+                                              {
+                                                  key,
+                                                  pathAndValueMap: {
+                                                      [first]: 1,
+                                                      [second]: 1,
+                                                  },
+                                              },
+                                              opts,
+                                          )
+                                        : target.update(
+                                              {
+                                                  key,
+                                                  pathAndValueMap: {
+                                                      [first]: 1,
+                                                      [second]: 1,
+                                                  },
+                                              },
+                                              opts,
+                                          );
+                            await expect(run).rejects.toMatchObject({
+                                statusCode: 400,
+                                legacyCode: 'bad_request',
+                            });
+                            expect(
+                                (await target.get({ key }, opts)).res,
+                            ).toBeNull();
+                        }
+                        expect(update).not.toHaveBeenCalled();
+                    } finally {
+                        update.mockRestore();
+                    }
+                },
+            );
+        });
+
+        describe('path depth limit', () => {
+            const maxDepthPath = Array.from(
+                { length: 31 },
+                (_, i) => `a${i}`,
+            ).join('.');
+            const tooDeepPath = `${maxDepthPath}.oneMore`;
+
+            it('accepts a path at the depth cap', async () => {
+                const result = await target.update(
+                    { key: 'depth-cap', pathAndValueMap: { [maxDepthPath]: 'v' } },
+                    opts,
+                );
+                expect(result.res).toBeTruthy();
+            });
+
+            it('rejects a path one level past the cap with bad_request, before any write', async () => {
+                const update = vi.spyOn(server.clients.dynamo, 'update');
+                try {
+                    await expect(
+                        target.update(
+                            {
+                                key: 'too-deep',
+                                pathAndValueMap: { [tooDeepPath]: 'v' },
+                            },
+                            opts,
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'bad_request',
+                    });
+                    expect(update).not.toHaveBeenCalled();
+                } finally {
+                    update.mockRestore();
+                }
+            });
+
+            it('returns quickly for a path at the cap and for an oversized path', async () => {
+                const atCapStart = Date.now();
+                await target.update(
+                    {
+                        key: 'depth-cap-timing',
+                        pathAndValueMap: { [maxDepthPath]: 'v' },
+                    },
+                    opts,
+                );
+                expect(Date.now() - atCapStart).toBeLessThan(1_000);
+
+                // 3000 tokens is already ~18x the cap and clearly measures the
+                // same quadratic cost a pathological path would; a much larger
+                // one (the ~40 KB path this guard is really about) is checked
+                // separately once rejection is known to be cheap.
+                const oversizedPath = 'a.'.repeat(3000);
+                const oversizedStart = Date.now();
+                await expect(
+                    target.update(
+                        {
+                            key: 'huge-path-timing',
+                            pathAndValueMap: { [oversizedPath]: 'v' },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(Date.now() - oversizedStart).toBeLessThan(1_000);
+            });
+
+            it('rejects a 40 KB oversized path near-instantly', async () => {
+                // The actual shape the bug report measured at ~12 s pre-fix;
+                // run only now that the cap makes it safe to exercise here.
+                const hugePath = 'a.'.repeat(20000);
+                const start = Date.now();
+                await expect(
+                    target.update(
+                        {
+                            key: 'huge-40kb-path',
+                            pathAndValueMap: { [hugePath]: 'v' },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(Date.now() - start).toBeLessThan(1_000);
+            });
+
+            it('rejects a path far past the depth cap without reading all of it', async () => {
+                const enormousPath = 'a.'.repeat(5_000_000);
+                const start = Date.now();
+                await expect(
+                    target.update(
+                        {
+                            key: 'enormous-path-timing',
+                            pathAndValueMap: { [enormousPath]: 'v' },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(Date.now() - start).toBeLessThan(1000);
+            });
+        });
+
+        describe('call size', () => {
+            it('rejects more path segments than one write could apply, before writing', async () => {
+                const pathAndValueMap: Record<string, unknown> = {};
+                for (let i = 0; i <= 1500; i++) pathAndValueMap[`p${i}`] = i;
+                const update = vi.spyOn(server.clients.dynamo, 'update');
+                try {
+                    await expect(
+                        target.update(
+                            { key: 'call-size-over', pathAndValueMap },
+                            opts,
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'bad_request',
+                        message: expect.stringMatching(
+                            /too many or too long/,
+                        ),
+                    });
+                    expect(update).not.toHaveBeenCalled();
+                } finally {
+                    update.mockRestore();
+                }
+            });
+
+            it('accepts as many segments as the cap', async () => {
+                const pathAndValueMap: Record<string, unknown> = {};
+                for (let i = 0; i < 1500; i++) pathAndValueMap[`p${i}`] = i;
+                const result = await target.update(
+                    { key: 'call-size-at-cap', pathAndValueMap },
+                    opts,
+                );
+                expect(result.res).toBeTruthy();
+            });
+
+            it('checks many long paths without re-reading every prefix of each', async () => {
+                const long = 'x'.repeat(16 * 1024);
+                const paths = Array.from({ length: 39 }, (_, i) =>
+                    [`k${i}`, ...Array(30).fill(long)].join('.'),
+                );
+                paths.push('k0[0]');
+                const start = Date.now();
+                await expect(
+                    target.remove({ key: 'call-size-long', paths }, opts),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(Date.now() - start).toBeLessThan(1500);
+            });
+        });
+
+        it("keeps every attribute name placeholder within the store's 255-byte limit", async () => {
+            const key = 'placeholder-length';
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await target.update(
+                    { key, pathAndValueMap: { ['L'.repeat(300)]: 1 } },
+                    opts,
+                );
+                for (const call of update.mock.calls) {
+                    const names = call[4] as Record<string, string> | undefined;
+                    for (const name of Object.keys(names ?? {})) {
+                        expect(Buffer.byteLength(name, 'utf8')).toBeLessThanOrEqual(
+                            255,
+                        );
+                    }
+                }
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        describe('error message formatting', () => {
+            it('renders the empty root path as prose, not empty backticks', async () => {
+                await expect(
+                    target.update(
+                        {
+                            key: 'root-overlap-msg',
+                            pathAndValueMap: { '': 1, a: 2 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message:
+                        'kv: paths the root and `a` overlap: one is the same as, or inside, the other',
+                });
+            });
+
+            it('truncates a long echoed path instead of printing it in full', async () => {
+                const longKey = 'x'.repeat(150);
+                await expect(
+                    target.remove(
+                        {
+                            key: 'long-path-msg',
+                            paths: [longKey, `${longKey}.child`],
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message: expect.stringContaining(
+                        `${longKey.slice(0, 100)}…`,
+                    ),
+                });
+                await expect(
+                    target.remove(
+                        {
+                            key: 'long-path-msg',
+                            paths: [longKey, `${longKey}.child`],
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    message: expect.not.stringContaining('child'),
+                });
+            });
+        });
+
         describe('path methods', () => {
             const fixtures = [
                 {
@@ -1557,7 +2279,8 @@ describe('SystemKVStore', () => {
                         await expect(
                             operation.run(key, '[4].value'),
                         ).rejects.toMatchObject({
-                            name: 'ValidationException',
+                            statusCode: 400,
+                            code: 'invalid_path',
                         });
                     }
                     expect((await target.get({ key }, opts)).res).toEqual(
@@ -1732,7 +2455,7 @@ describe('SystemKVStore', () => {
                     },
                     opts,
                 ),
-            ).rejects.toMatchObject({ name: 'ValidationException' });
+            ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_path' });
             expect(
                 (await target.get({ key: 'indexed-ancestor' }, opts)).res,
             ).toEqual([{}]);
@@ -1794,6 +2517,158 @@ describe('SystemKVStore', () => {
                 ).rejects.toMatchObject({ statusCode: 400 });
             },
         );
+    });
+
+    describe('failed path writes', () => {
+        it('leaves the value unchanged when one path can’t apply and another needs a new parent', async () => {
+            const key = 'failed-write-mixed';
+            await target.set({ key, value: { n: 5 } }, opts);
+            await expect(
+                target.update(
+                    { key, pathAndValueMap: { 'x.y': 1, 'n.m': 2 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'invalid_path',
+                message: expect.stringContaining('`n.m`'),
+            });
+            await expect(
+                target.update(
+                    { key, pathAndValueMap: { 'x.y': 1, 'n.m': 2 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                message: expect.not.stringContaining('x.y'),
+            });
+            expect((await target.get({ key }, opts)).res).toEqual({ n: 5 });
+        });
+
+        const freshness = ['fresh', 'expired'] as const;
+        const badPaths = ['a[0].b', '[5].b'] as const;
+        const methods = ['update', 'incr', 'add'] as const;
+        const failedWriteCases = freshness.flatMap((f) =>
+            badPaths.flatMap((p) => methods.map((m) => [f, p, m] as const)),
+        );
+
+        it.each(failedWriteCases)(
+            '%s key: %s via %s writes nothing',
+            async (state, badPath, method) => {
+                const key = `failed-write-${state}-${badPath}-${method}`.replace(
+                    /[^\w-]/g,
+                    '_',
+                );
+                if (state === 'expired') {
+                    await target.set(
+                        {
+                            key,
+                            value: { z: 1 },
+                            expireAt: Math.floor(Date.now() / 1000) - 10,
+                        },
+                        opts,
+                    );
+                }
+                const run =
+                    method === 'incr'
+                        ? target.incr(
+                              { key, pathAndAmountMap: { [badPath]: 1 } },
+                              opts,
+                          )
+                        : method === 'add'
+                          ? target.add(
+                                { key, pathAndValueMap: { [badPath]: 1 } },
+                                opts,
+                            )
+                          : target.update(
+                                { key, pathAndValueMap: { [badPath]: 1 } },
+                                opts,
+                            );
+                await expect(run).rejects.toMatchObject({
+                    statusCode: 400,
+                    code: 'invalid_path',
+                });
+                expect((await target.get({ key }, opts)).res).toBeNull();
+                const raw = await server.clients.dynamo.get(
+                    PUTER_KV_STORE_TABLE_NAME,
+                    {
+                        namespace: kvNamespace(
+                            actor.user.uuid!,
+                            KV_GLOBAL_APP_KEY,
+                        ),
+                        key,
+                    },
+                );
+                expect(raw.Item).toBeUndefined();
+            },
+        );
+
+        it('refuses a non-number before building a parent another path needs', async () => {
+            const key = 'failed-write-type-mismatch';
+            await target.set({ key, value: { n: 'text' } }, opts);
+            const missingPath = Object.assign(
+                new Error(
+                    'The document path provided in the update expression is invalid for update',
+                ),
+                { name: 'ValidationException' },
+            );
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            let first = true;
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation((...args) => {
+                    if (first) {
+                        first = false;
+                        return Promise.reject(missingPath);
+                    }
+                    return real(...(args as Parameters<typeof real>));
+                });
+            try {
+                await expect(
+                    target.incr(
+                        { key, pathAndAmountMap: { 'x.y': 1, n: 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    code: 'value_not_a_number',
+                });
+            } finally {
+                update.mockRestore();
+            }
+            expect((await target.get({ key }, opts)).res).toEqual({
+                n: 'text',
+            });
+        });
+
+        it('bills the read that plans missing parents', async () => {
+            const key = 'failed-write-bills-read';
+            await target.set({ key, value: { marker: true } }, opts);
+            const { usage } = await target.update(
+                { key, pathAndValueMap: { 'a.b': 1 } },
+                opts,
+            );
+            expect(usage.read).toBeGreaterThan(0);
+        });
+
+        it('keeps a write whose parents exist to one update and no read', async () => {
+            const key = 'failed-write-no-read-needed';
+            await target.set({ key, value: { marker: true } }, opts);
+            const getSpy = vi.spyOn(server.clients.dynamo, 'get');
+            const updateSpy = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await target.update(
+                    { key, pathAndValueMap: { marker: 2 } },
+                    opts,
+                );
+                expect(updateSpy).toHaveBeenCalledTimes(1);
+                expect(getSpy).not.toHaveBeenCalled();
+            } finally {
+                getSpy.mockRestore();
+                updateSpy.mockRestore();
+            }
+        });
     });
 
     describe('prototype-chain safety', () => {
@@ -1946,6 +2821,222 @@ describe('SystemKVStore', () => {
         });
     });
 
+    describe('value shape', () => {
+        const bigArray = Array(130_000).fill(0);
+
+        it.each(['set', 'batchPut', 'update', 'add'] as const)(
+            '%s stores an array too long to spread into one call',
+            async (method) => {
+                const key = `big-array-${method}`;
+                if (method === 'set') {
+                    await target.set({ key, value: bigArray }, opts);
+                } else if (method === 'batchPut') {
+                    await target.batchPut(
+                        { items: [{ key, value: bigArray }] },
+                        opts,
+                    );
+                } else if (method === 'update') {
+                    await target.update(
+                        { key, pathAndValueMap: { list: bigArray } },
+                        opts,
+                    );
+                } else {
+                    await target.add(
+                        { key, pathAndValueMap: { '': bigArray } },
+                        opts,
+                    );
+                }
+                const result = await target.get({ key }, opts);
+                const stored =
+                    method === 'update'
+                        ? (result.res as { list: unknown[] }).list
+                        : (result.res as unknown[]);
+                expect(stored.length).toBe(130_000);
+            },
+        );
+
+        const nest = (d: number): unknown => (d === 0 ? 1 : { a: nest(d - 1) });
+
+        it('set accepts a value nested 32 levels deep counting itself', async () => {
+            const result = await target.set(
+                { key: 'nest-32', value: nest(31) },
+                opts,
+            );
+            expect(result.res).toBe(true);
+        });
+
+        it('set rejects a value nested deeper than 32 levels before writing', async () => {
+            const put = vi.spyOn(server.clients.dynamo, 'put');
+            try {
+                await expect(
+                    target.set({ key: 'nest-33', value: nest(32) }, opts),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(put).not.toHaveBeenCalled();
+            } finally {
+                put.mockRestore();
+            }
+        });
+
+        it('rejects a value nested thousands of levels deep with bad_request, not a crash', async () => {
+            // Built in a loop: deep enough that a recursive walk overflows the stack.
+            let deep: unknown = 1;
+            for (let i = 0; i < 10_000; i++) deep = { a: deep };
+            for (const write of [
+                () => target.set({ key: 'nest-huge', value: deep }, opts),
+                () =>
+                    target.update(
+                        { key: 'nest-huge', pathAndValueMap: { a: deep } },
+                        opts,
+                    ),
+            ]) {
+                await expect(write()).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+            }
+        });
+
+        it('update rejects a value that would sit past 32 levels at its path', async () => {
+            const key = 'nest-update-too-deep';
+            const path = Array.from({ length: 30 }, (_, i) => `a${i}`).join(
+                '.',
+            );
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.update(
+                        { key, pathAndValueMap: { [path]: { a: { b: 1 } } } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(update).not.toHaveBeenCalled();
+            } finally {
+                update.mockRestore();
+            }
+            expect((await target.get({ key }, opts)).res).toBeNull();
+        });
+
+        it('update accepts a value that reaches exactly 32 levels at its path', async () => {
+            const path = Array.from({ length: 30 }, (_, i) => `a${i}`).join(
+                '.',
+            );
+            const result = await target.update(
+                { key: 'nest-update-ok', pathAndValueMap: { [path]: 1 } },
+                opts,
+            );
+            expect(result.res).toBeTruthy();
+        });
+
+        it('add rejects an element that would sit past 32 levels', async () => {
+            const path = Array.from({ length: 31 }, (_, i) => `a${i}`).join(
+                '.',
+            );
+            await expect(
+                target.add(
+                    { key: 'nest-add-too-deep', pathAndValueMap: { [path]: 'x' } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        });
+
+        describe('nesting refused by the store', () => {
+            const nestingErr = () =>
+                Object.assign(
+                    new Error(
+                        'Nesting Levels have exceeded supported limits: Attributes in the item have nested levels beyond supported limit',
+                    ),
+                    { name: 'ValidationException' },
+                );
+            const plainMessage = expect.not.stringMatching(
+                /document path|UpdateExpression|ValidationException|Nesting Levels|attribute name|#value|#p\d/i,
+            );
+
+            it("set turns the store's nesting refusal into a plain bad_request", async () => {
+                const put = vi
+                    .spyOn(server.clients.dynamo, 'put')
+                    .mockRejectedValueOnce(nestingErr());
+                try {
+                    await expect(
+                        target.set(
+                            { key: 'nest-classify-set', value: { a: 1 } },
+                            opts,
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'bad_request',
+                        message: plainMessage,
+                    });
+                } finally {
+                    put.mockRestore();
+                }
+            });
+
+            it("batchPut turns the store's nesting refusal into a plain bad_request", async () => {
+                const batchPut = vi
+                    .spyOn(server.clients.dynamo, 'batchPut')
+                    .mockRejectedValueOnce(nestingErr());
+                try {
+                    await expect(
+                        target.batchPut(
+                            {
+                                items: [
+                                    { key: 'nest-classify-batch', value: { a: 1 } },
+                                ],
+                            },
+                            opts,
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'bad_request',
+                        message: plainMessage,
+                    });
+                } finally {
+                    batchPut.mockRestore();
+                }
+            });
+
+            it("update turns the store's nesting refusal into a plain bad_request without building paths", async () => {
+                const key = 'nest-classify-update';
+                await target.set({ key, value: { marker: true } }, opts);
+                const real = server.clients.dynamo.update.bind(
+                    server.clients.dynamo,
+                );
+                const update = vi
+                    .spyOn(server.clients.dynamo, 'update')
+                    .mockImplementation((...args) => {
+                        const expression = String(args[2]);
+                        if (expression.includes(':value'))
+                            return Promise.reject(nestingErr());
+                        return real(...(args as Parameters<typeof real>));
+                    });
+                try {
+                    await expect(
+                        target.update(
+                            { key, pathAndValueMap: { 'a.b': 1 } },
+                            opts,
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'bad_request',
+                        message: plainMessage,
+                    });
+                    expect(update).toHaveBeenCalledTimes(1);
+                } finally {
+                    update.mockRestore();
+                }
+            });
+        });
+    });
+
     describe('usage accounting', () => {
         it('reports write usage on set and read usage on get', async () => {
             const setRes = await target.set(
@@ -2051,6 +3142,102 @@ describe('SystemKVStore', () => {
                 update.mockRestore();
             }
         });
+
+        it('treats an expired private entry as missing', async () => {
+            const past = Math.floor(Date.now() / 1000) - 10;
+            await target.set(
+                {
+                    key: 'expired-secret',
+                    value: 'v',
+                    disableSharing: true,
+                    expireAt: past,
+                },
+                { actor, appUuid: 'app-other' },
+            );
+            const result = await target.incr(
+                { key: 'expired-secret', pathAndAmountMap: { '': 1 } },
+                crossOpts,
+            );
+            expect(result.res).toBe(1);
+        });
+
+        it('re-checks a stale expired-private read before letting a cross-app write through', async () => {
+            // The row is genuinely live and private.
+            await target.set(
+                { key: 'racy-secret', value: 'v', disableSharing: true },
+                { actor, appUuid: 'app-other' },
+            );
+            const real = server.clients.dynamo.get.bind(server.clients.dynamo);
+            const get = vi
+                .spyOn(server.clients.dynamo, 'get')
+                .mockImplementation(async (...args) => {
+                    const [, , consistentRead] = args as [
+                        string,
+                        Record<string, unknown>,
+                        boolean?,
+                    ];
+                    const response = await real(...args);
+                    if (!consistentRead && response.Item) {
+                        // Simulate a stale eventually-consistent read: it
+                        // still sees the old (now-past) TTL.
+                        return {
+                            ...response,
+                            Item: {
+                                ...response.Item,
+                                ttl: Math.floor(Date.now() / 1000) - 10,
+                            },
+                        };
+                    }
+                    return response;
+                });
+            try {
+                await expect(
+                    target.incr(
+                        { key: 'racy-secret', pathAndAmountMap: { '': 1 } },
+                        crossOpts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            } finally {
+                get.mockRestore();
+            }
+        });
+
+        it('re-checks a stale expired-private read before letting a cross-app batch write through', async () => {
+            const namespace = kvNamespace(actor.user.uuid!, 'app-other');
+            const now = Math.floor(Date.now() / 1000);
+            const batchGet = vi
+                .spyOn(server.clients.dynamo, 'batchGet')
+                .mockImplementation(async (_params, consistentRead) => ({
+                    Responses: {
+                        [PUTER_KV_STORE_TABLE_NAME]: [
+                            {
+                                namespace,
+                                key: 'racy-secret-batch',
+                                value: 's',
+                                noShare: true,
+                                // Only the eventually-consistent read is stale.
+                                ...(consistentRead ? {} : { ttl: now - 10 }),
+                            },
+                        ],
+                    },
+                    ConsumedCapacity: [],
+                }));
+            try {
+                await expect(
+                    target.batchPut(
+                        {
+                            items: [
+                                { key: 'ok', value: 1 },
+                                { key: 'racy-secret-batch', value: 2 },
+                            ],
+                        },
+                        crossOpts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            } finally {
+                batchGet.mockRestore();
+            }
+        });
     });
 
     describe('take', () => {
@@ -2066,6 +3253,932 @@ describe('SystemKVStore', () => {
             expect(second.res).toBeNull();
             const { res } = await target.get({ key: 'claim-me' }, opts);
             expect(res).toBeNull();
+        });
+    });
+
+    const namespaceOf = (a: Actor) =>
+        kvNamespace(a.user.uuid!, KV_GLOBAL_APP_KEY);
+
+    describe('writes to an expired row that has not been swept', () => {
+        const past = () => Math.floor(Date.now() / 1000) - 10;
+
+        it('incr starts from zero on an expired counter and drops its TTL', async () => {
+            await target.set(
+                { key: 'expiredCounter', value: 5, expireAt: past() },
+                opts,
+            );
+            const result = await target.incr(
+                { key: 'expiredCounter', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(1);
+            const got = await target.get({ key: 'expiredCounter' }, opts);
+            expect(got.res).toBe(1);
+            const listed = await target.list({ as: 'entries' }, opts);
+            expect(listed.res).toContainEqual({
+                key: 'expiredCounter',
+                value: 1,
+            });
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'expiredCounter' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('incr starts from zero on an expired value that holds text', async () => {
+            await target.set(
+                { key: 'expiredText', value: 'hello', expireAt: past() },
+                opts,
+            );
+            const result = await target.incr(
+                { key: 'expiredText', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(1);
+        });
+
+        it('incr starts a fresh object on an expired record', async () => {
+            await target.set(
+                { key: 'expiredRecord', value: 'stale', expireAt: past() },
+                opts,
+            );
+            const result = await target.incr(
+                { key: 'expiredRecord', pathAndAmountMap: { hits: 1 } },
+                opts,
+            );
+            expect(result.res).toMatchObject({ hits: 1 });
+        });
+
+        it('decr starts from zero on an expired counter', async () => {
+            await target.set(
+                { key: 'expiredDecr', value: 5, expireAt: past() },
+                opts,
+            );
+            const result = await target.decr(
+                { key: 'expiredDecr', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(-1);
+        });
+
+        it('add starts a fresh array on an expired key', async () => {
+            await target.set(
+                { key: 'expiredList', value: ['x'], expireAt: past() },
+                opts,
+            );
+            const result = await target.add(
+                { key: 'expiredList', pathAndValueMap: { '': ['y'] } },
+                opts,
+            );
+            expect(result.res).toEqual(['y']);
+        });
+
+        it('update builds from empty on an expired key', async () => {
+            await target.set(
+                {
+                    key: 'expiredUpdate',
+                    value: { a: 1, b: 2 },
+                    expireAt: past(),
+                },
+                opts,
+            );
+            const result = await target.update(
+                { key: 'expiredUpdate', pathAndValueMap: { a: 5 } },
+                opts,
+            );
+            expect(result.res).toEqual({ a: 5 });
+            const got = await target.get({ key: 'expiredUpdate' }, opts);
+            expect(got.res).toEqual({ a: 5 });
+        });
+
+        it('remove on an expired key resolves null', async () => {
+            await target.set(
+                { key: 'expiredRemove', value: { a: 1 }, expireAt: past() },
+                opts,
+            );
+            const result = await target.remove(
+                { key: 'expiredRemove', paths: ['a'] },
+                opts,
+            );
+            expect(result.res).toBeNull();
+        });
+
+        it('expire on an expired key makes an empty marker instead of reviving the value', async () => {
+            await target.set(
+                { key: 'expireAgain', value: 'old', expireAt: past() },
+                opts,
+            );
+            await target.expire({ key: 'expireAgain', ttl: 60 }, opts);
+            const got = await target.get({ key: 'expireAgain' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'entries' }, opts);
+            expect(listed.res).toContainEqual({
+                key: 'expireAgain',
+                value: null,
+            });
+        });
+
+        it('expireAt on an expired key makes an empty marker instead of reviving the value', async () => {
+            await target.set(
+                { key: 'expireAtAgain', value: 'old', expireAt: past() },
+                opts,
+            );
+            const future = Math.floor(Date.now() / 1000) + 60;
+            await target.expireAt(
+                { key: 'expireAtAgain', timestamp: future },
+                opts,
+            );
+            const got = await target.get({ key: 'expireAtAgain' }, opts);
+            expect(got.res).toBeNull();
+        });
+
+        it('an internal incr stamps a fresh TTL on an expired counter', async () => {
+            await target.set(
+                { key: 'expiredWithTtl', value: 5, expireAt: past() },
+                opts,
+            );
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.incr(
+                {
+                    key: 'expiredWithTtl',
+                    pathAndAmountMap: { '': 1 },
+                    expireAt: future,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'expiredWithTtl' },
+            );
+            expect(raw.Item?.ttl).toBe(future);
+        });
+
+        it('counts every concurrent incr on an expired counter', async () => {
+            await target.set(
+                { key: 'expiredConcurrent', value: 100, expireAt: past() },
+                opts,
+            );
+            const results = await Promise.all(
+                Array.from({ length: 5 }, () =>
+                    target.incr(
+                        {
+                            key: 'expiredConcurrent',
+                            pathAndAmountMap: { '': 1 },
+                        },
+                        opts,
+                    ),
+                ),
+            );
+            const sorted = results
+                .map((r) => r.res as number)
+                .sort((a, b) => a - b);
+            expect(sorted).toEqual([1, 2, 3, 4, 5]);
+            const got = await target.get({ key: 'expiredConcurrent' }, opts);
+            expect(got.res).toBe(5);
+        });
+
+        it('does not drop a row another writer revived during the reset', async () => {
+            const key = 'revivedDuringReset';
+            await target.set({ key, value: 5, expireAt: past() }, opts);
+
+            const real = server.clients.dynamo.del.bind(server.clients.dynamo);
+            const del = vi
+                .spyOn(server.clients.dynamo, 'del')
+                .mockImplementation(async (...args: Parameters<typeof real>) => {
+                    await target.set({ key, value: 10 }, opts);
+                    return real(...args);
+                });
+            try {
+                const result = await target.incr(
+                    { key, pathAndAmountMap: { '': 1 } },
+                    opts,
+                );
+                expect(result.res).toBe(11);
+            } finally {
+                del.mockRestore();
+            }
+        });
+
+        it('keeps a single write for a live row', async () => {
+            await target.set({ key: 'liveRow', value: 1 }, opts);
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            const del = vi.spyOn(server.clients.dynamo, 'del');
+            try {
+                await target.incr(
+                    { key: 'liveRow', pathAndAmountMap: { '': 1 } },
+                    opts,
+                );
+                expect(update).toHaveBeenCalledTimes(1);
+                expect(del).not.toHaveBeenCalled();
+            } finally {
+                update.mockRestore();
+                del.mockRestore();
+            }
+        });
+
+        it('bills the refused attempt and the reset', async () => {
+            await target.set({ key: 'liveBill', value: 1 }, opts);
+            const liveResult = await target.incr(
+                { key: 'liveBill', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+
+            await target.set(
+                { key: 'expiredBill', value: 1, expireAt: past() },
+                opts,
+            );
+            const expiredResult = await target.incr(
+                { key: 'expiredBill', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+
+            expect(expiredResult.usage.write).toBeGreaterThan(
+                liveResult.usage.write,
+            );
+        });
+
+        it('gives up after MAX_LIVE_WRITE_ATTEMPTS and throws a retryable 503', async () => {
+            await target.set({ key: 'exhausted', value: 1 }, opts);
+            const refused = Object.assign(
+                new Error('conditional check failed'),
+                { name: 'ConditionalCheckFailedException' },
+            );
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockRejectedValue(refused);
+            try {
+                await expect(
+                    target.incr(
+                        { key: 'exhausted', pathAndAmountMap: { '': 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 503,
+                    legacyCode: 'response_timeout',
+                    // A caller-triggered refusal, not a server fault — must
+                    // not page.
+                    noAlarm: true,
+                });
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('recovers when a row expires between createPaths steps', async () => {
+            const key = 'expiresBetweenCreatePaths';
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            let injectedOnce = false;
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation(async (...args) => {
+                    const expression = args[2] as string;
+                    // Just before createPaths' root write runs, simulate
+                    // another writer expiring the row in the gap.
+                    if (
+                        !injectedOnce &&
+                        expression ===
+                            'SET #value = if_not_exists(#value, :nestedMap)'
+                    ) {
+                        injectedOnce = true;
+                        await target.set(
+                            {
+                                key,
+                                value: 'raced-in',
+                                expireAt: Math.floor(Date.now() / 1000) - 10,
+                            },
+                            opts,
+                        );
+                    }
+                    return real(...(args as Parameters<typeof real>));
+                });
+            try {
+                const result = await target.incr(
+                    { key, pathAndAmountMap: { 'a.b.c': 2 } },
+                    opts,
+                );
+                expect(result.res).toMatchObject({ a: { b: { c: 2 } } });
+            } finally {
+                update.mockRestore();
+            }
+        });
+    });
+
+    describe('ttl storage', () => {
+        it('set with a null expireAt stores no TTL, so list shows the key', async () => {
+            await target.set(
+                { key: 'nullTtl', value: 'v', expireAt: null },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'nullTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).toContain('nullTtl');
+        });
+
+        it('set with an expireAt of 0 stores no TTL', async () => {
+            await target.set(
+                { key: 'zeroTtl', value: 'v', expireAt: 0 },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'zeroTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('set with a past expireAt stores an expired key', async () => {
+            const past = Math.floor(Date.now() / 1000) - 100;
+            await target.set(
+                { key: 'pastTtl', value: 'v', expireAt: past },
+                opts,
+            );
+            const got = await target.get({ key: 'pastTtl' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('pastTtl');
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'pastTtl' },
+            );
+            expect(raw.Item?.ttl as number).toBeGreaterThan(0);
+        });
+
+        it('batchPut with a null expireAt stores no TTL', async () => {
+            await target.batchPut(
+                {
+                    items: [
+                        { key: 'bpNullTtl', value: 'v', expireAt: null },
+                    ],
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'bpNullTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('get and list agree on legacy rows whose ttl is null or 0', async () => {
+            const namespace = namespaceOf(actor);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyNull',
+                value: 'a',
+                ttl: null,
+            });
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyZero',
+                value: 'b',
+                ttl: 0,
+            });
+
+            const gotNull = await target.get({ key: 'legacyNull' }, opts);
+            const gotZero = await target.get({ key: 'legacyZero' }, opts);
+            expect(gotNull.res).toBe('a');
+            expect(gotZero.res).toBe('b');
+
+            const listed = await target.list(
+                { as: 'entries', pattern: 'legacy', includeTotal: true },
+                opts,
+            );
+            expect(listed.res).toMatchObject({
+                items: expect.arrayContaining([
+                    { key: 'legacyNull', value: 'a' },
+                    { key: 'legacyZero', value: 'b' },
+                ]),
+                total: 2,
+            });
+        });
+
+        it('update with a null ttl removes the TTL', async () => {
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.set(
+                {
+                    key: 'updateRemoveTtl',
+                    value: { a: 1 },
+                    expireAt: future,
+                },
+                opts,
+            );
+            await target.update(
+                {
+                    key: 'updateRemoveTtl',
+                    pathAndValueMap: { a: 2 },
+                    ttl: null,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'updateRemoveTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+            const got = await target.get({ key: 'updateRemoveTtl' }, opts);
+            expect(got.res).toEqual({ a: 2 });
+        });
+
+        it('expireAt 0 expires the key', async () => {
+            await target.set({ key: 'expireAtZero', value: 'v' }, opts);
+            await target.expireAt(
+                { key: 'expireAtZero', timestamp: 0 },
+                opts,
+            );
+            const got = await target.get({ key: 'expireAtZero' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('expireAtZero');
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'expireAtZero' },
+            );
+            expect(raw.Item?.ttl as number).toBeGreaterThan(0);
+        });
+
+        it('a legacy row with a future string ttl is readable by get and list', async () => {
+            const namespace = namespaceOf(actor);
+            const future = String(Math.floor(Date.now() / 1000) + 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringFuture',
+                value: 'a',
+                ttl: future,
+            });
+            const got = await target.get({ key: 'legacyStringFuture' }, opts);
+            expect(got.res).toBe('a');
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).toContain('legacyStringFuture');
+        });
+
+        it('a legacy row with a past numeric-string ttl reads null in get and list', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringPast',
+                value: 'b',
+                ttl: past,
+            });
+            const got = await target.get({ key: 'legacyStringPast' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('legacyStringPast');
+        });
+
+        it('a legacy row with a non-numeric string ttl is readable by get and list', async () => {
+            const namespace = namespaceOf(actor);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringGarbage',
+                value: 'c',
+                ttl: 'not-a-number',
+            });
+            const got = await target.get({ key: 'legacyStringGarbage' }, opts);
+            expect(got.res).toBe('c');
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).toContain('legacyStringGarbage');
+        });
+
+        it('incr on a legacy expired string-ttl row starts from zero, and get agrees', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringIncr',
+                value: 5,
+                ttl: past,
+            });
+            const result = await target.incr(
+                { key: 'legacyStringIncr', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(1);
+            const got = await target.get({ key: 'legacyStringIncr' }, opts);
+            expect(got.res).toBe(1);
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace, key: 'legacyStringIncr' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('incr on a legacy future string-ttl row keeps its value and stores the expiry as a number', async () => {
+            const namespace = namespaceOf(actor);
+            const future = String(Math.floor(Date.now() / 1000) + 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringIncrFuture',
+                value: 5,
+                ttl: future,
+            });
+            const result = await target.incr(
+                {
+                    key: 'legacyStringIncrFuture',
+                    pathAndAmountMap: { '': 1 },
+                },
+                opts,
+            );
+            expect(result.res).toBe(6);
+            const got = await target.get(
+                { key: 'legacyStringIncrFuture' },
+                opts,
+            );
+            expect(got.res).toBe(6);
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace, key: 'legacyStringIncrFuture' },
+            );
+            expect(raw.Item?.ttl).toBe(Number(future));
+            expect(typeof raw.Item?.ttl).toBe('number');
+        });
+
+        it('incr on a legacy row whose ttl is true starts from zero', async () => {
+            const namespace = namespaceOf(actor);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyBooleanIncr',
+                value: 5,
+                ttl: true,
+            });
+            const result = await target.incr(
+                { key: 'legacyBooleanIncr', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(1);
+            const got = await target.get({ key: 'legacyBooleanIncr' }, opts);
+            expect(got.res).toBe(1);
+        });
+
+        it('update on a legacy expired string-ttl row doesn’t bring back its old fields', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringUpdate',
+                value: { a: 1, b: 2 },
+                ttl: past,
+            });
+            const result = await target.update(
+                {
+                    key: 'legacyStringUpdate',
+                    pathAndValueMap: { a: 5 },
+                    ttl: 60,
+                },
+                opts,
+            );
+            expect(result.res).toEqual({ a: 5 });
+            const got = await target.get({ key: 'legacyStringUpdate' }, opts);
+            expect(got.res).toEqual({ a: 5 });
+        });
+
+        it('expire on a legacy expired string-ttl row makes an empty marker', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringExpire',
+                value: 'old',
+                ttl: past,
+            });
+            await target.expire(
+                { key: 'legacyStringExpire', ttl: 60 },
+                opts,
+            );
+            const got = await target.get({ key: 'legacyStringExpire' }, opts);
+            expect(got.res).toBeNull();
+        });
+
+        it('remove on a legacy expired string-ttl row resolves null', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringRemove',
+                value: { a: 1 },
+                ttl: past,
+            });
+            const result = await target.remove(
+                { key: 'legacyStringRemove', paths: ['a'] },
+                opts,
+            );
+            expect(result.res).toBeNull();
+        });
+
+        it('a write to a legacy row with a non-numeric ttl keeps it readable and drops the ttl', async () => {
+            const namespace = namespaceOf(actor);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyGarbageWrite',
+                value: { a: 1 },
+                ttl: 'not-a-number',
+            });
+            const result = await target.update(
+                { key: 'legacyGarbageWrite', pathAndValueMap: { b: 2 } },
+                opts,
+            );
+            expect(result.res).toEqual({ a: 1, b: 2 });
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace, key: 'legacyGarbageWrite' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('does not delete a legacy row whose ttl changed after it was read', async () => {
+            const key = 'legacyTtlRace';
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key,
+                value: 5,
+                ttl: past,
+            });
+            const real = server.clients.dynamo.del.bind(
+                server.clients.dynamo,
+            );
+            const del = vi
+                .spyOn(server.clients.dynamo, 'del')
+                .mockImplementation(
+                    async (...args: Parameters<typeof real>) => {
+                        const condition = args[2]?.condition?.expression;
+                        if (condition?.includes(':legacyTtl')) {
+                            await target.set({ key, value: 10 }, opts);
+                        }
+                        return real(...args);
+                    },
+                );
+            try {
+                const result = await target.incr(
+                    { key, pathAndAmountMap: { '': 1 } },
+                    opts,
+                );
+                expect(result.res).toBe(11);
+            } finally {
+                del.mockRestore();
+            }
+            const got = await target.get({ key }, opts);
+            expect(got.res).toBe(11);
+        });
+
+        it('includeTotal agrees with the listed items once a write has settled a legacy expired row', async () => {
+            const namespace = namespaceOf(actor);
+            const pattern = 'legacyTotalAgree';
+            const key = `${pattern}Key`;
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key,
+                value: 5,
+                ttl: past,
+            });
+            await target.incr({ key, pathAndAmountMap: { '': 1 } }, opts);
+            const listed = await target.list(
+                { as: 'keys', pattern, includeTotal: true },
+                opts,
+            );
+            expect(listed.res).toMatchObject({ items: [key], total: 1 });
+        });
+
+        it.each([
+            ['null', null],
+            ['0', 0],
+            ['an empty string', ''],
+            ['false', false],
+        ])(
+            'an internal incr with a %s expireAt stores no TTL',
+            async (_label, expireAt) => {
+                const key = `internalIncrNoTtl${String(expireAt)}`;
+                const result = await target.incr(
+                    {
+                        key,
+                        pathAndAmountMap: { '': 1 },
+                        expireAt: expireAt as unknown as number,
+                    },
+                    opts,
+                );
+                expect(result.res).toBe(1);
+                const got = await target.get({ key }, opts);
+                expect(got.res).toBe(1);
+                const raw = await server.clients.dynamo.get(
+                    PUTER_KV_STORE_TABLE_NAME,
+                    { namespace: namespaceOf(actor), key },
+                );
+                expect(raw.Item?.ttl).toBeUndefined();
+            },
+        );
+
+        it.each([
+            ['text', 'soon'],
+            ['Infinity', Infinity],
+        ])(
+            'an internal incr rejects %s as expireAt',
+            async (_label, expireAt) => {
+                await expect(
+                    target.incr(
+                        {
+                            key: 'internalIncrBadExpireAt',
+                            pathAndAmountMap: { '': 1 },
+                            expireAt: expireAt as unknown as number,
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+            },
+        );
+
+        it.each([
+            ['expireAt', Number.NaN],
+            ['expireAt', 'soon'],
+            ['expire', Number.NaN],
+            ['expire', undefined],
+        ] as const)(
+            '%s rejects %s and keeps the TTL',
+            async (method, badValue) => {
+                const key = `keepsTtl-${method}-${String(badValue)}`;
+                const future = Math.floor(Date.now() / 1000) + 3600;
+                await target.set(
+                    { key, value: 'v', expireAt: future },
+                    opts,
+                );
+                const run =
+                    method === 'expireAt'
+                        ? target.expireAt(
+                              {
+                                  key,
+                                  timestamp: badValue as unknown as number,
+                              },
+                              opts,
+                          )
+                        : target.expire(
+                              { key, ttl: badValue as unknown as number },
+                              opts,
+                          );
+                await expect(run).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                const raw = await server.clients.dynamo.get(
+                    PUTER_KV_STORE_TABLE_NAME,
+                    { namespace: namespaceOf(actor), key },
+                );
+                expect(raw.Item?.ttl).toBe(future);
+            },
+        );
+
+        it.each([
+            ['an empty string', ''],
+            ['false', false],
+        ])('update with %s as ttl keeps the stored TTL', async (_label, ttl) => {
+            const key = `updateKeepsTtl${_label}`.replace(/[^\w-]/g, '_');
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.set(
+                { key, value: { a: 1 }, expireAt: future },
+                opts,
+            );
+            await target.update(
+                { key, pathAndValueMap: { a: 2 }, ttl: ttl as unknown as number },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key },
+            );
+            expect(raw.Item?.ttl).toBe(future);
+            const got = await target.get({ key }, opts);
+            expect(got.res).toEqual({ a: 2 });
+        });
+
+        it.each([
+            ['true', true],
+            ['an array', [5]],
+            ['text', 'soon'],
+            ['Infinity', Infinity],
+        ])('update rejects %s as ttl with ttl_invalid', async (_label, ttl) => {
+            await expect(
+                target.update(
+                    {
+                        key: 'updateBadTtl',
+                        pathAndValueMap: { a: 1 },
+                        ttl: ttl as unknown as number,
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, code: 'ttl_invalid' });
+        });
+
+        it('update reads a numeric-string ttl as seconds', async () => {
+            const key = 'updateNumericStringTtl';
+            const before = Math.floor(Date.now() / 1000);
+            await target.update(
+                {
+                    key,
+                    pathAndValueMap: { a: 1 },
+                    ttl: '60' as unknown as number,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key },
+            );
+            expect(typeof raw.Item?.ttl).toBe('number');
+            expect(raw.Item?.ttl as number).toBeGreaterThanOrEqual(
+                before + 59,
+            );
+            expect(raw.Item?.ttl as number).toBeLessThanOrEqual(before + 65);
+        });
+
+        it('set with a numeric string expireAt stores a number TTL', async () => {
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.set(
+                {
+                    key: 'numericStringTtl',
+                    value: 'v',
+                    expireAt: String(future) as unknown as number,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'numericStringTtl' },
+            );
+            expect(raw.Item?.ttl).toBe(future);
+            expect(typeof raw.Item?.ttl).toBe('number');
+        });
+
+        it('set rejects a non-numeric expireAt', async () => {
+            await expect(
+                target.set(
+                    {
+                        key: 'badTtl',
+                        value: 'v',
+                        expireAt: 'abc' as unknown as number,
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        });
+
+        it('set treats an empty string expireAt as no expiry', async () => {
+            await target.set(
+                { key: 'emptyStringTtl', value: 'v', expireAt: '' as unknown as number },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'emptyStringTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it.each([
+            ['true', true],
+            ['an array', [5]],
+            ["the string 'Infinity'", 'Infinity'],
+        ])('set rejects %s as expireAt', async (_label, expireAt) => {
+            await expect(
+                target.set(
+                    {
+                        key: 'badTtlType',
+                        value: 'v',
+                        expireAt: expireAt as unknown as number,
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        });
+    });
+
+    describe('expire on a missing key', () => {
+        it('creates a null marker that list shows and get reads as null', async () => {
+            await target.expire({ key: 'freshMarker', ttl: 60 }, opts);
+            const got = await target.get({ key: 'freshMarker' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'entries' }, opts);
+            expect(listed.res).toContainEqual({
+                key: 'freshMarker',
+                value: null,
+            });
+        });
+
+        it('a marker whose time has already passed never shows up', async () => {
+            await target.expire({ key: 'pastMarker', ttl: -10 }, opts);
+            const got = await target.get({ key: 'pastMarker' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('pastMarker');
         });
     });
 });

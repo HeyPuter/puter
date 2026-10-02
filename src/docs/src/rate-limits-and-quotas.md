@@ -105,8 +105,13 @@ Sizes are the same for every account:
 | Key                       | 1 KB                                      |
 | Value                     | 400 KB                                    |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
+| Path nesting (`add`/`update`/`incr`/`decr`/`remove`) | 31 levels |
+| Path segments in one call, all paths together | 1,500 |
+| Nesting depth of a value, counting its path | 32 levels |
 
 A key or value over its size limit is rejected. A number out of range is not rejected: it's stored clamped to the bound, and `NaN` is stored as `null` (as `JSON.stringify()` does). This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
+
+A path such as `a.b.c` may chain at most 31 levels, and one call's paths at most 1,500 segments together. All of a call's paths go into one write of limited size, so in practice a call fits about 140 short paths (about 60 for `incr` and `decr`), fewer when the paths are long. A value nests at most 32 levels deep: the stored value is the first level, and each object or array inside it, or path segment above it, adds one, so `{ a: { b: 1 } }` stored with `set()` is 3 levels deep and written by `update()` at `x.y` is 5; `add()` counts the list it appends to as one more. Past any of these, the call rejects with `bad_request`.
 
 ### Filesystem
 
@@ -166,7 +171,8 @@ The Puter desktop makes PDF upload thumbnails locally within these budgets. Goin
 | Limit | Value |
 | ----- | ----- |
 | Grant / revoke calls | 60/min |
-| Permissions per grant or revoke request | 16 |
+| Permissions per grant, revoke, or access-token request | 16 |
+| `extra` / `meta` on a grant or access-token permission | 4 KiB each |
 | Filesystem entries one `create` grant may create per request | 4 |
 | Path depth a `create` grant may create below the home directory | 16 components |
 
@@ -197,6 +203,25 @@ For long-lived mounts, sign in with a `-token` username and an API token as the 
 | Worker `destroy` per minute         | 30   | 20   | 10        |
 | Concurrent worker calls             | 10   | 5    | 3         |
 | Concurrent deploys                  | 5    | 2    | 2         |
+
+### Apps
+
+| Operation                                                                    | Paid      | Free      | Anonymous |
+| ---------------------------------------------------------------------------- | --------- | --------- | --------- |
+| `puter.apps.get()` / `puter.apps.list()`                                     | 100/10 s  | 100/10 s  | 50/10 s   |
+| REST reads (`GET /apps`, `GET /apps/:names`, `POST /query/app`, record open) | 1,800/min | 1,800/min | 1,800/min |
+| Writes (create, update, delete)                                              | 240/min   | 120/min   | 60/min    |
+
+| Limit                                                              | Value                           | Scope       |
+| ------------------------------------------------------------------ | ------------------------------- | ----------- |
+| `nameAvailable`                                                    | 60/min                          |             |
+| App icon                                                           | 12,000/min                      | Per network |
+| App landing page (`/app/<name>`, `/desktop/app/<name>`)            | 600/min                         | Per network |
+| Names per batch app lookup (`GET /apps/:names`, `POST /query/app`) | 200, up to 200 characters each  |             |
+| `metadata`                                                         | 16 KiB, measured as JSON        |             |
+| `filetypeAssociations`                                             | 200 entries, 60 characters each |             |
+
+An app's `name` and `title` may be up to 100 characters and its `description` up to 7,000. A create or update over any of these is rejected with `400 bad_request`; nothing is truncated.
 
 ### Profiles
 
@@ -309,7 +334,8 @@ Counted per event, per region:
 
 | Call                                              | Limit    | Scope              |
 | ------------------------------------------------- | -------- | ------------------ |
-| `subscribe` / `unsubscribe`                       | 60/min   | Per user, all apps |
+| `subscribe`                                       | 60/min   | Per user, all apps |
+| `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
@@ -319,6 +345,8 @@ Counted per event, per region:
 | `fetch()`                                         | 120/min  | Per user, per app  |
 
 Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `fetch()` page defaults to 50 events and holds up to 200.
+
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
 
 #### Delivery
 
@@ -334,7 +362,7 @@ Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `f
 | KV value inlined in a delivery           | 16 KB      | Per delivery           |
 
 - Over a delivery rate, the event is replaced by a gap marker (`delivery_rate_limit`).
-- Over the handler-run rate, the delivery waits and goes out later. It doesn't count as a handler failure.
+- Over the handler-run rate, a `single` delivery waits and goes out later, and a `broadcast` one runs only in connected clients. Neither counts as a handler failure.
 - When a backlog is full, the oldest deliveries are dropped and replaced by one gap marker (`backlog_overflow`).
 
 #### Handlers
@@ -349,8 +377,19 @@ Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `f
 | Run timeout                            | 30 seconds                     | Per run            |
 | Retry delay                            | 2 seconds, doubling, up to 5 minutes | Per delivery |
 | Failures in a row before suspension    | 5                              | Per subscription   |
+| `user` token lifetime in the events worker | 15 minutes                 | Per run            |
 
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
+
+#### Handler chains
+
+| Limit                         | Scope                          | Paid | Free |
+| ----------------------------- | ------------------------------ | ---- | ---- |
+| Handler runs in one chain     | Per account holding the subscription | 12 | 4 |
+
+- A write made through a handler's `user` in the events worker is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain.
+- When an event reaches the limit, the events worker runs no handler for it. A `broadcast` one still reaches connected clients without running the persistent handler; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
+- If the holder's plan can't be looked up, the free number applies. A server with no metering uses the paid number.
 
 #### Suspended subscriptions
 

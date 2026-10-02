@@ -1,5 +1,6 @@
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
+import { hasOpaqueOrigin } from './lib/auth-popup.js';
 import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import { isFramedDocument } from './lib/appModeGate.js';
@@ -245,7 +246,9 @@ export class Puter {
     puterAuthState = {
         isPromptOpen: false,
         authGranted: null,
-        resolver: null,
+        // Callers that found the prompt already open, queued rather than
+        // sharing one slot.
+        resolvers: [],
     };
 
     // Holds the unique app instance ID that is provided by the host environment
@@ -732,10 +735,7 @@ export class Puter {
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();
 
-            // If the page was opened directly from disk (file:// protocol),
-            // Puter.js cannot function. Warn the developer immediately on
-            // load rather than waiting for an action that triggers auth.
-            this.warnUnsupportedProtocol();
+            this.warnUnsupportedOrigin();
         } else if (
             this.env === 'web-worker' ||
             this.env === 'service-worker' ||
@@ -1654,27 +1654,31 @@ export class Puter {
     };
 
     /**
-     * Shows the "Unsupported Protocol" warning dialog when the SDK is
-     * loaded directly from the file:// protocol. Runs once on load (when
-     * the DOM is ready) so the developer is told to use a web server
-     * immediately, instead of only when an action triggers the auth flow.
+     * Warns, once on load, when this page has no origin to sign in with,
+     * rather than at the first action that authenticates.
      *
      * @internal
      */
-    warnUnsupportedProtocol = function () {
+    warnUnsupportedOrigin = function () {
+        if (!hasOpaqueOrigin()) return;
+        if (this._opaqueOriginWarned) return;
+        this._opaqueOriginWarned = true;
+
+        console.warn(
+            'Puter.js: this page has no origin to sign in with. Serve it over http://localhost or a real domain instead of opening it from a file, and give sandboxed iframes allow-same-origin.',
+        );
+
+        // A sandboxed iframe is someone else's embed; don't modal into it.
         if (globalThis.location?.protocol !== 'file:') return;
-        if (this._fileProtocolWarned) return;
-        this._fileProtocolWarned = true;
 
         const showDialog = () => {
-            // On file:// PuterDialog renders the "Unsupported Protocol"
-            // warning instead of the auth consent content.
+            // PuterDialog renders the warning instead of the consent content.
             const dialog = new PuterDialog(
                 () => {},
                 () => {},
             );
             document.body.appendChild(dialog);
-            dialog.open();
+            dialog.openNotice();
         };
 
         if (document.readyState === 'loading') {
@@ -1866,14 +1870,15 @@ globalThis.addEventListener &&
             }
 
             puter.puterAuthState.isPromptOpen = false;
-            // Resolve or reject any waiting promises.
-            if (puter.puterAuthState.resolver) {
+            // Resolve or reject every waiting promise, not just one.
+            const resolvers = puter.puterAuthState.resolvers;
+            puter.puterAuthState.resolvers = [];
+            for (const resolver of resolvers) {
                 if (puter.puterAuthState.authGranted) {
-                    puter.puterAuthState.resolver.resolve();
+                    resolver.resolve();
                 } else {
-                    puter.puterAuthState.resolver.reject();
+                    resolver.reject();
                 }
-                puter.puterAuthState.resolver = null;
             }
         }
     });

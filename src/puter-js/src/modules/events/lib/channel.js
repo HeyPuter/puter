@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
 import { PuterJSError } from '../../../lib/PuterJSError.js';
 import { socketAutoUnref } from '../../../lib/socketOptions.js';
+import { uuidv4 } from '../../../lib/utils.js';
 import { EventSubscription } from './subscription.js';
 
 /** @typedef {import('../types.js').EventGapMarker} EventGapMarker */
@@ -40,6 +41,17 @@ const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
 const ACK_VERB = 'events.ack';
 const DELIVERY_CHANNEL = 'events.delivery';
+const ENDED_CHANNEL = 'events.ended';
+
+/**
+ * Handed to a subscription once its connection is back, standing in for
+ * whatever changed while it was down.
+ * @param {EventSubscription} sub
+ * @returns {EventGapMarker}
+ */
+const reconnectGap = (sub) => ({
+    id: uuidv4(), subject: sub.subject, op: 'gap', reason: 'reconnect', ts: Date.now(),
+});
 
 /** How long a verb waits for its ack before the call is called lost. */
 export const DEFAULT_TIMEOUT_MS = 30000;
@@ -70,6 +82,19 @@ const ackError = (response) => {
         typeof error?.code === 'string' ? error.code : 'events_failed',
     );
 };
+
+/**
+ * The error a `events.ended` notice becomes, passed to `onError` the same way
+ * a lapse is.
+ * @param {{ code?: unknown, reason?: unknown, message?: unknown }} [notice]
+ * @returns {PuterJSError}
+ */
+const endedError = (notice) =>
+    new PuterJSError(
+        typeof notice?.message === 'string' ? notice.message : 'The subscription was ended by the server',
+        typeof notice?.code === 'string' ? notice.code : 'subscription_ended',
+        typeof notice?.reason === 'string' ? { reason: notice.reason } : {},
+    );
 
 /** The subscription an ack describes, or a failure if it describes none. */
 const viewOf = (response) => {
@@ -202,26 +227,30 @@ export class EventChannel {
         if ( ! this.subscriptions.has(sub) ) return;
         this.forget(sub);
 
+        const generation = this.generation;
         const subId = sub.subId;
         sub.subId = null;
         try {
             if ( subId !== null && this.socket?.connected ) {
                 await this.request(UNSUBSCRIBE_VERB, { subId }, timeoutFor(sub));
             }
-        } catch {
-            // A session subscription is gone with its connection anyway, so
-            // there is nothing an unsubscribe failure leaves behind to fix —
-            // and `off()` is teardown, which does not get to fail.
+        } catch (error) {
+            // `off()` never rejects; only warn if it may have left it running.
+            const failure = PuterJSError.from(error);
+            if ( this.generation === generation && failure.code !== 'subscription_does_not_exist' ) {
+                console.warn(`[puter.events] could not end the subscription to ${sub.subject} on the server`, failure);
+            }
         } finally {
             this.closeIfIdle();
         }
     }
 
     /**
-     * Run a persistent subscription's handler here whenever this client is the
-     * one the server delivers to. The subscription itself already exists and is
-     * not re-registered by any of this — what is registered is only where its
-     * deliveries go while this page is open.
+     * Run a persistent subscription's handler here while this client is
+     * connected, on every delivery the server doesn't mark `skipHandler`. The
+     * subscription itself already exists and is not re-registered by any of
+     * this — what is registered is only where its deliveries go while this
+     * page is open.
      *
      * @internal
      * @param {string} subId
@@ -318,6 +347,7 @@ export class EventChannel {
             this.fail(failure);
         });
         socket.on(DELIVERY_CHANNEL, envelope => this.route(envelope));
+        socket.on(ENDED_CHANNEL, notice => this.ended(notice));
 
         this.socket = socket;
         return socket;
@@ -432,6 +462,7 @@ export class EventChannel {
                     }
                     sub.apply(view);
                     this.byId.set(/** @type {string} */ (sub.subId), sub);
+                    sub.deliver(reconnectGap(sub));
                 })
                 .catch(error => {
                     sub.pending = false;
@@ -470,7 +501,7 @@ export class EventChannel {
 
     /**
      * @internal
-     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string }} envelope
+     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     route (envelope) {
@@ -491,7 +522,25 @@ export class EventChannel {
     }
 
     /**
-     * Run a persistent subscription's handler on one delivery.
+     * The server ended a session subscription itself — no resubscribe
+     * follows, so the handle is let go the same way a lapse is. The handler
+     * is never called again; anything that arrives for it afterwards is
+     * dropped by `route`.
+     *
+     * @internal
+     * @param {{ subId?: unknown, code?: unknown, reason?: unknown, message?: unknown }} notice
+     * @returns {void}
+     */
+    ended (notice) {
+        const sub = typeof notice?.subId === 'string' ? this.byId.get(notice.subId) : undefined;
+        if ( ! sub ) return;
+        this.lapse(sub, endedError(notice));
+    }
+
+    /**
+     * Run a persistent subscription's handler on one delivery, unless the
+     * server marked it `skipHandler`: the app's events worker takes it, or it
+     * is past the handler-chain limit.
      *
      * The handler is handed the same environment its published copy gets in the
      * app's events worker, so one body runs unchanged in either place. A
@@ -501,10 +550,14 @@ export class EventChannel {
      *
      * @internal
      * @param {DurableRegistration} registration
-     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string }} envelope
+     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     runDurable (registration, envelope) {
+        // `single` always carries `ackRequired` here and must still run —
+        // only an unacknowledged broadcast copy is ever marked this way.
+        if ( envelope.skipHandler === true && ! envelope.ackRequired ) return;
+
         const event = /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event);
         const { puter } = this.module;
         const delivery = {

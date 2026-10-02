@@ -139,6 +139,14 @@ interface DroppedSessionToken {
     token: string;
 }
 
+/** What `#dropRefs` actually did, as opposed to what it was asked to. */
+interface DropRefsResult {
+    /** Tokens whose region-local watcher count crossed to zero. */
+    dropped: DroppedSessionToken[];
+    /** Refs a concurrent duplicate had not already taken. */
+    removed: SocketRef[];
+}
+
 const toAnnounces = (
     dropped: readonly DroppedSessionToken[],
     op: 'add' | 'drop',
@@ -194,6 +202,9 @@ export const DURABLE_WARM_TTL_SECONDS = 6 * 60 * 60;
  */
 export const REMOTE_WATCH_TTL_SECONDS = 2 * 60 * 60;
 
+/** Bounds how many times a reap re-reads the socket set racing a reanchor. */
+const REAP_READS = 3;
+
 const subscriptionLimitReached = (): HttpError =>
     new HttpError(
         429,
@@ -201,7 +212,49 @@ const subscriptionLimitReached = (): HttpError =>
         { legacyCode: 'events_subscription_limit' },
     );
 
+/**
+ * KEYS: socket set. ARGV: old, new, ttl. Returns 1 (swapped), 0 (old gone), or
+ * 2 (another settle already swapped in this same new ref).
+ */
+const SWAP_REF_SCRIPT = `
+if redis.call('SREM', KEYS[1], ARGV[1]) == 0 then
+    if redis.call('SISMEMBER', KEYS[1], ARGV[2]) == 1 then return 2 end
+    return 0
+end
+redis.call('SADD', KEYS[1], ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+return 1
+`;
+
+interface ReanchorScripts {
+    eventsSwapSocketRef(
+        socketKey: string,
+        oldRef: string,
+        newRef: string,
+        ttlSeconds: string,
+    ): Promise<number>;
+}
+
+/** Whether a move actually happened, and the generation bumps it produced. */
+export interface ReanchorResult {
+    moved: boolean;
+    bumps: GenerationBump[];
+}
+
 export class EventSubscriptionStore extends PuterStore {
+    #definedScripts = false;
+
+    #scripts(): ReanchorScripts {
+        if (!this.#definedScripts) {
+            this.#definedScripts = true;
+            this.clients.redis.defineCommand('eventsSwapSocketRef', {
+                numberOfKeys: 1,
+                lua: SWAP_REF_SCRIPT,
+            });
+        }
+        return this.clients.redis as unknown as ReanchorScripts;
+    }
+
     // -- Writes ------------------------------------------------------
 
     /**
@@ -241,6 +294,24 @@ export class EventSubscriptionStore extends PuterStore {
             throw counted?.[0] ?? subscriptionLimitReached();
         }
 
+        const sessionCount = await this.#writeRow(sub);
+        await this.#keepDurableWindow(ownerUserId, [token]);
+
+        return {
+            userId: ownerUserId,
+            generation: await this.bumpGeneration(ownerUserId),
+            announce: sessionCount === 1 ? [{ token, op: 'add' }] : undefined,
+        };
+    }
+
+    /**
+     * Write one row's hash entry, watched-set membership and session count.
+     * Returns the resulting count for that token. Shared by `add` and
+     * `reanchorSession`, which both need the row in place before any ref names
+     * it.
+     */
+    async #writeRow(sub: SessionSubscription): Promise<number> {
+        const { ownerUserId, token, subId } = sub;
         const rows = this.clients.redis.pipeline();
         rows.hset(tokenKey(ownerUserId, token), subId, JSON.stringify(sub));
         rows.expire(
@@ -255,15 +326,7 @@ export class EventSubscriptionStore extends PuterStore {
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
         const results = (await rows.exec()) ?? [];
-        const sessionCount = Number(results[4]?.[1]);
-
-        await this.#keepDurableWindow(ownerUserId, [token]);
-
-        return {
-            userId: ownerUserId,
-            generation: await this.bumpGeneration(ownerUserId),
-            announce: sessionCount === 1 ? [{ token, op: 'add' }] : undefined,
-        };
+        return Number(results[4]?.[1]);
     }
 
     /**
@@ -300,15 +363,23 @@ export class EventSubscriptionStore extends PuterStore {
      * Drop one subscription the caller has already read back. Taking the row
      * rather than an id keeps the scope decision — whose row this is, and which
      * app's — with the actor, where it belongs.
+     *
+     * `null` when a concurrent duplicate of this call already removed it.
      */
-    async remove(sub: SessionSubscription): Promise<GenerationBump> {
-        const dropped = await this.#dropRefs(sub.holderUserId, sub.socketId, [
-            {
-                ownerUserId: sub.ownerUserId,
-                token: sub.token,
-                subId: sub.subId,
-            },
-        ]);
+    async remove(sub: SessionSubscription): Promise<GenerationBump | null> {
+        const { dropped, removed } = await this.#dropRefs(
+            sub.holderUserId,
+            sub.socketId,
+            [
+                {
+                    ownerUserId: sub.ownerUserId,
+                    token: sub.token,
+                    subId: sub.subId,
+                },
+            ],
+        );
+        if (removed.length === 0) return null;
+
         return {
             userId: sub.ownerUserId,
             generation: await this.bumpGeneration(sub.ownerUserId),
@@ -321,55 +392,69 @@ export class EventSubscriptionStore extends PuterStore {
      * socket. Not `remove` then `add`: this is the same subscription, so it
      * must not be turned away by the per-connection cap it already occupies a
      * slot in, and the new anchor may sit in a different owner's keyspace.
+     *
+     * The new row lands first and the ref is swapped in one step, so an
+     * unsubscribe or a reap always finds exactly one ref to take.
      */
     async reanchorSession(
         previous: SessionSubscription,
         next: SessionSubscription,
-    ): Promise<GenerationBump[]> {
-        const dropped = await this.#dropRefs(
-            previous.holderUserId,
-            previous.socketId,
-            [
-                {
-                    ownerUserId: previous.ownerUserId,
-                    token: previous.token,
-                    subId: previous.subId,
-                },
-            ],
-        );
+    ): Promise<ReanchorResult> {
+        const nextCount = await this.#writeRow(next);
 
-        const rows = this.clients.redis.pipeline();
-        const key = tokenKey(next.ownerUserId, next.token);
-        rows.hset(key, next.subId, JSON.stringify(next));
-        rows.expire(key, SESSION_SUBSCRIPTION_TTL_SECONDS);
-        rows.sadd(watchedKey(next.ownerUserId), next.token);
-        rows.expire(
-            watchedKey(next.ownerUserId),
-            SESSION_SUBSCRIPTION_TTL_SECONDS,
-        );
-        rows.hincrby(sessionCountKey(next.ownerUserId), next.token, 1);
-        rows.expire(
-            sessionCountKey(next.ownerUserId),
-            SESSION_SUBSCRIPTION_TTL_SECONDS,
-        );
-        const results = (await rows.exec()) ?? [];
-        const nextCount = Number(results[4]?.[1]);
-
-        const holder = this.clients.redis.pipeline();
-        holder.sadd(
-            socketKey(next.holderUserId, next.socketId),
+        const swapped = await this.#scripts().eventsSwapSocketRef(
+            socketKey(previous.holderUserId, previous.socketId),
+            socketRef({
+                ownerUserId: previous.ownerUserId,
+                token: previous.token,
+                subId: previous.subId,
+            }),
             socketRef({
                 ownerUserId: next.ownerUserId,
                 token: next.token,
                 subId: next.subId,
             }),
+            String(SESSION_SUBSCRIPTION_TTL_SECONDS),
         );
-        holder.expire(
-            socketKey(next.holderUserId, next.socketId),
-            SESSION_SUBSCRIPTION_TTL_SECONDS,
-        );
-        await holder.exec();
 
+        if (swapped !== 1) {
+            // 0: an unsubscribe, a reap, or another settle took the old ref
+            // first — undo the row this call wrote speculatively. 2: another
+            // settle racing the same move already landed this exact ref;
+            // its row is the one in place, so only this call's own count
+            // increment needs undoing.
+            if (swapped === 0)
+                await this.#dropRows(next.ownerUserId, [
+                    { token: next.token, subId: next.subId },
+                ]);
+            const undone =
+                (await this.#dropSessionCounts(next.ownerUserId, [next.token]))
+                    .length > 0;
+            const announced = nextCount === 1;
+            if (announced === undone) return { moved: false, bumps: [] };
+            return {
+                moved: false,
+                bumps: [
+                    {
+                        userId: next.ownerUserId,
+                        generation: await this.bumpGeneration(next.ownerUserId),
+                        announce: [
+                            {
+                                token: next.token,
+                                op: announced ? 'add' : 'drop',
+                            },
+                        ],
+                    },
+                ],
+            };
+        }
+
+        await this.#dropRows(previous.ownerUserId, [
+            { token: previous.token, subId: previous.subId },
+        ]);
+        const dropped = await this.#dropSessionCounts(previous.ownerUserId, [
+            previous.token,
+        ]);
         await this.#keepDurableWindow(next.ownerUserId, [next.token]);
 
         const announceByOwner = new Map<number, RemoteWatchAnnounce[]>();
@@ -385,13 +470,14 @@ export class EventSubscriptionStore extends PuterStore {
             ]);
 
         const owners = new Set([previous.ownerUserId, next.ownerUserId]);
-        return Promise.all(
+        const bumps = await Promise.all(
             [...owners].map(async (userId) => ({
                 userId,
                 generation: await this.bumpGeneration(userId),
                 announce: announceByOwner.get(userId),
             })),
         );
+        return { moved: true, bumps };
     }
 
     /**
@@ -403,12 +489,24 @@ export class EventSubscriptionStore extends PuterStore {
         holderUserId: number,
         socketId: string,
     ): Promise<GenerationBump[]> {
-        const refs = (
-            await this.clients.redis.smembers(socketKey(holderUserId, socketId))
-        ).map(parseSocketRef);
-        if (refs.length === 0) return [];
+        const key = socketKey(holderUserId, socketId);
+        const dropped: DroppedSessionToken[] = [];
+        const removed: SocketRef[] = [];
 
-        const dropped = await this.#dropRefs(holderUserId, socketId, refs);
+        for (let read = 0; read < REAP_READS; read++) {
+            const refs = (await this.clients.redis.smembers(key)).map(
+                parseSocketRef,
+            );
+            if (refs.length === 0) break;
+
+            const result = await this.#dropRefs(holderUserId, socketId, refs);
+            dropped.push(...result.dropped);
+            removed.push(...result.removed);
+            if (result.removed.length === refs.length) break;
+            // A ref this pass could not take may have moved rather than
+            // gone; look again.
+        }
+
         const announceByOwner = new Map<number, RemoteWatchAnnounce[]>();
         for (const { ownerUserId, token } of dropped)
             announceByOwner.set(ownerUserId, [
@@ -416,8 +514,9 @@ export class EventSubscriptionStore extends PuterStore {
                 { token, op: 'drop' },
             ]);
 
+        // Bump only owners whose ref this call actually removed.
         const bumps: GenerationBump[] = [];
-        for (const ownerUserId of byOwner(refs).keys())
+        for (const ownerUserId of byOwner(removed).keys())
             bumps.push({
                 userId: ownerUserId,
                 generation: await this.bumpGeneration(ownerUserId),
@@ -426,19 +525,25 @@ export class EventSubscriptionStore extends PuterStore {
         return bumps;
     }
 
-    /** Forget a socket's refs, then the rows they point at. */
+    /**
+     * Forget a socket's refs, then the rows they point at. Only refs this
+     * call's own `srem` actually removed count as dropped.
+     */
     async #dropRefs(
         holderUserId: number,
         socketId: string,
         refs: readonly SocketRef[],
-    ): Promise<DroppedSessionToken[]> {
-        await this.clients.redis.srem(
-            socketKey(holderUserId, socketId),
-            ...refs.map(socketRef),
-        );
+    ): Promise<DropRefsResult> {
+        if (refs.length === 0) return { dropped: [], removed: [] };
+
+        const key = socketKey(holderUserId, socketId);
+        const pipeline = this.clients.redis.pipeline();
+        for (const ref of refs) pipeline.srem(key, socketRef(ref));
+        const results = (await pipeline.exec()) ?? [];
+        const removed = refs.filter((_ref, i) => Number(results[i]?.[1]) === 1);
 
         const dropped: DroppedSessionToken[] = [];
-        for (const [ownerUserId, owned] of byOwner(refs)) {
+        for (const [ownerUserId, owned] of byOwner(removed)) {
             await this.#dropRows(ownerUserId, owned);
             dropped.push(
                 ...(await this.#dropSessionCounts(
@@ -447,7 +552,7 @@ export class EventSubscriptionStore extends PuterStore {
                 )),
             );
         }
-        return dropped;
+        return { dropped, removed };
     }
 
     /**
@@ -834,24 +939,29 @@ export class EventSubscriptionStore extends PuterStore {
         socketId: string,
         subId: string,
     ): Promise<SessionSubscription | null> {
-        const refs = await this.clients.redis.smembers(
-            socketKey(holderUserId, socketId),
-        );
-        const ref = refs
-            .map(parseSocketRef)
-            .find((candidate) => candidate.subId === subId);
-        if (!ref) return null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const refs = await this.clients.redis.smembers(
+                socketKey(holderUserId, socketId),
+            );
+            const ref = refs
+                .map(parseSocketRef)
+                .find((candidate) => candidate.subId === subId);
+            if (!ref) return null;
 
-        const raw = await this.clients.redis.hget(
-            tokenKey(ref.ownerUserId, ref.token),
-            subId,
-        );
-        if (!raw) return null;
-        try {
-            return JSON.parse(raw) as SessionSubscription;
-        } catch {
-            return null;
+            const raw = await this.clients.redis.hget(
+                tokenKey(ref.ownerUserId, ref.token),
+                subId,
+            );
+            if (raw) {
+                try {
+                    return JSON.parse(raw) as SessionSubscription;
+                } catch {
+                    return null;
+                }
+            }
+            // A ref whose row just went has moved; read the refs once more.
         }
+        return null;
     }
 
     // -- Generation --------------------------------------------------

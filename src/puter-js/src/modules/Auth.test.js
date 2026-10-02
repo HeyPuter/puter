@@ -119,3 +119,41 @@ describe('updateProfile', () => {
         await expect(makeAuth().updateProfile({ name: 'x' })).rejects.toEqual(refusal);
     });
 });
+
+describe('signIn', () => {
+    const withGlobals = (globals, fn) => {
+        const saved = Object.keys(globals).map(key => [
+            key,
+            Object.getOwnPropertyDescriptor(globalThis, key),
+        ]);
+        for ( const [key, value] of Object.entries(globals) ) {
+            Object.defineProperty(globalThis, key, {
+                value, configurable: true, writable: true,
+            });
+        }
+        try {
+            return fn();
+        } finally {
+            for ( const [key, descriptor] of saved ) {
+                if ( descriptor ) Object.defineProperty(globalThis, key, descriptor);
+                else delete globalThis[key];
+            }
+        }
+    };
+
+    it.each([
+        ['a file:// page', { protocol: 'file:' }, 'null'],
+        ['a sandboxed iframe', { protocol: 'https:' }, 'null'],
+    ])('rejects on %s without opening a popup', async (_label, location, origin) => {
+        const open = vi.fn();
+        await withGlobals(
+            { puter: { env: 'web' }, location, origin, window: { open } },
+            async () => {
+                await expect(makeAuth().signIn()).rejects.toMatchObject({
+                    error: 'unsupported_origin',
+                });
+            },
+        );
+        expect(open).not.toHaveBeenCalled();
+    });
+});

@@ -6350,6 +6350,35 @@ body.myapps-reordering .myapps-tile {
     margin-top: 4px;
 }
 
+.dashboard-profile-remove-picture {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dashboard-danger-text);
+    cursor: pointer;
+}
+.dashboard-profile-remove-picture[hidden] {
+    display: none;
+}
+.dashboard-profile-remove-picture:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+@media (hover: hover) {
+    .dashboard-profile-remove-picture:hover {
+        text-decoration: underline;
+    }
+}
+.dashboard-profile-remove-picture:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
 /* Settings grid */
 .dashboard-settings-grid {
     display: flex;
@@ -6610,6 +6639,10 @@ body.myapps-reordering .myapps-tile {
 
     .dashboard-profile-info {
         align-items: center;
+    }
+
+    .dashboard-profile-remove-picture {
+        align-self: center;
     }
 
     .dashboard-settings-card {

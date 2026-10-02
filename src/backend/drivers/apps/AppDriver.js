@@ -34,7 +34,7 @@ import {
     buildHostedBackingDenial,
     buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
-    hostedIndexUrlBackingIsUnavailable,
+    hostedIndexUrlBackingsAreUnavailable,
 } from '../../util/hostedAppBacking.js';
 import {
     decodeCursor,
@@ -78,6 +78,10 @@ const APP_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const APP_NAME_MAX_LEN = 100;
 const APP_TITLE_MAX_LEN = 100;
 const APP_DESCRIPTION_MAX_LEN = 7000;
+const APP_METADATA_MAX_BYTES = 16 * 1024;
+const APP_FILETYPE_ASSOCIATIONS_MAX = 200;
+// `type` in `app_filetype_association` is varchar(60).
+const APP_FILETYPE_MAX_LEN = 60;
 
 // Index-url uniqueness exemptions: legacy "coming soon" placeholder apps
 // that intentionally share the same hosted index_url. Anything starting
@@ -114,6 +118,19 @@ const hasIndexUrlUniquenessExemption = (candidates) => {
     }
     return false;
 };
+
+/** Parsed `protocol//hostname[:port]` origin of an index_url, or null. */
+function indexUrlOrigin(indexUrl) {
+    if (!indexUrl) return null;
+    try {
+        const parsed = new URL(indexUrl);
+        return `${parsed.protocol}//${parsed.hostname}${
+            parsed.port ? `:${parsed.port}` : ''
+        }`;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Driver exposing the `puter-apps` interface.
@@ -403,20 +420,34 @@ export class AppDriver extends PuterDriver {
         // Pre-fetch in parallel:
         //  - per-uid stats (already pipelined inside getAppsStats)
         //  - filetype associations as a single IN-list query (was N queries)
-        const [statsByUid, filetypesByAppId] = await Promise.all([
+        //  - canonical-index-url resolution and the hosted-backing check,
+        //    each batched across every visible app
+        const [
+            statsByUid,
+            filetypesByAppId,
+            canonicalByApp,
+            hostedUnavailableByApp,
+        ] = await Promise.all([
             this.appStore.getAppsStats(visible.map((a) => a.uid)),
             this.appStore.getFiletypeAssociationsByIds(
                 visible.map((a) => a.id),
             ),
+            this.#resolveCanonicalForIndexUrls(visible),
+            this.#hostedBackingUnavailableFlags(visible),
         ]);
 
         const items = await Promise.all(
-            visible.map((app) =>
-                this.#toClient(app, actor, {
-                    ...params,
-                    stats: statsByUid.get(app.uid),
-                    filetypes: filetypesByAppId.get(app.id) ?? [],
-                }),
+            visible.map((app, i) =>
+                this.#toClient(
+                    app,
+                    actor,
+                    { ...params, stats: statsByUid.get(app.uid) },
+                    {
+                        filetypes: filetypesByAppId.get(app.id) ?? [],
+                        canonical: canonicalByApp[i],
+                        hostedBackingUnavailable: hostedUnavailableByApp[i],
+                    },
+                ),
             ),
         );
         if (!paginated) return items;
@@ -719,6 +750,7 @@ export class AppDriver extends PuterDriver {
         if (object.metadata !== undefined) {
             const meta = validateJsonObject(object.metadata, {
                 key: 'metadata',
+                maxBytes: APP_METADATA_MAX_BYTES,
             });
             out.metadata = JSON.stringify(meta);
         }
@@ -727,6 +759,8 @@ export class AppDriver extends PuterDriver {
                 object.filetype_associations,
                 {
                     key: 'filetype_associations',
+                    maxItems: APP_FILETYPE_ASSOCIATIONS_MAX,
+                    maxItemLen: APP_FILETYPE_MAX_LEN,
                 },
             );
         }
@@ -884,9 +918,9 @@ export class AppDriver extends PuterDriver {
     // -- Serialization ------------------------------------------------
 
     /**
-     * Resolve the canonical app row that backs `app.index_url`.
-     *
-     * Returns `{ origin, expectedUid, canonicalApp }`:
+     * Resolve the canonical app row backing each app's `index_url`, batched
+     * across `apps`. Returns an array aligned with `apps`, each entry `{
+     * origin, expectedUid, canonicalApp }`:
      *
      * - `origin` — the parsed origin string from `index_url`.
      * - `expectedUid` — the canonical app uid for that origin (oldest
@@ -906,61 +940,94 @@ export class AppDriver extends PuterDriver {
      *    pre-existing data from before the `subdomain_not_owned` check leaks
      *    the victim's index_url.
      *
-     * Returns `null` when there's no `index_url` or it doesn't parse.
+     * An entry is `null` when its app has no `index_url` or it doesn't parse.
      */
-    async #resolveCanonicalForIndexUrl(app) {
-        if (!app.index_url) return null;
-        let origin;
-        try {
-            const parsed = new URL(app.index_url);
-            origin = `${parsed.protocol}//${parsed.hostname}${
-                parsed.port ? `:${parsed.port}` : ''
-            }`;
-        } catch {
-            return null;
+    async #resolveCanonicalForIndexUrls(apps) {
+        const origins = apps.map((app) => indexUrlOrigin(app.index_url));
+        const uniqueOrigins = [...new Set(origins.filter((o) => o !== null))];
+
+        let uidByOrigin = new Map();
+        if (uniqueOrigins.length > 0) {
+            try {
+                uidByOrigin =
+                    await this.services.auth.appUidsFromOrigins(uniqueOrigins);
+            } catch {
+                uidByOrigin = new Map();
+            }
         }
-        try {
-            const expectedUid =
-                await this.services.auth.appUidFromOrigin(origin);
-            // Avoid a needless DB hit on the self-match common case —
-            // `app` is already the row we'd be re-fetching.
-            const canonicalApp =
-                expectedUid && expectedUid !== app.uid
-                    ? await this.appStore.getByUid(expectedUid)
-                    : app;
-            return { origin, expectedUid, canonicalApp };
-        } catch {
-            return null;
+
+        // Avoid a needless DB hit on the self-match common case — `app` is
+        // already the row we'd be re-fetching.
+        const uidsToFetch = new Set();
+        for (let i = 0; i < apps.length; i++) {
+            if (!origins[i]) continue;
+            const expectedUid = uidByOrigin.get(origins[i]) ?? null;
+            if (expectedUid && expectedUid !== apps[i].uid) {
+                uidsToFetch.add(expectedUid);
+            }
         }
+
+        let canonicalAppByUid = new Map();
+        if (uidsToFetch.size > 0) {
+            try {
+                canonicalAppByUid = await this.appStore.getByUids([
+                    ...uidsToFetch,
+                ]);
+            } catch {
+                canonicalAppByUid = new Map();
+            }
+        }
+
+        return apps.map((app, i) => {
+            const origin = origins[i];
+            if (!origin) return null;
+            const expectedUid = uidByOrigin.get(origin) ?? null;
+            if (!expectedUid) return null;
+            if (expectedUid === app.uid) {
+                return { origin, expectedUid, canonicalApp: app };
+            }
+            return {
+                origin,
+                expectedUid,
+                canonicalApp: canonicalAppByUid.get(expectedUid) ?? null,
+            };
+        });
     }
 
     /**
-     * Launch-safety check for puter-hosted `index_url`s. See
-     * `util/hostedAppBacking.ts` — the check lives there because every producer
-     * of launchable app metadata needs it, not just this driver.
+     * Launch-safety check for puter-hosted `index_url`s, batched across `apps`.
+     * See `util/hostedAppBacking.ts` — the check lives there because every
+     * producer of launchable app metadata needs it, not just this driver.
      */
-    async #hostedIndexUrlBackingIsUnavailable(app) {
-        return hostedIndexUrlBackingIsUnavailable({
-            app,
+    async #hostedBackingUnavailableFlags(apps) {
+        return hostedIndexUrlBackingsAreUnavailable({
+            apps,
             subdomainStore: this.stores.subdomain,
             config: this.config,
         });
     }
 
-    async #toClient(app, actor, params = {}) {
+    async #toClient(app, actor, params = {}, prefetched = {}) {
         if (!app) return null;
 
-        // `select` pre-fetches filetypes for every visible app in one
-        // batched query and threads them through `params.filetypes` to
-        // avoid the N+1 in this hot loop. Single-app callers (`read`,
-        // `create`, `update`) fall back to the per-app query.
+        // `select` batches these lookups per page and passes them in
+        // `prefetched`; single-app callers resolve them here. Never read them
+        // from `params`, which carries the RPC caller's input.
         const [filetypes, canonicalForIndexUrl, hostedBackingUnavailable] =
             await Promise.all([
-                params.filetypes !== undefined
-                    ? Promise.resolve(params.filetypes)
+                prefetched.filetypes !== undefined
+                    ? Promise.resolve(prefetched.filetypes)
                     : this.appStore.getFiletypeAssociations(app.id),
-                this.#resolveCanonicalForIndexUrl(app),
-                this.#hostedIndexUrlBackingIsUnavailable(app),
+                prefetched.canonical !== undefined
+                    ? Promise.resolve(prefetched.canonical)
+                    : this.#resolveCanonicalForIndexUrls([app]).then(
+                          (r) => r[0],
+                      ),
+                prefetched.hostedBackingUnavailable !== undefined
+                    ? Promise.resolve(prefetched.hostedBackingUnavailable)
+                    : this.#hostedBackingUnavailableFlags([app]).then(
+                          (r) => r[0],
+                      ),
             ]);
 
         const createdFromOrigin =

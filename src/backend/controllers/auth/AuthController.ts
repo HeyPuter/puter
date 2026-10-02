@@ -34,7 +34,11 @@ import {
 } from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
 import { isPlainUserActor, makeActor } from '../../core/actor.js';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    checkRateLimit,
+    consumeRouteRateLimit,
+    peekRouteRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
     STEP_UP_COOKIE_NAME,
@@ -116,6 +120,8 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
+// Rides every row a request writes, and the per-(user, app) cache after that.
+const GRANT_EXTRA_MAX_BYTES = 4096;
 const DISPATCH_ID_MAX_LENGTH = 128;
 // One name for the flag, so the write and the read cannot drift apart.
 const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
@@ -215,6 +221,26 @@ const SESSION_LIMIT = {
     window: 60_000,
     key: 'user',
 } as const;
+
+/**
+ * Completed renames. Charged by the handler after the rename lands, so a wrong
+ * password or a taken name doesn't spend it.
+ */
+const CHANGE_USERNAME_LIMIT = {
+    scope: 'change-username-done',
+    limit: 2,
+    window: 30 * 24 * 60 * 60_000,
+    key: 'user',
+} as const;
+
+/** Rename attempts, success or not. Bounds password guessing through the gate. */
+const CHANGE_USERNAME_ATTEMPT_LIMIT = {
+    scope: 'change-username-attempt',
+    limit: 10,
+    window: 60 * 60_000,
+    key: 'user',
+} as const;
+
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -2743,9 +2769,18 @@ export class AuthController extends PuterController {
             });
         }
 
+        if (!(await peekRouteRateLimit(req, CHANGE_USERNAME_LIMIT))) {
+            throw new HttpError(
+                429,
+                'You can only change your username twice every 30 days.',
+                { legacyCode: 'too_many_requests' },
+            );
+        }
+
         await this.stores.user.update(req.actor!.user.id!, {
             username: new_username,
         });
+        await consumeRouteRateLimit(req, CHANGE_USERNAME_LIMIT);
 
         // Rename the user's FS home from `/<old>` to `/<new>` and
         // cascade the prefix to all descendants. Without this, any
@@ -3296,6 +3331,16 @@ export class AuthController extends PuterController {
                 throw new HttpError(400, `Invalid \`${key}\``, {
                     legacyCode: 'bad_request',
                 });
+            }
+            if (
+                Buffer.byteLength(JSON.stringify(value), 'utf8') >
+                GRANT_EXTRA_MAX_BYTES
+            ) {
+                throw new HttpError(
+                    400,
+                    `\`${key}\` may not exceed ${GRANT_EXTRA_MAX_BYTES} bytes`,
+                    { legacyCode: 'bad_request' },
+                );
             }
         }
     }
@@ -3864,6 +3909,13 @@ export class AuthController extends PuterController {
     async handleGrantDevApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
         const { origin, permission, extra, meta } = req.body ?? {};
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            extra,
+            meta,
+        });
         if (origin && !app_uid) {
             // Registered apps only, for the same reason the user-app handlers
             // insist on it: a synthesised `app-<uuidv5(origin)>` is resolved
@@ -4204,6 +4256,11 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+            throw new HttpError(400, 'Too many `permissions`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Optional user-facing name for the manage-sessions UI. Trim and clamp
         // to the same 64-char limit the rename endpoint enforces.
@@ -4237,13 +4294,25 @@ export class AuthController extends PuterController {
 
         // Normalize specs: string → [string], [string] → [string, {}], [string, extra] → as-is
         const normalized = permissions.map((spec) => {
-            if (typeof spec === 'string') return [spec];
-            if (Array.isArray(spec)) return spec;
-            throw new HttpError(
-                400,
-                'Each permission must be a string or [string, extra?]',
-                { legacyCode: 'bad_request' },
-            );
+            const entry =
+                typeof spec === 'string'
+                    ? [spec]
+                    : Array.isArray(spec)
+                      ? spec
+                      : null;
+            if (!entry || typeof entry[0] !== 'string' || !entry[0]) {
+                throw new HttpError(
+                    400,
+                    'Each permission must be a string or [string, extra?]',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            // Same caps the grant routes apply, before a session or row exists.
+            this.#validateAppPermissionParams({
+                permission: entry[0],
+                extra: entry[1],
+            });
+            return entry;
         });
 
         const token = await this.services.auth.createAccessToken(
@@ -4758,12 +4827,7 @@ export class AuthController extends PuterController {
             {
                 requireUserActor: true,
                 requireVerified: true,
-                rateLimit: {
-                    scope: 'change-username',
-                    limit: 2,
-                    window: 30 * 24 * 60 * 60_000,
-                    key: 'user',
-                },
+                rateLimit: CHANGE_USERNAME_ATTEMPT_LIMIT,
                 middleware: [
                     createUserProtectedGate(
                         userProtectedDeps as never,

@@ -13,7 +13,10 @@
  * against that id.
  */
 export class EventSubscription {
-    /** The subject this was subscribed with. */
+    /**
+     * The subject as passed to `onLocal()`. Re-subscribing sends it again, so
+     * it keeps meaning the same thing for the current app and user.
+     */
     subject;
 
     /**
@@ -34,7 +37,8 @@ export class EventSubscription {
 
     /**
      * The pattern events under the anchor are matched against, or `null` when
-     * the subject named the anchor itself.
+     * the subject named the anchor itself. A pattern with no wildcard is a
+     * path that did not exist yet, and also covers everything under it.
      *
      * @type {string | null}
      */
@@ -60,7 +64,7 @@ export class EventSubscription {
      * @param {import('./channel.js').EventChannel} channel
      * @param {string} subject
      * @param {EventHandler} handler
-     * @param {{ onError?: (error: Error & { code?: string }) => void, timeout?: number, includeValue?: boolean }} options
+     * @param {{ onError?: (error: Error & { code?: string, reason?: string }) => void, timeout?: number, includeValue?: boolean }} options
      */
     constructor (channel, subject, handler, options = {}) {
         /** @internal @type {import('./channel.js').EventChannel} */
@@ -69,7 +73,7 @@ export class EventSubscription {
         this.includeValue = options.includeValue === true;
         /** @internal @type {EventHandler} */
         this.handler = handler;
-        /** @internal @type {((error: Error & { code?: string }) => void) | undefined} */
+        /** @internal @type {((error: Error & { code?: string, reason?: string }) => void) | undefined} */
         this.onError = options.onError;
         /** @internal @type {number | undefined} */
         this.timeout = options.timeout;

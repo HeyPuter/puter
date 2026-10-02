@@ -2596,8 +2596,9 @@ export class FSController extends PuterController {
         };
     }
 
+    /** `forOwner` — these events go to the owner, not to the acting user. */
     async #toGuiFsEntry(entry: FSEntry): Promise<Record<string, unknown>> {
-        return toLegacyEntry(this.clients.event, entry);
+        return toLegacyEntry(this.clients.event, entry, { forOwner: true });
     }
 
     async #emitGuiWriteEvent(

@@ -272,6 +272,7 @@ describe('onPersistent', () => {
             expect(bodyOf(1)).toEqual({ subId: 'app-1#a' });
         });
     });
+
 });
 
 describe('unsubscribe', () => {

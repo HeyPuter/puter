@@ -12,6 +12,8 @@ The subscription is live immediately in the region where it was created. Changes
 
 See [`onLocal()`](/Events/onLocal/#subjects) for the subject grammar and the event shape.
 
+On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ## Syntax
 ```js
 puter.events.onPersistent(options)
@@ -25,11 +27,11 @@ puter.events.onPersistent(options)
 - `delivery` (String): `'broadcast'` (default) delivers to every listener. `'single'` delivers each event to exactly one consumer, which must acknowledge it, and requires `handlerName`.
 - `targets` (Array): Where deliveries may go: any of `'socket'`, `'worker'`, `'push'`. Defaults to `['socket', 'worker']` when an app subscribes and `['socket']` when an account session with no app does. A subscription with no app can't target `'worker'`, because the [events worker](/Events/workers/) belongs to an app. `'push'` is reserved for future device notifications: it's accepted (except with `single`) but delivers nothing yet.
 - `handlerName` (String): The published handler to run. Required for `single`.
-- `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client (see below).
+- `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client, on the deliveries the server leaves to clients (see below).
 - `context` (Object): Values the handler needs, passed to it as a frozen `ctx`. **Up to 4 KB serialized**; see below.
 - `expiresAt` (Number | String): When the subscription ends on its own, as unix seconds or an ISO-8601 string. Must be in the future.
-- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, or when more than 128 subscriptions match the change in that region. Refused on other subjects.
-- `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going (in the events worker, if it targets `worker`), and runs here again once this client reconnects. Only used with a function `handler`; without it, the stop is logged to the console.
+- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, when more than 128 subscriptions match the change in that region, or when the filter-check limit stops the count early. Refused on other subjects.
+- `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going (in the events worker, if it targets `worker`), and resumes taking deliveries here once this client reconnects. Only used with a function `handler`; without it, the stop is logged to the console.
 
 ## Background delivery needs consent
 
@@ -45,7 +47,15 @@ Background handlers run as a worker session for your app, which appears in the u
 
 ## Where the handler runs
 
-The handler runs **in this client while it's connected**, and in the app's [events worker](/Events/workers/) when it isn't. It's the same code either way, called with:
+A connected client always *receives* the event, but doesn't always run the handler for it. A `broadcast` delivery runs in the events worker or in the connected clients, never both:
+
+| Delivery | Runs |
+| --- | --- |
+| `broadcast`, default `targets` (`['socket', 'worker']`) | The app's [events worker](/Events/workers/). Connected clients run it instead only when the worker can't take it: no worker runtime on this deployment, or the [handler-run limit](/rate-limits-and-quotas/#events) for this user and app is used up for the minute. A run that fails in the worker isn't retried in a client. |
+| `broadcast`, `targets: ['socket']` | Every connected client. Nothing runs it otherwise. |
+| `single` | Connected clients first; the worker once sockets are spent. It's offered again until acknowledged (see [below](#acknowledging-a-single-delivery)). |
+
+Whichever place runs it, it's the same code, called with:
 
 | Binding | What it is |
 | --- | --- |
@@ -55,9 +65,15 @@ The handler runs **in this client while it's connected**, and in the app's [even
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. |
 | `ack` | On a `single` subscription only; see below. |
 
-Only a **function** `handler` runs in this client. A source string or `{ file }` is only used for its hash. The connection reconnects on its own when it drops, so the handler keeps running here unless `onError` is called.
+Only a **function** `handler` runs in this client. A source string or `{ file }` is only used for its hash. The connection reconnects on its own when it drops, so this client keeps taking deliveries unless `onError` is called.
 
 Those five bindings are the handler's whole environment. The events worker has no ambient `puter`: a handler that names `puter` or `me` is refused at publish time. Use `user` instead.
+
+### Handlers that trigger handlers
+
+In the events worker, a write made through `user` is one run deeper than the event the handler ran for, and it can run handlers of its own, including this one. A chain stops at **12 runs on a paid plan and 4 on a free one**, by the plan of the account holding the subscription. An event past that runs no handler in the events worker. A `broadcast` one still reaches connected clients without running the handler there; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a failure. Writes made anywhere else, including from a handler running in a client, start a new chain. See [handler chains](/rate-limits-and-quotas/#handler-chains).
+
+`user` in the events worker is valid for 15 minutes, so don't keep it past the run.
 
 ### Acknowledging a `single` delivery
 
@@ -117,7 +133,8 @@ Clients connect to the nearest region. Events reach a client wherever it's conne
 A `Promise` that resolves to the subscription:
 
 - `subId` (String): Its id, which [`puter.events.unsubscribe()`](/Events/unsubscribe/) takes. It never changes.
-- `subject`, `anchor`, `match`, `op`: as `onLocal()` returns them.
+- `subject` (String): For `kv:` and `notif:`, the subject in full form: `kv:cart` comes back as `kv:<appId>:cart`. For `fs:`, as you passed it.
+- `anchor`, `match`, `op`: as `onLocal()` returns them.
 - `delivery` (String), `targets` (Array), `handlerName` (String | null), `includeValue` (Boolean).
 - `appUid` (String | null): The app that created it, or `null` if an account session did.
 - `contextKeys` (Array | null), `contextHash` (String | null): the key names and a hash of the stored context, never its values.
@@ -129,7 +146,8 @@ The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `invalid_subject` | The subject is empty, not a string, or can't be parsed. |
+| `invalid_subject` | The subject is empty, not a string, or can't be parsed, or it's a `notif:` subject and this server has notification events turned off. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_handler_name_required` | `handler` was given without `handlerName`. |
 | `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
 | `events_handler_invalid` | `handler` is not a function, a source string, or `{ file }`. |
@@ -147,7 +165,7 @@ The promise rejects with `{ message, code }`:
 | `events_subscription_limit` | The account or app is at its [persistent subscription limit](/rate-limits-and-quotas/#events). |
 | `events_value_too_large` | A field is longer than can be stored (for example an app id over 40 characters). |
 | `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. |
-| `too_many_requests` | Over the subscribe/unsubscribe rate limit. |
+| `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
 

@@ -61,6 +61,72 @@ const sharedWith = (
     over: Partial<SessionSubscription> = {},
 ): SessionSubscription => makeSub({ holderUserId, ownerUserId: USER, ...over });
 
+/** Runs `step` the first time `ready` holds, and never again. */
+const once = (
+    ready: () => boolean | Promise<boolean>,
+    step: () => Promise<unknown>,
+): (() => Promise<void>) => {
+    let fired = false;
+    return async () => {
+        if (fired) return;
+        if (!(await ready())) return;
+        fired = true;
+        await step();
+    };
+};
+
+/**
+ * A second store over a redis client that awaits `after()` once every
+ * promise-returning call (and every `pipeline().exec()`) resolves — the seam
+ * for landing a concurrent write mid-operation. Always applied against the
+ * real client, so a script `defineCommand` adds is never run with `this`
+ * bound to the proxy.
+ */
+const storeWithHook = (after: () => Promise<void>): EventSubscriptionStore => {
+    const hooked = new Proxy(redis, {
+        get(target, property, receiver) {
+            const value = Reflect.get(target, property, receiver);
+            if (typeof property !== 'string' || typeof value !== 'function')
+                return value;
+
+            if (property === 'pipeline')
+                return (...args: unknown[]) => {
+                    const pipeline = (
+                        value as (...a: unknown[]) => Record<string, unknown>
+                    ).apply(target, args);
+                    const exec = pipeline.exec as () => Promise<unknown>;
+                    pipeline.exec = async () => {
+                        const result = await exec.call(pipeline);
+                        await after();
+                        return result;
+                    };
+                    return pipeline;
+                };
+
+            return async (...args: unknown[]) => {
+                const result = (value as (...a: unknown[]) => unknown).apply(
+                    target,
+                    args,
+                );
+                if (
+                    !result ||
+                    typeof (result as Promise<unknown>).then !== 'function'
+                )
+                    return result;
+                const resolved = await result;
+                await after();
+                return resolved;
+            };
+        },
+    }) as InstanceType<typeof MockRedis.Cluster>;
+
+    return new EventSubscriptionStore(
+        {} as IConfig,
+        { redis: hooked } as never,
+        {} as never,
+    );
+};
+
 beforeEach(() => {
     USER = ++userSeq;
     redis = new MockRedis.Cluster(['redis://localhost:7001']);
@@ -219,6 +285,55 @@ describe('removal', () => {
         ]);
     });
 
+    it('is idempotent under a burst of concurrent duplicate removes', async () => {
+        const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
+        const theirs = makeSub({ subId: 'theirs', socketId: 'socket-b' });
+        await store.add(mine);
+        await store.add(theirs);
+
+        const attempts = 8;
+        const results = await Promise.all(
+            Array.from({ length: attempts }, () => store.remove(mine)),
+        );
+
+        expect(results.filter((bump) => bump !== null)).toHaveLength(1);
+        // Not decremented once per duplicate call.
+        expect(Number(await redis.hget(`ev:sc:{${USER}}`, 'f#anchor'))).toBe(1);
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual([
+            'f#anchor',
+        ]);
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
+            theirs,
+        ]);
+    });
+
+    it('is idempotent under a reap racing a remove on the same anchor', async () => {
+        const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
+        const theirs = makeSub({ subId: 'theirs', socketId: 'socket-b' });
+        await store.add(mine);
+        await store.add(theirs);
+
+        const [reaped, removed] = await Promise.all([
+            store.reapSocket(USER, 'socket-a'),
+            store.remove(mine),
+        ]);
+
+        // Count goes from 2 to 1, not to 0, so neither announces a `drop`.
+        const announced = [...reaped, ...(removed ? [removed] : [])].flatMap(
+            (bump) => bump.announce ?? [],
+        );
+        expect(announced).toEqual([]);
+        expect(Number(await redis.hget(`ev:sc:{${USER}}`, 'f#anchor'))).toBe(
+            1,
+        );
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
+            ['f#anchor'],
+        );
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
+            theirs,
+        ]);
+    });
+
     it('reads back only what the asking socket holds', async () => {
         const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
         await store.add(mine);
@@ -245,6 +360,209 @@ describe('removal', () => {
 
         await store.remove(sub);
         await expect(store.userHasAny(USER)).resolves.toBe(false);
+    });
+
+    it('finds a row that moved between reading its ref and reading the row', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next: SessionSubscription = {
+            ...prev,
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+            match: 'Documents/**',
+        };
+
+        const racing = storeWithHook(
+            once(
+                () => true,
+                () => store.reanchorSession(prev, next),
+            ),
+        );
+
+        await expect(
+            racing.getForSocket(prev.holderUserId, prev.socketId, prev.subId),
+        ).resolves.toMatchObject({ token: 'f#parent' });
+    });
+});
+
+describe('reanchor', () => {
+    const nextOf = (prev: SessionSubscription): SessionSubscription => ({
+        ...prev,
+        token: 'f#parent',
+        anchorUid: 'parent',
+        anchorPath: '/testuser',
+        match: 'Documents/**',
+    });
+
+    it('leaves nothing behind when a remove wins a race with it', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+
+        const removed = await store.remove(prev);
+        expect(removed).not.toBeNull();
+
+        const result = await store.reanchorSession(prev, {
+            ...prev,
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+            match: 'Documents/x',
+        });
+
+        expect(result).toEqual({ moved: false, bumps: [] });
+        await expect(store.getForTokens(USER, ['f#parent'])).resolves.toEqual(
+            [],
+        );
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([]);
+    });
+
+    it('keeps exactly one ref for the row on its socket throughout a move', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next = nextOf(prev);
+
+        const socketKey = `ev:s:{${USER}}:socket-a`;
+        const observed: number[] = [];
+        const racing = storeWithHook(async () => {
+            observed.push((await redis.smembers(socketKey)).length);
+        });
+
+        const result = await racing.reanchorSession(prev, next);
+
+        expect(result.moved).toBe(true);
+        expect(observed.length).toBeGreaterThan(0);
+        expect(observed.every((count) => count === 1)).toBe(true);
+    });
+
+    it('undoes a move when an unsubscribe takes the old ref first', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next = nextOf(prev);
+
+        const rowVisible = async () =>
+            (await redis.hexists(`ev:t:{${USER}}:f#parent`, 'mine')) === 1;
+        let removed: Awaited<ReturnType<typeof store.remove>> = null;
+        const racing = storeWithHook(
+            once(rowVisible, async () => {
+                removed = await store.remove(prev);
+            }),
+        );
+
+        const result = await racing.reanchorSession(prev, next);
+
+        expect(removed).not.toBeNull();
+        expect(result).toEqual({ moved: false, bumps: [] });
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([]);
+        await expect(
+            store.getForTokens(USER, ['f#anchor', 'f#parent']),
+        ).resolves.toEqual([]);
+        expect(await redis.hexists(`ev:sc:{${USER}}`, 'f#anchor')).toBe(0);
+        expect(await redis.hexists(`ev:sc:{${USER}}`, 'f#parent')).toBe(0);
+    });
+
+    it('still announces a token another socket took up while a move was undone', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next = nextOf(prev);
+        const theirs = makeSub({
+            subId: 'theirs',
+            socketId: 'socket-b',
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+            match: 'Documents/**',
+        });
+
+        const rowVisible = async () =>
+            (await redis.hexists(`ev:t:{${USER}}:f#parent`, 'mine')) === 1;
+        const racing = storeWithHook(
+            once(rowVisible, async () => {
+                await store.add(theirs);
+                await store.remove(prev);
+            }),
+        );
+
+        const result = await racing.reanchorSession(prev, next);
+
+        expect(result.moved).toBe(false);
+        expect(
+            result.bumps.flatMap((bump) => bump.announce ?? []),
+        ).toEqual([{ token: 'f#parent', op: 'add' }]);
+        expect(await redis.hget(`ev:sc:{${USER}}`, 'f#parent')).toBe('1');
+    });
+
+    it('undoes a move whose socket was reaped before it landed', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next = nextOf(prev);
+
+        const rowVisible = async () =>
+            (await redis.hexists(`ev:t:{${USER}}:f#parent`, 'mine')) === 1;
+        const racing = storeWithHook(
+            once(rowVisible, async () => {
+                await store.reapSocket(USER, 'socket-a');
+            }),
+        );
+
+        const result = await racing.reanchorSession(prev, next);
+
+        expect(result).toEqual({ moved: false, bumps: [] });
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([]);
+        await expect(
+            store.getForTokens(USER, ['f#anchor', 'f#parent']),
+        ).resolves.toEqual([]);
+        await expect(store.userHasAny(USER)).resolves.toBe(false);
+    });
+
+    it('keeps one row when two settles move it to the same place at once', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next = nextOf(prev);
+
+        const [first, second] = await Promise.all([
+            store.reanchorSession(prev, next),
+            store.reanchorSession(prev, next),
+        ]);
+
+        expect([first.moved, second.moved].filter(Boolean)).toHaveLength(1);
+        await expect(store.getForTokens(USER, ['f#parent'])).resolves.toEqual([
+            next,
+        ]);
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([
+            `${USER}|f#parent|mine`,
+        ]);
+        expect(await redis.hget(`ev:sc:{${USER}}`, 'f#parent')).toBe('1');
+        await expect(store.watchedTokens(USER, ['f#parent'])).resolves.toEqual(
+            ['f#parent'],
+        );
+        await expect(
+            store.getForSocket(USER, 'socket-a', 'mine'),
+        ).resolves.toEqual(next);
+    });
+
+    it('leaves the row alone when a second settle also lands at the same anchor', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next = nextOf(prev);
+
+        const first = await store.reanchorSession(prev, next);
+        expect(first.moved).toBe(true);
+
+        // A second settle, still holding the pre-move row, computes the same
+        // destination — the shape `reanchorSession` sees when two
+        // `carryForward` passes both decide the row belongs at the same
+        // surviving ancestor.
+        const second = await store.reanchorSession(prev, next);
+
+        expect(second.moved).toBe(false);
+        await expect(store.getForTokens(USER, ['f#parent'])).resolves.toEqual([
+            next,
+        ]);
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([
+            `${USER}|f#parent|mine`,
+        ]);
+        expect(await redis.hget(`ev:sc:{${USER}}`, 'f#parent')).toBe('1');
     });
 });
 
@@ -280,6 +598,36 @@ describe('disconnect', () => {
 
     it('says nothing changed when the socket held nothing', async () => {
         await expect(store.reapSocket(USER, 'socket-z')).resolves.toEqual([]);
+    });
+
+    it('leaves nothing for a socket reaped while one of its rows moved', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+        const next: SessionSubscription = {
+            ...prev,
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+            match: 'Documents/**',
+        };
+
+        const racing = storeWithHook(
+            once(
+                () => true,
+                () => store.reanchorSession(prev, next),
+            ),
+        );
+
+        const bumps = await racing.reapSocket(prev.holderUserId, prev.socketId);
+
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([]);
+        await expect(store.getForTokens(USER, ['f#parent'])).resolves.toEqual(
+            [],
+        );
+        expect(await redis.hexists(`ev:sc:{${USER}}`, 'f#parent')).toBe(0);
+        expect(bumps.flatMap((bump) => bump.announce ?? [])).toEqual([
+            { token: 'f#parent', op: 'drop' },
+        ]);
     });
 
     it('moves the generation of every owner the socket watched', async () => {

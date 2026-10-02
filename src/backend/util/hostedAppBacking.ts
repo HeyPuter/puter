@@ -182,6 +182,24 @@ export function extractPuterHostedSubdomain(
 }
 
 /**
+ * True when `row` (the subdomain backing `app`'s hosted index_url, or null)
+ * means the app's launch is unsafe: gone, or reclaimed by a different owner.
+ */
+function backingRowIsUnavailable(
+    app: AppBackingRow,
+    row: { user_id?: unknown } | null,
+): boolean {
+    if (!row) return true; // subdomain no longer exists → dangling
+
+    const appOwnerId = Number(app.owner_user_id);
+    const subdomainOwnerId = Number(row.user_id);
+    if (!Number.isInteger(appOwnerId) || !Number.isInteger(subdomainOwnerId)) {
+        return true;
+    }
+    return subdomainOwnerId !== appOwnerId;
+}
+
+/**
  * True when the app's puter-hosted subdomain is missing, or is currently owned
  * by a different user than the app's owner (it was reclaimed — launching would
  * leak the token to the new owner). Non-hosted index_urls return false.
@@ -208,14 +226,46 @@ export async function hostedIndexUrlBackingIsUnavailable({
             primary: true,
         });
     }
-    if (!row) return true; // subdomain no longer exists → dangling
+    return backingRowIsUnavailable(app, row);
+}
 
-    const appOwnerId = Number(app.owner_user_id);
-    const subdomainOwnerId = Number(row.user_id);
-    if (!Number.isInteger(appOwnerId) || !Number.isInteger(subdomainOwnerId)) {
-        return true;
+/**
+ * Batched sibling of {@link hostedIndexUrlBackingIsUnavailable} — one
+ * `getBySubdomains` call (plus a single primary follow-up for whatever's still
+ * missing) instead of per-app round trips. Returns a boolean per `apps` entry,
+ * in input order, with the same semantics as the single-app function above.
+ */
+export async function hostedIndexUrlBackingsAreUnavailable({
+    apps,
+    subdomainStore,
+    config,
+}: {
+    apps: AppBackingRow[];
+    subdomainStore: Pick<SubdomainStore, 'getBySubdomains'>;
+    config: HostedDomainConfig | undefined | null;
+}): Promise<boolean[]> {
+    const subdomains = apps.map((app) =>
+        extractPuterHostedSubdomain(app.index_url, config),
+    );
+    const names = [
+        ...new Set(subdomains.filter((s): s is string => s !== null)),
+    ];
+    if (names.length === 0) return apps.map(() => false);
+
+    let rowsByName = await subdomainStore.getBySubdomains(names);
+    const missing = names.filter((name) => !rowsByName.has(name));
+    if (missing.length > 0) {
+        const primaryRows = await subdomainStore.getBySubdomains(missing, {
+            primary: true,
+        });
+        rowsByName = new Map([...rowsByName, ...primaryRows]);
     }
-    return subdomainOwnerId !== appOwnerId;
+
+    return apps.map((app, i) => {
+        const subdomain = subdomains[i];
+        if (!subdomain) return false;
+        return backingRowIsUnavailable(app, rowsByName.get(subdomain) ?? null);
+    });
 }
 
 /**

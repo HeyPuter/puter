@@ -32,6 +32,7 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
     EVENTS_SUBSCRIBE_LIMIT,
+    EVENTS_UNSUBSCRIBE_LIMIT,
 } from '../../controllers/events/limits.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import { makeActor } from '../../core/actor.js';
@@ -457,6 +458,106 @@ describe('what each credential sees and removes', () => {
         expect(second.body.cursor).toBeUndefined();
         expect(second.body.total).toBeUndefined();
     });
+
+    it('ends a persistent subscription even past the subscribe budget', async () => {
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
+        );
+        try {
+            await clearRows();
+            const mine = (await subscribe(env.users.user.token)).body
+                .subId as string;
+
+            // A miss no longer spends this budget, so only real subscribes do.
+            for (let i = 1; i < EVENTS_SUBSCRIBE_LIMIT.limit; i++)
+                await subscribe(env.users.user.token);
+
+            const refused = await subscribe(env.users.user.token);
+            expect(refused.status).toBe(429);
+            expect(refused.body.code).toBe('too_many_requests');
+
+            const removed = await unsubscribe(env.users.user.token, mine);
+            expect(removed.status).toBe(200);
+        } finally {
+            await env.server.clients.redis.del(
+                `rate:${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
+            );
+        }
+    });
+
+    it('does not spend the subscribe budget on an unsubscribe miss', async () => {
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
+        );
+        try {
+            await clearRows();
+
+            for (let i = 0; i < EVENTS_SUBSCRIBE_LIMIT.limit; i++)
+                await unsubscribe(
+                    env.users.user.token,
+                    `${appOneUid}#${uuidv4()}`,
+                );
+
+            const allowed = await subscribe(env.users.user.token);
+            expect(allowed.status).toBe(200);
+        } finally {
+            await env.server.clients.redis.del(
+                `rate:${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
+            );
+        }
+    });
+
+    it('refuses unsubscribes past their own per-minute budget', async () => {
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
+        );
+        try {
+            await clearRows();
+            const mine = (await subscribe(env.users.user.token)).body
+                .subId as string;
+
+            for (let i = 0; i < EVENTS_UNSUBSCRIBE_LIMIT.limit; i++)
+                await unsubscribe(
+                    env.users.user.token,
+                    `${appOneUid}#${uuidv4()}`,
+                );
+
+            const refused = await unsubscribe(env.users.user.token, mine);
+            expect(refused.status).toBe(429);
+            expect(refused.body.code).toBe('too_many_requests');
+        } finally {
+            await env.server.clients.redis.del(
+                `rate:${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
+            );
+        }
+    });
+
+    it('is idempotent under a burst of concurrent duplicate unsubscribes', async () => {
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
+        );
+        try {
+            await clearRows();
+            const mine = (await subscribe(env.users.user.token)).body
+                .subId as string;
+
+            const attempts = 8;
+            const results = await Promise.all(
+                Array.from({ length: attempts }, () =>
+                    unsubscribe(env.users.user.token, mine),
+                ),
+            );
+
+            expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+            expect(results.filter((r) => r.status === 404)).toHaveLength(
+                attempts - 1,
+            );
+        } finally {
+            await env.server.clients.redis.del(
+                `rate:${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
+            );
+        }
+    });
 });
 
 describe('what a write costs once a durable row exists', () => {
@@ -636,6 +737,26 @@ describe('where a durable delivery is addressed', () => {
             'events.delivery',
             expect.objectContaining({ subId: expect.any(String) }),
         );
+        send.mockRestore();
+    });
+
+    it('sends an unmarked copy for an app row that only targets the socket', async () => {
+        await clearRows();
+        await subscribe(appOneToken, { targets: ['socket'] });
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        delivered.length = 0;
+
+        const path = `${anchor}/socket-only-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path });
+        await settle(path);
+
+        expect(send).toHaveBeenCalledWith(
+            { room: appSocketRoom(userId, appOneUid) },
+            'events.delivery',
+            expect.objectContaining({ subId: expect.any(String) }),
+        );
+        const [, , envelope] = send.mock.calls.at(-1)!;
+        expect((envelope as DeliveryEnvelope).skipHandler).toBeUndefined();
         send.mockRestore();
     });
 });

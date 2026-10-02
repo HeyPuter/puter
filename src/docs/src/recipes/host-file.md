@@ -101,3 +101,9 @@ To take a link offline, delete the file with the
 ```js
 await puter.fs.delete('public/photo.png');
 ```
+
+## Notes
+
+- To publish a whole website under a name the user picks, such as a page each
+  user builds in your app, see
+  [Add website publishing](/recipes/add-website-publishing/).

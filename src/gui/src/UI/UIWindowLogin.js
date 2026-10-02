@@ -25,6 +25,7 @@ import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderI
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
 import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
+import { isAttestedOrigin } from '../helpers/attestedOrigin.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `
@@ -278,7 +279,7 @@ async function UIWindowLogin (options) {
         h += authLogoHeader({
             logoSrc: window.icons['logo-white.svg'],
             logoClickable: logo_clickable,
-            openerOrigin: window.embedded_in_popup ? window.openerOrigin : '',
+            openerOrigin: window.embedded_in_popup && isAttestedOrigin(window.openerOrigin) ? window.openerOrigin : '',
             openerFallbackSrc: window.icons['website.svg'],
         });
         h += '</div>';
@@ -286,7 +287,7 @@ async function UIWindowLogin (options) {
         h += '<div style="padding:10px 20px; text-align:center; margin-bottom:0;">';
         h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
         // In a sign-in popup, say which site brought the user here.
-        if (window.embedded_in_popup && window.openerOrigin) {
+        if (window.embedded_in_popup && isAttestedOrigin(window.openerOrigin)) {
             h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
         }
         h += '</div>';

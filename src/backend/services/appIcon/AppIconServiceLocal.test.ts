@@ -303,6 +303,215 @@ describe('AppIconService', () => {
             );
         });
 
+        // The pipeline's own icon-column rewrite, once per run; other writes
+        // (file entries, a direct store update of the icon) don't match.
+        const isIconMigration = (sql: unknown) =>
+            String(sql).includes("`icon` LIKE 'data:%'");
+        const iconWriteCount = (calls: unknown[][]) =>
+            calls.filter(([sql]) => isIconMigration(sql)).length;
+
+        const readIconFile = async (filename: string) => {
+            const entry = await server.stores.fsEntry.getEntryByPath(
+                `${ICONS_PATH}/${filename}`,
+            );
+            if (!entry) throw new Error(`missing ${filename}`);
+            const { body } = await server.services.fs.readContent(entry);
+            const chunks: Buffer[] = [];
+            for await (const chunk of body) chunks.push(Buffer.from(chunk));
+            return Buffer.concat(chunks);
+        };
+
+        it('runs a burst of concurrent new-icon reads for one app once', async () => {
+            const app = await makeApp();
+            const writeSpy = vi.spyOn(server.clients.db, 'write');
+            try {
+                await Promise.all(
+                    Array.from({ length: 5 }, () =>
+                        server.clients.event.emitAndWait(
+                            'app.new-icon',
+                            { app_uid: app.uid, data_url: PNG_DATA_URL },
+                            {},
+                        ),
+                    ),
+                );
+                expect(iconWriteCount(writeSpy.mock.calls)).toBe(1);
+            } finally {
+                writeSpy.mockRestore();
+            }
+        });
+
+        it('queues one follow-up run for writes that land mid-run, using the newest icon', async () => {
+            const sharp = (await import('sharp')).default;
+            const solidIcon = async (size: number, background: string) => {
+                const png = await sharp({
+                    create: {
+                        width: size,
+                        height: size,
+                        channels: 4,
+                        background,
+                    },
+                })
+                    .png()
+                    .toBuffer();
+                return `data:image/png;base64,${png.toString('base64')}`;
+            };
+            const writtenIcons = [
+                await solidIcon(3, '#ff0000'),
+                await solidIcon(4, '#00ff00'),
+                await solidIcon(5, '#0000ff'),
+            ];
+            const newest = Buffer.from(
+                writtenIcons[writtenIcons.length - 1].split(',')[1],
+                'base64',
+            );
+            const app = await makeApp(PNG_DATA_URL);
+
+            // Hold the first run at its icon-column rewrite so every write
+            // below arrives while it is still in flight.
+            let release = () => {};
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            let reached = () => {};
+            const atGate = new Promise<void>((resolve) => {
+                reached = resolve;
+            });
+            let gated = false;
+            const realWrite = server.clients.db.write.bind(server.clients.db);
+            const writeSpy = vi
+                .spyOn(server.clients.db, 'write')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    if (isIconMigration(sql) && !gated) {
+                        gated = true;
+                        reached();
+                        await gate;
+                    }
+                    return realWrite(sql, params);
+                });
+            const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+            try {
+                const readRun = server.clients.event.emitAndWait(
+                    'app.new-icon',
+                    { app_uid: app.uid, data_url: PNG_DATA_URL },
+                    {},
+                );
+                await atGate;
+
+                for (const icon of writtenIcons) {
+                    await server.stores.app.update(app.id, { icon });
+                    const seen = getByUid.mock.results.length;
+                    server.clients.event.emit(
+                        'app.changed',
+                        { app_uid: app.uid, action: 'updated' },
+                        {},
+                    );
+                    // The handler reads the column, then hands that icon to
+                    // the scheduler on its next turn.
+                    await Promise.all(
+                        getByUid.mock.results.slice(seen).map((r) => r.value),
+                    );
+                    await new Promise((resolve) => setImmediate(resolve));
+                }
+
+                release();
+                await readRun;
+
+                expect(iconWriteCount(writeSpy.mock.calls)).toBe(2);
+                expect((await server.stores.app.getByUid(app.uid))?.icon).toBe(
+                    `http://api.puter.localhost:4100/app-icon/${app.uid}`,
+                );
+                expect(await readIconFile(`${app.uid}.png`)).toEqual(
+                    await sharp(newest).png().toBuffer(),
+                );
+                expect(await readIconFile(`${app.uid}-64.png`)).toEqual(
+                    await sharp(newest).resize(64).png().toBuffer(),
+                );
+            } finally {
+                release();
+                writeSpy.mockRestore();
+                getByUid.mockRestore();
+            }
+        });
+
+        it('skips a second new-icon run for the same app inside the cooldown window', async () => {
+            const app = await makeApp();
+            const writeSpy = vi.spyOn(server.clients.db, 'write');
+            try {
+                await server.clients.event.emitAndWait(
+                    'app.new-icon',
+                    { app_uid: app.uid, data_url: PNG_DATA_URL },
+                    {},
+                );
+                expect(iconWriteCount(writeSpy.mock.calls)).toBe(1);
+
+                await server.clients.event.emitAndWait(
+                    'app.new-icon',
+                    { app_uid: app.uid, data_url: PNG_DATA_URL },
+                    {},
+                );
+                // Still inside the cooldown window — no second attempt.
+                expect(iconWriteCount(writeSpy.mock.calls)).toBe(1);
+            } finally {
+                writeSpy.mockRestore();
+            }
+        });
+
+        it('logs a corrupt-icon failure once, not once per read that retries it', async () => {
+            const app = await makeApp();
+            const corruptPng = `data:image/png;base64,${Buffer.concat([
+                // Real PNG signature so it passes magic-byte sniffing
+                // upstream; sharp still rejects it as a truncated file.
+                Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+                Buffer.from('not a real png chunk stream'),
+            ]).toString('base64')}`;
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await server.clients.event.emitAndWait(
+                    'app.new-icon',
+                    { app_uid: app.uid, data_url: corruptPng },
+                    {},
+                );
+                await server.clients.event.emitAndWait(
+                    'app.new-icon',
+                    { app_uid: app.uid, data_url: corruptPng },
+                    {},
+                );
+                const failures = warn.mock.calls.filter(
+                    ([msg]) => msg === '[app-icon] icon processing failed',
+                );
+                expect(failures).toHaveLength(1);
+            } finally {
+                warn.mockRestore();
+            }
+        });
+
+        it('lets a write-triggered re-migration run even inside the read cooldown', async () => {
+            const app = await makeApp(PNG_DATA_URL);
+            await server.clients.event.emitAndWait(
+                'app.new-icon',
+                { app_uid: app.uid, data_url: PNG_DATA_URL },
+                {},
+            );
+            const endpointUrl = `http://api.puter.localhost:4100/app-icon/${app.uid}`;
+            expect((await server.stores.app.getByUid(app.uid))?.icon).toBe(
+                endpointUrl,
+            );
+
+            // Owner re-sets the icon directly (not through the pipeline),
+            // landing a data URL back in the column while this uid is still
+            // inside its read cooldown from the run above.
+            await server.stores.app.update(app.id, { icon: PNG_DATA_URL });
+            await server.clients.event.emitAndWait(
+                'app.changed',
+                { app_uid: app.uid, action: 'updated' },
+                {},
+            );
+
+            expect((await server.stores.app.getByUid(app.uid))?.icon).toBe(
+                endpointUrl,
+            );
+        });
+
         it('logs and swallows a failure inside the pipeline', async () => {
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
             const app = await makeApp();

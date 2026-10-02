@@ -39,6 +39,8 @@ export interface WorkerInvocation {
     event: DeliverableEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
+    /** Handler runs behind `event`; the token this run is handed is one deeper. */
+    handlerDepth: number;
 }
 
 /**
@@ -51,6 +53,8 @@ export type WorkerInvocationOutcome =
 
 export interface WorkerInvokerSeam {
     invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;
+    /** Whether this seam can take an invocation at all. Absent means yes. */
+    available?(): boolean;
 }
 
 /**
@@ -85,6 +89,7 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #client: Pick<EventsWorkerInvokerClient, 'invoke'>;
     readonly #mintToken: SubscriberTokenMinter;
     readonly #address: EventsWorkerAddresser;
+    readonly #available: () => boolean;
     /**
      * Script -> when it was last logged, so a failing script floods once a
      * minute.
@@ -95,10 +100,16 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         client: Pick<EventsWorkerInvokerClient, 'invoke'>,
         mintToken: SubscriberTokenMinter,
         address: EventsWorkerAddresser,
+        available: () => boolean,
     ) {
         this.#client = client;
         this.#mintToken = mintToken;
         this.#address = address;
+        this.#available = available;
+    }
+
+    available(): boolean {
+        return this.#available();
     }
 
     async invoke(

@@ -716,9 +716,8 @@ describe('AuthController.handleSignup', () => {
             }),
             makeRes(),
         );
-        const occupant = await server.stores.user.getByUsername(
-            occupantUsername,
-        );
+        const occupant =
+            await server.stores.user.getByUsername(occupantUsername);
         const root = (await server.stores.fsEntry.getRootEntryForUser(
             occupant!.id,
         ))!;
@@ -1262,6 +1261,47 @@ describe('AuthController.handleLogin', () => {
         const res = makeRes();
         await controller.handleLogin(makeReq({ email, password }), res);
         expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
+
+    // A deleted row still answering from cache reaches the session INSERT.
+    it('answers 401 rather than 500 when the account row is gone but still cached', async () => {
+        const goneName = `lg_${Math.random().toString(36).slice(2, 10)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: goneName,
+                email: `${goneName}@test.local`,
+                password,
+            }),
+            makeRes(),
+        );
+        const gone = await server.stores.user.getByUsername(goneName);
+
+        const realWrite = server.clients.db.write.bind(server.clients.db);
+        const writeSpy = vi
+            .spyOn(server.clients.db, 'write')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (/INSERT INTO `sessions`/.test(sql)) {
+                    throw Object.assign(new Error('FOREIGN KEY constraint'), {
+                        code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+                    });
+                }
+                return realWrite(sql, params);
+            });
+
+        try {
+            await expect(
+                controller.handleLogin(
+                    makeReq({ username: goneName, password }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 401 });
+        } finally {
+            writeSpy.mockRestore();
+        }
+
+        expect(
+            await server.clients.redis.get(`users:username:${goneName}`),
+        ).toBeNull();
     });
 
     it('refuses an email the account has moved off', async () => {
@@ -2153,6 +2193,49 @@ describe('AuthController grant flows', () => {
             controller.handleGrantUserApp(
                 makeReq(
                     { app_uid: app.uid, permission, extra: null, meta: null },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
+    it('grant-user-app: 400 on an `extra`/`meta` larger than the cap', async () => {
+        const appName = `tb-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestBoundApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = 'service:tb-app:ii:read';
+        const oversized = { blob: 'z'.repeat(5000) };
+        for (const body of [
+            { app_uid: app.uid, permission, extra: oversized },
+            { app_uid: app.uid, permission, meta: oversized },
+        ]) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(body, { actor: issuerActor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission,
+                        extra: { blob: 'z'.repeat(1000) },
+                    },
                     { actor: issuerActor },
                 ),
                 res,
@@ -3293,6 +3376,92 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         const fresh = await server.stores.app.getByUid(body.app_uid);
         expect(fresh?.index_url).toBe(origin);
     });
+
+    // sqlite doesn't enforce FKs, so inject the driver error at the db client.
+    // The grant row keys both the app and the user; which one vanished decides
+    // the answer, and the drivers don't all name the constraint.
+    describe('when a parent row is gone but still cached', () => {
+        const fkError = () =>
+            Object.assign(new Error('FOREIGN KEY constraint'), {
+                code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+            });
+
+        const makeApp = async () =>
+            (
+                server.stores.app.create as unknown as (
+                    fields: Record<string, unknown>,
+                    opts: { ownerUserId: number },
+                ) => Promise<{ uid: string; id: number }>
+            )(
+                {
+                    name: `fk-${uuidv4()}`,
+                    title: 'Deleted under a warm cache',
+                    index_url: 'https://example.test/fk.html',
+                },
+                { ownerUserId: user.id },
+            );
+
+        /** Fails the grant insert without disturbing the rest of the handler. */
+        const failingGrant = async (fn: () => Promise<unknown>) => {
+            const realWrite = server.clients.db.write.bind(server.clients.db);
+            const spy = vi
+                .spyOn(server.clients.db, 'write')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    if (/user_to_app_permissions/.test(sql)) throw fkError();
+                    return realWrite(sql, params);
+                });
+            try {
+                return await fn();
+            } finally {
+                spy.mockRestore();
+            }
+        };
+
+        it('answers 404 for a deleted app, and retires the stale cache entry', async () => {
+            const doomed = await makeApp();
+            // Straight to SQL; AppStore.delete would clear the stale entry.
+            await server.clients.db.write('DELETE FROM `apps` WHERE `id` = ?', [
+                doomed.id,
+            ]);
+
+            await expect(
+                failingGrant(() =>
+                    inCtx(actor, () =>
+                        controller.handleGetUserAppToken(
+                            makeReq({ app_uid: doomed.uid }, { actor }),
+                            makeRes(),
+                        ),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+
+            expect(
+                await server.clients.redis.get(`apps:uid:${doomed.uid}`),
+            ).toBeNull();
+        });
+
+        it('answers 401 for a deleted account, leaving the live app cacheable', async () => {
+            const live = await makeApp();
+            await server.stores.app.getByUid(live.uid);
+
+            await expect(
+                failingGrant(() =>
+                    inCtx(actor, () =>
+                        controller.handleGetUserAppToken(
+                            makeReq({ app_uid: live.uid }, { actor }),
+                            makeRes(),
+                        ),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 401 });
+
+            // Tombstoning the app here would strand a perfectly live row.
+            expect(await server.stores.app.getByUid(live.uid)).toBeTruthy();
+            expect(
+                await server.clients.redis.get(`apps:uid:${live.uid}:deleted`),
+            ).toBeNull();
+        });
+    });
 });
 
 // ── Access tokens: create + revoke ─────────────────────────────────
@@ -3384,6 +3553,75 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
                     { permissions: [{ not: 'a-spec' } as unknown as string] },
                     { actor },
                 ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a permission wider than the column, leaving no session behind', async () => {
+        // Nothing rewrites these, so an over-wide one would reach the INSERT
+        // only after the session row was created and the JWT signed.
+        const before = (await server.clients.db.read(
+            "SELECT COUNT(*) AS n FROM sessions WHERE kind = 'access_token'",
+            [],
+        )) as Array<{ n: number }>;
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq(
+                    { permissions: [`service:${'a'.repeat(300)}:ii:read`] },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        const after = (await server.clients.db.read(
+            "SELECT COUNT(*) AS n FROM sessions WHERE kind = 'access_token'",
+            [],
+        )) as Array<{ n: number }>;
+        expect(after[0].n).toBe(before[0].n);
+    });
+
+    it('rejects more permissions than one request may carry', async () => {
+        // Each entry costs a permission check and an INSERT.
+        const permissions = Array.from(
+            { length: 17 },
+            (_, i) => `service:cap-${i}:ii:read`,
+        );
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq({ permissions }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('still mints at the cap', async () => {
+        const permissions = Array.from(
+            { length: 16 },
+            (_, i) => `service:atcap-${i}:ii:read`,
+        );
+        const res = makeRes();
+        await controller.handleCreateAccessToken(
+            makeReq({ permissions }, { actor }),
+            res,
+        );
+        expect((res.body as { token: string }).token).toEqual(
+            expect.any(String),
+        );
+    });
+
+    it.each([
+        ['an oversized permission string', ['x'.repeat(4097)]],
+        [
+            'an oversized `extra`',
+            [['service:x:ii:read', { a: 'y'.repeat(5000) }]],
+        ],
+        ['a non-object `extra`', [['service:x:ii:read', 'nope']]],
+        ['an empty permission string', ['']],
+    ])('rejects %s with 400', async (_label, permissions) => {
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq({ permissions: permissions as never[] }, { actor }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -5720,6 +5958,35 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         }
     });
 
+    it('change-username: only completed renames spend the 2-per-30-days budget', async () => {
+        const { user: other } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        for (let i = 0; i < 3; i++) {
+            await expect(
+                controller.handleChangeUsername(
+                    makeReq({ new_username: other.username }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        for (let i = 0; i < 2; i++) {
+            await controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            );
+        }
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+    });
+
     it('change-username: 400 when the home path is already occupied, before the rename', async () => {
         const { user, actor } = await makeUserAndActor();
         // A name no account holds, whose home path a stray row does. This is
@@ -6648,6 +6915,34 @@ describe('AuthController dev-app permission flows', () => {
         await expect(
             controller.handleGrantDevApp(
                 makeReq({ permission: 'fs:read' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it.each([
+        ['a non-object `extra`', { extra: 'nope' }],
+        ['an array `extra`', { extra: [1, 2] }],
+        ['an oversized `extra`', { extra: { blob: 'z'.repeat(5000) } }],
+        ['an oversized `meta`', { meta: { blob: 'z'.repeat(5000) } }],
+        ['an oversized `permission`', { permission: 'x'.repeat(4097) }],
+        // Survives the route cap but not the column it lands in.
+        [
+            'a `permission` wider than the column',
+            { permission: `service:${'a'.repeat(300)}:ii:read` },
+        ],
+    ])('grant-dev-app: 400 on %s', async (_label, patch) => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGrantDevApp(
+                makeReq(
+                    {
+                        app_uid: `app-${uuidv4()}`,
+                        permission: 'fs:read',
+                        ...patch,
+                    },
+                    { actor },
+                ),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });

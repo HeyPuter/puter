@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-An **events worker** runs an app's published [handlers](/Events/handlers/) when no client is connected to receive a delivery. Each app has at most one, created when it publishes its first handler, however many handlers it publishes.
+An **events worker** runs an app's published [handlers](/Events/handlers/): every `broadcast` delivery that targets it, whether or not a client is connected, and a `single` delivery once no connected client takes it. Each app has at most one, created when it publishes its first handler, however many handlers it publishes.
 
 A hosted Puter deployment may bill each app's events worker as a monthly cost, even if nothing ever delivers to it. Use this API to see which apps have one and remove the ones you don't need.
 
@@ -16,6 +16,8 @@ await puter.events.workers.destroy(items[0].appUid);      // removes every handl
 ```
 
 An account session or API token sees every app you own. An app sees only its own worker (0 or 1 item), and only if the signed-in user owns the app.
+
+On a website with nobody signed in, each method asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 
 The worker starts on the first delivery that needs it, and again after it's been idle long enough to be shut down, so the first background delivery after a publish has a short cold start. Only the platform can invoke it.
 
@@ -53,6 +55,7 @@ Both methods reject with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_worker_owner_only` | `list()` was called with a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL. |
 | `events_handler_not_found` | `destroy()` named an app with no published handlers. |
 | `events_handler_forbidden` | The caller doesn't own the app (or it doesn't exist), or is a scoped access token. |

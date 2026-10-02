@@ -931,25 +931,53 @@ export default suite('fs', {
         t.assert.ok(requestHandle, 'init should receive the request object');
     },
 
-    // A directory upload on the legacy `/batch` path cannot work: the mkdir
-    // operation and the `$dir_N`-relative file paths the SDK sends are not a
-    // shape the backend understands. What must not happen is the upload
-    // reporting success while writing nothing.
-    'upload of a directory through the legacy batch path rejects': async (t) => {
+    // The mkdir names itself with `as`, and the file under it is sent as a
+    // `$dir_N/...` reference the backend resolves against that mkdir.
+    'upload of a directory through the legacy batch path creates it and its files': async (t) => {
         const dir = `${home(t)}/fs-suite-upload-legacy-dir`;
         await t.puter.fs.mkdir(dir);
+        await withoutSignedBatchWrite(t, async () => {
+            const result = await t.puter.fs.upload(
+                [
+                    { isDirectory: true, fullPath: 'legacy-dropped' },
+                    droppedFile('inside', 'legacy-dropped/inside.txt'),
+                ] as never,
+                dir,
+                { parsedDataTransferItems: true },
+            );
+            t.assert.equal((result as unknown[]).length, 2);
+        });
+        t.assert.equal(
+            Boolean((await t.puter.fs.stat(`${dir}/legacy-dropped`)).is_dir),
+            true,
+        );
+        t.assert.equal(
+            await (
+                await t.puter.fs.read(`${dir}/legacy-dropped/inside.txt`)
+            ).text(),
+            'inside',
+        );
+    },
+
+    // What must not happen is the upload reporting success while writing
+    // nothing.
+    'upload through the legacy batch path rejects when every operation fails': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-legacy-all-failed`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.write(`${dir}/a.txt`, 'kept a');
+        await t.puter.fs.write(`${dir}/b.txt`, 'kept b');
         await withoutSignedBatchWrite(t, async () => {
             const err = (await t.assert.rejects(
                 () =>
                     t.puter.fs.upload(
                         [
-                            { isDirectory: true, fullPath: 'legacy-dropped' },
-                            droppedFile('inside', 'legacy-dropped/inside.txt'),
-                        ] as never,
+                            new File(['new a'], 'a.txt', { type: 'text/plain' }),
+                            new File(['new b'], 'b.txt', { type: 'text/plain' }),
+                        ],
                         dir,
-                        { parsedDataTransferItems: true },
+                        { dedupeName: false, overwrite: false },
                     ),
-                'a legacy-path directory upload should reject',
+                'a legacy upload where every operation fails should reject',
             )) as {
                 code?: string;
                 message?: string;
@@ -967,8 +995,10 @@ export default suite('fs', {
             t.assert.equal(err.totalCount, 2);
             t.assert.equal((err.results ?? []).length, 2);
         });
-        // Nothing was written, which is why resolving here was wrong.
-        t.assert.deepEqual(await t.puter.fs.readdir(dir), []);
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/a.txt`)).text(),
+            'kept a',
+        );
     },
 
     'upload through the legacy batch path rejects when only some operations fail': async (t) => {

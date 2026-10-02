@@ -164,6 +164,28 @@ export const decodeCachedRead = (
 };
 
 /**
+ * A legacy `ttl` may be a numeric string or boolean; anything else has no
+ * numeric reading.
+ */
+export const ttlNumber = (ttl: unknown): number =>
+    typeof ttl === 'number'
+        ? ttl
+        : typeof ttl === 'boolean'
+          ? Number(ttl)
+          : typeof ttl === 'string' && ttl.trim() !== ''
+            ? Number(ttl)
+            : NaN;
+
+/**
+ * A `ttl` is expired when its numeric reading is finite, nonzero, and at or
+ * before now.
+ */
+export const isExpiredTtl = (ttl: unknown, now: number): boolean => {
+    const n = ttlNumber(ttl);
+    return Number.isFinite(n) && n !== 0 && n <= now;
+};
+
+/**
  * Seconds to cache an entry for, or `null` when it shouldn't be cached at all.
  *
  * An entry with an expiry of its own never outlives it in the cache, so a `ttl`
@@ -171,11 +193,13 @@ export const decodeCachedRead = (
  */
 export const cacheTtlSecondsFor = (
     settings: KvCacheSettings,
-    entryExpiresAt: number | undefined,
+    entryExpiresAt: unknown,
     nowSeconds: number,
 ): number | null => {
-    if (entryExpiresAt === undefined) return settings.ttlSeconds;
-    const remaining = Math.floor(entryExpiresAt - nowSeconds);
+    const n = ttlNumber(entryExpiresAt);
+    // Non-finite or 0 both mean "no expiry" — see SystemKVStore's storage rule.
+    if (!Number.isFinite(n) || n === 0) return settings.ttlSeconds;
+    const remaining = Math.floor(n - nowSeconds);
     if (remaining <= 0) return null;
     return Math.min(settings.ttlSeconds, remaining);
 };

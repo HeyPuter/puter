@@ -25,12 +25,15 @@
  * because the node it named is never coming back.
  */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
+import * as rateLimit from '../../core/http/middleware/rateLimit.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import type { DeliveryEnvelope } from './EventsService.js';
+import { fsAnchorToken } from './subjects.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -199,6 +202,28 @@ describe('a path-form subscription whose anchor is deleted', () => {
 
         expect(delivered.map((d) => d.subId)).toEqual([sub.subId]);
     });
+
+    it('keeps covering a missing folder`s contents after it climbs', async () => {
+        const docs = await folder(`${home}/reanchor-inbox`);
+        const sub = await subscribe('sock-inbox', `fs:${docs}/inbox`);
+        expect(sub.anchor.path).toBe(docs);
+        expect(sub.match).toBe('inbox');
+
+        await removeAt(docs);
+        const moved = await anchoredAt('sock-inbox', sub.subId, home);
+        expect(moved.match).toBe('reanchor-inbox/inbox');
+
+        await folder(`${docs}/inbox`);
+        await drain();
+        await fs().touch(user.id, { path: `${docs}/inbox/a.txt` });
+        await settled();
+
+        expect(delivered.map((d) => d.subId)).toEqual([sub.subId]);
+        expect(delivered[0].event).toMatchObject({
+            op: 'add',
+            path: `${docs}/inbox/a.txt`,
+        });
+    });
 });
 
 describe('a node-form subscription whose anchor is deleted', () => {
@@ -324,5 +349,447 @@ describe('a path-form subscription held over a share', () => {
             subject: `fs:${shared}/**`,
             reason: 'anchor_deleted',
         });
+    });
+});
+
+describe('telling the connection it ended', () => {
+    let send: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        send = vi.spyOn(env.server.services.socket, 'send');
+    });
+
+    afterEach(() => {
+        send.mockRestore();
+    });
+
+    const endedCallFor = (subId: string) =>
+        send.mock.calls.find(
+            (call) => call[1] === 'events.ended' && (call[2] as { subId?: string })?.subId === subId,
+        );
+
+    const waitForEnded = (subId: string) =>
+        vi.waitFor(() => expect(endedCallFor(subId)).toBeDefined(), {
+            timeout: 5_000,
+            interval: 25,
+        });
+
+    it('tells the connection a node-form subscription ended with its anchor', async () => {
+        const dir = await folder(`${home}/ended-node`);
+        const sub = await subscribe('sock-ended-node', `fs:${dir}`);
+
+        await removeAt(dir);
+        await waitForEnded(sub.subId);
+
+        expect(send).toHaveBeenCalledWith({ socket: 'sock-ended-node' }, 'events.ended', {
+            subId: sub.subId,
+            code: 'subscription_ended',
+            reason: 'anchor_deleted',
+            message: expect.any(String),
+        });
+    });
+
+    it('tells it only after the final removal has gone out', async () => {
+        const dir = await folder(`${home}/ended-order`);
+        const sub = await subscribe('sock-ended-order', `fs:${dir}`);
+
+        await removeAt(dir);
+        await waitForEnded(sub.subId);
+
+        const removeIndex = send.mock.calls.findIndex(
+            (call) =>
+                call[1] === 'events.delivery' &&
+                (call[2] as { subId?: string; event?: { op?: string } })?.subId === sub.subId &&
+                (call[2] as { event?: { op?: string } })?.event?.op === 'remove',
+        );
+        const endedIndex = send.mock.calls.indexOf(endedCallFor(sub.subId)!);
+
+        expect(removeIndex).toBeGreaterThanOrEqual(0);
+        expect(endedIndex).toBeGreaterThan(removeIndex);
+    });
+
+    it('still tells it only after every flush still in flight has gone out', async () => {
+        const dir = await folder(`${home}/ended-race`);
+        const file = `${dir}/target.txt`;
+        const write = (content: string) =>
+            fs().write(user.id, {
+                fileMetadata: {
+                    path: file,
+                    size: content.length,
+                    contentType: 'text/plain',
+                    overwrite: true,
+                },
+                fileContent: content,
+            });
+
+        await write('first');
+        // Anchored directly on the file (it already exists), so its removal
+        // ends the subscription outright rather than carrying it forward.
+        const sub = await subscribe('sock-ended-race', `fs:${file}`);
+
+        // A write, then (almost at once) the remove: two different ops on the
+        // same node coalesce under two different keys. Holding the write's
+        // rate-limit check open means its key is already gone from the
+        // coalescer — its delivery hasn't gone out yet — while the remove's
+        // own flush runs all the way through moments later. Without counting
+        // flushes still in flight, that looks like nothing is owed any more,
+        // and the notice would go out before the write's delivery.
+        const checkRateLimit = vi
+            .spyOn(rateLimit, 'checkRateLimit')
+            .mockImplementationOnce(async (...args) => {
+                await new Promise((resolve) => setTimeout(resolve, 400));
+                return rateLimit.checkRateLimit(...args);
+            });
+
+        try {
+            await write('second');
+            const entry = await entryAt(file);
+            await fs().remove(user.id, { entry: entry! });
+
+            await vi.waitFor(() => expect(endedCallFor(sub.subId)).toBeDefined(), {
+                timeout: 5_000,
+                interval: 25,
+            });
+
+            const endedIndex = send.mock.calls.indexOf(endedCallFor(sub.subId)!);
+            const deliveryIndexes = send.mock.calls
+                .map((call, index) => ({ call, index }))
+                .filter(
+                    ({ call }) =>
+                        call[1] === 'events.delivery' &&
+                        (call[2] as { subId?: string })?.subId === sub.subId,
+                )
+                .map(({ index }) => index);
+
+            expect(deliveryIndexes.length).toBeGreaterThanOrEqual(2);
+            for (const index of deliveryIndexes) expect(endedIndex).toBeGreaterThan(index);
+        } finally {
+            checkRateLimit.mockRestore();
+        }
+    });
+
+    it('tells it at once when nothing was owed', async () => {
+        const dir = await folder(`${home}/ended-idle`);
+        // Filtered to `:write`, so the `remove` this triggers never matches
+        // and nothing is coalesced for it — there is nothing to wait on.
+        const sub = await subscribe('sock-ended-idle', `fs:${dir}:write`);
+
+        await removeAt(dir);
+        // Loose on purpose: this only has to show up well short of a second
+        // flush window, not race a tight timer against real I/O.
+        await vi.waitFor(() => expect(endedCallFor(sub.subId)).toBeDefined(), {
+            timeout: 1000,
+            interval: 10,
+        });
+    });
+
+    it('tells it when climbing would land where its holder cannot see', async () => {
+        const guestRow = await env.server.stores.user.getByUsername(
+            env.users.other.username,
+        );
+        const guest = makeActor({ user: guestRow as never });
+        const shared = await folder(`${home}/ended-shared`);
+        await env.server.services.acl.setUserUser(
+            user.actor,
+            guest,
+            {
+                path: shared,
+                resolveAncestors: () => fs().getAncestorChain(shared),
+            },
+            'list',
+        );
+        const sub = (
+            await events().subscribe(guest, 'sock-ended-shared', {
+                subject: `fs:${shared}/**`,
+            })
+        ).sub;
+
+        await removeAt(shared);
+        await waitForEnded(sub.subId);
+
+        expect(endedCallFor(sub.subId)![2]).toMatchObject({
+            reason: 'anchor_deleted',
+        });
+    });
+
+    it('says nothing to a path-form subscription that climbs', async () => {
+        const dir = await folder(`${home}/ended-climbs`);
+        const sub = await subscribe('sock-ended-climbs', `fs:${dir}/**`);
+
+        await removeAt(dir);
+        await anchoredAt('sock-ended-climbs', sub.subId, home);
+        await quiet();
+
+        expect(endedCallFor(sub.subId)).toBeUndefined();
+    });
+
+    it('tells a connection in this region when a forwarded removal ends it', async () => {
+        const dir = await folder(`${home}/ended-forwarded`);
+        const sub = await subscribe('sock-ended-forwarded', `fs:${dir}`);
+        const entry = await entryAt(dir);
+        const ancestors = await fs().getAncestorChain(dir);
+
+        await events().dispatchForwarded({
+            kind: 'event',
+            family: 'fs',
+            ownerUserId: user.id,
+            id: randomUUID(),
+            ts: Date.now(),
+            sessionOnly: true,
+            hop: 1,
+            fs: {
+                key: 'fs.remove.node',
+                entry: { uid: entry!.uid, path: entry!.path, userId: entry!.userId },
+                ancestors,
+            },
+        });
+
+        await waitForEnded(sub.subId);
+    });
+
+    it('sends nothing after the notice, even from a dispatch that read the row first', async () => {
+        const dir = await folder(`${home}/ended-tail`);
+        const sub = await subscribe('sock-ended-tail', `fs:${dir}`);
+        const dirEntry = await entryAt(dir);
+        const anchorToken = fsAnchorToken(dirEntry!.uid);
+
+        let signalReached: () => void;
+        const reached = new Promise<void>((resolve) => {
+            signalReached = resolve;
+        });
+        let openGate: () => void;
+        const gate = new Promise<void>((resolve) => {
+            openGate = resolve;
+        });
+
+        const store = env.server.stores.eventSubscription;
+        const original = store.getForTokens.bind(store);
+        let intercepted = false;
+        const getForTokens = vi
+            .spyOn(store, 'getForTokens')
+            .mockImplementation(async (ownerUserId, tokens) => {
+                const isTarget = !intercepted && tokens.includes(anchorToken);
+                if (isTarget) intercepted = true;
+                const rows = await original(ownerUserId, tokens);
+                if (isTarget) {
+                    signalReached();
+                    await gate;
+                }
+                return rows;
+            });
+
+        try {
+            void fs().touch(user.id, { path: `${dir}/x.txt` });
+            await reached;
+
+            await removeAt(dir);
+            await waitForEnded(sub.subId);
+            const endedIndex = send.mock.calls.indexOf(endedCallFor(sub.subId)!);
+
+            openGate!();
+            await quiet();
+
+            const deliveryAfterEnded = send.mock.calls
+                .slice(endedIndex + 1)
+                .filter(
+                    (call) =>
+                        call[1] === 'events.delivery' &&
+                        (call[2] as { subId?: string })?.subId === sub.subId,
+                );
+            expect(deliveryAfterEnded).toEqual([]);
+        } finally {
+            getForTokens.mockRestore();
+            openGate!();
+        }
+    });
+
+    it('tells sibling processes which subscription it ended', async () => {
+        const dir = await folder(`${home}/ended-siblings`);
+        const sub = await subscribe('sock-ended-siblings', `fs:${dir}`);
+
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await removeAt(dir);
+            await waitForEnded(sub.subId);
+
+            expect(emit).toHaveBeenCalledWith(
+                'outer.pubsub.events.generationBumped',
+                expect.objectContaining({ durable: false, ended: [sub.subId] }),
+                expect.anything(),
+            );
+        } finally {
+            emit.mockRestore();
+        }
+    });
+
+    it('says nothing to a holder whose share was revoked before the node went', async () => {
+        const guestRow = await env.server.stores.user.getByUsername(
+            env.users.other.username,
+        );
+        const guest = makeActor({ user: guestRow as never });
+        const shared = await folder(`${home}/ended-revoked`);
+        await env.server.services.acl.setUserUser(
+            user.actor,
+            guest,
+            {
+                path: shared,
+                resolveAncestors: () => fs().getAncestorChain(shared),
+            },
+            'list',
+        );
+        const sharedEntry = await entryAt(shared);
+        const sub = (
+            await events().subscribe(guest, 'sock-ended-revoked', {
+                subject: `fs:${shared}`,
+            })
+        ).sub;
+
+        await env.server.services.permission.revokeUserUserPermission(
+            user.actor,
+            env.users.other.username,
+            `fs:${sharedEntry!.uid}:list`,
+        );
+
+        await removeAt(shared);
+        await vi.waitFor(
+            async () =>
+                expect(
+                    await env.server.stores.eventSubscription.listForSocket(
+                        guestRow!.id,
+                        'sock-ended-revoked',
+                    ),
+                ).toEqual([]),
+            { timeout: 5_000, interval: 25 },
+        );
+        await quiet();
+
+        expect(endedCallFor(sub.subId)).toBeUndefined();
+    });
+});
+
+describe('a climb racing the connection', () => {
+    /**
+     * Spies on `reanchorSession` so the race call starts the instant the
+     * climb is about to move the row, then lets the real move run — whoever
+     * reaches the ref first is nondeterministic, but the outcome must not be.
+     */
+    const raceReanchor = (
+        start: () => Promise<unknown>,
+    ): { spy: ReturnType<typeof vi.spyOn>; outcome: Promise<unknown> } => {
+        const store = env.server.stores.eventSubscription;
+        const original = store.reanchorSession.bind(store);
+        let raced: Promise<unknown> | null = null;
+        const spy = vi
+            .spyOn(store, 'reanchorSession')
+            .mockImplementationOnce((prev, next) => {
+                raced = (async () => {
+                    try {
+                        return await start();
+                    } catch (err) {
+                        return err;
+                    }
+                })();
+                return original(prev, next);
+            });
+        // Dispatch is fire-and-forget, so the climb this races may not have
+        // started yet when the caller's own await returns — wait for the
+        // mock to actually fire before reading what it raced.
+        const outcome = (async () =>
+            await vi.waitFor(
+                () => {
+                    if (!raced) throw new Error('reanchorSession not called yet');
+                    return raced;
+                },
+                { timeout: 5_000, interval: 10 },
+            ))();
+        return { spy, outcome };
+    };
+
+    it('ends a subscription unsubscribed while it climbs', async () => {
+        const dir = await folder(`${home}/race-unsub`);
+        const socket = 'sock-race-unsub';
+        // `/**` rather than a fixed literal: a surviving row has to keep
+        // matching after it climbs onto `home`, where the pattern becomes
+        // `race-unsub/**`.
+        const sub = await subscribe(socket, `fs:${dir}/**`);
+        const homeEntry = await entryAt(home);
+
+        const { spy, outcome } = raceReanchor(async () => {
+            await events().unsubscribe(user.actor, socket, {
+                subId: sub.subId,
+            });
+            return 'unsubscribed';
+        });
+        let settled: unknown;
+        try {
+            await removeAt(dir);
+            settled = await outcome;
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(settled).toBe('unsubscribed');
+        await expect(
+            env.server.stores.eventSubscription.listForSocket(
+                user.id,
+                socket,
+            ),
+        ).resolves.toEqual([]);
+        expect(
+            await env.server.clients.redis.smembers(
+                `ev:s:{${user.id}}:${socket}`,
+            ),
+        ).toEqual([]);
+        const homeRows = await env.server.stores.eventSubscription.getForTokens(
+            user.id,
+            [fsAnchorToken(homeEntry!.uid)],
+        );
+        expect(homeRows.some((row) => row.subId === sub.subId)).toBe(false);
+
+        await folder(dir);
+        await drain();
+        await fs().touch(user.id, { path: `${dir}/after.txt` });
+        await quiet();
+        expect(delivered.some((d) => d.subId === sub.subId)).toBe(false);
+    });
+
+    it('leaves nothing for a socket that disconnects while it climbs', async () => {
+        const dir = await folder(`${home}/race-reap`);
+        const socket = 'sock-race-reap';
+        const sub = await subscribe(socket, `fs:${dir}/**`);
+        const homeEntry = await entryAt(home);
+
+        const { spy, outcome } = raceReanchor(() =>
+            events().reapSocket(user.id, socket),
+        );
+        try {
+            await removeAt(dir);
+            await outcome;
+        } finally {
+            spy.mockRestore();
+        }
+
+        await expect(
+            env.server.stores.eventSubscription.listForSocket(
+                user.id,
+                socket,
+            ),
+        ).resolves.toEqual([]);
+        expect(
+            await env.server.clients.redis.smembers(
+                `ev:s:{${user.id}}:${socket}`,
+            ),
+        ).toEqual([]);
+        const homeRows = await env.server.stores.eventSubscription.getForTokens(
+            user.id,
+            [fsAnchorToken(homeEntry!.uid)],
+        );
+        expect(homeRows.some((row) => row.subId === sub.subId)).toBe(false);
+
+        await folder(dir);
+        await drain();
+        await fs().touch(user.id, { path: `${dir}/after.txt` });
+        await quiet();
+        expect(delivered.some((d) => d.subId === sub.subId)).toBe(false);
     });
 });

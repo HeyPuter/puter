@@ -105,10 +105,11 @@ describe('MeteringBufferStore', () => {
 
         it('splits on the size of the write, not the number of paths', () => {
             // Long usage types are the case a path count gets wrong: the name
-            // is what makes an expression long, and it lands in it twice.
+            // is what makes an expression long, and it lands in it twice (an
+            // attribute-name placeholder caps how much of it that is).
             const long: Record<string, number> = {};
             const short: Record<string, number> = {};
-            for (let i = 0; i < 24; i++) {
+            for (let i = 0; i < 30; i++) {
                 long[
                     `together:meta-llama/Meta-Llama-3_dot_1-405B-Instruct-Turbo:kind${i}.units`
                 ] = 1;
@@ -1580,6 +1581,45 @@ describe('MeteringBufferStore', () => {
                 (await kv.get({ key: otherKey })).res,
             );
             expect(stored).toEqual({ [path]: 3 });
+        });
+
+        it('gives up on a path the store refuses with invalid_path', async () => {
+            // No mock here: a real nested path through a stored number is the
+            // store's own refusal, not a simulated one.
+            await kv.set({ key, value: { ai: 5 } });
+            await target.incr({ key, pathAndAmountMap: { 'ai.units': 1 } });
+
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await target.flushCycle();
+
+            const tag = bucketTag(key);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+            expect(logged).toHaveBeenCalledWith(
+                expect.stringContaining('unwritable path'),
+            );
+            logged.mockRestore();
+
+            expect(alarmSpy).toHaveBeenCalledWith(
+                `metering_usage_dropped:${key}`,
+                expect.stringContaining('under-billed'),
+                expect.objectContaining({ key, paths: ['ai.units'] }),
+                'critical',
+                expect.objectContaining({ dedup: true }),
+            );
+            alarmSpy.mockRestore();
+
+            expect((await kv.get({ key })).res).toEqual({ ai: 5 });
+
+            const after = vi.spyOn(kv, 'incr');
+            await target.flushCycle();
+            expect(after).not.toHaveBeenCalled();
+            after.mockRestore();
         });
     });
 

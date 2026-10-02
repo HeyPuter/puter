@@ -360,12 +360,17 @@ export class DurableSubscriptionStore extends PuterStore {
         return { row, bump: await this.#bump(row.ownerUserId) };
     }
 
-    /** Remove one row and stop this region delivering against it. */
-    async remove(row: DurableSubscription): Promise<GenerationBump> {
-        await this.clients.db.write(
+    /**
+     * Remove one row and stop this region delivering against it.
+     *
+     * `null` when a concurrent duplicate of this call already deleted it.
+     */
+    async remove(row: DurableSubscription): Promise<GenerationBump | null> {
+        const written = await this.clients.db.write(
             `DELETE FROM \`${TABLE}\` WHERE \`sub_id\` = ?`,
             [row.subId],
         );
+        if (!written.anyRowsAffected) return null;
         await this.stores.eventSubscription.dropDurable(row);
         return this.#bump(row.ownerUserId);
     }
@@ -466,6 +471,9 @@ export class DurableSubscriptionStore extends PuterStore {
      * entry moves with it — including across owners, which is a different
      * keyspace — so both sides advance and neither is left holding a row that
      * is no longer theirs.
+     *
+     * `bumps` comes back empty when a concurrent unsubscribe already deleted
+     * the row.
      */
     async reanchor(
         row: DurableSubscription,
@@ -478,7 +486,7 @@ export class DurableSubscriptionStore extends PuterStore {
             match: next.match,
         });
 
-        await this.clients.db.write(
+        const written = await this.clients.db.write(
             `UPDATE \`${TABLE}\` SET \`token\` = ?, \`anchor_uid\` = ?, ` +
                 '`anchor_path` = ?, `match` = ?, `owner_user_id` = ? ' +
                 'WHERE `sub_id` = ?',
@@ -491,6 +499,7 @@ export class DurableSubscriptionStore extends PuterStore {
                 row.subId,
             ],
         );
+        if (!written.anyRowsAffected) return { row, bumps: [] };
 
         const moved: DurableSubscription = { ...row, ...next };
         await this.stores.eventSubscription.dropDurable(row);

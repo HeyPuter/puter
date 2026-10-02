@@ -1,0 +1,28 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Portfolio builder</h3>
+    <input id="name" placeholder="Your name">
+    <input id="bio" placeholder="A line about you">
+    <button id="publish">Publish my page</button>
+    <script>
+        const dir = `portfolio-${puter.randName()}`;
+        let site;
+
+        const escape = text => text.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+        document.getElementById('publish').addEventListener('click', async () => {
+            const name = document.getElementById('name').value || 'Anonymous';
+            const bio = document.getElementById('bio').value;
+
+            await puter.fs.mkdir(dir, { createMissingParents: true }).catch(() => {});
+            // The site serves the folder live, so republishing is just writing again.
+            await puter.fs.write(`${dir}/index.html`, `<h1>${escape(name)}</h1><p>${escape(bio)}</p>`);
+
+            site ??= await puter.hosting.create(puter.randName(), dir);
+            const url = `https://${site.subdomain}.puter.site`;
+            puter.print(`Live at <a href="${url}" target="_blank">${url}</a><br>`);
+        });
+    </script>
+</body>
+</html>

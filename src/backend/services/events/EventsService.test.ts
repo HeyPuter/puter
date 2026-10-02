@@ -27,6 +27,7 @@ import {
     EVENTS_KV_VALUE_MAX_BYTES,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
+    EVENTS_UNSUBSCRIBE_LIMIT,
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
@@ -680,6 +681,59 @@ describe('unsubscribing', () => {
                 err.legacyCode === 'subscription_does_not_exist',
         );
     });
+
+    it('removes a subscription that moved while it was being removed', async () => {
+        const { home, documents } = seedTree();
+        // A literal, not-yet-existing child: a path-form row anchored
+        // exactly on `documents`, the same shape `anchorSettle` carries
+        // forward when `documents` itself is later removed.
+        const sub = await subscribe(`fs:${documents.path}/trigger`);
+        // What the row would match after the climb below (`Documents/trigger`
+        // relative to `home`) — a surviving row would be delivered this.
+        const trigger = register(
+            entry({ uid: `trigger-${seq}`, path: `${documents.path}/trigger` }),
+        );
+
+        const original = store.remove.bind(store);
+        const removeSpy = vi
+            .spyOn(store, 'remove')
+            .mockImplementationOnce(async (row) => {
+                // A carryForward climbing the row to `home` wins the race
+                // right as this call is about to drop it at its old anchor.
+                await store.reanchorSession(row, {
+                    ...row,
+                    token: `f#${home.uid}`,
+                    anchorUid: home.uid,
+                    anchorPath: home.path,
+                    match: 'Documents/trigger',
+                });
+                return original(row);
+            });
+
+        try {
+            await service.unsubscribe(actorFor(), socketId, {
+                subId: sub.subId,
+            });
+        } finally {
+            removeSpy.mockRestore();
+        }
+
+        await expect(store.listForSocket(userId, socketId)).resolves.toEqual(
+            [],
+        );
+        await expect(
+            store.getForTokens(userId, [`f#${home.uid}`]),
+        ).resolves.toEqual([]);
+
+        vi.useFakeTimers();
+        try {
+            await dispatch(trigger);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(sent).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 // -- What a dispatch costs -------------------------------------------
@@ -908,6 +962,63 @@ describe('cross-process invalidation', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toHaveLength(1);
+    });
+});
+
+describe('a subscription another process ended', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('drops what it had queued for it', async () => {
+        const { documents, file } = seedTree();
+        const sub = await subscribe(`fs:${documents.uid}`);
+
+        await dispatch(file);
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 99, durable: false, ended: [sub.subId] },
+            { from_outside: true },
+        );
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+        expect(metered).toEqual([]);
+    });
+
+    it('queues nothing more for it from a dispatch that still finds the row', async () => {
+        const { documents, file } = seedTree();
+        const sub = await subscribe(`fs:${documents.uid}`);
+
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 99, durable: false, ended: [sub.subId] },
+            { from_outside: true },
+        );
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it('keeps delivering to subscriptions it did not name', async () => {
+        const { documents, file } = seedTree();
+        const named = await subscribe(`fs:${documents.uid}`, `${socketId}-a`);
+        const other = await subscribe(`fs:${documents.uid}`, `${socketId}-b`);
+
+        await dispatch(file);
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 99, durable: false, ended: [named.subId] },
+            { from_outside: true },
+        );
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.map((s) => s.envelope.subId)).toEqual([other.subId]);
     });
 });
 
@@ -1164,6 +1275,68 @@ describe('matching', () => {
         expect(commands).toEqual([]);
         expect(sent).toEqual([]);
     });
+
+    it('delivers what lands inside a folder subscribed before it existed', async () => {
+        const { documents } = seedTree();
+        const sub = await subscribe(`fs:${documents.path}/uploads`);
+        expect(sub.match).toBe('uploads');
+
+        register(
+            entry({
+                uid: `uploads-${seq}`,
+                path: `${documents.path}/uploads`,
+                isDir: true,
+            }),
+        );
+        const inside = register(
+            entry({
+                uid: `inside-${seq}`,
+                path: `${documents.path}/uploads/a.png`,
+            }),
+        );
+
+        await dispatch(inside);
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect(
+            (sent[0].envelope.event as { path: string }).path,
+        ).toBe(inside.path);
+    });
+
+    it('does not reach a sibling that only shares the missing name as a prefix', async () => {
+        const { documents } = seedTree();
+        await subscribe(`fs:${documents.path}/uploads`);
+
+        const sibling = register(
+            entry({
+                uid: `sibling-${seq}`,
+                path: `${documents.path}/uploads-old/a.png`,
+            }),
+        );
+
+        await dispatch(sibling);
+        await flush();
+
+        expect(sent).toEqual([]);
+    });
+
+    it('keeps a wildcard subject to the paths it names', async () => {
+        const { documents } = seedTree();
+        await subscribe(`fs:${documents.path}/rep*`);
+
+        const file = register(
+            entry({
+                uid: `rep-${seq}`,
+                path: `${documents.path}/reports/summary.csv`,
+            }),
+        );
+
+        await dispatch(file);
+        await flush();
+
+        expect(sent).toEqual([]);
+    });
 });
 
 // -- Coalescing ------------------------------------------------------
@@ -1314,20 +1487,120 @@ describe('coalescing', () => {
 // -- Limits ----------------------------------------------------------
 
 describe('limits', () => {
-    it('refuses subscription changes past the per-minute budget', async () => {
+    it('refuses subscribes past their per-minute budget', async () => {
         const { documents } = seedTree();
 
+        // Each on its own socket, so the per-socket subscription cap is never
+        // what trips first — only the per-user subscribe budget is.
         for (let i = 0; i < EVENTS_SUBSCRIBE_LIMIT.limit; i++)
-            await service
-                .unsubscribe(actorFor(), socketId, { subId: 'nope' })
-                .catch(() => {});
+            await subscribe(`fs:${documents.uid}`, `${socketId}-${i}`);
 
-        await expect(subscribe(`fs:${documents.uid}`)).rejects.toSatisfy(
+        await expect(
+            subscribe(`fs:${documents.uid}`, `${socketId}-over`),
+        ).rejects.toSatisfy(
             (err: unknown) =>
                 isHttpError(err) &&
                 err.statusCode === 429 &&
                 err.legacyCode === 'too_many_requests',
         );
+    });
+
+    it('does not spend the subscribe budget on an unsubscribe miss', async () => {
+        const { documents } = seedTree();
+
+        // Every one of these is a 404, not a hit against the subscribe
+        // budget — unsubscribe has its own, separate budget now.
+        for (let i = 0; i < EVENTS_SUBSCRIBE_LIMIT.limit; i++) {
+            try {
+                await service.unsubscribe(actorFor(), socketId, {
+                    subId: 'nope',
+                });
+            } catch {
+                // Expected: 404, and only spent from the unsubscribe budget.
+            }
+        }
+
+        await expect(subscribe(`fs:${documents.uid}`)).resolves.toMatchObject(
+            { subId: expect.any(String) },
+        );
+    });
+
+    it('refuses unsubscribes past their own per-minute budget', async () => {
+        const { documents } = seedTree();
+        const sub = await subscribe(`fs:${documents.uid}`);
+
+        for (let i = 0; i < EVENTS_UNSUBSCRIBE_LIMIT.limit; i++) {
+            try {
+                await service.unsubscribe(actorFor(), socketId, {
+                    subId: 'nope',
+                });
+            } catch {
+                // Expected: a 404 that still spends the unsubscribe budget.
+            }
+        }
+
+        await expect(
+            service.unsubscribe(actorFor(), socketId, { subId: sub.subId }),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 429 &&
+                err.legacyCode === 'too_many_requests',
+        );
+    });
+
+    it('ends a subscription the caller holds even past the subscribe budget', async () => {
+        const { documents } = seedTree();
+        const sub = await subscribe(`fs:${documents.uid}`);
+
+        // Burn through the rest of the subscribe budget with real subscribes
+        // on other sockets — unsubscribe no longer shares this budget, so
+        // this is the only way left to spend it.
+        for (let i = 1; i < EVENTS_SUBSCRIBE_LIMIT.limit; i++)
+            await subscribe(`fs:${documents.uid}`, `${socketId}-${i}`);
+
+        await expect(
+            subscribe(`fs:${documents.uid}`, `${socketId}-over`),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 429 &&
+                err.legacyCode === 'too_many_requests',
+        );
+
+        await expect(
+            service.unsubscribe(actorFor(), socketId, { subId: sub.subId }),
+        ).resolves.toBeUndefined();
+        expect(await service.listSubscriptions(actorFor(), socketId)).toEqual(
+            [],
+        );
+    });
+
+    it('is idempotent under a burst of concurrent duplicate unsubscribes', async () => {
+        const { documents } = seedTree();
+        const mine = await subscribe(`fs:${documents.uid}`);
+        const otherSocket = `${socketId}-other`;
+        await subscribe(`fs:${documents.uid}`, otherSocket);
+
+        const attempts = 8;
+        const results = await Promise.allSettled(
+            Array.from({ length: attempts }, () =>
+                service.unsubscribe(actorFor(), socketId, {
+                    subId: mine.subId,
+                }),
+            ),
+        );
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(
+            1,
+        );
+        expect(results.filter((r) => r.status === 'rejected')).toHaveLength(
+            attempts - 1,
+        );
+        // The other socket's row on the same anchor is unharmed.
+        expect(
+            await service.listSubscriptions(actorFor(), otherSocket),
+        ).toHaveLength(1);
     });
 
     it('delivers to the fan-out cap and then says there was more', async () => {

@@ -1,19 +1,14 @@
 ---
 title: puter.teams.listDirectory()
-description: Look up the user's colleagues, where the team has opened its directory to apps.
+description: Get the list of members of a team.
 platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Teams API is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Returns the team's member directory — the colleagues of the user your app is
-running for, active accounts only. It is consent-gated: the team's owner has to
-open the directory to apps, and until they do it rejects with `team_not_found`
-for every caller, indistinguishable from the team not existing. The same
-consent decides whether an app sees the team in [`list()`](/Teams/list/).
+Get the list of members of a team.
 
-The membership is always the signed-in user's, never the app's: an app can only
-see the directory of a team its user belongs to.
+The current user must be a member of the team, and the team owner must enable the directory setting in the [Teams dashboard](https://puter.com/#teams).
 
 ## Syntax
 
@@ -26,77 +21,79 @@ puter.teams.listDirectory(uid, options)
 
 #### `uid` (String) (required)
 
-The team's `uid`, from [`list()`](/Teams/list/).
+The team's `uid`, from [`puter.teams.list()`](/Teams/list/).
 
 #### `options` (Object) (optional)
 
-The standard list options. All four are optional, and they decide the shape of what resolves:
+An object with the following optional properties:
 
-| Call | Resolves to |
-| -- | -- |
-| No options | The whole set as an array, fetched page by page under the hood |
-| `{ limit }` | An array, capped at one page |
-| `{ cursor }` or `{ includeTotal: true }` | One `{ items, cursor? }` page. `cursor` is absent on the last page |
-| `{ stream: true }` | An async iterator of `{ items, cursor? }` pages |
-
-This route is keyset-paginated, so `offset` is not accepted — passing it throws `invalid_request`. Pass `cursor` to resume from a position.
+- `limit` (Number): Maximum number of items to return in a single call.
+- `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one.
+- `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item across all pages.
+- `stream` (Boolean): If `true`, the method returns an async iterator of pages instead of a promise, for use with `for await ... of`.
 
 ## Return value
 
-A `Promise` that resolves to an array of
-`TeamDirectoryEntry` objects, or to a
-`{ items, cursor? }` page when a pagination option is given. With
-`stream: true` it returns an async iterator of pages instead.
+A `Promise` that resolves to either:
 
-#### `TeamDirectoryEntry`
+- An array of [`TeamDirectoryEntry`](/Objects/teamdirectoryentry/) objects, or
+- A page object `{ items, cursor, total }` when using `cursor` or `includeTotal` in `options`. `items` is an array of [`TeamDirectoryEntry`](/Objects/teamdirectoryentry/) objects, `cursor` is present only when there are more pages, and `total` is present only when `includeTotal` is `true`.
 
-| Field | Type | Description |
-| -- | -- | -- |
-| `username` | `string` | A colleague's Puter username. |
-| `uuid` | `string` | Their stable account identifier. |
+With `stream: true`, the method returns an async iterator of page objects instead.
 
 ## Errors
 
-A rejection carries an `Error` with a stable `code`:
+A rejection carries an `Error` with a `code`:
 
 | Code | Meaning |
 | -- | -- |
-| `invalid_request` | Refused before reaching the server — a blank `uid`, or an `offset` on a keyset list. |
-| `token_missing` | No authentication token was presented. |
-| `token_auth_failed` | The token presented did not authenticate. |
+| `invalid_request` | `uid` is empty, or `options` contains `offset`, which is not supported. Use `cursor` instead. |
+| `token_missing` | The user is not signed in. |
+| `token_auth_failed` | The user's session is invalid. |
 | `forbidden` | Called with a scoped access token. |
-| `account_is_not_verified` | The caller's email has not been confirmed. |
-| `not_found` | Teams are turned off on this deployment. |
-| `team_not_found` | No such team, the caller is not a member of it, or the owner has not opened the directory to apps. |
+| `account_is_not_verified` | The user's email has not been confirmed. |
+| `team_not_found` | The team does not exist, the user is not a member, or the owner has not enabled the directory setting. |
 | `too_many_requests` | The rate limit was exceeded. See [Rate Limits & Quotas](/rate-limits-and-quotas/). |
 
-## Examples
+## Example
 
-<strong class="example-title">Suggest colleagues to share with</strong>
-
-```html
+```html;teams-directory
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
+    <select id="colleagues"><option>Loading…</option></select>
+    <button id="pick">Pick</button>
     <script>
+        const select = document.getElementById('colleagues');
+
         (async () => {
-            let teams = [];
-            try {
-                teams = await puter.teams.list();
-            } catch (e) {
-                return; // Teams are unavailable here.
+            const [team] = await puter.teams.list();
+            if (!team) {
+                select.innerHTML = '<option>You are not on a team</option>';
+                return;
             }
-            for (const team of teams) {
-                try {
-                    const colleagues = await puter.teams.listDirectory(team.uid);
-                    for (const person of colleagues) {
-                        puter.print(`${person.username}<br>`);
-                    }
-                } catch (e) {
-                    // This team's directory is not open to apps.
-                }
+
+            // Off by default, and the usual reason the list comes back empty.
+            if (!team.directoryEnabled) {
+                select.innerHTML = '<option>Directory is closed to apps</option>';
+                return;
+            }
+
+            const entries = await puter.teams.listDirectory(team.uid);
+            select.innerHTML = '';
+            for (const { username, uuid } of entries) {
+                const option = document.createElement('option');
+                // Store the uuid: it survives a username change.
+                option.value = uuid;
+                option.textContent = username;
+                select.append(option);
             }
         })();
+
+        document.getElementById('pick').addEventListener('click', () => {
+            const option = select.selectedOptions[0];
+            if (option) puter.print(`${option.textContent} → ${option.value}<br>`);
+        });
     </script>
 </body>
 </html>

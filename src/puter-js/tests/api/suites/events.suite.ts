@@ -19,6 +19,7 @@ type Delivered = {
     self?: boolean;
     ts: number;
     seq?: number;
+    reason?: string;
 };
 
 type Subscription = Awaited<ReturnType<TestContext['puter']['events']['onLocal']>>;
@@ -55,9 +56,11 @@ const open = (
     t: TestContext,
     subject: string,
     handler: (event: Delivered) => void,
+    options: { onError?: (error: unknown) => void } = {},
 ): Promise<Subscription> =>
     t.puter.events.onLocal(subject, ({ event }) => handler(event as Delivered), {
         timeout: SUBSCRIBE_TIMEOUT_MS,
+        ...options,
     });
 
 /** A handler that closes over nothing, so the free-variable scan accepts it. */
@@ -412,6 +415,15 @@ export default suite('events', {
             );
             t.assert.ok(back, 'the subscription was re-established with a new id');
 
+            const gapped = await waitFor(
+                () =>
+                    seen.some(
+                        (event) => event.op === 'gap' && event.reason === 'reconnect',
+                    ),
+                DELIVERY_TIMEOUT_MS,
+            );
+            t.assert.ok(gapped, 'the handler got a reconnect gap once restored');
+
             const file = `${dir}/after-reconnect.txt`;
             await t.puter.fs.write(file, 'still listening');
             await waitFor(
@@ -421,6 +433,33 @@ export default suite('events', {
             t.assert.ok(
                 seen.some((event) => event.path === file),
                 'the same handler keeps receiving events after the rebuild',
+            );
+        } finally {
+            await sub.off();
+        }
+    },
+
+    'covers what lands in a folder subscribed before it exists': async (t) => {
+        const dir = await makeDir(t, 'events-missing-folder');
+        const seen: Delivered[] = [];
+
+        const sub = await open(t, `fs:${dir}/later`, (event) => seen.push(event));
+        if (!sub) return;
+
+        try {
+            await t.puter.fs.mkdir(`${dir}/later`, {
+                createMissingParents: true,
+            });
+            const file = `${dir}/later/a.txt`;
+            await t.puter.fs.write(file, 'inside a folder that did not exist yet');
+
+            const arrived = await waitFor(
+                () => seen.some((event) => event.path === file),
+                DELIVERY_TIMEOUT_MS,
+            );
+            t.assert.ok(
+                arrived,
+                'the file inside the newly created folder was delivered',
             );
         } finally {
             await sub.off();
@@ -491,6 +530,32 @@ export default suite('events', {
             t.assert.equal(sub.subId, null);
         } finally {
             t.puter.setAuthToken(t.env.users.user.token);
+        }
+    },
+
+    'ends a subscription whose folder is deleted, and says why': async (t) => {
+        const dir = await makeDir(t, 'events-anchor-deleted');
+        const seen: Delivered[] = [];
+        const lapses: unknown[] = [];
+
+        const sub = await open(t, `fs:${dir}`, (event) => seen.push(event), {
+            onError: (error) => lapses.push(error),
+        });
+        if (!sub) return;
+
+        try {
+            await t.puter.fs.delete(dir, { recursive: true });
+
+            const ended = await waitFor(() => lapses.length > 0, DELIVERY_TIMEOUT_MS);
+            t.assert.ok(ended, 'the subscription was ended once its folder was deleted');
+            t.assert.equal(codeOf(lapses[0]), 'subscription_ended');
+            t.assert.equal((lapses[0] as { reason?: string }).reason, 'anchor_deleted');
+            t.assert.ok(
+                seen.some((event) => event.op === 'remove'),
+                'the handler saw the final removal before the subscription ended',
+            );
+        } finally {
+            await sub.off();
         }
     },
 
@@ -819,12 +884,14 @@ export default suite('events', {
             if (! live) return;
 
             // Default delivery: `broadcast`, not `single` — nobody owes an
-            // `ack`, but the environment is the same either way.
+            // `ack`, but the environment is the same either way. Pinned to
+            // `socket` so this client runs it whether or not a worker could.
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
                 handlerName: 'ingestBroadcastEnv',
                 handler: BROADCAST_ENV_HANDLER,
                 context: { label: 'broadcast-env' },
+                targets: ['socket'],
             });
             try {
                 await t.puter.fs.write(`${dir}/first.txt`, 'one');
