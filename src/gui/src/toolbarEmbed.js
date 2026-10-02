@@ -50,7 +50,8 @@ function closePanel () {
     panel = null;
     $root.find('.toolbar-panel').remove();
     $root.find('[aria-expanded]').attr('aria-expanded', 'false');
-    if ( previous ) $root.find(`[data-panel="${previous}"]`)[0]?.focus({ preventScroll: true });
+    // A close the host started by focusing its own page must not pull focus back.
+    if ( previous && document.hasFocus() ) $root.find(`[data-panel="${previous}"]`)[0]?.focus({ preventScroll: true });
     notify('panel', { panel });
 }
 

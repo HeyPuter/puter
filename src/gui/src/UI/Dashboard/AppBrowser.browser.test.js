@@ -267,6 +267,22 @@ describe('embedded toolbar', () => {
         } finally { await context.close(); }
     });
 
+    it('leaves focus on the host page that closed the menu, and returns it to the toggle on Escape', async () => {
+        const { context, page, toolbar } = await openToolbar();
+        try {
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
+            await toolbar.locator('.toolbar-panel').waitFor();
+            await page.locator('#outside').click();
+            await toolbar.locator('.toolbar-panel').waitFor({ state: 'detached' });
+            await page.waitForTimeout(100);
+            expect(await page.evaluate(() => document.activeElement.id)).toBe('outside');
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
+            await toolbar.locator('.toolbar-close').press('Escape');
+            await toolbar.locator('.toolbar-panel').waitFor({ state: 'detached' });
+            expect(await toolbar.locator('body').evaluate(() => document.activeElement.dataset.panel)).toBe('account');
+        } finally { await context.close(); }
+    });
+
     it('labels controls with translated text encoded once', async () => {
         const { context, toolbar } = await openToolbar(undefined, sessionToken, [{ name: 'user_preferences', value: '{"language":"de"}' }]);
         try {
