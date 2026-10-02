@@ -31,7 +31,7 @@
     "@pagerduty/pdjs": "^2.2.4",
     "@smithy/node-http-handler": "^2.5.0",
     "@socket.io/redis-streams-adapter": "^0.3.1",
-    "axios": "^1.15.0",
+    "axios": "^1.20.0",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.6.0",
     "busboy": "^1.6.0",
