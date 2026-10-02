@@ -36,7 +36,7 @@ import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
-import { FULL_API_ACCESS } from '../permission/consts';
+import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
 import { PuterService } from '../types';
 import type {
     AccessTokenPayload,
@@ -1517,6 +1517,18 @@ export class AuthService extends PuterService {
                     legacyCode: 'forbidden',
                 },
             );
+        }
+
+        // Unrewritten: the column width is the limit, and no row exists yet.
+        for (const [permission] of permissions) {
+            if (
+                typeof permission === 'string' &&
+                permission.length > PERMISSION_MAX_LEN
+            ) {
+                throw new HttpError(400, 'Invalid `permission`', {
+                    legacyCode: 'bad_request',
+                });
+            }
         }
 
         // Full-API-access sentinel: a token that may do anything its issuing

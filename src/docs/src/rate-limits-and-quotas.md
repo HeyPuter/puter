@@ -171,7 +171,8 @@ The Puter desktop makes PDF upload thumbnails locally within these budgets. Goin
 | Limit | Value |
 | ----- | ----- |
 | Grant / revoke calls | 60/min |
-| Permissions per grant or revoke request | 16 |
+| Permissions per grant, revoke, or access-token request | 16 |
+| `extra` / `meta` on a grant or access-token permission | 4 KiB each |
 | Filesystem entries one `create` grant may create per request | 4 |
 | Path depth a `create` grant may create below the home directory | 16 components |
 
