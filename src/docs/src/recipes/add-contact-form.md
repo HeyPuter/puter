@@ -1,0 +1,101 @@
+---
+title: Add a Contact Form
+description: "Learn how to add a contact form to your app or website with Puter.js, so every message a visitor sends lands in your email inbox."
+tags: [workers, email]
+order: 39
+---
+
+Many apps and websites need a contact form, so visitors can reach you without
+you publishing your email address. Sending that message to your inbox needs
+code that runs outside the visitor's browser, which usually means running a
+mail server or signing up for a form service.
+
+With Puter.js, a [serverless worker](/Workers/) receives the form and sends it
+to your email with [`puter.email.sendTransactional()`](/Email/sendTransactional/).
+There is no server or sending domain to set up.
+
+## Write the Worker
+
+The worker has one route that reads the form fields and emails them to you.
+Put your own email address in `CONTACT_TO`:
+
+```js
+const CONTACT_TO = 'you@example.com';
+
+router.post('/contact', async ({ request }) => {
+    const { name, email, message } = await request.json();
+    if (!name || !email || !message) {
+        return new Response('name, email and message are required', { status: 400 });
+    }
+
+    await me.puter.email.sendTransactional({
+        to: CONTACT_TO,
+        replyTo: email,
+        subject: `Contact form: ${name}`,
+        text: `From: ${name} <${email}>\n\n${message}`,
+    });
+
+    return { ok: true };
+});
+```
+
+The recipient is fixed in the worker, so the form can only ever send mail to
+you. `replyTo` is set to the visitor's address, so pressing reply in your inbox
+writes back to them.
+
+The email is sent with `me.puter`, which is your own Puter account as the
+worker's owner. Sends are billed to you, and
+[transactional email](/Email/sendTransactional/) needs your account to be on a
+paid plan.
+
+To collect more fields, such as a phone number or a topic, read them from the
+request body and add them to `text`.
+
+## Deploy the Worker
+
+Deploy the worker to get its URL, such as `https://my-contact.puter.work`. The
+[Workers deployment guide](/Workers/#deployment) covers each way to deploy.
+
+## Add the Form
+
+The form is plain HTML with one input per field the worker reads:
+
+```html
+<form id="contact-form">
+    <input name="name" placeholder="Your name" required>
+    <input name="email" type="email" placeholder="Your email" required>
+    <textarea name="message" placeholder="Your message" required></textarea>
+    <button type="submit">Send</button>
+</form>
+```
+
+## Send the Form to the Worker
+
+When the form is submitted, post its fields to the worker as JSON:
+
+```js
+const WORKER_URL = 'https://my-contact.puter.work';
+const form = document.getElementById('contact-form');
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const res = await fetch(`${WORKER_URL}/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.fromEntries(new FormData(form))),
+    });
+
+    if (res.ok) {
+        form.reset();
+        alert('Thanks, your message was sent.');
+    } else {
+        alert('Something went wrong. Please try again.');
+    }
+});
+```
+
+The request is a plain `fetch()`, so visitors do not need a Puter account to
+use the form.
+
+Every message sent through the form now arrives in your email inbox.
