@@ -154,9 +154,9 @@ describe('OpenAiChatProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('OpenAiChatProvider model catalog', () => {
-    it('returns gpt-5-nano as the default', () => {
+    it('returns gpt-6-luna as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('gpt-5-nano');
+        expect(provider.getDefaultModel()).toBe('gpt-6-luna');
     });
 
     it('models() excludes Responses-only entries and includes dual-API entries', () => {
@@ -168,8 +168,8 @@ describe('OpenAiChatProvider model catalog', () => {
         for (const id of responsesOnly) {
             expect(ids).not.toContain(id);
         }
-        // gpt-5-nano is a Chat-Completions model, must be present.
-        expect(ids).toContain('gpt-5-nano-2025-08-07');
+        // gpt-5.2 is a Chat-Completions model, must be present.
+        expect(ids).toContain('gpt-5.2-2025-12-11');
         expect(ids).toContain('gpt-6-astra');
         expect(ids).toContain('gpt-6.1-sol');
         expect(ids).toContain('gpt-6-sol');
@@ -179,9 +179,9 @@ describe('OpenAiChatProvider model catalog', () => {
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
         const ids = provider.list();
-        expect(ids).toContain('gpt-5-nano-2025-08-07');
-        expect(ids).toContain('gpt-5-nano');
-        expect(ids).toContain('openai/gpt-5-nano');
+        expect(ids).toContain('gpt-5.2-2025-12-11');
+        expect(ids).toContain('gpt-5.2');
+        expect(ids).toContain('openai/gpt-5.2');
     });
 });
 
@@ -193,7 +193,7 @@ describe('OpenAiChatProvider.complete argument validation', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'gpt-5-nano',
+                    model: 'gpt-5.2',
                     messages: 'hello' as unknown as never,
                 }),
             ),
@@ -208,7 +208,7 @@ describe('OpenAiChatProvider.complete argument validation', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'gpt-5-nano',
+                    model: 'gpt-5.2',
                     messages: [{ role: 'user', content: 'search' }],
                     tools: [{ type: 'web_search' }] as never,
                 }),
@@ -230,7 +230,7 @@ describe('OpenAiChatProvider.complete argument validation', () => {
         );
 
         const params = {
-            model: 'gpt-5-nano',
+            model: 'gpt-5.2',
             messages: [{ role: 'user', content: 'search' }],
             tools: [{ type: 'web_search' }] as never,
         };
@@ -263,7 +263,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hello' }],
                 max_tokens: 256,
                 temperature: 0.4,
@@ -271,8 +271,8 @@ describe('OpenAiChatProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        // alias gpt-5-nano resolves to its canonical id.
-        expect(args.model).toBe('gpt-5-nano-2025-08-07');
+        // alias gpt-5.2 resolves to its canonical id.
+        expect(args.model).toBe('gpt-5.2-2025-12-11');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_completion_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
@@ -286,7 +286,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
             await withTestActor(
                 () =>
                     provider.complete({
-                        model: 'gpt-5-nano',
+                        model: 'gpt-5.2',
                         messages: [{ role: 'user', content: 'hello' }],
                     }),
                 actor,
@@ -306,7 +306,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
         await withTestActor(
             () =>
                 provider.complete({
-                    model: 'gpt-5-nano',
+                    model: 'gpt-5.2',
                     messages: [{ role: 'user', content: 'hello' }],
                     prompt_cache_key: 'caller-key',
                 }),
@@ -349,7 +349,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hello' }],
                 max_tokens: 0,
                 temperature: 0,
@@ -367,7 +367,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning_effort: 'high',
                 verbosity: 'high',
@@ -379,13 +379,13 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect('verbosity' in args).toBe(false);
     });
 
-    it('forwards reasoning_effort and verbosity for non-gpt-5 reasoning models (e.g. o3)', async () => {
+    it('forwards reasoning_effort and verbosity for non-gpt-5 reasoning models (e.g. gpt-6-luna)', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
         await withTestActor(() =>
             provider.complete({
-                model: 'o3',
+                model: 'gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning_effort: 'medium',
                 verbosity: 'low',
@@ -403,7 +403,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -413,7 +413,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -445,7 +445,7 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -462,33 +462,35 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
 
-        const nano = OPEN_AI_MODELS.find(
-            (m) => m.id === 'gpt-5-nano-2025-08-07',
+        const gpt52 = OPEN_AI_MODELS.find(
+            (m) => m.id === 'gpt-5.2-2025-12-11',
         )!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('openai:gpt-5-nano-2025-08-07');
+        expect(prefix).toBe('openai:gpt-5.2-2025-12-11');
         expect(usage).toEqual({
             prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(overrides).toEqual({
-            prompt_tokens: 90 * Number(nano.costs.prompt_tokens),
-            completion_tokens: 50 * Number(nano.costs.completion_tokens),
-            cached_tokens: 10 * Number(nano.costs.cached_tokens ?? 0),
+            prompt_tokens: 90 * Number(gpt52.costs.prompt_tokens),
+            completion_tokens: 50 * Number(gpt52.costs.completion_tokens),
+            cached_tokens: 10 * Number(gpt52.costs.cached_tokens ?? 0),
         });
     });
 
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {
-        // o4-mini's catalogue entry has no cached_tokens rate. Cached tokens
-        // are subtracted out of prompt_tokens, so pricing them at zero bills
-        // them nowhere — the whole cached portion of the request goes free.
-        const o4Mini = OPEN_AI_MODELS.find((m) => m.id === 'o4-mini')!;
-        expect(o4Mini.costs.cached_tokens).toBeUndefined();
+        // No current Chat Completions entry lacks a cached_tokens rate, so
+        // strip it from a copy. Cached tokens are subtracted out of
+        // prompt_tokens, so pricing them at zero would bill them nowhere.
+        const gpt41 = OPEN_AI_MODELS.find((m) => m.id === 'gpt-4.1')!;
+        const { cached_tokens: _cached, ...uncachedCosts } = gpt41.costs;
+        const uncached = { ...gpt41, costs: uncachedCosts };
 
         const { provider } = makeProvider();
+        vi.spyOn(provider, 'models').mockReturnValue([uncached]);
         createMock.mockResolvedValueOnce({
             choices: [
                 {
@@ -505,16 +507,16 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'o4-mini',
+                model: 'gpt-4.1',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
         const [, , , overrides] = recordSpy.mock.calls[0]!;
-        const inputRate = Number(o4Mini.costs.prompt_tokens);
+        const inputRate = Number(uncached.costs.prompt_tokens);
         expect(overrides).toEqual({
             prompt_tokens: (2989 - 2816) * inputRate,
-            completion_tokens: 12 * Number(o4Mini.costs.completion_tokens),
+            completion_tokens: 12 * Number(uncached.costs.completion_tokens),
             cached_tokens: 2816 * inputRate,
         });
         expect(
@@ -578,7 +580,7 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -611,7 +613,7 @@ describe('OpenAiChatProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -636,16 +638,16 @@ describe('OpenAiChatProvider.complete streaming', () => {
             cached_tokens: 1,
         });
 
-        const nano = OPEN_AI_MODELS.find(
-            (m) => m.id === 'gpt-5-nano-2025-08-07',
+        const gpt52 = OPEN_AI_MODELS.find(
+            (m) => m.id === 'gpt-5.2-2025-12-11',
         )!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('openai:gpt-5-nano-2025-08-07');
+        expect(prefix).toBe('openai:gpt-5.2-2025-12-11');
         expect(overrides).toEqual({
-            prompt_tokens: 3 * Number(nano.costs.prompt_tokens),
-            completion_tokens: 2 * Number(nano.costs.completion_tokens),
-            cached_tokens: 1 * Number(nano.costs.cached_tokens ?? 0),
+            prompt_tokens: 3 * Number(gpt52.costs.prompt_tokens),
+            completion_tokens: 2 * Number(gpt52.costs.completion_tokens),
+            cached_tokens: 1 * Number(gpt52.costs.cached_tokens ?? 0),
         });
     });
 });
@@ -699,7 +701,7 @@ describe('OpenAiChatProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'gpt-5-nano',
+                    model: 'gpt-5.2',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

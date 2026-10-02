@@ -27,22 +27,18 @@ import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
 import { GEMINI_TTS_COSTS } from './costs.js';
 
-const DEFAULT_MODEL = 'gemini-2.5-flash-preview-tts';
+const DEFAULT_MODEL = 'gemini-3.8-flash-tts';
 const DEFAULT_VOICE = 'Kore';
 const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const GEMINI_TTS_MODELS = [
     {
-        id: 'gemini-2.5-flash-preview-tts',
-        name: 'Gemini 2.5 Flash TTS',
+        id: 'gemini-3.8-flash-tts',
+        name: 'Gemini 3.8 Flash TTS',
     },
     {
-        id: 'gemini-2.5-pro-preview-tts',
-        name: 'Gemini 2.5 Pro TTS',
-    },
-    {
-        id: 'gemini-3.1-flash-tts-preview',
-        name: 'Gemini 3.1 Flash TTS',
+        id: 'gemini-3.8-flash-lite-tts',
+        name: 'Gemini 3.8 Flash-Lite TTS',
     },
 ];
 

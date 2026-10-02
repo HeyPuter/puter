@@ -27,7 +27,7 @@ A string containing the prompt you want to complete.
 
 An object containing the following properties:
 
-- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
+- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
 - `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
 - `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
@@ -361,7 +361,6 @@ Certain Gemini models can generate and edit images as part of a chat conversatio
 
 | Model | Quality Levels |
 |-------|---------------|
-| `gemini-2.5-flash-image` | — |
 | `gemini-3-pro-image-preview` | `1K`, `2K`, `4K` |
 | `gemini-3.1-flash-image-preview` | `512`, `1K`, `2K`, `4K` |
 
@@ -499,7 +498,7 @@ for await (const part of resp) {
     <script src="https://js.puter.com/v2/"></script>
     <script>
     (async () => {
-        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.1-flash-lite', stream: true });
+        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.5-flash-lite', stream: true });
         for await ( const part of resp ) document.write(part?.text.replaceAll('\n', '<br>'));
     })();
     </script>

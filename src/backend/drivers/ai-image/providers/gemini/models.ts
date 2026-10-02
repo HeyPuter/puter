@@ -25,8 +25,6 @@ export const GEMINI_DEFAULT_RATIO = { w: 1024, h: 1024 };
 // These are based on Google's published pricing equivalences.
 // https://ai.google.dev/gemini-api/docs/image-generation#aspect_ratios_and_image_size
 export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
-    'gemini-2.5-flash-image': 1290,
-
     'gemini-3-pro-image:1K': 1120,
     'gemini-3-pro-image:2K': 1120,
     'gemini-3-pro-image:4K': 2000,
@@ -123,6 +121,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'google/gemini-3-pro-image',
             'google:google/gemini-3-pro-image-preview',
             'nano-banana-pro',
+            'nano-banana-pro-preview',
         ],
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [
@@ -143,42 +142,5 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             output_image: 12000, // $120.00 per 1M output image tokens
             '1K:1x1': 13.4,
         },
-    },
-    {
-        // Shuts down 2026-10-02 per Google's deprecation schedule.
-        puterId: 'google:google/gemini-2.5-flash-image',
-        id: 'gemini-2.5-flash-image',
-        aliases: [
-            'gemini-2.5-flash-image-preview',
-            'google/gemini-2.5-flash-image-preview',
-            'google/gemini-2.5-flash-image',
-            'google:google/gemini-2.5-flash-image-preview',
-            'nano-banana',
-        ],
-
-        name: 'Gemini 2.5 Flash Image',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: '1x1',
-        index_input_cost_key: 'input',
-        allowedQualityLevels: [''],
-        costs: {
-            input: 30, // $0.30 per 1M input tokens (text/image)
-            output: 250, // $2.50 per 1M output tokens (text and thinking)
-            output_image: 3000, // $30.00 per 1M output image tokens
-            '1x1': 3.9,
-        },
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 2, h: 3 },
-            { w: 3, h: 2 },
-            { w: 3, h: 4 },
-            { w: 4, h: 3 },
-            { w: 4, h: 5 },
-            { w: 5, h: 4 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-            { w: 21, h: 9 },
-        ],
     },
 ];

@@ -20,12 +20,12 @@
 /**
  * Offline unit tests for OpenAITTSProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs OpenAITTSProvider directly against the live
- * wired `MeteringService` so the recording side runs end-to-end. The
- * OpenAI SDK is mocked at the module boundary — that's the real
- * network egress point. The companion integration test
- * (OpenAITTSProvider.integration.test.ts) covers the real API.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs OpenAITTSProvider directly against the live wired
+ * `MeteringService` so the recording side runs end-to-end. The OpenAI SDK is
+ * mocked at the module boundary — that's the real network egress point. The
+ * companion integration test (OpenAITTSProvider.integration.test.ts) covers the
+ * real API.
  */
 
 import { Readable } from 'node:stream';
@@ -128,12 +128,31 @@ describe('OpenAITTSProvider catalog', () => {
         expect(voices.length).toBeGreaterThan(0);
         for (const voice of voices) {
             expect(voice.provider).toBe('openai');
-            expect(voice.supported_models).toEqual(
-                expect.arrayContaining(['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd']),
-            );
+            expect(voice.supported_models).toContain('gpt-4o-mini-tts');
         }
         // Default voice id is present.
         expect(voices.find((v) => v.id === 'alloy')).toBeDefined();
+    });
+
+    it.each(['ballad', 'cedar', 'marin', 'verse'])(
+        'limits %s to gpt-4o-mini-tts',
+        async (id) => {
+            const provider = makeProvider();
+            const voices = await provider.listVoices();
+            expect(voices.find((v) => v.id === id)?.supported_models).toEqual([
+                'gpt-4o-mini-tts',
+            ]);
+        },
+    );
+
+    it('offers the shared voices on every engine', async () => {
+        const provider = makeProvider();
+        const voices = await provider.listVoices();
+        expect(voices.find((v) => v.id === 'sage')?.supported_models).toEqual([
+            'gpt-4o-mini-tts',
+            'tts-1',
+            'tts-1-hd',
+        ]);
     });
 
     it('lists every documented engine with pricing_per_million_chars', async () => {
@@ -213,6 +232,32 @@ describe('OpenAITTSProvider.synthesize argument validation', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(speechCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['tts-1', 'marin'],
+        ['tts-1-hd', 'ballad'],
+    ])('throws 400 when %s is asked for the %s voice', async (model, voice) => {
+        const provider = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', model, voice }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(speechCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('forwards a gpt-4o-mini-tts-only voice on the default model', async () => {
+        const provider = makeProvider();
+        speechCreateMock.mockResolvedValueOnce(mockAudioResponse());
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'marin' }),
+        );
+        const [sent] = speechCreateMock.mock.calls[0]!;
+        expect(sent).toMatchObject({
+            model: 'gpt-4o-mini-tts',
+            voice: 'marin',
+        });
     });
 
     it('throws 400 when the voice is not in the catalog', async () => {

@@ -28,7 +28,6 @@ import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
-import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
 import type {
     IGenerateVideoParams,
@@ -36,7 +35,7 @@ import type {
     IVideoProvider,
 } from './types.js';
 
-const DEFAULT_PROVIDER = 'gemini-video-generation';
+const DEFAULT_PROVIDER = 'together-video-generation';
 
 const isResolutionTier = (value: string): boolean => /^\d{3,4}p$/i.test(value);
 
@@ -68,10 +67,10 @@ const tierForPixels = ({
 /**
  * Driver implementing the `puter-video-generation` interface.
  *
- * Manages multiple upstream providers (Gemini/Veo, Together, BytePlus/Seedance)
- * and handles model resolution, provider routing, and parameter normalisation.
- * Each provider is a plain `IVideoProvider` -- the driver instantiates them
- * from config on boot.
+ * Manages multiple upstream providers (Together, BytePlus/Seedance) and handles
+ * model resolution, provider routing, and parameter normalisation. Each
+ * provider is a plain `IVideoProvider` -- the driver instantiates them from
+ * config on boot.
  *
  * Providers handle their own metering internally.
  */
@@ -82,7 +81,6 @@ export class VideoGenerationDriver extends PuterDriver {
     // alias all provider ids here. `generate` falls back to
     // `Context.driverName` when `args.provider` isn't supplied.
     readonly driverAliases = [
-        'gemini-video-generation',
         'together-video-generation',
         'byteplus-video-generation',
     ];
@@ -326,15 +324,6 @@ export class VideoGenerationDriver extends PuterDriver {
             }
             return undefined;
         };
-
-        const geminiKey = readKey(
-            providers['gemini-video-generation'],
-            providers['gemini'],
-        );
-        if (geminiKey) {
-            this.#providers['gemini-video-generation'] =
-                new GeminiVideoProvider({ apiKey: geminiKey }, m);
-        }
 
         const togetherKey = readKey(
             providers['together-video-generation'],

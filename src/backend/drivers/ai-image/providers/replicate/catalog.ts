@@ -292,6 +292,128 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: [],
     },
     {
+        id: 'alibaba/qwen-image-3',
+        replicateId: 'alibaba/qwen-image-3',
+        puterId: 'replicate:alibaba/qwen-image-3',
+        name: 'qwen image 3',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 3,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 3,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/alibaba/qwen-image-3#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+            },
+            image: {
+                type: 'string',
+                default: null,
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '16:9',
+                    '9:16',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '2:1',
+                    '1:2',
+                ],
+                default: '1:1',
+            },
+            negative_prompt: {
+                type: 'string',
+                default: '',
+            },
+            match_input_image: {
+                type: 'boolean',
+                default: false,
+            },
+            enable_prompt_expansion: {
+                type: 'boolean',
+                default: true,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'alibaba/qwen-image-3-pro',
+        replicateId: 'alibaba/qwen-image-3-pro',
+        puterId: 'replicate:alibaba/qwen-image-3-pro',
+        name: 'qwen image 3 pro',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 4,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/alibaba/qwen-image-3-pro#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+            },
+            image: {
+                type: 'string',
+                default: null,
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '16:9',
+                    '9:16',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '2:1',
+                    '1:2',
+                ],
+                default: '1:1',
+            },
+            negative_prompt: {
+                type: 'string',
+                default: '',
+            },
+            match_input_image: {
+                type: 'boolean',
+                default: false,
+            },
+            enable_prompt_expansion: {
+                type: 'boolean',
+                default: true,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
         id: 'black-forest-labs/flux-1.1-pro-ultra',
         replicateId: 'black-forest-labs/flux-1.1-pro-ultra',
         puterId: 'replicate:black-forest-labs/flux-1.1-pro-ultra',
@@ -464,6 +586,85 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
+        id: 'black-forest-labs/flux-2-klein-9b',
+        replicateId: 'black-forest-labs/flux-2-klein-9b',
+        puterId: 'replicate:black-forest-labs/flux-2-klein-9b',
+        aliases: ['flux-2-klein-9b'],
+        name: 'flux 2 klein 9b',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output_mp',
+        costs: {
+            input_mp: 0.2,
+            output_mp: 1.5,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    input_mp: 0.2,
+                    output_mp: 1.5,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/black-forest-labs/flux-2-klein-9b#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+            },
+            images: {
+                type: 'array',
+                default: [],
+            },
+            prompt: {
+                type: 'string',
+            },
+            go_fast: {
+                type: 'boolean',
+                default: true,
+            },
+            megapixels: {
+                type: 'string',
+                enum: ['0.25', '0.5', '1', '2', '4'],
+                default: '1',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '16:9',
+                    '9:16',
+                    '3:2',
+                    '2:3',
+                    '4:3',
+                    '3:4',
+                    '5:4',
+                    '4:5',
+                    '21:9',
+                    '9:21',
+                    'match_input_image',
+                ],
+                default: '1:1',
+            },
+            output_format: {
+                type: 'string',
+                enum: ['webp', 'jpg', 'png'],
+                default: 'jpg',
+            },
+            output_quality: {
+                type: 'integer',
+                default: 95,
+                minimum: 0,
+                maximum: 100,
+            },
+            disable_safety_checker: {
+                type: 'boolean',
+                default: false,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
         id: 'black-forest-labs/flux-2-max',
         replicateId: 'black-forest-labs/flux-2-max',
         puterId: 'replicate:black-forest-labs/flux-2-max',
@@ -622,66 +823,6 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt', 'control_image'],
     },
     {
-        id: 'black-forest-labs/flux-canny-pro',
-        replicateId: 'black-forest-labs/flux-canny-pro',
-        puterId: 'replicate:black-forest-labs/flux-canny-pro',
-        name: 'flux canny pro',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'output',
-        costs: {
-            output: 5,
-        },
-        billingScheme: 'metered',
-        billingRates: [
-            {
-                costs: {
-                    output: 5,
-                },
-            },
-        ],
-        priceSource:
-            'https://replicate.com/black-forest-labs/flux-canny-pro#pricing',
-        inputSchema: {
-            seed: {
-                type: 'integer',
-            },
-            steps: {
-                type: 'integer',
-                default: 50,
-                minimum: 15,
-                maximum: 50,
-            },
-            prompt: {
-                type: 'string',
-            },
-            guidance: {
-                type: 'number',
-                default: 30,
-                minimum: 1,
-                maximum: 100,
-            },
-            control_image: {
-                type: 'string',
-            },
-            output_format: {
-                type: 'string',
-                enum: ['jpg', 'png'],
-                default: 'jpg',
-            },
-            safety_tolerance: {
-                type: 'integer',
-                default: 2,
-                minimum: 1,
-                maximum: 6,
-            },
-            prompt_upsampling: {
-                type: 'boolean',
-                default: false,
-            },
-        },
-        requiredInputs: ['prompt', 'control_image'],
-    },
-    {
         id: 'black-forest-labs/flux-depth-dev',
         replicateId: 'black-forest-labs/flux-depth-dev',
         puterId: 'replicate:black-forest-labs/flux-depth-dev',
@@ -746,66 +887,6 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
                 maximum: 50,
             },
             disable_safety_checker: {
-                type: 'boolean',
-                default: false,
-            },
-        },
-        requiredInputs: ['prompt', 'control_image'],
-    },
-    {
-        id: 'black-forest-labs/flux-depth-pro',
-        replicateId: 'black-forest-labs/flux-depth-pro',
-        puterId: 'replicate:black-forest-labs/flux-depth-pro',
-        name: 'flux depth pro',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'output',
-        costs: {
-            output: 5,
-        },
-        billingScheme: 'metered',
-        billingRates: [
-            {
-                costs: {
-                    output: 5,
-                },
-            },
-        ],
-        priceSource:
-            'https://replicate.com/black-forest-labs/flux-depth-pro#pricing',
-        inputSchema: {
-            seed: {
-                type: 'integer',
-            },
-            steps: {
-                type: 'integer',
-                default: 50,
-                minimum: 15,
-                maximum: 50,
-            },
-            prompt: {
-                type: 'string',
-            },
-            guidance: {
-                type: 'number',
-                default: 30,
-                minimum: 1,
-                maximum: 100,
-            },
-            control_image: {
-                type: 'string',
-            },
-            output_format: {
-                type: 'string',
-                enum: ['jpg', 'png'],
-                default: 'jpg',
-            },
-            safety_tolerance: {
-                type: 'integer',
-                default: 2,
-                minimum: 1,
-                maximum: 6,
-            },
-            prompt_upsampling: {
                 type: 'boolean',
                 default: false,
             },
@@ -1322,200 +1403,6 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
-        id: 'black-forest-labs/flux-pro-finetuned',
-        unavailableReason:
-            'Replicate cannot connect to its upstream BFL endpoint.',
-        replicateId: 'black-forest-labs/flux-pro-finetuned',
-        puterId: 'replicate:black-forest-labs/flux-pro-finetuned',
-        name: 'flux pro finetuned',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'output',
-        costs: {
-            output: 6,
-        },
-        billingScheme: 'metered',
-        billingRates: [
-            {
-                costs: {
-                    output: 6,
-                },
-            },
-        ],
-        priceSource:
-            'https://replicate.com/black-forest-labs/flux-pro-finetuned#pricing',
-        inputSchema: {
-            seed: {
-                type: 'integer',
-            },
-            steps: {
-                type: 'integer',
-                default: 40,
-                minimum: 1,
-                maximum: 50,
-            },
-            width: {
-                type: 'integer',
-                minimum: 256,
-                maximum: 1440,
-            },
-            height: {
-                type: 'integer',
-                minimum: 256,
-                maximum: 1440,
-            },
-            prompt: {
-                type: 'string',
-            },
-            guidance: {
-                type: 'number',
-                default: 3,
-                minimum: 2,
-                maximum: 5,
-            },
-            finetune_id: {
-                type: 'string',
-            },
-            aspect_ratio: {
-                type: 'string',
-                enum: [
-                    'custom',
-                    '1:1',
-                    '16:9',
-                    '3:2',
-                    '2:3',
-                    '4:5',
-                    '5:4',
-                    '9:16',
-                    '3:4',
-                    '4:3',
-                ],
-                default: '1:1',
-            },
-            image_prompt: {
-                type: 'string',
-            },
-            output_format: {
-                type: 'string',
-                enum: ['jpg', 'png'],
-                default: 'jpg',
-            },
-            safety_tolerance: {
-                type: 'integer',
-                default: 2,
-                minimum: 1,
-                maximum: 6,
-            },
-            finetune_strength: {
-                type: 'number',
-                default: 1,
-                minimum: 0,
-                maximum: 2,
-            },
-            prompt_upsampling: {
-                type: 'boolean',
-                default: false,
-            },
-        },
-        requiredInputs: ['prompt', 'finetune_id'],
-    },
-    {
-        id: 'black-forest-labs/flux-pro',
-        replicateId: 'black-forest-labs/flux-pro',
-        puterId: 'replicate:black-forest-labs/flux-pro',
-        name: 'flux pro',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'output',
-        costs: {
-            output: 5.5,
-        },
-        billingScheme: 'metered',
-        billingRates: [
-            {
-                costs: {
-                    output: 5.5,
-                },
-            },
-        ],
-        priceSource: 'https://replicate.com/black-forest-labs/flux-pro#pricing',
-        inputSchema: {
-            seed: {
-                type: 'integer',
-            },
-            steps: {
-                type: 'integer',
-                default: 25,
-                minimum: 1,
-                maximum: 50,
-            },
-            width: {
-                type: 'integer',
-                minimum: 256,
-                maximum: 1440,
-            },
-            height: {
-                type: 'integer',
-                minimum: 256,
-                maximum: 1440,
-            },
-            prompt: {
-                type: 'string',
-            },
-            guidance: {
-                type: 'number',
-                default: 3,
-                minimum: 2,
-                maximum: 5,
-            },
-            interval: {
-                type: 'number',
-                default: 2,
-                minimum: 1,
-                maximum: 4,
-            },
-            aspect_ratio: {
-                type: 'string',
-                enum: [
-                    'custom',
-                    '1:1',
-                    '16:9',
-                    '3:2',
-                    '2:3',
-                    '4:5',
-                    '5:4',
-                    '9:16',
-                    '3:4',
-                    '4:3',
-                ],
-                default: '1:1',
-            },
-            image_prompt: {
-                type: 'string',
-            },
-            output_format: {
-                type: 'string',
-                enum: ['webp', 'jpg', 'png'],
-                default: 'webp',
-            },
-            output_quality: {
-                type: 'integer',
-                default: 80,
-                minimum: 0,
-                maximum: 100,
-            },
-            safety_tolerance: {
-                type: 'integer',
-                default: 2,
-                minimum: 1,
-                maximum: 6,
-            },
-            prompt_upsampling: {
-                type: 'boolean',
-                default: false,
-            },
-        },
-        requiredInputs: ['prompt'],
-    },
-    {
         id: 'black-forest-labs/flux-redux-dev',
         replicateId: 'black-forest-labs/flux-redux-dev',
         puterId: 'replicate:black-forest-labs/flux-redux-dev',
@@ -1680,6 +1567,85 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         },
         requiredInputs: ['redux_image'],
         promptKey: false,
+    },
+    {
+        id: 'bria/expand-image',
+        replicateId: 'bria/expand-image',
+        puterId: 'replicate:bria/expand-image',
+        name: 'expand image',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 4,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/bria/expand-image#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+            },
+            sync: {
+                type: 'boolean',
+                default: true,
+            },
+            image: {
+                type: 'string',
+                default: null,
+            },
+            prompt: {
+                type: 'string',
+                default: null,
+            },
+            canvas_size: {
+                type: 'array',
+                default: null,
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'none',
+                    '1:1',
+                    '2:3',
+                    '3:2',
+                    '3:4',
+                    '4:3',
+                    '4:5',
+                    '5:4',
+                    '9:16',
+                    '16:9',
+                ],
+                default: '1:1',
+            },
+            preserve_alpha: {
+                type: 'boolean',
+                default: true,
+            },
+            negative_prompt: {
+                type: 'string',
+                default: null,
+            },
+            content_moderation: {
+                type: 'boolean',
+                default: false,
+            },
+            original_image_size: {
+                type: 'array',
+                default: null,
+            },
+            original_image_location: {
+                type: 'array',
+                default: null,
+            },
+        },
+        requiredInputs: ['image'],
     },
     {
         id: 'bria/fibo',
@@ -2172,6 +2138,75 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
                 type: 'string',
                 enum: ['disabled', 'auto'],
                 default: 'disabled',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'bytedance/seedream-5-pro',
+        replicateId: 'bytedance/seedream-5-pro',
+        puterId: 'replicate:bytedance/seedream-5-pro',
+        name: 'seedream 5 pro',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 9,
+            'output:1K': 4.5,
+            'output:2K': 9,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                when: {
+                    size: '1K',
+                },
+                costs: {
+                    output: 4.5,
+                },
+            },
+            {
+                when: {
+                    size: '2K',
+                },
+                costs: {
+                    output: 9,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/bytedance/seedream-5-pro#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: ['1K', '2K'],
+                default: '2K',
+            },
+            prompt: {
+                type: 'string',
+                default: '',
+            },
+            image_input: {
+                type: 'array',
+                default: [],
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'match_input_image',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '16:9',
+                    '9:16',
+                    '3:2',
+                    '2:3',
+                    '21:9',
+                ],
+                default: 'match_input_image',
+            },
+            output_format: {
+                type: 'string',
+                enum: ['png', 'jpeg'],
+                default: 'png',
             },
         },
         requiredInputs: ['prompt'],
@@ -3160,6 +3195,62 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
+        id: 'google/nano-banana-2-lite',
+        replicateId: 'google/nano-banana-2-lite',
+        puterId: 'replicate:google/nano-banana-2-lite',
+        name: 'nano banana 2 lite',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 3.4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 3.4,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/google/nano-banana-2-lite#pricing',
+        inputSchema: {
+            prompt: {
+                type: 'string',
+            },
+            image_input: {
+                type: 'array',
+                default: [],
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'match_input_image',
+                    '1:1',
+                    '1:4',
+                    '1:8',
+                    '2:3',
+                    '3:2',
+                    '3:4',
+                    '4:1',
+                    '4:3',
+                    '4:5',
+                    '5:4',
+                    '8:1',
+                    '9:16',
+                    '16:9',
+                    '21:9',
+                ],
+                default: 'match_input_image',
+            },
+            output_format: {
+                type: 'string',
+                enum: ['jpg', 'png'],
+                default: 'jpg',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
         id: 'google/nano-banana-pro',
         replicateId: 'google/nano-banana-pro',
         puterId: 'replicate:google/nano-banana-pro',
@@ -3253,56 +3344,162 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
-        id: 'google/nano-banana',
-        replicateId: 'google/nano-banana',
-        puterId: 'replicate:google/nano-banana',
-        name: 'nano banana',
+        id: 'ideogram-ai/ideogram-4-5',
+        replicateId: 'ideogram-ai/ideogram-4-5',
+        puterId: 'replicate:ideogram-ai/ideogram-4-5',
+        name: 'ideogram 4 5',
         costs_currency: 'usd-cents',
         index_cost_key: 'output',
         costs: {
-            output: 3.9,
+            output: 6,
+            'output:low': 3,
+            'output:medium': 6,
+            'output:high': 10,
         },
         billingScheme: 'metered',
         billingRates: [
             {
+                when: {
+                    quality: 'low',
+                },
                 costs: {
-                    output: 3.9,
+                    output: 3,
+                },
+            },
+            {
+                when: {
+                    quality: 'medium',
+                },
+                costs: {
+                    output: 6,
+                },
+            },
+            {
+                when: {
+                    quality: 'high',
+                },
+                costs: {
+                    output: 10,
                 },
             },
         ],
-        priceSource: 'https://replicate.com/google/nano-banana#pricing',
+        priceSource: 'https://replicate.com/ideogram-ai/ideogram-4-5#pricing',
         inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+                maximum: 2147483647,
+            },
+            size: {
+                type: 'string',
+                enum: [
+                    '1024x1024',
+                    '1280x896',
+                    '896x1280',
+                    '1344x768',
+                    '768x1344',
+                    '1536x640',
+                    '640x1536',
+                ],
+                default: '1024x1024',
+            },
             prompt: {
                 type: 'string',
             },
-            image_input: {
-                type: 'array',
-                default: [],
-            },
-            aspect_ratio: {
+            quality: {
                 type: 'string',
-                enum: [
-                    'match_input_image',
-                    '1:1',
-                    '2:3',
-                    '3:2',
-                    '3:4',
-                    '4:3',
-                    '4:5',
-                    '5:4',
-                    '9:16',
-                    '16:9',
-                    '21:9',
-                ],
-                default: 'match_input_image',
+                enum: ['low', 'medium', 'high'],
+                default: 'medium',
             },
-            output_format: {
-                type: 'string',
-                enum: ['jpg', 'png'],
-                default: 'jpg',
+            num_images: {
+                type: 'integer',
+                default: 1,
+                minimum: 1,
+                maximum: 8,
             },
         },
         requiredInputs: ['prompt'],
+    },
+    {
+        id: 'ideogram-ai/ideogram-4-5-precise-edit',
+        replicateId: 'ideogram-ai/ideogram-4-5-precise-edit',
+        puterId: 'replicate:ideogram-ai/ideogram-4-5-precise-edit',
+        name: 'ideogram 4 5 precise edit',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 6,
+            'output:very_low': 0.8,
+            'output:low': 3,
+            'output:medium': 6,
+            'output:high': 22,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                when: {
+                    quality: 'very_low',
+                },
+                costs: {
+                    output: 0.8,
+                },
+            },
+            {
+                when: {
+                    quality: 'low',
+                },
+                costs: {
+                    output: 3,
+                },
+            },
+            {
+                when: {
+                    quality: 'medium',
+                },
+                costs: {
+                    output: 6,
+                },
+            },
+            {
+                when: {
+                    quality: 'high',
+                },
+                costs: {
+                    output: 22,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/ideogram-ai/ideogram-4-5-precise-edit#pricing',
+        inputSchema: {
+            mask: {
+                type: 'string',
+                default: null,
+            },
+            seed: {
+                type: 'integer',
+                default: null,
+                maximum: 2147483647,
+            },
+            image: {
+                type: 'string',
+            },
+            prompt: {
+                type: 'string',
+            },
+            quality: {
+                type: 'string',
+                enum: ['very_low', 'low', 'medium', 'high'],
+                default: 'medium',
+            },
+            num_images: {
+                type: 'integer',
+                default: 1,
+                minimum: 1,
+                maximum: 8,
+            },
+        },
+        requiredInputs: ['prompt', 'image'],
     },
     {
         id: 'ideogram-ai/ideogram-v2-turbo',
@@ -4533,6 +4730,126 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
+        id: 'ideogram-ai/ideogram-v4-balanced',
+        replicateId: 'ideogram-ai/ideogram-v4-balanced',
+        puterId: 'replicate:ideogram-ai/ideogram-v4-balanced',
+        name: 'ideogram v4 balanced',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 6,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 6,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/ideogram-ai/ideogram-v4-balanced#pricing',
+        inputSchema: {
+            prompt: {
+                type: 'string',
+                default: null,
+            },
+            resolution: {
+                type: 'string',
+                enum: [
+                    'None',
+                    '2048x2048',
+                    '1440x2880',
+                    '2880x1440',
+                    '1664x2496',
+                    '2496x1664',
+                    '1792x2240',
+                    '2240x1792',
+                    '1440x2560',
+                    '2560x1440',
+                    '1600x2560',
+                    '2560x1600',
+                    '1728x2304',
+                    '2304x1728',
+                    '1296x3168',
+                    '3168x1296',
+                    '1152x2944',
+                    '2944x1152',
+                    '1248x3328',
+                    '3328x1248',
+                    '1280x3072',
+                    '3072x1280',
+                ],
+                default: 'None',
+            },
+            enable_copyright_detection: {
+                type: 'boolean',
+                default: false,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'ideogram-ai/ideogram-v4-quality',
+        replicateId: 'ideogram-ai/ideogram-v4-quality',
+        puterId: 'replicate:ideogram-ai/ideogram-v4-quality',
+        name: 'ideogram v4 quality',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 10,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 10,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/ideogram-ai/ideogram-v4-quality#pricing',
+        inputSchema: {
+            prompt: {
+                type: 'string',
+                default: null,
+            },
+            resolution: {
+                type: 'string',
+                enum: [
+                    'None',
+                    '2048x2048',
+                    '1440x2880',
+                    '2880x1440',
+                    '1664x2496',
+                    '2496x1664',
+                    '1792x2240',
+                    '2240x1792',
+                    '1440x2560',
+                    '2560x1440',
+                    '1600x2560',
+                    '2560x1600',
+                    '1728x2304',
+                    '2304x1728',
+                    '1296x3168',
+                    '3168x1296',
+                    '1152x2944',
+                    '2944x1152',
+                    '1248x3328',
+                    '3328x1248',
+                    '1280x3072',
+                    '3072x1280',
+                ],
+                default: 'None',
+            },
+            enable_copyright_detection: {
+                type: 'boolean',
+                default: false,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
         id: 'jagilley/controlnet-scribble',
         // ControlNet returns the detected control map before the generated sample.
         outputIndex: 1,
@@ -4601,6 +4918,104 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
             },
         },
         requiredInputs: ['image', 'prompt'],
+    },
+    {
+        id: 'krea/krea-2-large',
+        replicateId: 'krea/krea-2-large',
+        puterId: 'replicate:krea/krea-2-large',
+        name: 'krea 2 large',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 6,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 6,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/krea/krea-2-large#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+            },
+            prompt: {
+                type: 'string',
+            },
+            creativity: {
+                type: 'string',
+                enum: ['raw', 'low', 'medium', 'high'],
+                default: 'medium',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '4:3',
+                    '3:2',
+                    '16:9',
+                    '2.35:1',
+                    '4:5',
+                    '2:3',
+                    '9:16',
+                ],
+                default: '1:1',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'krea/krea-2-medium',
+        replicateId: 'krea/krea-2-medium',
+        puterId: 'replicate:krea/krea-2-medium',
+        name: 'krea 2 medium',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 3,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 3,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/krea/krea-2-medium#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+            },
+            prompt: {
+                type: 'string',
+            },
+            creativity: {
+                type: 'string',
+                enum: ['raw', 'low', 'medium', 'high'],
+                default: 'medium',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '4:3',
+                    '3:2',
+                    '16:9',
+                    '2.35:1',
+                    '4:5',
+                    '2:3',
+                    '9:16',
+                ],
+                default: '1:1',
+            },
+        },
+        requiredInputs: ['prompt'],
     },
     {
         id: 'lucataco/dreamshaper-xl-turbo',
@@ -5069,6 +5484,76 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
+        id: 'luma/reframe-image',
+        replicateId: 'luma/reframe-image',
+        puterId: 'replicate:luma/reframe-image',
+        name: 'reframe image',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 1,
+            'output:photon-flash-1': 1,
+            'output:photon-1': 3,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                when: {
+                    model: 'photon-flash-1',
+                },
+                costs: {
+                    output: 1,
+                },
+            },
+            {
+                when: {
+                    model: 'photon-1',
+                },
+                costs: {
+                    output: 3,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/luma/reframe-image#pricing',
+        inputSchema: {
+            image: {
+                type: 'string',
+            },
+            model: {
+                type: 'string',
+                enum: ['photon-flash-1', 'photon-1'],
+                default: 'photon-flash-1',
+            },
+            x_end: {
+                type: 'integer',
+            },
+            y_end: {
+                type: 'integer',
+            },
+            prompt: {
+                type: 'string',
+            },
+            x_start: {
+                type: 'integer',
+            },
+            y_start: {
+                type: 'integer',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: ['1:1', '3:4', '4:3', '9:16', '16:9', '9:21', '21:9'],
+                default: '16:9',
+            },
+            grid_position_x: {
+                type: 'integer',
+            },
+            grid_position_y: {
+                type: 'integer',
+            },
+        },
+        requiredInputs: ['image'],
+    },
+    {
         id: 'minimax/image-01',
         replicateId: 'minimax/image-01',
         puterId: 'replicate:minimax/image-01',
@@ -5266,111 +5751,6 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: [],
     },
     {
-        id: 'openai/gpt-image-1.5',
-        replicateId: 'openai/gpt-image-1.5',
-        puterId: 'replicate:openai/gpt-image-1.5',
-        name: 'gpt image 1.5',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'output',
-        costs: {
-            output: 13.6,
-            'output:auto': 13.6,
-            'output:low': 1.3,
-            'output:medium': 5,
-            'output:high': 13.6,
-        },
-        billingScheme: 'metered',
-        billingRates: [
-            {
-                when: {
-                    quality: 'auto',
-                },
-                costs: {
-                    output: 13.6,
-                },
-            },
-            {
-                when: {
-                    quality: 'low',
-                },
-                costs: {
-                    output: 1.3,
-                },
-            },
-            {
-                when: {
-                    quality: 'medium',
-                },
-                costs: {
-                    output: 5,
-                },
-            },
-            {
-                when: {
-                    quality: 'high',
-                },
-                costs: {
-                    output: 13.6,
-                },
-            },
-        ],
-        priceSource: 'https://replicate.com/openai/gpt-image-1.5#pricing',
-        inputSchema: {
-            prompt: {
-                type: 'string',
-            },
-            quality: {
-                type: 'string',
-                enum: ['low', 'medium', 'high', 'auto'],
-                default: 'auto',
-            },
-            user_id: {
-                type: 'string',
-            },
-            background: {
-                type: 'string',
-                enum: ['auto', 'transparent', 'opaque'],
-                default: 'auto',
-            },
-            moderation: {
-                type: 'string',
-                enum: ['auto', 'low'],
-                default: 'auto',
-            },
-            aspect_ratio: {
-                type: 'string',
-                enum: ['1:1', '3:2', '2:3'],
-                default: '1:1',
-            },
-            input_images: {
-                type: 'array',
-            },
-            output_format: {
-                type: 'string',
-                enum: ['png', 'jpeg', 'webp'],
-                default: 'webp',
-            },
-            input_fidelity: {
-                type: 'string',
-                enum: ['low', 'high'],
-                default: 'low',
-            },
-            number_of_images: {
-                type: 'integer',
-                default: 1,
-                minimum: 1,
-                maximum: 10,
-            },
-            output_compression: {
-                type: 'integer',
-                default: 90,
-                minimum: 0,
-                maximum: 100,
-            },
-        },
-        requiredInputs: ['prompt'],
-    },
-    {
         id: 'openai/gpt-image-2',
         replicateId: 'openai/gpt-image-2',
         puterId: 'replicate:openai/gpt-image-2',
@@ -5427,6 +5807,285 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
             quality: {
                 type: 'string',
                 enum: ['low', 'medium', 'high', 'auto'],
+                default: 'auto',
+            },
+            user_id: {
+                type: 'string',
+                default: null,
+            },
+            background: {
+                type: 'string',
+                enum: ['auto', 'transparent', 'opaque'],
+                default: 'auto',
+            },
+            moderation: {
+                type: 'string',
+                enum: ['auto', 'low'],
+                default: 'auto',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '3:2',
+                    '2:3',
+                    '4:3',
+                    '3:4',
+                    '16:9',
+                    '9:16',
+                    'auto',
+                    '1024x1024',
+                    '1536x1024',
+                    '1024x1536',
+                    '1536x1152',
+                    '1152x1536',
+                    '2048x2048',
+                    '2048x1152',
+                    '1152x2048',
+                    '3840x2160',
+                    '2160x3840',
+                ],
+                default: '1:1',
+            },
+            input_images: {
+                type: 'array',
+                default: null,
+            },
+            output_format: {
+                type: 'string',
+                enum: ['png', 'jpeg', 'webp'],
+                default: 'webp',
+            },
+            number_of_images: {
+                type: 'integer',
+                default: 1,
+                minimum: 1,
+                maximum: 10,
+            },
+            output_compression: {
+                type: 'integer',
+                default: 90,
+                minimum: 0,
+                maximum: 100,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'openai/gpt-image-2.5-flare',
+        replicateId: 'openai/gpt-image-2.5-flare',
+        puterId: 'replicate:openai/gpt-image-2.5-flare',
+        name: 'gpt image 2.5 flare',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 25,
+            'output:auto': 25,
+            'output:low': 1.2,
+            'output:medium': 4.7,
+            'output:high': 12.8,
+            'output:xhigh': 25,
+            'output:max': 50,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                when: {
+                    quality: 'auto',
+                },
+                costs: {
+                    output: 25,
+                },
+            },
+            {
+                when: {
+                    quality: 'low',
+                },
+                costs: {
+                    output: 1.2,
+                },
+            },
+            {
+                when: {
+                    quality: 'medium',
+                },
+                costs: {
+                    output: 4.7,
+                },
+            },
+            {
+                when: {
+                    quality: 'high',
+                },
+                costs: {
+                    output: 12.8,
+                },
+            },
+            {
+                when: {
+                    quality: 'xhigh',
+                },
+                costs: {
+                    output: 25,
+                },
+            },
+            {
+                when: {
+                    quality: 'max',
+                },
+                costs: {
+                    output: 50,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/openai/gpt-image-2.5-flare#pricing',
+        inputSchema: {
+            prompt: {
+                type: 'string',
+            },
+            quality: {
+                type: 'string',
+                enum: ['low', 'medium', 'high', 'xhigh', 'max', 'auto'],
+                default: 'auto',
+            },
+            user_id: {
+                type: 'string',
+                default: null,
+            },
+            background: {
+                type: 'string',
+                enum: ['auto', 'transparent', 'opaque'],
+                default: 'auto',
+            },
+            moderation: {
+                type: 'string',
+                enum: ['auto', 'low'],
+                default: 'auto',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '3:2',
+                    '2:3',
+                    '4:3',
+                    '3:4',
+                    '16:9',
+                    '9:16',
+                    'auto',
+                    '1024x1024',
+                    '1536x1024',
+                    '1024x1536',
+                    '1536x1152',
+                    '1152x1536',
+                    '2048x2048',
+                    '2048x1152',
+                    '1152x2048',
+                    '3840x2160',
+                    '2160x3840',
+                ],
+                default: '1:1',
+            },
+            input_images: {
+                type: 'array',
+                default: null,
+            },
+            output_format: {
+                type: 'string',
+                enum: ['png', 'jpeg', 'webp'],
+                default: 'webp',
+            },
+            number_of_images: {
+                type: 'integer',
+                default: 1,
+                minimum: 1,
+                maximum: 10,
+            },
+            output_compression: {
+                type: 'integer',
+                default: 90,
+                minimum: 0,
+                maximum: 100,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'openai/gpt-image-2.5-sunburst',
+        replicateId: 'openai/gpt-image-2.5-sunburst',
+        puterId: 'replicate:openai/gpt-image-2.5-sunburst',
+        name: 'gpt image 2.5 sunburst',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 25,
+            'output:auto': 25,
+            'output:low': 1.2,
+            'output:medium': 4.7,
+            'output:high': 12.8,
+            'output:xhigh': 25,
+            'output:max': 50,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                when: {
+                    quality: 'auto',
+                },
+                costs: {
+                    output: 25,
+                },
+            },
+            {
+                when: {
+                    quality: 'low',
+                },
+                costs: {
+                    output: 1.2,
+                },
+            },
+            {
+                when: {
+                    quality: 'medium',
+                },
+                costs: {
+                    output: 4.7,
+                },
+            },
+            {
+                when: {
+                    quality: 'high',
+                },
+                costs: {
+                    output: 12.8,
+                },
+            },
+            {
+                when: {
+                    quality: 'xhigh',
+                },
+                costs: {
+                    output: 25,
+                },
+            },
+            {
+                when: {
+                    quality: 'max',
+                },
+                costs: {
+                    output: 50,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/openai/gpt-image-2.5-sunburst#pricing',
+        inputSchema: {
+            prompt: {
+                type: 'string',
+            },
+            quality: {
+                type: 'string',
+                enum: ['low', 'medium', 'high', 'xhigh', 'max', 'auto'],
                 default: 'auto',
             },
             user_id: {
@@ -5672,6 +6331,90 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
+        id: 'prunaai/flux-kontext-fast',
+        replicateId: 'prunaai/flux-kontext-fast',
+        puterId: 'replicate:prunaai/flux-kontext-fast',
+        name: 'flux kontext fast',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 1,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 1,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/prunaai/flux-kontext-fast#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+            },
+            prompt: {
+                type: 'string',
+            },
+            guidance: {
+                type: 'number',
+                default: 3.5,
+            },
+            image_size: {
+                type: 'integer',
+                default: 1024,
+            },
+            speed_mode: {
+                type: 'string',
+                enum: [
+                    'Lightly Juiced 🍊 (more consistent)',
+                    'Juiced 🔥 (default)',
+                    'Extra Juiced 🔥 (more speed)',
+                    'Blink of an eye 👁️',
+                    'Real Time',
+                ],
+                default: 'Extra Juiced 🔥 (more speed)',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'match_input_image',
+                    '1:1',
+                    '16:9',
+                    '21:9',
+                    '3:2',
+                    '2:3',
+                    '4:5',
+                    '5:4',
+                    '3:4',
+                    '4:3',
+                    '9:16',
+                    '9:21',
+                ],
+                default: 'match_input_image',
+            },
+            img_cond_path: {
+                type: 'string',
+            },
+            output_format: {
+                type: 'string',
+                enum: ['png', 'jpg', 'webp'],
+                default: 'jpg',
+            },
+            output_quality: {
+                type: 'integer',
+                default: 80,
+                minimum: 1,
+                maximum: 100,
+            },
+            num_inference_steps: {
+                type: 'integer',
+                default: 30,
+            },
+        },
+        requiredInputs: ['prompt', 'img_cond_path'],
+    },
+    {
         id: 'prunaai/hidream-l1-dev',
         replicateId: 'prunaai/hidream-l1-dev',
         puterId: 'replicate:prunaai/hidream-l1-dev',
@@ -5886,6 +6629,306 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
                 default: 100,
                 minimum: 1,
                 maximum: 100,
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'prunaai/p-image-edit',
+        replicateId: 'prunaai/p-image-edit',
+        puterId: 'replicate:prunaai/p-image-edit',
+        name: 'p image edit',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 1,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 1,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/prunaai/p-image-edit#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+            },
+            turbo: {
+                type: 'boolean',
+                default: true,
+            },
+            images: {
+                type: 'array',
+                default: [],
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'match_input_image',
+                    '1:1',
+                    '16:9',
+                    '9:16',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                ],
+                default: 'match_input_image',
+            },
+            replicate_weights: {
+                type: 'string',
+                enum: [
+                    'default',
+                    'multiple_angles',
+                    'relight',
+                    'light_restoration',
+                    'white_to_scene',
+                    'fusion',
+                    'add_characters',
+                    'next_scene',
+                    'style_consistency',
+                    'subject_consistency',
+                    'scene_consistency',
+                    'to_anime',
+                    'to_3dchibi',
+                    'to_caricature',
+                    'photous',
+                    'extract_texture',
+                    'apply_texture',
+                    'upscale',
+                    'anything_to_real',
+                    'white_film_to_rendering',
+                ],
+                default: 'default',
+            },
+            disable_safety_checker: {
+                type: 'boolean',
+                default: false,
+            },
+        },
+        requiredInputs: ['prompt', 'images'],
+    },
+    {
+        id: 'prunaai/p-image-edit-lora',
+        replicateId: 'prunaai/p-image-edit-lora',
+        puterId: 'replicate:prunaai/p-image-edit-lora',
+        name: 'p image edit lora',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 1,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 1,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/prunaai/p-image-edit-lora#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+                default: null,
+            },
+            turbo: {
+                type: 'boolean',
+                default: true,
+            },
+            images: {
+                type: 'array',
+                default: [],
+            },
+            prompt: {
+                type: 'string',
+            },
+            lora_scale: {
+                type: 'number',
+                default: 1,
+                minimum: -1,
+                maximum: 3,
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'match_input_image',
+                    '1:1',
+                    '16:9',
+                    '9:16',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                ],
+                default: 'match_input_image',
+            },
+            lora_weights: {
+                type: 'string',
+            },
+            disable_safety_checker: {
+                type: 'boolean',
+                default: false,
+            },
+        },
+        requiredInputs: ['prompt', 'images', 'lora_weights'],
+    },
+    {
+        id: 'prunaai/p-image-ideogram',
+        replicateId: 'prunaai/p-image-ideogram',
+        puterId: 'replicate:prunaai/p-image-ideogram',
+        name: 'p image ideogram',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 1.5,
+            'output:very low:1K': 0.3,
+            'output:very low:2K': 0.6,
+            'output:low:1K': 0.75,
+            'output:low:2K': 1.5,
+            'output:medium:1K': 1,
+            'output:medium:2K': 2,
+            'output:high:1K': 1.5,
+            'output:high:2K': 3,
+            'output:very high:1K': 2.475,
+            'output:very high:2K': 4.95,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                when: {
+                    thinking: 'very low',
+                    image_size: '1K',
+                },
+                costs: {
+                    output: 0.3,
+                },
+            },
+            {
+                when: {
+                    thinking: 'very low',
+                    image_size: '2K',
+                },
+                costs: {
+                    output: 0.6,
+                },
+            },
+            {
+                when: {
+                    thinking: 'low',
+                    image_size: '1K',
+                },
+                costs: {
+                    output: 0.75,
+                },
+            },
+            {
+                when: {
+                    thinking: 'low',
+                    image_size: '2K',
+                },
+                costs: {
+                    output: 1.5,
+                },
+            },
+            {
+                when: {
+                    thinking: 'medium',
+                    image_size: '1K',
+                },
+                costs: {
+                    output: 1,
+                },
+            },
+            {
+                when: {
+                    thinking: 'medium',
+                    image_size: '2K',
+                },
+                costs: {
+                    output: 2,
+                },
+            },
+            {
+                when: {
+                    thinking: 'high',
+                    image_size: '1K',
+                },
+                costs: {
+                    output: 1.5,
+                },
+            },
+            {
+                when: {
+                    thinking: 'high',
+                    image_size: '2K',
+                },
+                costs: {
+                    output: 3,
+                },
+            },
+            {
+                when: {
+                    thinking: 'very high',
+                    image_size: '1K',
+                },
+                costs: {
+                    output: 2.475,
+                },
+            },
+            {
+                when: {
+                    thinking: 'very high',
+                    image_size: '2K',
+                },
+                costs: {
+                    output: 4.95,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/prunaai/p-image-ideogram#pricing',
+        inputSchema: {
+            seed: {
+                type: 'integer',
+            },
+            prompt: {
+                type: 'string',
+            },
+            thinking: {
+                type: 'string',
+                enum: ['very low', 'low', 'medium', 'high', 'very high'],
+                default: 'high',
+            },
+            image_size: {
+                type: 'string',
+                enum: ['1K', '2K'],
+                default: '1K',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'],
+                default: '1:1',
+            },
+            output_format: {
+                type: 'string',
+                enum: ['png', 'jpg', 'webp'],
+                default: 'jpg',
+            },
+            output_quality: {
+                type: 'integer',
+                default: 80,
+                minimum: 0,
+                maximum: 100,
+            },
+            prompt_upsampling: {
+                type: 'boolean',
+                default: true,
             },
         },
         requiredInputs: ['prompt'],
@@ -6961,6 +8004,413 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
+        id: 'recraft-ai/recraft-v4.1',
+        replicateId: 'recraft-ai/recraft-v4.1',
+        puterId: 'replicate:recraft-ai/recraft-v4.1',
+        name: 'recraft v4.1',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 4,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/recraft-ai/recraft-v4.1#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: [
+                    '1024x1024',
+                    '1536x768',
+                    '768x1536',
+                    '1280x832',
+                    '832x1280',
+                    '1216x896',
+                    '896x1216',
+                    '1152x896',
+                    '896x1152',
+                    '832x1344',
+                    '1280x896',
+                    '896x1280',
+                    '1344x768',
+                    '768x1344',
+                ],
+                default: '1024x1024',
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'Not set',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '16:9',
+                    '9:16',
+                    '1:2',
+                    '2:1',
+                    '14:10',
+                    '10:14',
+                    '4:5',
+                    '5:4',
+                    '6:10',
+                ],
+                default: 'Not set',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'recraft-ai/recraft-v4.1-pro',
+        replicateId: 'recraft-ai/recraft-v4.1-pro',
+        puterId: 'replicate:recraft-ai/recraft-v4.1-pro',
+        name: 'recraft v4.1 pro',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 25,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 25,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/recraft-ai/recraft-v4.1-pro#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: [
+                    '2048x2048',
+                    '3072x1536',
+                    '1536x3072',
+                    '2560x1664',
+                    '1664x2560',
+                    '2432x1792',
+                    '1792x2432',
+                    '2304x1792',
+                    '1792x2304',
+                    '1664x2688',
+                    '2560x1792',
+                    '1792x2560',
+                    '2688x1536',
+                    '1536x2688',
+                ],
+                default: '2048x2048',
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'Not set',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '16:9',
+                    '9:16',
+                    '1:2',
+                    '2:1',
+                    '4:5',
+                    '5:4',
+                    '6:10',
+                    '14:10',
+                    '10:14',
+                ],
+                default: 'Not set',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'recraft-ai/recraft-v4.1-pro-svg',
+        replicateId: 'recraft-ai/recraft-v4.1-pro-svg',
+        puterId: 'replicate:recraft-ai/recraft-v4.1-pro-svg',
+        name: 'recraft v4.1 pro svg',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 25,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 25,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/recraft-ai/recraft-v4.1-pro-svg#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: [
+                    '2048x2048',
+                    '3072x1536',
+                    '1536x3072',
+                    '2560x1664',
+                    '1664x2560',
+                    '2432x1792',
+                    '1792x2432',
+                    '2304x1792',
+                    '1792x2304',
+                    '1664x2688',
+                    '2560x1792',
+                    '1792x2560',
+                    '2688x1536',
+                    '1536x2688',
+                ],
+                default: '2048x2048',
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'Not set',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '16:9',
+                    '9:16',
+                    '1:2',
+                    '2:1',
+                    '4:5',
+                    '5:4',
+                    '6:10',
+                    '14:10',
+                    '10:14',
+                ],
+                default: 'Not set',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'recraft-ai/recraft-v4.1-svg',
+        replicateId: 'recraft-ai/recraft-v4.1-svg',
+        puterId: 'replicate:recraft-ai/recraft-v4.1-svg',
+        name: 'recraft v4.1 svg',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 4,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/recraft-ai/recraft-v4.1-svg#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: [
+                    '1024x1024',
+                    '1536x768',
+                    '768x1536',
+                    '1280x832',
+                    '832x1280',
+                    '1216x896',
+                    '896x1216',
+                    '1152x896',
+                    '896x1152',
+                    '832x1344',
+                    '1280x896',
+                    '896x1280',
+                    '1344x768',
+                    '768x1344',
+                ],
+                default: '1024x1024',
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'Not set',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '16:9',
+                    '9:16',
+                    '1:2',
+                    '2:1',
+                    '14:10',
+                    '10:14',
+                    '4:5',
+                    '5:4',
+                    '6:10',
+                ],
+                default: 'Not set',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'recraft-ai/recraft-v4.1-utility',
+        replicateId: 'recraft-ai/recraft-v4.1-utility',
+        puterId: 'replicate:recraft-ai/recraft-v4.1-utility',
+        name: 'recraft v4.1 utility',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 4,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/recraft-ai/recraft-v4.1-utility#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: [
+                    '1024x1024',
+                    '1536x768',
+                    '768x1536',
+                    '1280x832',
+                    '832x1280',
+                    '1216x896',
+                    '896x1216',
+                    '1152x896',
+                    '896x1152',
+                    '832x1344',
+                    '1280x896',
+                    '896x1280',
+                    '1344x768',
+                    '768x1344',
+                ],
+                default: '1024x1024',
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'Not set',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '16:9',
+                    '9:16',
+                    '1:2',
+                    '2:1',
+                    '14:10',
+                    '10:14',
+                    '4:5',
+                    '5:4',
+                    '6:10',
+                ],
+                default: 'Not set',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'recraft-ai/recraft-v4.1-utility-pro',
+        replicateId: 'recraft-ai/recraft-v4.1-utility-pro',
+        puterId: 'replicate:recraft-ai/recraft-v4.1-utility-pro',
+        name: 'recraft v4.1 utility pro',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 25,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 25,
+                },
+            },
+        ],
+        priceSource:
+            'https://replicate.com/recraft-ai/recraft-v4.1-utility-pro#pricing',
+        inputSchema: {
+            size: {
+                type: 'string',
+                enum: [
+                    '2048x2048',
+                    '3072x1536',
+                    '1536x3072',
+                    '2560x1664',
+                    '1664x2560',
+                    '2432x1792',
+                    '1792x2432',
+                    '2304x1792',
+                    '1792x2304',
+                    '1664x2688',
+                    '2560x1792',
+                    '1792x2560',
+                    '2688x1536',
+                    '1536x2688',
+                ],
+                default: '2048x2048',
+            },
+            prompt: {
+                type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    'Not set',
+                    '1:1',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '16:9',
+                    '9:16',
+                    '1:2',
+                    '2:1',
+                    '4:5',
+                    '5:4',
+                    '6:10',
+                    '14:10',
+                    '10:14',
+                ],
+                default: 'Not set',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
         id: 'sdxl-based/realvisxl-v3-multi-controlnet-lora',
         replicateId: 'sdxl-based/realvisxl-v3-multi-controlnet-lora',
         puterId: 'replicate:sdxl-based/realvisxl-v3-multi-controlnet-lora',
@@ -7637,87 +9087,6 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
         requiredInputs: ['prompt'],
     },
     {
-        id: 'stability-ai/stable-diffusion',
-        replicateId: 'stability-ai/stable-diffusion',
-        puterId: 'replicate:stability-ai/stable-diffusion',
-        name: 'stable diffusion',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'second',
-        costs: {
-            second: 0.14,
-        },
-        billingScheme: 'metered',
-        billingRates: [
-            {
-                costs: {
-                    second: 0.14,
-                },
-            },
-        ],
-        priceSource:
-            'https://replicate.com/stability-ai/stable-diffusion#pricing',
-        replicateVersion:
-            'ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4',
-        inputSchema: {
-            seed: {
-                type: 'integer',
-            },
-            width: {
-                type: 'integer',
-                enum: [
-                    64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768,
-                    832, 896, 960, 1024,
-                ],
-                default: 768,
-            },
-            height: {
-                type: 'integer',
-                enum: [
-                    64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768,
-                    832, 896, 960, 1024,
-                ],
-                default: 768,
-            },
-            prompt: {
-                type: 'string',
-            },
-            scheduler: {
-                type: 'string',
-                enum: [
-                    'DDIM',
-                    'K_EULER',
-                    'DPMSolverMultistep',
-                    'K_EULER_ANCESTRAL',
-                    'PNDM',
-                    'KLMS',
-                ],
-                default: 'DPMSolverMultistep',
-            },
-            num_outputs: {
-                type: 'integer',
-                default: 1,
-                minimum: 1,
-                maximum: 4,
-            },
-            guidance_scale: {
-                type: 'number',
-                default: 7.5,
-                minimum: 1,
-                maximum: 20,
-            },
-            negative_prompt: {
-                type: 'string',
-            },
-            num_inference_steps: {
-                type: 'integer',
-                default: 50,
-                minimum: 1,
-                maximum: 500,
-            },
-        },
-        requiredInputs: [],
-    },
-    {
         id: 'tencent/hunyuan-image-3',
         replicateId: 'tencent/hunyuan-image-3',
         puterId: 'replicate:tencent/hunyuan-image-3',
@@ -8025,6 +9394,66 @@ export const ADDITIONAL_REPLICATE_IMAGE_MODELS: ReplicateImageModel[] = [
             },
             prompt: {
                 type: 'string',
+            },
+            aspect_ratio: {
+                type: 'string',
+                enum: [
+                    '1:1',
+                    '16:9',
+                    '9:16',
+                    '4:3',
+                    '3:4',
+                    '3:2',
+                    '2:3',
+                    '2:1',
+                    '1:2',
+                    '19.5:9',
+                    '9:19.5',
+                    '20:9',
+                    '9:20',
+                    'auto',
+                ],
+                default: '1:1',
+            },
+        },
+        requiredInputs: ['prompt'],
+    },
+    {
+        id: 'xai/grok-imagine-image-2',
+        replicateId: 'xai/grok-imagine-image-2',
+        puterId: 'replicate:xai/grok-imagine-image-2',
+        name: 'grok imagine image 2',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'output',
+        costs: {
+            output: 4,
+        },
+        billingScheme: 'metered',
+        billingRates: [
+            {
+                costs: {
+                    output: 4,
+                },
+            },
+        ],
+        priceSource: 'https://replicate.com/xai/grok-imagine-image-2#pricing',
+        inputSchema: {
+            image: {
+                type: 'string',
+                default: null,
+            },
+            prompt: {
+                type: 'string',
+            },
+            quality: {
+                type: 'string',
+                enum: ['low', 'medium'],
+                default: 'medium',
+            },
+            resolution: {
+                type: 'string',
+                enum: ['1k', '2k'],
+                default: '2k',
             },
             aspect_ratio: {
                 type: 'string',

@@ -73,7 +73,7 @@ export class OpenRouterProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'openrouter:openai/gpt-5-nano';
+        return 'openrouter:openai/gpt-6-luna';
     }
     /**
      * Returns a list of available model names including their aliases
@@ -253,18 +253,29 @@ export class OpenRouterProvider implements IChatProvider {
             if ((model.id as string).includes('openrouter/auto')) {
                 continue;
             }
+            // OpenRouter sets expiration_date on deprecated models scheduled for removal.
+            if (model.expiration_date) {
+                continue;
+            }
             const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(
                 (m) => m.id === `openrouter:${model.id}`,
             );
             const microcentCosts = Object.fromEntries(
-                Object.entries(model.pricing).map(([k, v]) => [
-                    k,
-                    Math.round(
-                        ((v as number) < 0 ? 1 : (v as number)) *
-                            1_000_000 *
-                            100,
-                    ),
-                ]),
+                Object.entries(model.pricing)
+                    // Skip structured entries like the long-context `overrides` tier list.
+                    .filter(
+                        ([, v]) =>
+                            (typeof v === 'string' || typeof v === 'number') &&
+                            Number.isFinite(Number(v)),
+                    )
+                    .map(([k, v]) => [
+                        k,
+                        Math.round(
+                            ((v as number) < 0 ? 1 : (v as number)) *
+                                1_000_000 *
+                                100,
+                        ),
+                    ]),
             );
             if (!microcentCosts.request) {
                 microcentCosts.request = 0;

@@ -46,7 +46,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
-    #defaultModel = 'gpt-5-nano';
+    #defaultModel = 'gpt-6-luna';
 
     #meteringService: MeteringService;
 

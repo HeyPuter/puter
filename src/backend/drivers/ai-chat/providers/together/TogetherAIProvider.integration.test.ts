@@ -20,11 +20,12 @@
 /**
  * Integration test for the Together AI provider.
  *
- * Uses `Qwen/Qwen2.5-7B-Instruct-Turbo` — non-Llama, small, cheap, and
- * stays on Together's serverless tier. Llama variants on Together get
- * rotated to dedicated endpoints often enough that they're not safe
- * defaults. If Qwen also disappears, pick another live serverless
- * model from https://api.together.ai/models?type=serverless. Skipped
+ * Uses `meta-llama/Llama-3.3-70B-Instruct-Turbo`, a serverless
+ * non-reasoning model, so a tiny max_tokens still yields visible text
+ * (reasoning models spend it on hidden reasoning), and
+ * `deepseek-ai/DeepSeek-V4-Flash-0731` for the context-overflow retry.
+ * If either leaves the serverless tier, pick a replacement from
+ * https://api.together.ai/models?type=serverless. Skipped
  * when `PUTER_TEST_AI_TOGETHER_API_KEY` is unset.
  */
 
@@ -43,7 +44,7 @@ const ENV_VAR = 'PUTER_TEST_AI_TOGETHER_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'TogetherAIProvider (integration)',
     () => {
-        it('returns a non-empty completion from Qwen2.5 7B', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns a non-empty completion from Llama 3.3 70B', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new TogetherAIProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -51,7 +52,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                    model: 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],
@@ -72,9 +73,10 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             // Asking for the model's whole context as output leaves no room
             // for the prompt, which Together rejects outright — the provider
-            // should retry uncapped rather than surface a 400.
+            // should retry uncapped rather than surface a 400. This model's
+            // rejection reports both the window and the prompt's token count.
             const model = (await provider.models()).find(
-                (m) => m.id === 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                (m) => m.id === 'togetherai:deepseek-ai/DeepSeek-V4-Flash-0731',
             )!;
 
             const result = await withTestActor(() =>

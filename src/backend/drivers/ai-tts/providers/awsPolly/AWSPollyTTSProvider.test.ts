@@ -233,6 +233,19 @@ describe('AWSPollyTTSProvider catalog', () => {
             );
         }
     });
+
+    it.each([
+        ['standard', 4],
+        ['neural', 16],
+        ['long-form', 100],
+        ['generative', 30],
+    ])('prices %s at AWS list price ($%d per 1M chars)', async (id, usd) => {
+        const provider = makeProvider();
+        const engines = await provider.listEngines();
+        expect(
+            engines.find((e) => e.id === id)?.pricing_per_million_chars,
+        ).toBe(usd);
+    });
 });
 
 // ── Reported costs ──────────────────────────────────────────────────

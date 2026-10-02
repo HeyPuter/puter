@@ -56,6 +56,7 @@ type InfronApiModel = {
     display_name?: string;
     category_type?: string;
     is_display_only?: boolean;
+    deprecated?: boolean;
     supported_endpoint_types?: string[];
     context_length?: number;
     max_output_tokens?: number;
@@ -383,6 +384,7 @@ export class InfronProvider implements IChatProvider {
             // models — only chat-completion-capable models belong here.
             if (model.category_type !== 'LLM') continue;
             if (model.is_display_only) continue;
+            if (model.deprecated) continue;
             if (!(model.supported_endpoint_types ?? []).includes('openai')) {
                 continue;
             }

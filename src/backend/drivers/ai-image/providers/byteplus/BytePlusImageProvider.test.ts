@@ -423,17 +423,32 @@ describe('BytePlusImageProvider.generate input images', () => {
         );
     });
 
-    it('rejects more input images than the model accepts', async () => {
-        await expect(
-            withTestActor(() =>
-                makeProvider().generate({
-                    model: 'dola-seedream-5-0-pro',
-                    prompt: 'hi',
-                    input_images: Array(11).fill(PNG),
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        expect(generateMock).not.toHaveBeenCalled();
+    it.each(['dola-seedream-5-0-pro', 'dola-seedream-5-0-flash'])(
+        'rejects more input images than %s accepts',
+        async (model) => {
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        model,
+                        prompt: 'hi',
+                        input_images: Array(11).fill(PNG),
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(generateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('accepts up to 14 input images on the other seedream models', async () => {
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedream-5-0-lite',
+                prompt: 'hi',
+                input_images: Array(14).fill(PNG),
+            }),
+        );
+        expect(generateMock).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -454,6 +469,27 @@ describe('BytePlusImageProvider.generate metering', () => {
                 costOverride:
                     findModel('seedream-4-0-250828').costs['per-image'] *
                     1_000_000,
+            },
+        ]);
+    });
+
+    it('bills seedream 5.0 flash at its flat rate, even for 2K output and extra inputs', async () => {
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'dola-seedream-5-0-flash',
+                prompt: 'hi',
+                quality: '2k',
+                input_images: Array(3).fill('data:image/png;base64,iVBORw0KGgo='),
+            }),
+        );
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        expect(entries).toEqual([
+            {
+                usageType:
+                    'byteplus-image-generation:dola-seedream-5-0-flash-260915:per-image',
+                usageAmount: 1,
+                costOverride: 1.8 * 1_000_000,
             },
         ]);
     });

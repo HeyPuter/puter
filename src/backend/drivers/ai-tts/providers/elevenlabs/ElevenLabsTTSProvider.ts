@@ -33,9 +33,12 @@ const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const ELEVENLABS_TTS_MODELS = [
     { id: DEFAULT_MODEL, name: 'Eleven Multilingual v2' },
+    { id: 'eleven_v4', name: 'Eleven v4' },
+    { id: 'eleven_v4_turbo', name: 'Eleven v4 Turbo' },
+    { id: 'eleven_v3', name: 'Eleven v3' },
+    { id: 'eleven_v3_conversational', name: 'Eleven v3 Conversational' },
     { id: 'eleven_flash_v2_5', name: 'Eleven Flash v2.5' },
-    { id: 'eleven_turbo_v2_5', name: 'Eleven Turbo v2.5' },
-    { id: 'eleven_v3', name: 'Eleven v3 Alpha' },
+    { id: 'eleven_flash_v2', name: 'Eleven Flash v2' },
 ];
 
 /**

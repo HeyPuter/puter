@@ -404,6 +404,44 @@ describe('GeminiChatProvider model resolution', () => {
 
         expect(createMock.mock.calls[0]![0].model).toBe('gemini-2.5-flash');
     });
+
+    it.each([
+        'gemini-3.1-flash-lite',
+        'gemini-3.1-flash-lite-preview',
+        'gemini-3-flash-preview',
+    ])('drops the deprecated %s instead of redirecting it', async (model) => {
+        const { provider } = makeProvider();
+        const ids = await provider.list();
+        expect(ids).not.toContain(model);
+        expect(ids).not.toContain(`google/${model}`);
+    });
+
+    it.each([
+        ['gemini-3.1-pro-preview-customtools', 200, 1200, 20],
+        ['gemini-robotics-er-2-preview', 100, 500, 10],
+    ])(
+        'sends %s under its own id and prices it at list rates',
+        async (model, input, output, cached) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce(baseCompletion);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            expect(createMock.mock.calls[0]![0].model).toBe(model);
+            expect(
+                GEMINI_MODELS.find((m) => m.id === model)?.costs,
+            ).toMatchObject({
+                prompt_tokens: input,
+                completion_tokens: output,
+                cached_tokens: cached,
+            });
+        },
+    );
 });
 
 // ── Non-stream completion ───────────────────────────────────────────
@@ -473,7 +511,7 @@ describe('GeminiChatProvider.complete non-stream output', () => {
         // off one for this call. Cached tokens are subtracted out of
         // prompt_tokens, so pricing them at zero bills them nowhere.
         const lite = GEMINI_MODELS.find(
-            (m) => m.id === 'gemini-3.1-flash-lite',
+            (m) => m.id === 'gemini-3.5-flash-lite',
         )!;
         const cachedRate = lite.costs.cached_tokens;
         delete lite.costs.cached_tokens;
@@ -496,7 +534,7 @@ describe('GeminiChatProvider.complete non-stream output', () => {
 
             await withTestActor(() =>
                 provider.complete({
-                    model: 'gemini-3.1-flash-lite',
+                    model: 'gemini-3.5-flash-lite',
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
             );
@@ -717,7 +755,7 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
         // generation; without its own rate the fee fell through to the input
         // token rate, which is several orders of magnitude below list.
         const lite = GEMINI_MODELS.find(
-            (m) => m.id === 'gemini-3.1-flash-lite',
+            (m) => m.id === 'gemini-3.5-flash-lite',
         )!;
         expect(lite.costs.grounding_requests).toBe(1_400_000);
 
@@ -740,7 +778,7 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gemini-3.1-flash-lite',
+                model: 'gemini-3.5-flash-lite',
                 messages: [{ role: 'user', content: 'search for foo' }],
             }),
         );

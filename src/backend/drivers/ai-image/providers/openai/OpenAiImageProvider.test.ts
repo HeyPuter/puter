@@ -146,14 +146,20 @@ describe('OpenAiImageProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('gpt-image-2');
     });
 
-    it('keeps the deprecated gpt-image-1 family routable but delisted', () => {
+    it('drops the deprecated gpt-image-1 family and chatgpt-image-latest', () => {
         const provider = makeProvider();
-        const byId = new Map(provider.models().map((m) => [m.id, m]));
-        for (const id of ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5']) {
-            expect(byId.get(id)?.delisted).toBe(true);
+        const names = provider
+            .models()
+            .flatMap((m) => [m.id, ...(m.aliases ?? [])]);
+        for (const id of [
+            'gpt-image-1',
+            'gpt-image-1-mini',
+            'gpt-image-1.5',
+            'chatgpt-image-latest',
+        ]) {
+            expect(names).not.toContain(id);
+            expect(names).not.toContain(`openai/${id}`);
         }
-        expect(byId.get('gpt-image-2')?.delisted).toBeUndefined();
-        expect(byId.has('chatgpt-image-latest')).toBe(false);
     });
 
     it('no longer exposes any dall-e models', () => {
@@ -296,7 +302,7 @@ describe('OpenAiImageProvider.generate user identifier', () => {
             await withTestActor(
                 () =>
                     provider.generate({
-                        model: 'gpt-image-1-mini',
+                        model: 'gpt-image-2',
                         prompt: 'hi',
                         ratio: { w: 1024, h: 1024 },
                     }),
@@ -359,7 +365,7 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
         await withTestActor(
             () =>
                 provider.generate({
-                    model: 'gpt-image-1',
+                    model: 'gpt-image-2',
                     prompt: 'add a hat',
                     ratio: { w: 1024, h: 1024 },
                     input_images: [PNG],

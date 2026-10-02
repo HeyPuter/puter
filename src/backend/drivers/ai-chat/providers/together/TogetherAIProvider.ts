@@ -52,7 +52,7 @@ export class TogetherAIProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
+        return 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo';
     }
 
     async models() {

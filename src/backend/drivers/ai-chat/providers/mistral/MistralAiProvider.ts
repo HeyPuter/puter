@@ -39,8 +39,8 @@ import { modelLookupNames } from '../../utils/modelRouting.js';
 import { shouldPresentAsOpenAI } from '../../utils/normalizeToOpenAI.js';
 
 /**
- * Mistral's reasoning models (`magistral-*`) return `content` as a chunk array
- * rather than a string, with the thinking text nested one level deeper inside
+ * Mistral's reasoning-capable models return `content` as a chunk array rather
+ * than a string, with the thinking text nested one level deeper inside
  * `thinking` chunks. Split it into the string content + `reasoning` string
  * every other provider produces. Text nested in a chunk is joined; a `thinking`
  * chunk's own chunks are flattened the same way, and separate thinking chunks
@@ -177,7 +177,7 @@ export class MistralAIProvider implements IChatProvider {
         custom,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         // Mistral's reasoning prompt mode: with `prompt_mode: 'reasoning'`,
-        // magistral models return their thinking as structured ThinkChunk
+        // reasoning-capable models return their thinking as structured ThinkChunk
         // content (which the splitter below separates into `reasoning`)
         // instead of inlining it as answer prose. Opt-in passthrough rather
         // than a default because the API rejects it on accounts/models where

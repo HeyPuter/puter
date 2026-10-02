@@ -151,15 +151,36 @@ describe('ElevenLabsTTSProvider catalog', () => {
         expect(ids).toEqual(
             expect.arrayContaining([
                 'eleven_multilingual_v2',
-                'eleven_flash_v2_5',
-                'eleven_turbo_v2_5',
+                'eleven_v4',
+                'eleven_v4_turbo',
                 'eleven_v3',
+                'eleven_v3_conversational',
+                'eleven_flash_v2_5',
+                'eleven_flash_v2',
             ]),
         );
         for (const engine of engines) {
             expect(engine.provider).toBe('elevenlabs');
         }
     });
+
+    it('advertises exactly the models the cost table can price', async () => {
+        const provider = makeProvider();
+        const ids = (await provider.listEngines()).map((e) => e.id);
+        expect([...ids].sort()).toEqual(
+            Object.keys(ELEVENLABS_TTS_COSTS).sort(),
+        );
+    });
+
+    it.each(['eleven_turbo_v2_5', 'eleven_turbo_v2'])(
+        'drops the deprecated %s from the listing',
+        async (model) => {
+            const provider = makeProvider();
+            const ids = (await provider.listEngines()).map((e) => e.id);
+            expect(ids).not.toContain(model);
+            expect(Object.hasOwn(ELEVENLABS_TTS_COSTS, model)).toBe(false);
+        },
+    );
 });
 
 // ── Reported costs ──────────────────────────────────────────────────
@@ -226,11 +247,11 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
 
         await expect(
             withTestActor(() =>
-                provider.synthesize({ text: 'hello', model: 'eleven_flash_v2' }),
+                provider.synthesize({ text: 'hello', model: 'eleven_turbo_v2' }),
             ),
         ).rejects.toMatchObject({
             statusCode: 400,
-            fields: { key: 'model', got: 'eleven_flash_v2' },
+            fields: { key: 'model', got: 'eleven_turbo_v2' },
         });
 
         expect(fetchSpy).not.toHaveBeenCalled();
@@ -238,18 +259,25 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('accepts a priced model that the engine listing does not advertise', async () => {
+    it.each([
+        ['eleven_v4', 18000 * 0.9],
+        ['eleven_v4_turbo', 9000 * 0.9],
+        ['eleven_v3_conversational', 9000 * 0.9],
+        ['eleven_flash_v2', 9000 * 0.9],
+    ])('meters %s at its per-character rate', async (model, ucentsPerChar) => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
-        await withTestActor(() =>
-            provider.synthesize({ text: 'hi', model: 'eleven_turbo_v2' }),
-        );
+        await withTestActor(() => provider.synthesize({ text: 'hi', model }));
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const [, init] = fetchSpy.mock.calls[0]!;
+        expect(JSON.parse(String((init as RequestInit).body)).model_id).toBe(
+            model,
+        );
         const [, usageType, , cost] = incrementUsageSpy.mock.calls[0]!;
-        expect(usageType).toBe('elevenlabs:eleven_turbo_v2:character');
-        expect(cost).toBe(ELEVENLABS_TTS_COSTS['eleven_turbo_v2'] * 2);
+        expect(usageType).toBe(`elevenlabs:${model}:character`);
+        expect(cost).toBe(ucentsPerChar * 2);
     });
 });
 

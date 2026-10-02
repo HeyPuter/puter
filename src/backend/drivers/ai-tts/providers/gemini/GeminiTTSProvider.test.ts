@@ -156,9 +156,8 @@ describe('GeminiTTSProvider catalog', () => {
         // supported_models matches the documented engine list.
         expect(voices[0].supported_models).toEqual(
             expect.arrayContaining([
-                'gemini-2.5-flash-preview-tts',
-                'gemini-2.5-pro-preview-tts',
-                'gemini-3.1-flash-tts-preview',
+                'gemini-3.8-flash-tts',
+                'gemini-3.8-flash-lite-tts',
             ]),
         );
     });
@@ -169,9 +168,8 @@ describe('GeminiTTSProvider catalog', () => {
         const ids = engines.map((e) => e.id);
         expect(ids).toEqual(
             expect.arrayContaining([
-                'gemini-2.5-flash-preview-tts',
-                'gemini-2.5-pro-preview-tts',
-                'gemini-3.1-flash-tts-preview',
+                'gemini-3.8-flash-tts',
+                'gemini-3.8-flash-lite-tts',
             ]),
         );
     });
@@ -224,6 +222,18 @@ describe('GeminiTTSProvider.synthesize test_mode', () => {
 // ── Argument validation ─────────────────────────────────────────────
 
 describe('GeminiTTSProvider.synthesize argument validation', () => {
+    it.each([
+        'gemini-2.5-flash-preview-tts',
+        'gemini-2.5-pro-preview-tts',
+        'gemini-3.1-flash-tts-preview',
+    ])('rejects the deprecated %s with 400', async (model) => {
+        const provider = makeProvider();
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi', model })),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(generateContentMock).not.toHaveBeenCalled();
+    });
+
     it('throws 400 when text is missing or blank', async () => {
         const provider = makeProvider();
         await expect(
@@ -280,7 +290,7 @@ describe('GeminiTTSProvider.synthesize request shape', () => {
         await withTestActor(() => provider.synthesize({ text: 'hello' }));
 
         const sent = generateContentMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gemini-2.5-flash-preview-tts');
+        expect(sent.model).toBe('gemini-3.8-flash-tts');
         expect(sent.contents[0].parts[0].text).toBe(
             'Say the following text aloud:\nhello',
         );
@@ -299,12 +309,12 @@ describe('GeminiTTSProvider.synthesize request shape', () => {
                 text: 'hi',
                 instructions: 'Speak softly',
                 voice: 'Zephyr',
-                model: 'gemini-2.5-pro-preview-tts',
+                model: 'gemini-3.8-flash-lite-tts',
             }),
         );
 
         const sent = generateContentMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gemini-2.5-pro-preview-tts');
+        expect(sent.model).toBe('gemini-3.8-flash-lite-tts');
         expect(sent.contents[0].parts[0].text).toBe(
             'Speak softly\n\nSay the following text aloud:\nhi',
         );
@@ -400,7 +410,7 @@ describe('GeminiTTSProvider.synthesize metering', () => {
         await withTestActor(() =>
             provider.synthesize({
                 text: 'hi',
-                model: 'gemini-2.5-flash-preview-tts',
+                model: 'gemini-3.8-flash-tts',
             }),
         );
 
@@ -410,8 +420,8 @@ describe('GeminiTTSProvider.synthesize metering', () => {
             (e) => e.usageType,
         );
         expect(types).toEqual([
-            'gemini:gemini-2.5-flash-preview-tts:input',
-            'gemini:gemini-2.5-flash-preview-tts:output:audio',
+            'gemini:gemini-3.8-flash-tts:input',
+            'gemini:gemini-3.8-flash-tts:output:audio',
         ]);
         const inputEntry = (
             entries as Array<{ usageType: string; usageAmount: number }>
@@ -461,9 +471,9 @@ describe('GeminiTTSProvider.synthesize error paths', () => {
         const provider = makeProvider();
         // Surgically delete the cost entry for the flash model so the
         // provider can't find pricing during the request.
-        const stash = GEMINI_TTS_COSTS['gemini-2.5-flash-preview-tts'];
+        const stash = GEMINI_TTS_COSTS['gemini-3.8-flash-tts'];
         delete (GEMINI_TTS_COSTS as Record<string, unknown>)[
-            'gemini-2.5-flash-preview-tts'
+            'gemini-3.8-flash-tts'
         ];
         try {
             await expect(
@@ -471,7 +481,7 @@ describe('GeminiTTSProvider.synthesize error paths', () => {
             ).rejects.toMatchObject({ statusCode: 500 });
         } finally {
             (GEMINI_TTS_COSTS as Record<string, unknown>)[
-                'gemini-2.5-flash-preview-tts'
+                'gemini-3.8-flash-tts'
             ] = stash;
         }
     });

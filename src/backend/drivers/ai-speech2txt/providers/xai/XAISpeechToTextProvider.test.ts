@@ -160,9 +160,12 @@ describe('XAISpeechToTextProvider.getReportedCosts', () => {
 // ── list_models ─────────────────────────────────────────────────────
 
 describe('XAISpeechToTextProvider.list_models', () => {
-    it('returns the single xai-stt entry with diarization support', async () => {
+    it('returns the default xai-stt entry plus pinnable versions', async () => {
         const models = await driver.list_models();
-        expect(models).toHaveLength(1);
+        expect(models.map((m) => m.id)).toEqual([
+            'xai-stt',
+            'grok-voice-transcribe-2.0',
+        ]);
         expect(models[0]).toEqual({
             id: 'xai-stt',
             name: 'xAI Speech to Text',
@@ -433,7 +436,49 @@ describe('XAISpeechToTextProvider request shape', () => {
         expect(form.get('channels')).toBeNull();
         expect(form.get('audio_format')).toBeNull();
         expect(form.get('sample_rate')).toBeNull();
+        expect(form.get('model')).toBeNull();
     });
+
+    it('forwards a pinned grok-voice-transcribe version as `model`', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            sttResponse({ text: 'ok', duration: 1 }),
+        );
+
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                model: 'grok-voice-transcribe-2.0',
+            }),
+        );
+
+        const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
+            .body as FormData;
+        expect(form.get('model')).toBe('grok-voice-transcribe-2.0');
+        // xAI requires `file` to be the last field.
+        expect([...form.keys()].at(-1)).toBe('file');
+    });
+
+    it.each(['xai-stt', 'grok-voice-transcribe-1.0', 'whisper-1'])(
+        'sends no `model` for %s so xAI serves its default',
+        async (model) => {
+            const { actor } = await makeUser();
+            fetchSpy.mockResolvedValueOnce(
+                sttResponse({ text: 'ok', duration: 1 }),
+            );
+
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    model,
+                }),
+            );
+
+            const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
+                .body as FormData;
+            expect(form.get('model')).toBeNull();
+        },
+    );
 
     it('routes translate() to the same /v1/stt endpoint as transcribe()', async () => {
         const { actor } = await makeUser();

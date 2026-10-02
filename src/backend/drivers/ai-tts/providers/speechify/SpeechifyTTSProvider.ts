@@ -35,11 +35,7 @@ const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 const DEFAULT_MODEL = 'simba-3.2';
 const DEFAULT_VOICE = 'geffen_32';
 
-const SPEECHIFY_TTS_MODELS = [
-    { id: 'simba-3.2', name: 'Simba 3.2' },
-    { id: 'simba-english', name: 'Simba English' },
-    { id: 'simba-multilingual', name: 'Simba Multilingual' },
-];
+const SPEECHIFY_TTS_MODELS = [{ id: 'simba-3.2', name: 'Simba 3.2' }];
 
 // Representative starter catalog — verify against Speechify's live
 // voices endpoint before this ships upstream.

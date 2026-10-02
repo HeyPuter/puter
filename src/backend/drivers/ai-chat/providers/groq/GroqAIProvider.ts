@@ -40,7 +40,7 @@ export class GroqAIProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'llama-3.1-8b-instant';
+        return 'openai/gpt-oss-20b';
     }
 
     models() {

@@ -151,6 +151,14 @@ describe('BytePlusVideoProvider construction and catalog', () => {
             BYTEPLUS_VIDEO_GENERATION_MODELS,
         );
     });
+    it('drops seedance 1.5 pro, which ModelArk has retired', async () => {
+        const ids = (await makeProvider().models()).flatMap((m) => [
+            m.id,
+            ...(m.aliases ?? []),
+        ]);
+        expect(ids).not.toContain('seedance-1-5-pro-251215');
+        expect(ids).not.toContain('seedance-1-5-pro');
+    });
 });
 
 // -- Gates -----------------------------------------------------------
@@ -475,26 +483,6 @@ describe('BytePlusVideoProvider.generate metering', () => {
         expect(incrementUsageSpy).toHaveBeenCalledWith(
             expect.anything(),
             'byteplus-video-generation:dreamina-seedance-2-0-260128:video_tokens:1080p',
-            108_000,
-            108_000 * rate * 1_000_000,
-        );
-    });
-
-    it('bills seedance 1.5 pro at the silent rate when generate_audio is false', async () => {
-        mockTaskFlow(succeededTask());
-        await withTestActor(() =>
-            makeProvider().generate({
-                model: 'seedance-1-5-pro',
-                prompt: 'hi',
-                generate_audio: false,
-            }),
-        );
-        expect(sentBody().generate_audio).toBe(false);
-        const model = findModel('seedance-1-5-pro-251215');
-        const rate = model.costs!['video_tokens:silent'];
-        expect(incrementUsageSpy).toHaveBeenCalledWith(
-            expect.anything(),
-            'byteplus-video-generation:seedance-1-5-pro-251215:video_tokens:silent',
             108_000,
             108_000 * rate * 1_000_000,
         );

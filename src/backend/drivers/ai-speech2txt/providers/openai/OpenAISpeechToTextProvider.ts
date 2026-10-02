@@ -29,14 +29,13 @@ import type {
 import { SpeechToTextProvider } from '../SpeechToTextProvider.js';
 
 /**
- * Wraps OpenAI's audio API (Whisper + GPT-4o transcribe models) for
- * transcription and translation.
+ * Wraps OpenAI's audio transcription API. No current OpenAI model serves
+ * `/audio/translations`, so translate() rejects.
  *
  * `file` may be a path, uid/uuid ref, or data URL.
  */
 
-const DEFAULT_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
-const DEFAULT_TRANSLATE_MODEL = 'whisper-1';
+const DEFAULT_TRANSCRIBE_MODEL = 'gpt-transcribe';
 const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
 
 const SAMPLE_TRANSCRIPT = {
@@ -53,34 +52,13 @@ interface ModelCapabilities {
     canPrompt: boolean;
     canLogprobs: boolean;
     responseFormats: string[];
-    timestampGranularities?: boolean;
-    diarization?: boolean;
-    requiresChunkingOverThirtySeconds?: boolean;
 }
 
 const MODEL_CAPS: Record<string, ModelCapabilities> = {
-    'gpt-4o-mini-transcribe': {
+    'gpt-transcribe': {
         canPrompt: true,
         canLogprobs: true,
         responseFormats: ['json', 'text'],
-    },
-    'gpt-4o-transcribe': {
-        canPrompt: true,
-        canLogprobs: true,
-        responseFormats: ['json', 'text'],
-    },
-    'gpt-4o-transcribe-diarize': {
-        canPrompt: false,
-        canLogprobs: false,
-        responseFormats: ['json', 'text', 'diarized_json'],
-        diarization: true,
-        requiresChunkingOverThirtySeconds: true,
-    },
-    'whisper-1': {
-        canPrompt: true,
-        canLogprobs: false,
-        responseFormats: ['json', 'text', 'srt', 'verbose_json', 'vtt'],
-        timestampGranularities: true,
     },
 };
 
@@ -113,38 +91,26 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         return Object.entries(MODEL_CAPS).map(([id, caps]) => ({
             id,
             name: id,
-            type: caps.diarization
-                ? 'transcription'
-                : id === 'whisper-1'
-                  ? 'translation'
-                  : 'transcription',
+            type: 'transcription',
             response_formats: caps.responseFormats,
             supports_prompt: caps.canPrompt,
             supports_logprobs: caps.canLogprobs,
-            ...(caps.diarization ? { supports_diarization: true } : {}),
-            ...(caps.timestampGranularities
-                ? { supports_timestamp_granularities: true }
-                : {}),
         }));
     }
 
+    async translate(_args: ITranscribeArgs): Promise<never> {
+        throw new HttpError(
+            400,
+            'Translation is not supported by any current OpenAI model',
+            { legacyCode: 'bad_request' },
+        );
+    }
+
     async transcribe(args: ITranscribeArgs) {
-        return this.#handleTranscription(args, false);
-    }
-
-    async translate(args: ITranscribeArgs) {
-        return this.#handleTranscription(args, true);
-    }
-
-    async #handleTranscription(args: ITranscribeArgs, translate: boolean) {
         if (args.test_mode) {
             return {
                 ...SAMPLE_TRANSCRIPT,
-                model:
-                    args.model ||
-                    (translate
-                        ? DEFAULT_TRANSLATE_MODEL
-                        : DEFAULT_TRANSCRIBE_MODEL),
+                model: args.model || DEFAULT_TRANSCRIBE_MODEL,
             };
         }
         if (args.stream) {
@@ -170,9 +136,7 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
         );
 
-        const selectedModel =
-            args.model ||
-            (translate ? DEFAULT_TRANSLATE_MODEL : DEFAULT_TRANSCRIBE_MODEL);
+        const selectedModel = args.model || DEFAULT_TRANSCRIBE_MODEL;
         const caps = MODEL_CAPS[selectedModel];
         if (!caps) {
             throw new HttpError(400, `Unsupported model: ${selectedModel}`, {
@@ -240,48 +204,15 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         if (typeof args.temperature === 'number')
             payload.temperature = args.temperature;
         if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
-        if (args.logprobs && caps.canLogprobs) payload.logprobs = args.logprobs;
-        if (args.timestamp_granularities && caps.timestampGranularities) {
-            payload.timestamp_granularities = args.timestamp_granularities;
-        }
-        if (caps.diarization) {
-            if (!args.response_format)
-                payload.response_format = 'diarized_json';
-            const needsChunking =
-                caps.requiresChunkingOverThirtySeconds && estimatedSeconds > 30;
-            const strategy =
-                args.chunking_strategy ?? (needsChunking ? 'auto' : undefined);
-            if (strategy) payload.chunking_strategy = strategy;
+        // The API ignores a bare `logprobs` flag; it only honors `include`.
+        if (args.logprobs && caps.canLogprobs) payload.include = ['logprobs'];
+        if (args.extra_body) payload.extra_body = args.extra_body;
 
-            if (args.known_speaker_names || args.known_speaker_references) {
-                payload.extra_body = {
-                    ...(args.extra_body ?? {}),
-                    ...(args.known_speaker_names
-                        ? { known_speaker_names: args.known_speaker_names }
-                        : {}),
-                    ...(args.known_speaker_references
-                        ? {
-                              known_speaker_references:
-                                  args.known_speaker_references,
-                          }
-                        : {}),
-                };
-            }
-        } else if (args.extra_body) {
-            payload.extra_body = args.extra_body;
-        }
-
-        const result = translate
-            ? await this.#openai.audio.translations.create(
-                  payload as unknown as Parameters<
-                      OpenAI['audio']['translations']['create']
-                  >[0],
-              )
-            : await this.#openai.audio.transcriptions.create(
-                  payload as unknown as Parameters<
-                      OpenAI['audio']['transcriptions']['create']
-                  >[0],
-              );
+        const result = await this.#openai.audio.transcriptions.create(
+            payload as unknown as Parameters<
+                OpenAI['audio']['transcriptions']['create']
+            >[0],
+        );
 
         this.deps.metering.incrementUsage(
             actor,

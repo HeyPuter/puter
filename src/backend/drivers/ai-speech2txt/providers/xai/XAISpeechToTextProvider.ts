@@ -42,6 +42,11 @@ const MAX_AUDIO_FILE_SIZE = 500 * 1024 * 1024; // 500 MB per xAI docs
 // Per second: 10_000_000 / 3600 ≈ 2778 microcents per second
 const UCENTS_PER_SECOND = 2778;
 
+// `xai-stt` sends no `model` and gets xAI's default; pinned ids are forwarded
+// as-is. All versions share the same per-hour rate.
+const DEFAULT_MODEL = 'xai-stt';
+const PINNED_MODELS = ['grok-voice-transcribe-2.0'];
+
 const SAMPLE_TRANSCRIPT = {
     text: 'Hello! This is a sample transcription returned while test mode is enabled.',
     language: 'English',
@@ -82,8 +87,17 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
     async listModels(): Promise<ISpeechToTextModel[]> {
         return [
             {
-                id: 'xai-stt',
+                id: DEFAULT_MODEL,
                 name: 'xAI Speech to Text',
+                type: 'transcription',
+                response_formats: ['json'],
+                supports_prompt: false,
+                supports_logprobs: false,
+                supports_diarization: true,
+            },
+            {
+                id: 'grok-voice-transcribe-2.0',
+                name: 'Grok Voice Transcribe 2.0',
                 type: 'transcription',
                 response_formats: ['json'],
                 supports_prompt: false,
@@ -111,8 +125,16 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
     }
 
     async #handleTranscription(args: ITranscribeArgs) {
+        const pinnedModel =
+            args.model && PINNED_MODELS.includes(args.model)
+                ? args.model
+                : undefined;
+
         if (args.test_mode) {
-            return { ...SAMPLE_TRANSCRIPT, model: 'xai-stt' };
+            return {
+                ...SAMPLE_TRANSCRIPT,
+                model: pinnedModel ?? DEFAULT_MODEL,
+            };
         }
 
         if (!this.#apiKey) {
@@ -165,6 +187,7 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
         // Build multipart form data
         const formData = new FormData();
 
+        if (pinnedModel) formData.append('model', pinnedModel);
         if (args.language) formData.append('language', args.language);
         if (args.format !== undefined)
             formData.append('format', String(args.format));

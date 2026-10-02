@@ -20,7 +20,7 @@
 /**
  * Integration test for the Gemini image generation provider.
  *
- * Uses `gemini-2.5-flash-image` (the cheapest Gemini image model).
+ * Uses `gemini-3.1-flash-lite-image` (the cheapest Gemini image model).
  * Skipped when `PUTER_TEST_AI_GEMINI_API_KEY` is unset.
  */
 
@@ -39,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'GeminiImageProvider (integration)',
     () => {
-        it('returns image data from gemini-2.5-flash-image', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns image data from gemini-3.1-flash-lite-image', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new GeminiImageProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -47,7 +47,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'a tiny red dot on a white background',
                     ratio: { w: 1, h: 1 },
                 }),

@@ -423,7 +423,7 @@ describe('TTSDriver list_voices / list_engines', () => {
             expect.arrayContaining([
                 'gpt-4o-mini-tts', // openai
                 'eleven_multilingual_v2', // elevenlabs
-                'gemini-2.5-flash-preview-tts',
+                'gemini-3.8-flash-tts', // gemini
                 'xai-tts',
                 'simba-3.2', // speechify
                 'standard', // aws-polly
