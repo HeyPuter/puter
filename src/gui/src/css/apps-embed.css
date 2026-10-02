@@ -19,6 +19,13 @@ body {
     width: 100%;
 }
 
+/* The dashboard's narrow-screen padding clears its hamburger button, which embeds don't have. */
+#app-browser .myapps-search-wrap {
+    padding-top: 16px;
+    padding-bottom: 16px;
+    margin-bottom: 8px;
+}
+
 #app-browser .myapps-group-name[readonly] {
     cursor: default;
 }

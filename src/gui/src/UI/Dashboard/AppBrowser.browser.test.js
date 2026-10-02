@@ -128,6 +128,7 @@ describe('embedded app browser', () => {
                 const frame = page.frameLocator('iframe');
                 await frame.locator('.myapps-group-tile').waitFor();
                 expect(await frame.locator('.myapps-reorder-btn, .myapps-add-tile, .myapps-tile-remove').count()).toBe(0);
+                expect(await frame.locator('.myapps-search-wrap').evaluate(el => getComputedStyle(el).paddingTop)).toBe('16px');
                 expect(await frame.locator('.myapps-tile').first().getAttribute('data-app-name')).toBe('app-104');
                 expect(await frame.locator('[data-app-name="removed"]').count()).toBe(0);
                 expect(requests.filter(req => req.path === '/installedApps')).toHaveLength(2);
