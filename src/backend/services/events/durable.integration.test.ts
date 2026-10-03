@@ -54,6 +54,7 @@ let appOneToken: string;
 let appTwoUid: string;
 let appTwoToken: string;
 let appOneAccessToken: string;
+let readUrlToken: string;
 let delivered: DeliveryEnvelope[];
 
 const events = () => env.server.services.events;
@@ -211,6 +212,15 @@ beforeAll(async () => {
         [[`fs:${entry!.uid}:list`]],
         { label: 'durable' },
     );
+    // What a `getReadURL()` URL carries when the account itself mints one.
+    const session = await env.server.services.auth.authenticate(
+        env.users.user.token,
+    );
+    readUrlToken = await env.server.services.auth.createAccessToken(
+        session.actor!,
+        [[`fs:${entry!.uid}:read`]],
+        { label: 'durable-read-url' },
+    );
 
     delivered = [];
     events().onDelivered = (envelope) => delivered.push(envelope);
@@ -363,6 +373,12 @@ describe('creating a durable subscription over HTTP', () => {
         expect(refused.body.code).toBe('invalid_targets');
     });
 
+    it('refuses a scoped token with no app, even on a subject it can read', async () => {
+        const refused = await subscribe(readUrlToken);
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_durable_requires_account');
+    });
+
     it('refuses an expiry in the past', async () => {
         const refused = await subscribe(env.users.user.token, {
             expiresAt: Math.floor(Date.now() / 1000) - 60,
@@ -404,6 +420,23 @@ describe('what each credential sees and removes', () => {
             expect(subIdsOf(await listSubscriptions(wide)).sort()).toEqual(
                 [mine, theirs, account].sort(),
             );
+    });
+
+    it('gives a scoped token with no app none of the account`s rows', async () => {
+        await clearRows();
+        const appRow = (await subscribe(appOneToken)).body.subId as string;
+        const account = (await subscribe(env.users.user.token)).body
+            .subId as string;
+
+        expect(subIdsOf(await listSubscriptions(readUrlToken))).toEqual([]);
+        for (const subId of [appRow, account]) {
+            const refused = await unsubscribe(readUrlToken, subId);
+            expect(refused.status).toBe(404);
+            expect(refused.body.code).toBe('subscription_does_not_exist');
+        }
+        expect(
+            subIdsOf(await listSubscriptions(env.users.user.token)).sort(),
+        ).toEqual([appRow, account].sort());
     });
 
     it('answers another app`s subscription id as absent', async () => {

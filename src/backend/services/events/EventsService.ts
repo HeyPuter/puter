@@ -774,6 +774,14 @@ const durableNeedsAccount = (): HttpError =>
         { legacyCode: 'events_durable_requires_account' },
     );
 
+/** Same code: a scoped token is not the account, and holds no connection either. */
+const durableScopedToken = (): HttpError =>
+    new HttpError(
+        403,
+        'A scoped access token may not hold persistent subscriptions',
+        { legacyCode: 'events_durable_requires_account' },
+    );
+
 const handlerNotFound = (name: string): HttpError =>
     new HttpError(404, `No handler named \`${name}\` is published`, {
         legacyCode: 'events_handler_not_found',
@@ -1798,6 +1806,10 @@ export class EventsService extends PuterService {
         // As the session verb does: an unresolved `effectiveApp` would land an
         // app's row in the account's scope.
         assertResolvedActor(actor);
+        // Its row would land in the account's scope, which it may not list or
+        // remove from.
+        if (actor.effectiveApp === null && !isAccountContext(actor))
+            throw durableScopedToken();
 
         await this.#spendCallBudget(holderUserId);
 
@@ -1891,7 +1903,7 @@ export class EventsService extends PuterService {
      * What this actor holds durably. An app-context actor is confined to its
      * own rows by the index the query runs on; an account-context one sees
      * across apps, which is what makes the account the revoke surface for a row
-     * whose app is long gone.
+     * whose app is long gone. A scoped token with no app holds nothing.
      */
     async listDurable(
         actor: Actor,
@@ -1905,6 +1917,7 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app" — reading it that way is what would hand
         // an app the account-wide view.
         if (app === undefined) return { items: [] };
+        if (app === null && !isAccountContext(actor)) return { items: [] };
 
         const page = await this.stores.durableSubscription.listForHolder(
             holderUserId,
@@ -1942,6 +1955,10 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app": reading it that way would hand an app
         // rows only the account may see.
         if (actor.effectiveApp === undefined) return { items: [] };
+        // A scoped token with no app is not the account. Refused here, not by
+        // the row filter, which would still cut a cursor from the full page.
+        if (actor.effectiveApp === null && !isAccountContext(actor))
+            return { items: [] };
 
         const scope = resolveNotifFetch(String(request.subject ?? ''), {
             userUuid: user.uuid,
