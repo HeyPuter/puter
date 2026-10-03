@@ -334,6 +334,72 @@ describe('MeteringService', () => {
             expect(stub).toHaveBeenCalledTimes(2);
         });
 
+        // An actor built from a few row fields can't be resolved by email, so
+        // its answer must not stand in for the account's plan.
+        it('never caches an answer resolved without the email, but serves one from the cache', async () => {
+            target.registerPolicy({
+                id: 'by-email',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi.fn(async (a: Actor) =>
+                a.user.email ? 'by-email' : null,
+            );
+            target.registerDefaultSubscriptionResolver(stub);
+            const { email: _email, ...partialUser } = actor.user;
+            const partial: Actor = { user: partialUser };
+
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                DEFAULT_TEMP_SUBSCRIPTION,
+            );
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                'by-email',
+            );
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                'by-email',
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        it('caches the fallback from a failed resolver only briefly', async () => {
+            target.registerPolicy({
+                id: 'flaky-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockRejectedValueOnce(new Error('store unavailable'))
+                .mockResolvedValue('flaky-paid');
+            target.registerSubscriptionResolver(stub);
+
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            // Reused for the short window rather than re-asked per request.
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            expect(stub).toHaveBeenCalledTimes(1);
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            expect(fallbackMs).toBeLessThan(
+                (target.constructor as typeof MeteringService)
+                    .SUBSCRIPTION_CACHE_MS,
+            );
+            const now = Date.now();
+            vi.spyOn(Date, 'now').mockReturnValue(now + fallbackMs + 1);
+            try {
+                expect((await target.getActorSubscription(actor)).id).toBe(
+                    'flaky-paid',
+                );
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+            }
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
         it('rejects an actor with no user uuid', async () => {
             await expect(
                 target.getActorSubscription({
@@ -1905,6 +1971,38 @@ describe('MeteringService', () => {
 
             expect(policy.monthUsageAllowance).toBe(paid.monthUsageAllowance);
             getSpy.mockRestore();
+        });
+
+        it('caches the allowance from a failed override read only briefly', async () => {
+            paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-paid',
+                toMicroCents(4),
+            );
+            const getSpy = vi
+                .spyOn(server.stores.kv, 'get')
+                .mockRejectedValueOnce(new Error('kv down'));
+            await target.getActorSubscription(actor);
+            getSpy.mockRestore();
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            expect(fallbackMs).toBeLessThan(
+                (target.constructor as typeof MeteringService)
+                    .SUBSCRIPTION_CACHE_MS,
+            );
+            const now = Date.now();
+            vi.spyOn(Date, 'now').mockReturnValue(now + fallbackMs + 1);
+            try {
+                expect(
+                    (await target.getActorSubscription(actor))
+                        .monthUsageAllowance,
+                ).toBe(toMicroCents(4));
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+            }
         });
 
         it('refuses an allowance that would read as unmetered', async () => {

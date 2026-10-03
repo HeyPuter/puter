@@ -1770,6 +1770,7 @@ export class LegacyFSController extends PuterController {
                     uuid: owner.uuid,
                     id: owner.id,
                     username: owner.username,
+                    email: owner.email ?? null,
                     suspended: !!(owner as { suspended?: unknown }).suspended,
                 },
             };
