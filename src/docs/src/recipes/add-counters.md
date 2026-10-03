@@ -140,9 +140,9 @@ dated keys back, such as one month.
 
 ## Keep the Highest Score
 
-[`puter.kv.incr()`](/KV/incr/) adds to a number, but it can't keep the highest
-of several, such as a game's best score. The simple way is to read the best
-score, compare, and write:
+[`puter.kv.incr()`](/KV/incr/) can add to a number, but it can't keep track of
+the highest one, like a game's best score. The simple way is to read the current
+best, compare, and save:
 
 ```js
 async function saveScore (score) {
@@ -154,10 +154,10 @@ async function saveScore (score) {
 }
 ```
 
-If two tabs finish a game at the same moment, both can read the old best, and
-the lower score can be the one saved last. When that matters, give each new best
-its own key, with the score padded to a fixed width so the keys sort in number
-order. The highest score is then the last key:
+If two tabs finish a game at the same time, both can read the old best, and the
+lower score might get saved last. If that matters, save each new best as its own
+key, with the score padded so the keys sort in number order. The highest score
+is then the last key:
 
 ```js
 const scoreKey = (score) => `score:${ String(score).padStart(10, '0') }`;
@@ -174,9 +174,9 @@ async function saveScore (score) {
 }
 ```
 
-`reverse: true` lists keys from last to first, so `limit: 1` returns only the
-highest. Two tabs writing at once each add their own key, and the higher one
-always comes first.
+`reverse: true` lists the keys from last to first, so `limit: 1` gives you just
+the highest. If two tabs save at once, each one adds its own key, and the higher
+score still comes out on top.
 
 ## Reset a Counter
 

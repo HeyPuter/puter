@@ -1,30 +1,31 @@
 ---
 title: Keep an Index in Sync
-description: "Learn how to look up records by more than one field in the Puter.js key-value database, and keep those extra keys correct as records are created, changed and deleted."
+description: "Learn how to look up records by more than one field in the Puter.js key-value database, and keep those extra keys up to date."
 tags: [kv, data-modeling, performance]
 order: 37
 ---
 
-In a SQL database, you add an index on a column and the database keeps it up to
-date for you. [`puter.kv`](/KV/) only finds records by key or by the start of a
-key, so to look records up by another field you write a second key yourself, as
-[Query a Collection](/recipes/query-collection/#query-by-another-field) shows.
-That second key is your index, and keeping it correct is your code's job. This
-recipe shows how, using orders that you look up by status and by customer.
+In a SQL database you can add an index to a column, and the database keeps it
+up to date for you. [`puter.kv`](/KV/) only looks things up by key or key
+prefix, so to find records by another field you write an extra key yourself, as
+shown in [Query a Collection](/recipes/query-collection/#query-by-another-field).
+That extra key is an index, and it's up to your code to keep it correct.
+
+This recipe uses orders that can be looked up by status or by customer:
 
 | Key | Holds |
 | --- | --- |
-| `order:<id>` | The full order. This is the record |
-| `order-by-status:<status>:<id>` | A short copy of the order, for listing orders by status |
-| `order-by-customer:<customer>:<id>` | The same copy, for listing a customer's orders |
+| `order:<id>` | The full order |
+| `order-by-status:<status>:<id>` | A short copy of the order, for listing by status |
+| `order-by-customer:<customer>:<id>` | The same copy, for listing by customer |
 | `order-counts` | How many orders have each status |
 
-Each index key holds a short copy of the fields a list shows, so a list loads
-with one call and doesn't need to read every order.
+Each index key holds a short copy of the fields a list needs, so a list loads
+in one call without reading every order.
 
 ## Create a Record
 
-Two small helpers say which index keys an order has and what goes in them:
+Two helpers decide which index keys an order has and what goes in them:
 
 ```js
 const indexKeys = (order) => [
@@ -40,9 +41,9 @@ const summary = (order) => ({
 });
 ```
 
-To create an order, write the record and its index keys with one call to
-[`puter.kv.set()`](/KV/set/), passing an array of `{ key, value }` items. This
-is a batch write: all the keys go in one request instead of one request each:
+To create an order, pass an array of `{ key, value }` items to
+[`puter.kv.set()`](/KV/set/). This writes the record and its index keys in one
+request:
 
 ```js
 async function createOrder (order) {
@@ -54,13 +55,12 @@ async function createOrder (order) {
 }
 ```
 
-The last line adds 1 to the count for the order's status. [Add
-Counters](/recipes/add-counters/#count-several-things-in-one-key) explains
-counts kept in one object.
+The last line adds 1 to the count for the order's status (see [Add
+Counters](/recipes/add-counters/#count-several-things-in-one-key)).
 
 ## Read Through an Index
 
-To list orders by status, read the keys that start with that status:
+To list orders by status, list the keys that start with that status:
 
 ```js
 const { items, cursor } = await puter.kv.list({
@@ -68,11 +68,10 @@ const { items, cursor } = await puter.kv.list({
     returnValues: true,
     limit: 50,
 });
-// items: [{ key: 'order-by-status:open:o1', value: { id: 'o1', status: 'open', … } }, …]
+// [{ key: 'order-by-status:open:o1', value: { id: 'o1', status: 'open', ... } }, ...]
 ```
 
-To show one order in full, read its record with
-[`puter.kv.get()`](/KV/get/):
+To show the full order, read the record with [`puter.kv.get()`](/KV/get/):
 
 ```js
 const order = await puter.kv.get(`order:${ id }`);
@@ -80,9 +79,9 @@ const order = await puter.kv.get(`order:${ id }`);
 
 ## Change a Record
 
-When a field that is part of an index key changes, such as the status, the
-index key changes too. Write the new keys first, then delete the old ones that
-are no longer used:
+When a field that's part of an index key changes, like the status, the key
+itself changes. Write the new keys first, then delete any old keys that aren't
+used anymore:
 
 ```js
 async function updateOrder (id, changes) {
@@ -107,16 +106,14 @@ async function updateOrder (id, changes) {
 }
 ```
 
-A few things to note:
+Every index key gets rewritten, not just the ones that changed, since each one
+holds a copy of the order. A new `total` has to reach every copy.
 
-- Every index key is written again, not just the changed ones, because each one
-  holds a copy of the order. A changed `total` has to reach every copy.
-- New keys are written before old keys are deleted. If the page closes in
-  between, you are left with an extra index key, not a missing one. An extra
-  key is easy to spot and remove, as shown in [Check Results Against the
-  Record](#check-results-against-the-record).
-- The count moves from one status to the other in a single call, so the total
-  never goes out of step.
+Writing the new keys before deleting the old ones means that if something stops
+halfway, you end up with an extra key rather than a missing one. Extra keys are
+easy to clean up, as shown below.
+
+The count moves from the old status to the new one in a single `incr()` call.
 
 ## Delete a Record
 
@@ -140,10 +137,9 @@ finishes the job.
 
 ## Check Results Against the Record
 
-The writes for one change are separate requests, and a batch write is not a
-transaction, so if a call fails partway an index key can briefly point at the
-wrong thing. When showing an index entry would do harm, such as an order listed
-as open when it shipped, check it against the record before you trust it:
+Each change takes several requests, so if one of them fails, an index key can
+end up out of date. When that matters, like an order still showing as open
+after it shipped, check the record before trusting the index:
 
 ```js
 const order = await puter.kv.get(`order:${ entry.value.id }`);
@@ -155,15 +151,14 @@ if ( order === null || order.status !== 'open' ) {
 
 ## Count Records per Group
 
-The `order-counts` key from the sections above answers "how many?" with one
-small read:
+The `order-counts` key gives you counts with one small read:
 
 ```js
 const counts = await puter.kv.get('order-counts') ?? {};
 // { open: 12, shipped: 40 }
 ```
 
-[`puter.kv.list()`](/KV/list/) can also count, with `includeTotal`:
+You can also count with `includeTotal` on [`puter.kv.list()`](/KV/list/):
 
 ```js
 const { total } = await puter.kv.list({
@@ -173,10 +168,11 @@ const { total } = await puter.kv.list({
 });
 ```
 
-`includeTotal` counts the keys themselves, so it can't drift, but it gets slower
-and costs more the more keys it counts. A counter key costs the same however many orders there
-are, but can drift if a write fails. Use the counter for numbers you show often,
-and `includeTotal` now and then to correct it:
+`includeTotal` counts the actual keys, so it can't drift, but it gets slower
+and more expensive as the number of keys grows. The counter costs the same no
+matter how many orders there are, but it can drift if a write fails. Use the
+counter for numbers you show often, and `includeTotal` once in a while to fix
+it:
 
 ```js
 await puter.kv.update('order-counts', { open: total });
@@ -194,7 +190,7 @@ await puter.kv.set(`contact-by-name:${ contact.name.toLowerCase() }:${ contact.i
 });
 ```
 
-Then list the keys that start with what the user typed so far:
+Then list the keys that start with what's been typed so far:
 
 ```js
 const { items } = await puter.kv.list({
@@ -202,23 +198,21 @@ const { items } = await puter.kv.list({
     returnValues: true,
     limit: 10,
 });
-// typed 'ali' → Alice, Alicia
+// typing 'ali' finds Alice and Alicia
 ```
 
-The results come back in alphabetical order. This finds names that start with
-the text, not names that contain it anywhere. To match any word in a name, write
-one index key per word.
+Results come back in alphabetical order. This only matches names that start
+with the typed text. To match any word in a name, write one index key per word.
 
 [`puter.kv.list()`](/KV/list/) has a lower [rate
-limit](/rate-limits-and-quotas/#key-value-store) than the other calls, so don't
-run it on every keystroke. Wait until the user stops typing for a moment, which
-is often called debouncing.
+limit](/rate-limits-and-quotas/#key-value-store) than other calls, so don't
+call it on every keystroke. Wait until the user stops typing for a moment.
 
 ## Rebuild the Index
 
-If index keys get out of step, or you add a new index to records you already
-have, rebuild it from the records. Read every order a page at a time, and write
-its index keys back in one batch per page:
+If index keys get out of sync, or you add a new index to existing records, you
+can rebuild it from the records. This reads every order a page at a time and
+writes its index keys back, one batch per page:
 
 ```js
 const counts = {};
@@ -236,12 +230,12 @@ for await ( const page of puter.kv.list({ pattern: 'order:', returnValues: true,
 await puter.kv.set('order-counts', counts);
 ```
 
-The pattern `order:` matches only records. `order-counts` and the index keys
-start with `order-`, so they are left out.
+The `order:` pattern only matches records. `order-counts` and the index keys
+start with `order-`, so they aren't included.
 
-Rebuilding adds missing index keys but doesn't remove stale ones. To also remove
-those, go through the index keys and delete each one whose record is gone or no
-longer matches:
+Rebuilding adds missing index keys but doesn't remove old ones. To remove those
+too, go through the index and delete any key whose record is gone or doesn't
+match anymore:
 
 ```js
 for await ( const page of puter.kv.list({ pattern: 'order-by-', returnValues: true, stream: true }) ) {
@@ -254,17 +248,17 @@ for await ( const page of puter.kv.list({ pattern: 'order-by-', returnValues: tr
 }
 ```
 
-This reads every record once for each of its index keys, so run it rarely, for
-example from a "Repair" button or after you change how your keys are laid out.
+This reads a record for every index key, so only run it once in a while, like
+from a "Repair" button.
 
 ## Notes
 
-- A value used in a key, such as a status or customer name, shouldn't contain
-  `:`, or one key could look like it starts with another. IDs from
+- Values used in keys, like a status or customer name, shouldn't contain `:`,
+  or one key could look like the start of another. IDs from
   [`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)
   are safe.
-- When two tabs change the same order at the same moment, the last write wins,
-  and its index keys can disagree with the other tab's. If that can happen in
-  your app, run the rebuild now and then.
-- Every index key is one more write on each change. Only index the fields you
+- If two tabs change the same order at the same time, the last write wins and
+  the index keys can end up out of sync. If that can happen in your app, run the
+  rebuild now and then.
+- Each index key adds a write to every change, so only index the fields you
   actually list or search by.

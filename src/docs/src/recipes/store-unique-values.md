@@ -1,19 +1,17 @@
 ---
 title: Store a Set of Unique Values
-description: "Learn how to keep a set of unique values, such as liked posts, tags or bookmarks, in one Puter.js key-value entry, so each value is stored once however often it is added."
+description: "Learn how to store a set of unique values, like liked posts or tags, in one Puter.js key-value entry so nothing gets added twice."
 tags: [kv, data-modeling]
 order: 25
 ---
 
-Some lists should never hold the same value twice: the posts a user liked, the
-tags on a note, the pages they bookmarked. In JavaScript you would use a
+Some lists should never contain the same value twice, like the posts a user
+liked or the tags on a note. In JavaScript you'd use a
 [`Set`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set)
-for this, and databases such as Redis have a set type with commands like `SADD`
-and `SREM`.
+for this.
 
-[`puter.kv`](/KV/), the key-value database in Puter.js, has no set type, but an
-object works as one. Each value in the set becomes a field name, with `true` as
-the field's value:
+[`puter.kv`](/KV/) doesn't have a set type, but an object works just as well.
+Store each value as a field name, with `true` as its value:
 
 ```js
 {
@@ -22,9 +20,9 @@ the field's value:
 }
 ```
 
-An object can't have the same field name twice, so the set never holds
-duplicates. An array with [`puter.kv.add()`](/KV/add/) doesn't work for this,
-since it appends whatever you give it, including a value that is already there.
+An object can't have the same field twice, so there are never duplicates. An
+array doesn't work here, because [`puter.kv.add()`](/KV/add/) appends a value
+even if it's already in the list.
 
 ## Add a Value
 
@@ -35,20 +33,17 @@ as the field name:
 await puter.kv.update('likedPosts', { [postId]: true });
 ```
 
-If the key doesn't exist yet, it is created. Adding a value that is already in
-the set changes nothing, so a double click, or the same call from two tabs, is
-safe. A call you can repeat without changing the result is called idempotent.
+If the key doesn't exist yet, it's created. Adding a value that's already there
+changes nothing, so a double click or the same call from two tabs is harmless.
 
-The method returns the whole set after the change, so you don't need another
-read to show it:
+The method returns the whole set after the change:
 
 ```js
 const liked = await puter.kv.update('likedPosts', { [postId]: true });
 // { 'post-81': true, 'post-102': true }
 ```
 
-To add several values, put them all in one object. They are saved in a single
-write:
+To add several values at once, put them all in the same object:
 
 ```js
 await puter.kv.update('likedPosts', { 'post-7': true, 'post-9': true });
@@ -56,12 +51,10 @@ await puter.kv.update('likedPosts', { 'post-7': true, 'post-9': true });
 
 ## Store Values with Dots or Quotes
 
-The field name you pass to [`puter.kv.update()`](/KV/update/) is read as a path,
-the same as in [Store a Small List](/recipes/store-small-list/). A dot means "go
-into a nested object", so a URL or a tag such as `v1.2` would be split at its
-dots. To store the value as one field name, wrap it in brackets and quotes, and
-put a backslash before any quote or backslash inside it. This small helper does
-that:
+The field name is read as a path, where a dot means "go into a nested object".
+A value like a URL or `v1.2` would get split at its dots. To keep it as one
+name, wrap it in brackets and quotes, and escape any quotes or backslashes
+inside it. This helper does both:
 
 ```js
 const member = (value) => `["${ value.replace(/["\\]/g, '\\$&') }"]`;
@@ -70,26 +63,22 @@ await puter.kv.update('bookmarks', { [member('https://example.com/a.html')]: tru
 // { 'https://example.com/a.html': true }
 ```
 
-Use `member()` for any value a user typed or that comes from outside your app.
-IDs made with
+Use `member()` for anything a user typed or that comes from outside your app.
+IDs from
 [`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)
-contain no dots, so they work without it, as in [Store Items by
-ID](/recipes/store-items-by-id/).
+don't contain dots, so they're fine without it.
 
 ## Remove a Value
 
-To take a value out, use the [`puter.kv.remove()`](/KV/remove/) method:
+To remove a value, use the [`puter.kv.remove()`](/KV/remove/) method:
 
 ```js
 await puter.kv.remove('bookmarks', member(url));
 ```
 
-Removing a value that isn't in the set does nothing, and doesn't throw. Like
-[`puter.kv.update()`](/KV/update/), the method returns the set after the change.
-
-To remove several values, pass each one as its own argument. A call that names
-the same value twice is rejected with `bad_request`, so remove duplicates
-first:
+Removing a value that isn't in the set does nothing. To remove several at once,
+pass each one as a separate argument. Passing the same value twice in one call
+is rejected with `bad_request`, so remove duplicates first:
 
 ```js
 await puter.kv.remove('tags', ...[ ...new Set(tagsToRemove) ].map(member));
@@ -97,9 +86,9 @@ await puter.kv.remove('tags', ...[ ...new Set(tagsToRemove) ].map(member));
 
 ## Check and List the Values
 
-To read the set, use the [`puter.kv.get()`](/KV/get/) method. A set that was
-never written reads as `null`, and a set whose values were all removed reads as
-`{}`, so default it to an empty object:
+To read the set, use the [`puter.kv.get()`](/KV/get/) method. It returns `null`
+if nothing was ever saved, and `{}` once every value has been removed, so
+default it to an empty object:
 
 ```js
 const bookmarks = await puter.kv.get('bookmarks') ?? {};
@@ -111,8 +100,8 @@ const count = urls.length;
 
 ## Build a Like Button
 
-A like button switches between liked and not liked. Send the state the user
-chose, instead of reading the stored value and writing the opposite:
+For a like button, save the state the user picked instead of flipping whatever
+is stored:
 
 ```js
 async function setLiked (postId, liked) {
@@ -129,15 +118,14 @@ likeButton.addEventListener('click', async () => {
 });
 ```
 
-Reading and then writing the opposite takes two calls, and another tab can
-change the value in between, so the two tabs can undo each other. Sending the
-state takes one call, and sending it twice gives the same result.
+If you read the stored value and write the opposite, two tabs clicking at the
+same time can cancel each other out. Saving the state directly avoids that.
 
 ## Keep the Order Values Were Added
 
-The order of an object's fields isn't kept when it is stored. To show values
-newest first, such as recent searches, store the time instead of `true` and
-sort when you read:
+Objects don't keep their field order when they're stored. If you need newest
+first, like for recent searches, store a timestamp instead of `true` and sort
+when you read:
 
 ```js
 await puter.kv.update('recentSearches', { [member(query)]: Date.now() });
@@ -148,8 +136,8 @@ const newestFirst = Object.entries(searches)
     .map(([ query ]) => query);
 ```
 
-Searching for the same thing again moves it to the top instead of adding a
-second copy. To keep only the last 20, remove the rest:
+Searching for something again moves it back to the top instead of adding a
+duplicate. To keep only the last 20:
 
 ```js
 const old = newestFirst.slice(20);
@@ -162,9 +150,8 @@ if ( old.length > 0 ) {
 ## When to Switch
 
 One entry holds up to [400 KB](/KV/MAX_VALUE_SIZE/), which is a few thousand
-short values. For a set that can grow past that, such as every post a user has
-ever liked, give each value its own key instead. Keys are unique too, so it is
-still a set:
+short values. If the set can get bigger than that, like every post a user has
+ever liked, give each value its own key instead:
 
 ```js
 await puter.kv.set(`liked:${ postId }`, true);                      // add
@@ -172,17 +159,13 @@ await puter.kv.del(`liked:${ postId }`);                            // remove
 const isLiked = await puter.kv.get(`liked:${ postId }`) !== null;   // check
 ```
 
-To list the values, read the keys that start with `liked:`, as shown in [Store
-a Large Collection](/recipes/store-large-collection/).
+To list them, read every key that starts with `liked:`, as shown in [Store a
+Large Collection](/recipes/store-large-collection/).
 
 ## Notes
 
-- The empty string, `__proto__`, `constructor` and `prototype` can't be field
-  names, and a call that uses one is rejected with `bad_request`. If users can
-  type any value, put a fixed prefix in front of it, such as `member('tag:' +
-  value)`.
-- One call to [`puter.kv.update()`](/KV/update/) or
-  [`puter.kv.remove()`](/KV/remove/) fits about 140 short values. Split larger
-  changes across several calls.
-- Like everything in `puter.kv`, the set belongs to the signed-in user and your
-  app. Each user has their own set.
+- Empty strings, `__proto__`, `constructor` and `prototype` can't be used as
+  field names and are rejected with `bad_request`. If users can type anything,
+  add a prefix, like `member('tag:' + value)`.
+- One `update()` or `remove()` call can handle about 140 short values. Split
+  bigger changes into several calls.

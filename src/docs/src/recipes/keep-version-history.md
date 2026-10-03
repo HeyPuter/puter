@@ -1,27 +1,27 @@
 ---
 title: Keep a Version History
-description: "Learn how to save every version of a document in the Puter.js key-value database, so users can look through old versions and restore one."
+description: "Learn how to save every version of a document with Puter.js so users can look back and restore an older one."
 tags: [kv, data-modeling]
 order: 36
 ---
 
-Many editors let users go back to an earlier version, like the version history
-in Google Docs or the commits in git. With [`puter.kv`](/KV/), each save can
-write a copy of the document under its own numbered key, next to the current
-version. Old copies can delete themselves after a while.
+Lots of editors let you go back to an earlier version, like the version history
+in Google Docs. With [`puter.kv`](/KV/), you can do this by saving a copy of the
+document under a numbered key every time it's saved. Old copies can delete
+themselves after a while.
 
-This recipe keeps notes, and uses three kinds of keys for each note:
+This recipe uses notes, with three kinds of keys per note:
 
 | Key | Holds |
 | --- | --- |
-| `note:<id>` | The current version, read when the note opens |
+| `note:<id>` | The current version |
 | `note-history:<id>:00000007` | A copy of version 7. Each save adds one |
-| `note-revision:<id>` | A counter holding the latest version number |
+| `note-revision:<id>` | The latest version number |
 
 ## Save a Version
 
 Each save gets the next version number, then writes the current version and a
-copy in one request:
+copy in one call:
 
 ```js
 const versionKey = (noteId, number) =>
@@ -43,25 +43,23 @@ async function saveNote (noteId, text) {
 }
 ```
 
-Step by step:
+[`puter.kv.incr()`](/KV/incr/) gives every save its own number, even when two
+tabs save at once. The number is padded with zeros so the keys sort in order
+(otherwise `10` would come before `9`).
 
-- [`puter.kv.incr()`](/KV/incr/) gives each save its own number, even when two
-  tabs save at the same moment. [Run Code Only Once](/recipes/run-code-once/)
-  explains why.
-- The number gets zeros in front so the keys sort in number order. As text, `10`
-  would sort before `9`.
-- [`puter.kv.set()`](/KV/set/) with an array writes both keys in one request.
-  The copy has an `expireAt`, a Unix time in seconds, so it deletes itself after
-  30 days. The current version has none, so the note itself never expires.
+Passing an array to [`puter.kv.set()`](/KV/set/) writes both keys in one
+request. The copy gets an `expireAt`, a Unix time in seconds, so it's deleted
+after 30 days. The current version has no expiry, so the note itself never goes
+away.
 
-When two tabs save at the same moment, both versions go into the history, and
-the current version is whichever write arrived last.
+If two tabs save at the same moment, both versions end up in the history, and
+whichever save arrived last becomes the current version.
 
 ## Show the History
 
-To list a note's versions, use the [`puter.kv.list()`](/KV/list/) method with the
-note's prefix. `reverse: true` puts the newest version first, and `limit` reads
-one page at a time:
+To list a note's versions, call [`puter.kv.list()`](/KV/list/) with the note's
+prefix. `reverse: true` puts the newest first, and `limit` loads one page at a
+time:
 
 ```js
 const page = await puter.kv.list({
@@ -76,8 +74,8 @@ for ( const { value } of page.items ) {
 }
 ```
 
-When there are more versions, the page has a `cursor`. Pass it back to read the
-next, older page, for example from a "Show older" button:
+If there are more versions, the page includes a `cursor`. Pass it back to load
+the next page of older versions, for example from a "Show older" button:
 
 ```js
 const older = await puter.kv.list({
@@ -89,10 +87,11 @@ const older = await puter.kv.list({
 ```
 
 The cursor remembers the direction, so you don't need to pass `reverse` again.
-Expired copies are left out, which can make a page shorter than `limit` while
-more versions remain. Add `fetchUntilFull: true` to fill the page anyway. [Store
-a Large Collection](/recipes/store-large-collection/#page-through-a-collection)
-covers paging in more detail.
+Expired copies are skipped, so a page can come back with fewer than `limit`
+items even when there are more. Add `fetchUntilFull: true` if you want full
+pages. [Store a Large
+Collection](/recipes/store-large-collection/#page-through-a-collection) covers
+paging in more detail.
 
 ## Restore a Version
 
@@ -108,11 +107,10 @@ async function restoreVersion (noteId, number) {
 }
 ```
 
-Restoring adds a new version instead of deleting the ones after it, like `git
-revert`. If the user changes their mind, the version they left is still in the
-history.
+Restoring adds a new version on top instead of deleting the newer ones, a bit
+like `git revert`. If the user changes their mind, nothing is lost.
 
-To undo the last save, restore the second-newest version:
+To undo the last save, restore the version before it:
 
 ```js
 const { items } = await puter.kv.list({
@@ -129,9 +127,8 @@ if ( items.length === 2 ) {
 
 ## Keep Only the Last Few Versions
 
-Instead of an expiry, you can keep a fixed number of versions. Version numbers go
-up by one, so after saving version 57 and keeping 50, the copy to delete is
-version 7:
+Instead of expiring copies by age, you can keep a fixed number of them. Version
+numbers go up by one, so after saving version 57 with 50 kept, delete version 7:
 
 ```js
 const KEEP = 50;
@@ -143,13 +140,13 @@ if ( number > KEEP ) {
 }
 ```
 
-Remove the `expireAt` from `saveNote()` when you do this. If a delete fails, that
-one copy is left behind and nothing else breaks.
+If you do this, drop the `expireAt` from `saveNote()`. If a delete fails, that
+one copy just stays around.
 
 ## Delete a Note and Its History
 
-There is no call that deletes every key with a prefix, so list the keys and
-delete them one by one. `stream: true` reads the list a page at a time:
+There's no call to delete every key with a prefix, so list them and delete them
+one at a time. `stream: true` reads the list a page at a time:
 
 ```js
 for await ( const page of puter.kv.list({ pattern: `note-history:${ noteId }:`, stream: true }) ) {
@@ -162,16 +159,15 @@ await puter.kv.del(`note:${ noteId }`);
 await puter.kv.del(`note-revision:${ noteId }`);
 ```
 
-Deleting keys the list has already returned doesn't disturb the pages still to
-come.
+It's safe to delete keys while you're still listing them.
 
 ## Notes
 
-- Every version is a full copy of the note, so a long note saved often takes a
-  lot of room. Don't save on every keystroke. Save when the user stops typing
-  for a moment (often called debouncing), or once a minute.
-- The two writes in `saveNote()` go in one request, but they are not a
-  transaction. If the call fails, one of them may already be saved. Saving again
-  puts things right.
+- Every version is a full copy, so a long note that's saved often takes up a
+  lot of space. Don't save on every keystroke. Save when the user pauses typing,
+  or once a minute.
+- The two writes in `saveNote()` go in one request, but they aren't a
+  transaction. If the call fails, one of them might already be saved. Saving
+  again fixes it.
 - Each pattern ends with `:`. Without it, listing the note `abc` would also
-  return the versions of a note with the ID `abcd`.
+  return the versions of a note called `abcd`.

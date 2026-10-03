@@ -1,14 +1,14 @@
 ---
 title: Build a Shopping Cart
-description: "Learn how to keep a shopping cart in one Puter.js key-value entry, with quantities that stay correct when the user shops from two tabs and a cart that clears itself when abandoned."
+description: "Learn how to build a shopping cart with Puter.js that keeps the right quantities across tabs and clears itself when abandoned."
 tags: [kv, data-modeling]
 order: 26
 ---
 
-A shopping cart is a small list of products with a quantity each. It should
-survive a page reload, follow the user to their phone, and count correctly when
-the user clicks "Add to cart" in two tabs. With [`puter.kv`](/KV/), the whole
-cart can live in one key, with one field per product:
+A shopping cart needs to survive a page reload, show up on the user's other
+devices, and keep the right quantities even if they add things from two tabs.
+With [`puter.kv`](/KV/), the whole cart can be stored in one key, with one field
+per product:
 
 ```js
 {
@@ -17,9 +17,9 @@ cart can live in one key, with one field per product:
 }
 ```
 
-Each product is stored under its SKU (its product code), as in [Store Items by
-ID](/recipes/store-items-by-id/). Prices are in cents, so totals are whole
-numbers and never come out as `31.999999`.
+Each product is stored under its SKU (product code), like in [Store Items by
+ID](/recipes/store-items-by-id/). Prices are in cents, so totals are always
+whole numbers and you don't get results like `31.999999`.
 
 ## Add to the Cart
 
@@ -40,45 +40,41 @@ async function addToCart (product) {
 }
 ```
 
-Step by step:
+`member()` wraps the SKU in brackets and quotes, so a SKU with a dot in it, like
+`mug.blue`, isn't split into a path (see [Store a Set of Unique
+Values](/recipes/store-unique-values/#store-values-with-dots-or-quotes)).
 
-- `member()` wraps the SKU in brackets and quotes, so a SKU with a dot in it,
-  such as `mug.blue`, is saved as one name instead of being split into a path.
-  [Store a Set of Unique Values](/recipes/store-unique-values/#store-values-with-dots-or-quotes)
-  explains it.
-- [`puter.kv.update()`](/KV/update/) creates the cart and the product's entry
-  if they don't exist yet. Its third argument sets an expiry in seconds, so the
-  cart deletes itself 30 days after the last product was added.
-- [`puter.kv.incr()`](/KV/incr/) adds 1 to the quantity on the server. Two tabs
-  adding the same product at the same moment end up with a quantity of 2, not
-  1. It returns the whole cart, ready to show.
+[`puter.kv.update()`](/KV/update/) creates the cart and the product if they
+don't exist yet. Its third argument sets an expiry in seconds, so an abandoned
+cart deletes itself 30 days after the last product was added.
+
+[`puter.kv.incr()`](/KV/incr/) adds 1 to the quantity on the server, so adding
+the same product from two tabs at once gives a quantity of 2, not 1. It returns
+the whole cart.
 
 ## Change a Quantity
 
-For plus and minus buttons, add or subtract 1 with
-[`puter.kv.incr()`](/KV/incr/):
+For plus and minus buttons, use [`puter.kv.incr()`](/KV/incr/):
 
 ```js
-await puter.kv.incr('cart', { [`${ member(sku) }.qty`]: 1 });    // +
-await puter.kv.incr('cart', { [`${ member(sku) }.qty`]: -1 });   // −
+await puter.kv.incr('cart', { [`${ member(sku) }.qty`]: 1 });    // plus
+await puter.kv.incr('cart', { [`${ member(sku) }.qty`]: -1 });   // minus
 ```
 
-For a number field where the user types a quantity, set it with
+For a field where the user types a number, use
 [`puter.kv.update()`](/KV/update/):
 
 ```js
 await puter.kv.update('cart', { [`${ member(sku) }.qty`]: Number(qtyInput.value) });
 ```
 
-When the minus button takes a quantity to 0, leave the product in the cart and
-hide it, rather than removing it right away. If another tab adds the same
-product at that moment, removing it would throw that addition away too. Hidden
-products are cleaned up at checkout.
+When the minus button takes a quantity down to 0, hide the product instead of
+removing it right away. If another tab adds the same product at that moment,
+removing it would throw that away too. Clean up hidden products at checkout.
 
 ## Remove a Product
 
-For an explicit "Remove" button, delete the product with the
-[`puter.kv.remove()`](/KV/remove/) method:
+For a "Remove" button, use the [`puter.kv.remove()`](/KV/remove/) method:
 
 ```js
 await puter.kv.remove('cart', member(sku));
@@ -92,7 +88,7 @@ await puter.kv.del('cart');
 
 ## Show the Cart and Total
 
-Read the cart, skip products with no quantity, and add up the total:
+Read the cart, skip anything with no quantity, and add up the total:
 
 ```js
 const cart = await puter.kv.get('cart') ?? {};
@@ -107,10 +103,10 @@ const totalText = (total / 100).toFixed(2);   // '60.00'
 
 ## Check Out
 
-The cart is stored in the user's account and written by code running in their
-browser, so the user can change anything in it, prices included. Never charge
-the price from the cart. At checkout, send only the SKUs and quantities to your
-[worker](/recipes/build-an-api/), and have the worker look up the real prices:
+The cart is stored in the user's account and written by code in their browser,
+so they can change anything in it, including prices. Never charge based on the
+prices in the cart. At checkout, send just the SKUs and quantities to your
+[worker](/recipes/build-an-api/) and look up the real prices there:
 
 ```js
 const order = lines.map(({ sku, qty }) => ({ sku, qty }));
@@ -124,12 +120,8 @@ await puter.kv.del('cart');
 
 ## Notes
 
-- Only [`puter.kv.update()`](/KV/update/) with a third argument sets the
-  expiry. [`puter.kv.incr()`](/KV/incr/) and `update()` without one keep the
-  expiry the cart already has.
-- The cart belongs to the signed-in user and your app, so it is the same cart in
-  every tab and on every device they sign in from.
-- If adding the name and price works but the quantity call fails, the product
-  is saved without a `qty`. The filter in [Show the Cart and
-  Total](#show-the-cart-and-total) skips it, and the next "Add to cart" fixes
-  it.
+- Only `update()` with a third argument sets the expiry. `incr()`, and
+  `update()` without one, keep whatever expiry the cart already has.
+- If saving the name and price works but the quantity call fails, the product is
+  saved without a `qty`. The filter above skips it, and the next "Add to cart"
+  fixes it.
