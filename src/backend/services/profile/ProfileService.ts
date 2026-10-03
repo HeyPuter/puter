@@ -21,7 +21,7 @@ import { Readable } from 'node:stream';
 import { makeActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import { isUniqueViolation } from '../../util/dbError.js';
+import { ensureSystemSite } from '../../util/systemSite.js';
 import { actorHasSubscription } from '../metering/enforcement.js';
 import { PuterService } from '../types.js';
 
@@ -110,10 +110,10 @@ const validateField = (field: ProfileField, value: unknown): string | null => {
 };
 
 /**
- * User profiles: one JSON file per account, `<user uuid>.profile`, in an
- * admin-owned directory that a system subdomain serves. Users hold no
- * filesystem grant on that directory; this service writes on their behalf and
- * decides what a file may contain.
+ * User profiles: one JSON file per account, `<user uuid>.profile`, in a system
+ * directory that a system subdomain serves. Users hold no filesystem grant on
+ * that directory; this service writes on their behalf and decides what a file
+ * may contain.
  *
  * A profile is public — readable by anyone through the API and the hosted file
  * — only while its owner is on a paid plan. The owner always reads and writes
@@ -246,9 +246,9 @@ export class ProfileService extends PuterService {
     // -- Bootstrap ---------------------------------------------------
 
     /**
-     * Ensure the admin-owned directory and the subdomain serving it exist.
-     * Public so `DefaultUserService` can call it right after creating the admin
-     * on first boot — this service is registered before it, so its own
+     * Ensure the profiles directory and the subdomain serving it exist. Public
+     * so `DefaultUserService` can call it right after creating the admin on
+     * first boot — this service is registered before it, so its own
      * `onServerStart` finds no admin yet. Idempotent.
      */
     async ensureProfilesDirectory(): Promise<void> {
@@ -261,32 +261,14 @@ export class ProfileService extends PuterService {
         }
         this.#ownerUserId = adminUser.id;
 
-        const dirEntry =
-            (await this.stores.fsEntry.getEntryByPath(PROFILES_PATH_PREFIX)) ??
-            (await this.stores.fsEntry.resolveParentDirectory(
-                adminUser.id,
-                PROFILES_PATH_PREFIX,
-                true,
-            ));
+        const dirEntry = await ensureSystemSite(this.stores, {
+            subdomain: PROFILES_SUBDOMAIN,
+            dirPath: PROFILES_PATH_PREFIX,
+            creatorUserId: adminUser.id,
+            isProtected: true,
+        });
         if (!dirEntry) {
             console.warn('[profile] failed to ensure profiles directory');
-            return;
-        }
-
-        // Same first-boot race as the app-icons site: the existence check can
-        // pass twice, so the unique constraint is the arbiter.
-        if (await this.stores.subdomain.existsBySubdomain(PROFILES_SUBDOMAIN)) {
-            return;
-        }
-        try {
-            await this.stores.subdomain.create({
-                userId: adminUser.id,
-                subdomain: PROFILES_SUBDOMAIN,
-                rootDirId: dirEntry.id ?? null,
-                isProtected: true,
-            });
-        } catch (e) {
-            if (!isUniqueViolation(e)) throw e;
         }
     }
 

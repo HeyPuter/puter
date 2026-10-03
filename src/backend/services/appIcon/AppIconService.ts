@@ -20,7 +20,7 @@
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
 import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
-import { isUniqueViolation } from '../../util/dbError.js';
+import { ensureSystemSite } from '../../util/systemSite.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types.js';
 
@@ -38,11 +38,10 @@ const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
 /**
  * App icon generation service.
  *
- * 1. On boot: ensures `/system/app_icons/` exists (owned by admin/system user) and
- *    that the `puter-app-icons` subdomain points at it. Icons are then served
- *    through Puter's regular hosting path
- *    (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`) — no custom
- *    route, no custom S3 plumbing.
+ * 1. On boot: ensures `/system/app_icons/` exists and that the `puter-app-icons`
+ *    subdomain points at it. Icons are then served through Puter's regular
+ *    hosting path (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`)
+ *    — no custom route, no custom S3 plumbing.
  * 2. On `app.new-icon` event: decodes the data URL, resizes via sharp to the 6
  *    standard sizes, and writes the PNGs into that directory via FSService. The
  *    write populates the CDN-backed subdomain automatically because
@@ -184,49 +183,15 @@ export class AppIconService extends PuterService {
         }
         this.#ownerUserId = adminUser.id;
 
-        // Ensure /system/app_icons/ exists.
-        const existing = await this.stores.fsEntry.getEntryByPath(
-            APP_ICONS_PATH_PREFIX,
-        );
-        let dirEntry = existing;
-        if (!dirEntry) {
-            // Write an empty dir by writing a dummy file and removing it
-            // isn't great — instead rely on `createMissingParents` when we
-            // write the first icon. We still need a directory entry for
-            // the subdomain `root_dir_id` though, so create it explicitly
-            // via the store's directory helper.
-            dirEntry = await this.stores.fsEntry.resolveParentDirectory(
-                adminUser.id,
-                APP_ICONS_PATH_PREFIX,
-                true,
-            );
-        }
-
+        // Runs twice on first boot: un-awaited from our own `onServerStart`,
+        // then from `DefaultUserService` right after it creates the admin.
+        const dirEntry = await ensureSystemSite(this.stores, {
+            subdomain: APP_ICONS_SUBDOMAIN,
+            dirPath: APP_ICONS_PATH_PREFIX,
+            creatorUserId: adminUser.id,
+        });
         if (!dirEntry) {
             console.warn('[app-icon] failed to ensure icons directory');
-            return;
-        }
-
-        // Register the `puter-app-icons` subdomain pointing at that dir.
-        // Idempotent, and must stay so under a concurrent boot: this method
-        // runs twice on first boot — once un-awaited from our own
-        // `onServerStart`, then again (awaited) from `DefaultUserService`
-        // right after it creates the admin — and `existsBySubdomain` reads a
-        // cache that can still hold a stale negative entry. So the existence
-        // check can pass in both calls; let the unique constraint be the real
-        // arbiter and swallow the loser's duplicate. The end state (subdomain
-        // exists) is identical either way.
-        const already =
-            await this.stores.subdomain.existsBySubdomain(APP_ICONS_SUBDOMAIN);
-        if (already) return;
-        try {
-            await this.stores.subdomain.create({
-                userId: adminUser.id,
-                subdomain: APP_ICONS_SUBDOMAIN,
-                rootDirId: dirEntry.id ?? null,
-            });
-        } catch (e) {
-            if (!isUniqueViolation(e)) throw e;
         }
     }
 
