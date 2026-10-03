@@ -8,7 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { makeActor } from '../src/backend/core/actor.ts';
+import { makeActor, type Actor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
 import { configContainer } from '../src/backend/exports.ts';
 import { PuterServer } from '../src/backend/server.ts';
@@ -283,6 +283,86 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.created_ts).toBeUndefined();
         // Directories are user-only.
         expect(body.directories).toBeUndefined();
+    });
+
+    describe('fields added by whoami.details listeners', () => {
+        const addAccountDetails = (
+            _key: unknown,
+            event: { details: Record<string, unknown> },
+        ) => {
+            Object.assign(event.details, {
+                subscribed: true,
+                paid_storage: 1024,
+                subscription: { tier: 'pro', status: 'trialing' },
+                accountEligible: true,
+            });
+        };
+
+        const whoamiWithListener = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            server.clients.event.on('whoami.details', addAccountDetails);
+            try {
+                await runWithContext({ actor }, () =>
+                    handleWhoami(makeReq(), res),
+                );
+            } finally {
+                server.clients.event.off('whoami.details', addAccountDetails);
+            }
+            return captured.body as Record<string, unknown>;
+        };
+
+        it('reach an app actor only as the documented subscribed / paid_storage', async () => {
+            const user = await seedUser();
+            const body = await whoamiWithListener(
+                makeActor({
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: 'app-test-actor' },
+                }),
+            );
+
+            expect(body.subscribed).toBe(true);
+            expect(body.paid_storage).toBe(1024);
+            expect(body).not.toHaveProperty('subscription');
+            expect(body).not.toHaveProperty('accountEligible');
+            // Fields the handler built itself still ship.
+            expect(body.username).toBe(user.username);
+            expect(body.app_name).toBe('app-test-actor');
+        });
+
+        it('are withheld from an app reached through an access token it issued', async () => {
+            const user = await seedUser();
+            const owner = { uuid: user.uuid, id: user.id as number };
+            const body = await whoamiWithListener(
+                makeActor({
+                    user: owner,
+                    accessToken: {
+                        uid: 'tok-1',
+                        issuer: makeActor({
+                            user: owner,
+                            app: { uid: 'app-issuer' },
+                        }),
+                    },
+                }),
+            );
+
+            expect(body.subscribed).toBe(true);
+            expect(body).not.toHaveProperty('subscription');
+            expect(body).not.toHaveProperty('accountEligible');
+        });
+
+        it('all reach a user actor', async () => {
+            const user = await seedUser();
+            const body = await whoamiWithListener(
+                makeActor({ user: { uuid: user.uuid, id: user.id as number } }),
+            );
+
+            expect(body).toMatchObject({
+                subscribed: true,
+                paid_storage: 1024,
+                subscription: { tier: 'pro', status: 'trialing' },
+                accountEligible: true,
+            });
+        });
     });
 
     it('redacts tmp_password from metadata for user actors', async () => {

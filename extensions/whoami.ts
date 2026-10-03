@@ -71,6 +71,13 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
     'audit_metadata',
 ]);
 
+// What an app actor may receive from `whoami.details` listeners. Anything
+// else a listener adds describes the account, and only ships to user actors.
+const APP_VISIBLE_LISTENER_KEYS: ReadonlySet<string> = new Set([
+    'subscribed',
+    'paid_storage',
+]);
+
 // Depth-limited, cycle-safe walk deleting every SENSITIVE_KEYS entry it finds
 // at any level (`metadata` and `taskbar_items` are both nested structures).
 const scrubSensitive = (
@@ -292,6 +299,7 @@ export const handleWhoami = async (
         details.app_name = app.uid;
     }
 
+    const builtKeys = isUser ? null : new Set(Object.keys(details));
     try {
         await clients.event.emitAndWait(
             'whoami.details',
@@ -300,6 +308,13 @@ export const handleWhoami = async (
         );
     } catch {
         /* best-effort */
+    }
+    if (builtKeys) {
+        for (const key of Object.keys(details)) {
+            if (!builtKeys.has(key) && !APP_VISIBLE_LISTENER_KEYS.has(key)) {
+                delete details[key];
+            }
+        }
     }
 
     const subscription = details.subscription as
