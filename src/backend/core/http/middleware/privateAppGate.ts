@@ -596,6 +596,43 @@ function normalizeRedirectPath(originalUrl: string | undefined): string {
     return '/' + (originalUrl || '/').replace(/^[/\\]+/, '');
 }
 
+/** A GET for a top-level page, as opposed to a frame, subresource or fetch. */
+export function isTopLevelNavigation(req: Request): boolean {
+    return (
+        req.method === 'GET' && req.headers?.['sec-fetch-dest'] === 'document'
+    );
+}
+
+/**
+ * Same-host path of this request with every `name` query parameter removed, or
+ * null when it has none. The parameters that stay keep their exact encoding.
+ */
+export function pathWithoutQueryParam(
+    originalUrl: string | undefined,
+    name: string,
+): string | null {
+    const base = 'http://gate.invalid';
+    let url: URL;
+    try {
+        url = new URL(normalizeRedirectPath(originalUrl), base);
+    } catch {
+        return null;
+    }
+    if (url.origin !== base) return null;
+    const isTarget = (part: string) => {
+        const rawKey = part.split('=', 1)[0].replace(/\+/g, ' ');
+        try {
+            return decodeURIComponent(rawKey) === name;
+        } catch {
+            return rawKey === name;
+        }
+    };
+    const parts = url.search.slice(1).split('&');
+    if (!parts.some(isTarget)) return null;
+    const kept = parts.filter((part) => part && !isTarget(part));
+    return url.pathname + (kept.length ? `?${kept.join('&')}` : '');
+}
+
 /** Build the URL to redirect a private-app request to its private host. */
 export function buildPrivateHostRedirect(
     req: Request,

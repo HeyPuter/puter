@@ -82,6 +82,7 @@ const afterLoad = async () => {
 
 beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     Object.defineProperty(globalThis, 'parent', {
         value: { postMessage: vi.fn() },
         configurable: true,
@@ -130,11 +131,45 @@ describe('app-mode launch token', () => {
         expect(reloaded.authToken).toBe(APP_TOKEN);
     });
 
-    it('keeps a godmode session token in memory only', async () => {
+    it('keeps a godmode session token out of localStorage', async () => {
         const puter = await bootApp(`${LAUNCH}${GUI_TOKEN}`);
         expect(puter.authToken).toBe(GUI_TOKEN);
         expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
         expect(localStorage.getItem(ORIGIN_KEY)).toBeNull();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBe(GUI_TOKEN);
+    });
+
+    it('keeps a godmode app signed in across a frame reload', async () => {
+        await bootApp(`${LAUNCH}${GUI_TOKEN}`);
+        await afterLoad();
+        expect(location.search).not.toContain('puter.auth.token');
+
+        const reloaded = await bootApp(location.search);
+        expect(reloaded.authToken).toBe(GUI_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it('drops the sessionStorage copy when an app token takes over', async () => {
+        const puter = await bootApp(`${LAUNCH}${GUI_TOKEN}`);
+        puter.setAuthToken(APP_TOKEN);
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+        expect(localStorage.getItem(STORAGE_KEY)).toBe(APP_TOKEN);
+    });
+
+    it('drops the sessionStorage copy on sign-out', async () => {
+        const puter = await bootApp(`${LAUNCH}${GUI_TOKEN}`);
+        puter.resetAuthToken();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it('does not replay a stored godmode token to another API origin', async () => {
+        sessionStorage.setItem(STORAGE_KEY, GUI_TOKEN);
+        sessionStorage.setItem(ORIGIN_KEY, 'https://api.puter.com');
+
+        const puter = await bootApp(
+            '?puter.app_instance_id=i&puter.api_origin=https://api.evil.example',
+        );
+        expect(puter.authToken).not.toBe(GUI_TOKEN);
     });
 
     it('purges a stored session token without adopting it', async () => {
@@ -166,6 +201,13 @@ describe('web-mode stored token', () => {
         expect(puter.env).toBe('web');
         expect(puter.authToken).toBeNull();
         expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it('persists a session token nowhere on a third-party page', async () => {
+        const puter = await bootWeb('');
+        puter.setAuthToken(GUI_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     });
 
     it('does not touch a query token it never consumed', async () => {

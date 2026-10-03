@@ -649,8 +649,15 @@ export class Puter {
             }
             try {
                 let selectedAuthToken = bootstrapAuthToken;
+                const godmodeToken = bootstrapAuthToken
+                    ? null
+                    : this.readStoredSessionToken_();
                 if (bootstrapAuthToken) {
                     this.setAuthToken(bootstrapAuthToken);
+                } else if (godmodeToken) {
+                    // A godmode app reloading in the same tab.
+                    this.setAuthToken(godmodeToken);
+                    selectedAuthToken = godmodeToken;
                 } else {
                     // No token in the URL — fall back to a stored token,
                     // but ONLY if it is allowed for the current API origin.
@@ -987,8 +994,15 @@ export class Puter {
         }
 
         // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
-        // A user session token (a godmode app's launch token) stays in memory only.
+        // A user session token (a godmode app's launch token) never goes there:
+        // an app keeps it in sessionStorage so a frame reload still has it.
         if (this.env === 'web' || this.env === 'app') {
+            this.storeSessionToken_(
+                this.env === 'app' &&
+                    this.isUserSessionToken_(normalizedAuthToken)
+                    ? normalizedAuthToken
+                    : null,
+            );
             try {
                 if (!normalizedAuthToken) {
                     localStorage.removeItem(STORAGE_KEY_V2);
@@ -1082,6 +1096,7 @@ export class Puter {
     _clearAuthToken = function () {
         this.authToken = null;
         if (this.env === 'web' || this.env === 'app') {
+            this.storeSessionToken_(null);
             try {
                 localStorage.removeItem(STORAGE_KEY_V2);
                 localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
@@ -1298,13 +1313,62 @@ export class Puter {
     /**
      * @internal
      * Whether `token` is a user session token rather than an app token.
-     * Godmode apps are launched with one; it is kept in memory only.
+     * Godmode apps are launched with one; it never goes to localStorage.
      *
      * @param {string | null} token
      * @returns {boolean}
      */
     isUserSessionToken_ = function (token) {
         return isUserSessionTokenPayload(this.decodeJwtPayload(token));
+    };
+
+    /**
+     * @internal
+     * Keep a godmode app's session token in sessionStorage, bound to the API
+     * origin like the localStorage copy, or clear it with `null`.
+     *
+     * @param {string | null} token
+     */
+    storeSessionToken_ = function (token) {
+        try {
+            if (token) {
+                sessionStorage.setItem(STORAGE_KEY_V2, token);
+                sessionStorage.setItem(STORAGE_KEY_ORIGIN_V2, this.APIOrigin);
+            } else {
+                sessionStorage.removeItem(STORAGE_KEY_V2);
+                sessionStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+            }
+        } catch (e) {
+            // No sessionStorage here.
+        }
+    };
+
+    /**
+     * @internal
+     * The session token a godmode app stored earlier in this tab, if it is one
+     * and is bound to the current API origin.
+     *
+     * @returns {string | null}
+     */
+    readStoredSessionToken_ = function () {
+        try {
+            const token = this.normalizeAuthTokenCandidate(
+                sessionStorage.getItem(STORAGE_KEY_V2),
+            );
+            const boundOrigin = this.normalizeStringCandidate(
+                sessionStorage.getItem(STORAGE_KEY_ORIGIN_V2),
+            );
+            if (
+                token &&
+                this.isUserSessionToken_(token) &&
+                this._storedTokenUsableForCurrentOrigin(boundOrigin)
+            ) {
+                return token;
+            }
+        } catch (e) {
+            // No sessionStorage here.
+        }
+        return null;
     };
 
     /**
