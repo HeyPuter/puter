@@ -114,6 +114,7 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
         try {
             puter.resetAuthToken();
             await puter.ui.authenticateWithPuter();
+            return { action: 'replay' };
         } catch (e) {
             return {
                 action: 'reject',

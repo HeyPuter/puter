@@ -255,6 +255,69 @@ describe('fetchUrl', () => {
             expect(await resp.json()).toEqual({ ok: true });
         });
 
+        // The legacy `token_auth_failed` signal drives the sign-in UI instead
+        // of triggerReauth, and must recover the same way: re-authenticate,
+        // then re-issue the call with the token the new session installed.
+        it('replays with the fresh token after a legacy token_auth_failed re-login', async () => {
+            const resetAuthToken = vi.fn();
+            const authenticateWithPuter = vi.fn(async () => {
+                globalThis.puter.authToken = 'fresh';
+            });
+            globalThis.puter = {
+                authToken: 'stale',
+                env: 'web',
+                resetAuthToken,
+                ui: { authenticateWithPuter },
+            };
+
+            let call = 0;
+            installFakeXHR((xhr) => {
+                call++;
+                if (call === 1) {
+                    return respond({
+                        status: 401,
+                        body: { code: 'token_auth_failed' },
+                    })(xhr);
+                }
+                expect(xhr._reqHeaders['authorization']).toBe('Bearer fresh');
+                return respond({ status: 200, body: { ok: true } })(xhr);
+            });
+
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
+            expect(resetAuthToken).toHaveBeenCalledTimes(1);
+            expect(authenticateWithPuter).toHaveBeenCalledTimes(1);
+            expect(call).toBe(2);
+            expect(resp.ok).toBe(true);
+            expect(await resp.json()).toEqual({ ok: true });
+        });
+
+        it('does not loop: a token_auth_failed that survives the replay surfaces as ok:false', async () => {
+            const authenticateWithPuter = vi.fn(async () => {
+                globalThis.puter.authToken = 'fresh';
+            });
+            globalThis.puter = {
+                authToken: 'stale',
+                env: 'web',
+                resetAuthToken: vi.fn(),
+                ui: { authenticateWithPuter },
+            };
+
+            const xhrs = installFakeXHR(
+                respond({ status: 401, body: { code: 'token_auth_failed' } }),
+            );
+
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
+            // Re-signed in once; the retry's 401 is returned, not re-prompted.
+            expect(authenticateWithPuter).toHaveBeenCalledTimes(1);
+            expect(xhrs.length).toBe(2);
+            expect(resp.ok).toBe(false);
+            expect(resp.status).toBe(401);
+        });
+
         it('does not loop: a second 401 after replay surfaces as ok:false', async () => {
             const triggerReauth = vi.fn(async () => {});
             globalThis.puter = {
@@ -810,6 +873,33 @@ describe('driverCall', () => {
             },
         });
         expect(xhrs.length).toBe(0); // no request without a token
+    });
+
+    it('replays a driver call once after a legacy token_auth_failed re-login', async () => {
+        const authenticateWithPuter = vi.fn(async () => {
+            globalThis.puter.authToken = 'fresh';
+        });
+        globalThis.puter = {
+            authToken: 'stale',
+            APIOrigin: 'https://api.example',
+            env: 'web',
+            resetAuthToken: vi.fn(),
+            ui: { authenticateWithPuter },
+        };
+
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({ status: 401, body: { code: 'token_auth_failed' } }),
+                respond({ body: { success: true, result: 'v' } }),
+            ),
+        );
+
+        await expect(driverCall(call)).resolves.toBe('v');
+        expect(authenticateWithPuter).toHaveBeenCalledTimes(1);
+        expect(xhrs.length).toBe(2);
+        // The replay carries the token the new session installed, not the
+        // one the first attempt was rejected for.
+        expect(JSON.parse(xhrs[1].reqBody).auth_token).toBe('fresh');
     });
 
     it('resolves an NDJSON response as an iterator of lines that stringify to their text', async () => {
