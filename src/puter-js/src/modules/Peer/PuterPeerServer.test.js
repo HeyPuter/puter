@@ -325,3 +325,40 @@ describe('PuterPeerServer reclaiming a dropped session', () => {
         expect(FakeWebSocket.latest).toBe(ws);
     });
 });
+
+describe('a link already recovering when the session is lost', () => {
+    it('gives up as soon as the reclaim fails, not when its budget runs out', async () => {
+        // The order a network switch produces: ICE dies first, recovery is
+        // already under way, and only then does the socket come back under
+        // a session that cannot reach this client any more.
+        vi.useFakeTimers();
+        const server = await startServer();
+        const ws = FakeWebSocket.latest;
+        await ws.onmessage({
+            data: JSON.stringify({ server: { connect: { id: 'c1', user: {} } } }),
+        });
+        const conn = server.connections.get('c1');
+        const pc = FakePeerConnection.instances.at(-1);
+        pc.channels[0].open();
+        const closes = [];
+        conn.addEventListener('close', (e) => closes.push(e.reason));
+
+        // ICE goes first; recovery starts while the socket is still up.
+        pc.setConnectionState('failed');
+        await flushMicrotasks();
+
+        // Then the socket dies and comes back without the session.
+        ws.onclose({});
+        await vi.advanceTimersByTimeAsync(1_000);
+        await openSocket(FakeWebSocket.latest);
+        await answerCreate(FakeWebSocket.latest, {
+            success: true,
+            invitecode: 'invite-2',
+            resumeToken: 'tok-2',
+            resumed: false,
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(closes).toEqual(['the peer is no longer reachable']);
+    });
+});

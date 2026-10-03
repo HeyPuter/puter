@@ -169,7 +169,7 @@ export class PeerModule extends PuterModule {
         const peerConfig = await this.#resolvePeerConfig(options);
         // Connecting is the impolite side: it makes the opening offer and
         // keeps it when the two ends collide.
-        const conn = new PuterPeerConnection(peerConfig, { polite: false });
+        const conn = new PuterPeerConnection(peerConfig, { polite: false, recoveryTimeout: options?.recoveryTimeout });
         await conn.connect(invitecode, options);
         return conn;
     }

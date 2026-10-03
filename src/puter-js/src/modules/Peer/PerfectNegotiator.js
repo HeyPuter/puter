@@ -256,7 +256,11 @@ export class PerfectNegotiator {
 
     async #applyAnswer ( description, names ) {
         const pc = this.#pc;
-        if ( pc.signalingState === 'closed' ) return;
+        // An answer with no offer of ours outstanding replies to one that has
+        // since been rolled back or replaced - several restart offers held up
+        // by a stalled socket arrive at once, and so do their answers. There
+        // is nothing for it to settle.
+        if ( pc.signalingState !== 'have-local-offer' ) return;
         try {
             await this.#adopt(description, names);
             if ( pc.signalingState === 'stable' ) {

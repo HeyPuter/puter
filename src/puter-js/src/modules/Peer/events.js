@@ -16,10 +16,13 @@ export class PuterPeerServerConnectionEvent extends Event {
 export class PuterPeerServerReconnectEvent extends Event {
     inviteCode;
     resumed;
-    constructor (inviteCode, resumed) {
+    /** Why a reclaim was refused, when one was asked for and turned down. */
+    refused;
+    constructor (inviteCode, resumed, refused) {
         super('reconnect');
         this.inviteCode = inviteCode;
         this.resumed = resumed;
+        this.refused = refused;
     }
 }
 

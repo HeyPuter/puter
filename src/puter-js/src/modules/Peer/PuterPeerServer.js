@@ -142,7 +142,7 @@ export class PuterPeerServer extends EventTarget {
         }
         this.#resumeToken = reply.resumeToken ?? this.#resumeToken;
         this.inviteCode = reply.invitecode ?? this.inviteCode;
-        return { inviteCode: this.inviteCode, resumed };
+        return { inviteCode: this.inviteCode, resumed, refused: reply.resumeRefused };
     }
 
     #scheduleReconnect () {
@@ -167,7 +167,11 @@ export class PuterPeerServer extends EventTarget {
         }
         this.#reconnectAttempts = 0;
         this.dispatchEvent(
-            new PuterPeerServerReconnectEvent(registration.inviteCode, registration.resumed),
+            new PuterPeerServerReconnectEvent(
+                registration.inviteCode,
+                registration.resumed,
+                registration.refused,
+            ),
         );
     }
 
@@ -238,6 +242,7 @@ export class PuterPeerServer extends EventTarget {
         const connection = new PuterPeerConnection(this.#peerConfig, {
             polite: true,
             channel,
+            recoveryTimeout: this.#options.recoveryTimeout,
         });
         this.#channels.set(id, channel);
         this.connections.set(id, connection);

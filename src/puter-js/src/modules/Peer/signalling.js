@@ -33,6 +33,9 @@ export class SignallingChannel {
     /** It came back, and anything waiting on it may go ahead. */
     /** @type {() => void} */
     onusable = () => {};
+    /** The peer reclaimed the session it dropped; it can answer again. */
+    /** @type {() => void} */
+    onpeerback = () => {};
 
     /**
      * Reads one relayed envelope and calls the handler for what it holds.
@@ -169,6 +172,10 @@ export class ClientSignallingChannel extends SignallingChannel {
                 return this.onattached(msg.connect.owner);
             }
             return this.onrejected(new Error(msg.connect.error));
+        }
+        if ( msg.reconnect ) {
+            this.onpeerback();
+            return;
         }
         if ( msg.disconnect ) {
             this.onpeergone(msg.disconnect.reason, !! msg.disconnect.resumable);

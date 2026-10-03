@@ -11,7 +11,7 @@ The `PuterPeerServer` object returned by [`puter.peer.serve()`](/Peer/serve/). I
 
 #### `inviteCode` (String)
 
-The code to share with other clients so they can connect with [`puter.peer.connect()`](/Peer/connect/).
+The code to share with other clients so they can connect with [`puter.peer.connect()`](/Peer/connect/). It survives the signalling connection dropping and coming back; on the rare occasion it cannot, the `reconnect` event carries the new one.
 
 #### `connections` (Map)
 
@@ -21,7 +21,7 @@ A `Map` of every connected client, keyed by connection id. The values are [`Pute
 
 #### `close()`
 
-Closes every client connection and the signalling connection. The invite code stops working.
+Closes every client connection and the signalling connection, and gives the invite code up so it stops working at once.
 
 ## Events
 
@@ -31,6 +31,13 @@ Fired when a client connects. The event has the following attributes:
 
 - `conn` ([`PuterPeerConnection`](/Objects/puterpeerconnection/)) - The connection to the client.
 - `user` (Object) - Metadata about the connecting user, with `username` and `uuid` (if available).
+
+#### `reconnect`
+
+Fired when a dropped signalling connection has been re-established. A server dials the signaller again on its own, so a network blip, a laptop waking up or a signaller restart does not end the session — and existing client connections, being peer-to-peer, carry on throughout either way.
+
+- `inviteCode` (String) - The code to share from now on.
+- `resumed` (Boolean) - Whether the previous session was reclaimed. When `true` the invite code is unchanged and the clients already connected can still be renegotiated with, so there is nothing to do. When `false` the session was gone — clients connected under it can no longer be reached and will close — and `inviteCode` is a new code that has to be shared in its place.
 
 ## Example
 

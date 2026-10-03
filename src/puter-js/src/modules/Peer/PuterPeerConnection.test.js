@@ -19,9 +19,13 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-const makeConnection = async ({ connected = true } = {}) => {
+/**
+ * A connection past its opening exchange. Impolite by default, since that is
+ * the side that restarts ICE; the polite side waits for its restarts.
+ */
+const makeConnection = async ({ connected = true, polite = false } = {}) => {
     const channel = new LoopbackChannel('peer');
-    const conn = new PuterPeerConnection({ iceServers: [] }, { polite: true, channel });
+    const conn = new PuterPeerConnection({ iceServers: [] }, { polite, channel });
     const pc = FakePeerConnection.instances.at(-1);
     conn.acceptNegotiation();
 
@@ -121,6 +125,105 @@ describe('ICE recovery', () => {
         expect(closes).toEqual(['the peer stopped responding']);
     });
 
+    it('keeps one budget when an unanswered restart knocks the state back', async () => {
+        // Chrome reports 'disconnected' as soon as an unanswered restart offer
+        // is applied, and 'failed' again some 15s later. Each 'failed' must
+        // not start a fresh budget, or a vanished peer is never given up.
+        vi.useFakeTimers();
+        const { conn, pc, closes } = await makeConnection();
+        const restartIce = pc.restartIce.bind(pc);
+        pc.restartIce = () => {
+            restartIce();
+            queueMicrotask(() => pc.setConnectionState('disconnected'));
+            setTimeout(() => pc.setConnectionState('failed'), 15_000);
+        };
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(75_000);
+
+        expect(conn.closed).toBe(true);
+        expect(closes).toEqual(['the peer stopped responding']);
+    });
+
+    it('stays recovering while a restart knocks the state back', async () => {
+        vi.useFakeTimers();
+        const { conn, pc } = await makeConnection();
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(100);
+        pc.setConnectionState('disconnected');
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(conn.linkState).toBe('recovering');
+    });
+
+    it('counts the budget from the first sign of trouble, not from failure', async () => {
+        vi.useFakeTimers();
+        const { conn, pc, closes } = await makeConnection();
+
+        pc.setConnectionState('disconnected');
+        await vi.advanceTimersByTimeAsync(15_000);
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(46_000);
+
+        expect(conn.closed).toBe(true);
+        expect(closes).toEqual(['the peer stopped responding']);
+    });
+
+    it('gives up as soon as the app asked it to', async () => {
+        vi.useFakeTimers();
+        const channel = new LoopbackChannel('peer');
+        const conn = new PuterPeerConnection({ iceServers: [] }, { channel, recoveryTimeout: 20_000 });
+        const pc = FakePeerConnection.instances.at(-1);
+        conn.acceptNegotiation();
+        channel.onoffer({ type: 'offer', sdp: 'opening-offer' });
+        await flush();
+        pc.channels[0].open();
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(19_000);
+        expect(conn.closed).toBe(false);
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(conn.closed).toBe(true);
+    });
+
+    it('leaves restarting to the impolite side when it is the polite one', async () => {
+        // Restart offers from both sides, held up together by the outage,
+        // collide once it ends; the polite side rolling its own back leaves
+        // Chrome sending it no video. It answers the impolite side instead.
+        vi.useFakeTimers();
+        const { conn, pc, channel, closes } = await makeConnection({ polite: true });
+        const seen = [];
+        conn.addEventListener('linkstate', (e) => seen.push(e.state));
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(pc.restarts).toBe(0);
+        expect(seen).toEqual(['recovering']);
+        expect(conn.closed).toBe(false);
+
+        channel.onoffer({ type: 'offer', sdp: 'restart-offer' });
+        await flush();
+        pc.setConnectionState('connected');
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(conn.linkState).toBe('connected');
+        expect(closes).toEqual([]);
+    });
+
+    it('still gives the link up on the polite side once the budget is spent', async () => {
+        vi.useFakeTimers();
+        const { conn, pc, closes } = await makeConnection({ polite: true });
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(59_000);
+        expect(conn.closed).toBe(false);
+        await vi.advanceTimersByTimeAsync(3_000);
+
+        expect(pc.restarts).toBe(0);
+        expect(closes).toEqual(['could not restore the connection']);
+    });
+
     it('waits for signalling rather than spending attempts it cannot send', async () => {
         vi.useFakeTimers();
         const { conn, pc, channel, closes } = await makeConnection();
@@ -155,17 +258,48 @@ describe('ICE recovery', () => {
         expect(closes).toEqual(['the peer hung up']);
     });
 
-    it('keeps recovering when the peer only lost its signalling session', async () => {
+    it('keeps recovering while a peer that lost its signalling might return', async () => {
         vi.useFakeTimers();
         const { conn, pc, channel, closes } = await makeConnection();
 
         channel.onpeergone('the peer server’s signalling dropped', true);
         pc.setConnectionState('failed');
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(5_000);
 
         expect(pc.restarts).toBeGreaterThan(0);
         expect(conn.closed).toBe(false);
         expect(closes).toEqual([]);
+    });
+
+    it('stops waiting on a peer whose signalling never comes back', async () => {
+        // Nothing it offers can be answered until that session returns, so
+        // spending the whole budget only holds up whoever is waiting on this
+        // connection to close before they act.
+        vi.useFakeTimers();
+        const { conn, pc, channel, closes } = await makeConnection();
+
+        channel.onpeergone('the peer server’s signalling dropped', true);
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        expect(conn.closed).toBe(true);
+        expect(closes).toEqual(['the peer is no longer reachable']);
+    });
+
+    it('gets the full budget back when the peer reclaims its session', async () => {
+        vi.useFakeTimers();
+        const { conn, pc, channel, closes } = await makeConnection();
+
+        channel.onpeergone('the peer server’s signalling dropped', true);
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        channel.onpeerback();
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(conn.closed).toBe(false);
+        expect(closes).toEqual([]);
+        expect(pc.restarts).toBeGreaterThan(1);
     });
 });
 

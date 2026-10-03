@@ -1,4 +1,4 @@
-import { PerfectNegotiator } from './PerfectNegotiator.js';
+import { DEFAULT_ANSWER_TIMEOUT, PerfectNegotiator } from './PerfectNegotiator.js';
 import { TrackPublisher } from './tracks.js';
 import { ClientSignallingChannel } from './signalling.js';
 import {
@@ -14,7 +14,11 @@ import {
 /** @typedef {import('./tracks.js').PuterPeerPublishOptions} PuterPeerPublishOptions */
 
 /**
- * How long to keep trying to rescue a link before giving it up.
+ * How long to keep trying to rescue a link before giving it up, counted from
+ * the first sign of trouble rather than from the transport failing: Chrome
+ * takes a further ten seconds or so to call a silent link `failed`, and an
+ * app waiting to act on a peer that vanished should not have to add that on.
+ * Apps can shorten it with the `recoveryTimeout` option.
  *
  * Counted in time rather than attempts, because what recovery is usually
  * waiting on is the peer coming back - a lid reopened, a network rejoined -
@@ -22,6 +26,15 @@ import {
  * and still ends a call to someone who is not coming back.
  */
 const RECOVERY_BUDGET_MS = 60_000;
+
+/**
+ * How long recovery keeps trying once the peer's own signalling session has
+ * ended. Until it comes back they cannot answer an offer at all, so the
+ * budget above would be spent on a peer that provably cannot reply - and an
+ * app waiting on this connection to close before it acts (to elect a new
+ * host, say) would wait that whole time for an answer it was never getting.
+ */
+const PEER_AWAY_GRACE_MS = 10_000;
 
 /** Gap between restart attempts, doubling, so a long wait stays quiet. */
 const RECOVERY_BACKOFF_MS = 2000;
@@ -66,16 +79,28 @@ export class PuterPeerConnection extends EventTarget {
     #recovering = false;
     /** The peer said goodbye, or closed the channel. Proof, not evidence. */
     #peerHungUp = false;
+    /** The peer's signalling session ended and has not come back. */
+    #peerAway = false;
     #transportWaiters = new Set();
     #signallingWaiters = new Set();
+    #recoveryBudget;
+    #polite;
+    /** When the transport last left `connected`; recovery's budget runs from here. */
+    #troubleSince = null;
 
     /**
      * @param {object} peerConfig
-     * @param {{ polite?: boolean, channel?: import('./signalling.js').SignallingChannel }} [options]
+     * @param {{
+     *   polite?: boolean,
+     *   channel?: import('./signalling.js').SignallingChannel,
+     *   recoveryTimeout?: number,
+     * }} [options]
      */
-    constructor ( peerConfig, { polite = false, channel } = {} ) {
+    constructor ( peerConfig, { polite = false, channel, recoveryTimeout = RECOVERY_BUDGET_MS } = {} ) {
         super();
         this.#peerConfig = peerConfig;
+        this.#polite = polite;
+        this.#recoveryBudget = recoveryTimeout;
         this.#channel = channel ?? new ClientSignallingChannel(peerConfig);
 
         this.peerconnection = new RTCPeerConnection({
@@ -122,6 +147,7 @@ export class PuterPeerConnection extends EventTarget {
         this.#channel.onpeergone = (reason, resumable) => this.#onPeerGone(reason, resumable);
         this.#channel.onunusable = () => this.#onSignallingLost();
         this.#channel.onusable = () => this.#wakeSignallingWaiters();
+        this.#channel.onpeerback = () => this.#onPeerBack();
     }
 
     /**
@@ -170,9 +196,20 @@ export class PuterPeerConnection extends EventTarget {
      */
     #onPeerGone ( reason, resumable ) {
         if ( ! resumable ) this.#peerHungUp = true;
+        this.#peerAway = true;
         // A handshake has nothing to wait on either way: whoever is dialling
         // needs a definite answer rather than a socket that may come back.
         if ( ! this.connected ) this.#doclose(reason, undefined);
+    }
+
+    /**
+     * The peer reclaimed the session it dropped, so it can answer again.
+     * Anything waiting on that gets to stop waiting now.
+     */
+    #onPeerBack () {
+        this.#peerAway = false;
+        this.#wakeSignallingWaiters();
+        this.#wakeTransportWaiters();
     }
 
     /**
@@ -190,7 +227,10 @@ export class PuterPeerConnection extends EventTarget {
 
     #onConnectionState () {
         this.#wakeTransportWaiters();
-        switch ( this.peerconnection.connectionState ) {
+        const state = this.peerconnection.connectionState;
+        if ( state === 'connected' ) this.#troubleSince = null;
+        else if ( state === 'disconnected' || state === 'failed' ) this.#troubleSince ??= Date.now();
+        switch ( state ) {
             case 'connected':
                 this.#setLinkState('connected');
                 break;
@@ -198,8 +238,10 @@ export class PuterPeerConnection extends EventTarget {
             // escalates to 'failed', which is where recovery belongs. Nothing
             // is done about it, but a watcher is told, because frozen video
             // starts here rather than at 'failed'.
+            // Recovery is already saying more than that, and an unanswered
+            // restart lands here too.
             case 'disconnected':
-                this.#setLinkState('unstable');
+                if ( ! this.#recovering ) this.#setLinkState('unstable');
                 break;
             case 'failed':
                 this.#recover();
@@ -232,18 +274,44 @@ export class PuterPeerConnection extends EventTarget {
      * or the budget is spent. The browser has no reason to raise another
      * `connectionstatechange` while the state stays `failed`, so the retries
      * belong in here rather than in the event.
+     *
+     * Recovery lasts until the transport is connected again, not merely until
+     * it stops reading `failed`: Chrome answers an unanswered restart offer by
+     * reporting `disconnected`, then `failed` again once that times out too.
+     * Letting that end recovery would start a fresh budget every cycle, and a
+     * peer that vanished would never be given up.
+     *
+     * Only the impolite side restarts; the polite side answers and waits.
+     * Restart offers from both sides made during an outage are held up
+     * together and collide the moment it ends, and the polite side rolling
+     * its own back then leaves Chrome's congestion control stuck near zero:
+     * the link reports connected, data flows, and the polite side's video
+     * never encodes another frame. Nor does a polite restart ever help - with
+     * the impolite side's signalling up it restarts by itself, and with it
+     * down the offer has nowhere to go.
      */
     async #recover () {
         if ( this.closed || this.#recovering ) return;
         this.#recovering = true;
-        const deadline = Date.now() + RECOVERY_BUDGET_MS;
+        const deadline = (this.#troubleSince ?? Date.now()) + this.#recoveryBudget;
         let attempt = 0;
+        /** Set while the peer is away; recovery outlives it only so long. */
+        let awayDeadline = null;
         try {
             let unanswered = false;
-            while ( ! this.closed && this.peerconnection.connectionState === 'failed' ) {
+            while ( ! this.closed && this.peerconnection.connectionState !== 'connected' ) {
                 if ( this.#peerHungUp ) {
                     this.#doclose('the peer hung up', undefined);
                     return;
+                }
+                if ( this.#peerAway ) {
+                    awayDeadline ??= Date.now() + PEER_AWAY_GRACE_MS;
+                    if ( Date.now() >= awayDeadline ) {
+                        this.#doclose('the peer is no longer reachable', undefined);
+                        return;
+                    }
+                } else {
+                    awayDeadline = null;
                 }
                 // No route left to offer over, and none coming.
                 if ( this.#channel.stranded ) {
@@ -259,6 +327,15 @@ export class PuterPeerConnection extends EventTarget {
                     return;
                 }
 
+                if ( this.#polite ) {
+                    if ( this.linkState !== 'recovering' ) this.#setLinkState('recovering');
+                    // Woken early by the transport changing or the peer
+                    // reclaiming its session; the checks above run again on
+                    // the way round.
+                    await this.#nextTransportChange(Math.min(RECOVERY_BACKOFF_MS, left));
+                    continue;
+                }
+
                 // Nothing can be offered without signalling. It comes back
                 // on its own when a peer server reclaims its session, so
                 // wait on it rather than spend an attempt failing.
@@ -270,7 +347,8 @@ export class PuterPeerConnection extends EventTarget {
                 attempt++;
                 this.#setLinkState('recovering', { attempt });
                 try {
-                    await this.#negotiator.restartIce();
+                    // An answer after the deadline is too late to use.
+                    await this.#negotiator.restartIce(Math.min(DEFAULT_ANSWER_TIMEOUT, deadline - Date.now()));
                     unanswered = false;
                 } catch {
                     unanswered = true;
@@ -278,7 +356,7 @@ export class PuterPeerConnection extends EventTarget {
 
                 // Either the new candidates take over or they do not, and
                 // only then is another attempt worth making.
-                if ( this.peerconnection.connectionState === 'failed' ) {
+                if ( this.peerconnection.connectionState !== 'connected' ) {
                     const backoff = Math.min(
                         RECOVERY_BACKOFF_MAX_MS,
                         RECOVERY_BACKOFF_MS * 2 ** (attempt - 1),
