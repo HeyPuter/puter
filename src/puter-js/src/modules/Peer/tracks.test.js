@@ -109,6 +109,43 @@ describe('publishing', () => {
         expect(pc.transceivers[0].sender.removed).toBe(true);
         expect(conn.publications.has('screen')).toBe(false);
     });
+
+    it('keeps sending when a pause is undone before it lands', async () => {
+        // replaceTrack lands a turn later, so the resume comes while the
+        // sender still shows the old track and the pause is in flight.
+        const { conn, pc } = await makeConnection();
+        const camera = track('video');
+
+        conn.publish('camera', new FakeMediaStream([camera]));
+        await flush();
+        conn.publish('camera', null);
+        conn.publish('camera', new FakeMediaStream([camera]));
+        await flush();
+
+        const { sender } = pc.transceivers[0];
+        expect(sender.replacements).toEqual([null, camera]);
+        expect(sender.track).toBe(camera);
+    });
+
+    it('ends a paused publication at the far end when it is unpublished', async () => {
+        // removeTrack does nothing for a sender with no track; the peer
+        // must still hear the name has gone.
+        const { conn, pc, channel } = await makeConnection();
+
+        conn.publish('camera', new FakeMediaStream([track('video')]));
+        await flush();
+        expect(sentNames(channel)).toEqual({ 0: 'camera' });
+        conn.publish('camera', null);
+        await flush();
+
+        const offers = channel.delivered.filter((p) => p.offer).length;
+        conn.unpublish('camera');
+        await flush();
+
+        expect(pc.transceivers[0].direction).toBe('recvonly');
+        expect(channel.delivered.filter((p) => p.offer).length).toBe(offers + 1);
+        expect(sentNames(channel)).toEqual({});
+    });
 });
 
 describe('encoding limits', () => {
@@ -202,6 +239,24 @@ describe('receiving', () => {
         pc.receiveTrack(track('video'), '0');
 
         expect(seen).toEqual(['0']);
+    });
+
+    it('does not end an unnamed track because a description leaves it out', async () => {
+        // A raw addTrack next to named media: the names map lists only the
+        // named slot, and never will list the raw one.
+        const { conn, pc, channel } = await makeConnection();
+        const ended = [];
+        conn.addEventListener('mediaended', (e) => ended.push(e.name));
+
+        channel.onoffer({ type: 'offer', sdp: 'mixed' }, { 0: 'camera' });
+        await flush();
+        pc.receiveTrack(track('video', 'cam'), '0');
+        pc.receiveTrack(track('video', 'raw'), '1');
+        channel.onoffer({ type: 'offer', sdp: 'again' }, { 0: 'camera' });
+        await flush();
+
+        expect(ended).toEqual([]);
+        expect([...conn.media.keys()]).toEqual(['camera', '1']);
     });
 });
 

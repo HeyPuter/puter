@@ -42,6 +42,12 @@ export class PuterPeerServer extends EventTarget {
     #pendingCreate = null;
     #alive = false;
     #closed = false;
+    /**
+     * The first registration succeeded. Only a server that got that far has
+     * a session worth dialling back for; one whose start failed is given up,
+     * since start() rejecting hands the caller no server to close.
+     */
+    #started = false;
     /** @type {PuterPeerOptions} */
     #options = {};
     /** @type {string | undefined} */
@@ -64,8 +70,15 @@ export class PuterPeerServer extends EventTarget {
      */
     async start ( options = {} ) {
         this.#options = options;
-        const { inviteCode } = await this.#register();
-        return inviteCode;
+        let registration;
+        try {
+            registration = await this.#register();
+        } catch ( error ) {
+            this.close();
+            throw error;
+        }
+        this.#started = true;
+        return registration.inviteCode;
     }
 
     /**
@@ -96,7 +109,7 @@ export class PuterPeerServer extends EventTarget {
             this.#settleCreate(ws, (pending) => {
                 pending.reject(new Error('Connection closed unexpectedly'));
             });
-            if ( ! this.#closed ) this.#scheduleReconnect();
+            if ( this.#started && ! this.#closed ) this.#scheduleReconnect();
         };
 
         ws.send(JSON.stringify({
@@ -228,7 +241,18 @@ export class PuterPeerServer extends EventTarget {
             return;
         }
         if ( data.server.disconnect ) {
-            this.#channels.get(data.server.disconnect.id)?.onpeergone('the peer went away');
+            // A client whose socket dropped may reclaim its session; until it
+            // does, or the signaller says it never will, it is away rather
+            // than gone.
+            const { id, resumable } = data.server.disconnect;
+            this.#channels.get(id)?.onpeergone(
+                resumable ? 'the peer\'s signalling dropped' : 'the peer went away',
+                !! resumable,
+            );
+            return;
+        }
+        if ( data.server.reconnect ) {
+            this.#channels.get(data.server.reconnect.id)?.onpeerback();
             return;
         }
 

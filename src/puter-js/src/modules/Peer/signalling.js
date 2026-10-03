@@ -5,16 +5,22 @@
  * envelope their signals travel in.
  *
  * Subclasses supply `alive`, `close()`, and one send method per message:
- * `sendOffer(description, names)`, `sendAnswer(description, names)`,
+ * `sendOffer(description, names, gen)`, `sendAnswer(description, names, re)`,
  * `sendCandidate(candidate)` and `sendBye(reason)`. Each send reports whether
  * the message left, since a description that was applied locally and never
  * reached the peer leaves the connection waiting for an answer that cannot
  * come.
  */
 export class SignallingChannel {
-    /** @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>) => void} */
+    /**
+     * `gen` numbers the offer, so the answer can say which offer it answers.
+     * @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>, gen?: number) => void}
+     */
     onoffer = () => {};
-    /** @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>) => void} */
+    /**
+     * `re` is the number of the offer this answers, when the peer sent one.
+     * @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>, re?: number) => void}
+     */
     onanswer = () => {};
     /** @type {(candidate: RTCIceCandidateInit) => void} */
     oncandidate = () => {};
@@ -48,8 +54,14 @@ export class SignallingChannel {
     receive ( envelope ) {
         // `names` is absent from a peer that publishes no named media; an
         // empty object from one publishing none. The two are not the same.
-        if ( envelope.offer ) return this.onoffer(envelope.offer.offer, envelope.offer.names);
-        if ( envelope.answer ) return this.onanswer(envelope.answer.answer, envelope.answer.names);
+        // `gen` and `re` are absent from older peers, and from a signaller
+        // that does not pass them on.
+        if ( envelope.offer ) {
+            return this.onoffer(envelope.offer.offer, envelope.offer.names, sequence(envelope.offer.gen));
+        }
+        if ( envelope.answer ) {
+            return this.onanswer(envelope.answer.answer, envelope.answer.names, sequence(envelope.answer.re));
+        }
         if ( envelope.candidate ) {
             // End-of-candidates arrives as an explicit null from older peers.
             if ( envelope.candidate.candidate ) this.oncandidate(envelope.candidate.candidate);
@@ -59,8 +71,29 @@ export class SignallingChannel {
     }
 }
 
+/** An offer number as it arrives: a non-negative integer, or nothing. */
+function sequence ( value ) {
+    return Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** Backoff for a client socket that dropped under a live connection. */
+const CLIENT_RECONNECT_BASE_MS = 500;
+/**
+ * Kept short: a dropped client is usually a network that is back within
+ * seconds, and its peer server gives a session whose client is away only so
+ * long before giving the connection up.
+ */
+const CLIENT_RECONNECT_MAX_MS = 4000;
+
 /**
  * The connecting side's channel. Owns its own websocket to the signaller.
+ *
+ * A socket that drops once the session is up is dialled again, and the
+ * connect presents the resume token the first one was given, so the
+ * signaller hands the same session back: the same id, so the peer server
+ * addresses this client as it did, and nothing about the call changes.
+ * Until it is back, `alive` is false; a reclaim that is turned down
+ * strands the channel, and recovery stops waiting on it.
  */
 export class ClientSignallingChannel extends SignallingChannel {
     /** Handshake accepted; carries the peer server's owner. */
@@ -72,6 +105,14 @@ export class ClientSignallingChannel extends SignallingChannel {
     #peerConfig;
     #ws = null;
     #attached = false;
+    #closed = false;
+    #stranded = false;
+    /** What the first connect said, said again on every reclaim. */
+    #request = null;
+    /** @type {string | undefined} */
+    #resumeToken;
+    #reconnectTimer = null;
+    #reconnectAttempts = 0;
 
     constructor ( peerConfig ) {
         super();
@@ -80,6 +121,11 @@ export class ClientSignallingChannel extends SignallingChannel {
 
     get alive () {
         return this.#attached;
+    }
+
+    /** The session is gone for good: nothing will carry a signal to the peer again. */
+    get stranded () {
+        return this.#stranded;
     }
 
     /**
@@ -92,7 +138,19 @@ export class ClientSignallingChannel extends SignallingChannel {
      * @returns {Promise<void>}
      */
     async open ( invitecode, options = {} ) {
-        const ws = new WebSocket(this.#peerConfig.signallerUrl);
+        this.#request = {
+            authToken: this.#peerConfig.authToken,
+            anonToken: options.anonToken,
+            invitecode,
+            port: options.port,
+        };
+        const ws = await this.#dial(this.#peerConfig.signallerUrl);
+        ws.send(JSON.stringify({ client: { connect: this.#request } }));
+    }
+
+    /** Opens a socket and wires it up, resolving once it is open. */
+    async #dial ( url ) {
+        const ws = new WebSocket(url);
         this.#ws = ws;
 
         await new Promise((resolve, reject) => {
@@ -103,29 +161,52 @@ export class ClientSignallingChannel extends SignallingChannel {
 
         ws.onopen = null;
         ws.onerror = null;
-        ws.onmessage = (evt) => this.#onMessage(evt);
-        ws.onclose = () => this.#onClosed();
-
-        ws.send(
-            JSON.stringify({
-                client: {
-                    connect: {
-                        authToken: this.#peerConfig.authToken,
-                        anonToken: options.anonToken,
-                        invitecode,
-                        port: options.port,
-                    },
-                },
-            }),
-        );
+        ws.onmessage = (evt) => this.#onMessage(evt, ws);
+        ws.onclose = () => this.#onClosed(ws);
+        return ws;
     }
 
-    sendOffer ( description, names ) {
-        return this.#post({ offer: { offer: description, names } });
+    #scheduleReconnect () {
+        if ( this.#closed || this.#stranded || this.#reconnectTimer || ! this.#resumeToken ) return;
+        const attempt = this.#reconnectAttempts++;
+        const backoff = Math.min(CLIENT_RECONNECT_MAX_MS, CLIENT_RECONNECT_BASE_MS * 2 ** attempt);
+        const delay = backoff / 2 + Math.random() * (backoff / 2);
+        this.#reconnectTimer = setTimeout(() => {
+            this.#reconnectTimer = null;
+            void this.#reconnect();
+        }, delay);
     }
 
-    sendAnswer ( description, names ) {
-        return this.#post({ answer: { answer: description, names } });
+    /**
+     * Dials again and reclaims the session. The token goes in the URL too:
+     * the signaller fixes a socket's address when it accepts it, before any
+     * message, and this one has to come back under the old address.
+     */
+    async #reconnect () {
+        if ( this.#closed || this.#stranded ) return;
+        const url = new URL(this.#peerConfig.signallerUrl);
+        url.searchParams.set('resume', this.#resumeToken);
+        let ws;
+        try {
+            ws = await this.#dial(url.href);
+        } catch {
+            this.#ws = null;
+            this.#scheduleReconnect();
+            return;
+        }
+        if ( this.#closed ) {
+            this.close();
+            return;
+        }
+        ws.send(JSON.stringify({ client: { connect: { ...this.#request, resume: this.#resumeToken } } }));
+    }
+
+    sendOffer ( description, names, gen ) {
+        return this.#post({ offer: { offer: description, names, gen } });
+    }
+
+    sendAnswer ( description, names, re ) {
+        return this.#post({ answer: { answer: description, names, re } });
     }
 
     sendCandidate ( candidate ) {
@@ -149,7 +230,13 @@ export class ClientSignallingChannel extends SignallingChannel {
     }
 
     close () {
+        // Gone on purpose: give the session up, so the peer server hears a
+        // hangup rather than waiting for a return that will not come.
+        if ( this.#attached ) this.#post({ release: {} });
+        this.#closed = true;
         this.#attached = false;
+        clearTimeout(this.#reconnectTimer);
+        this.#reconnectTimer = null;
         if ( ! this.#ws ) return;
         this.#ws.onclose = null;
         this.#ws.onmessage = null;
@@ -157,7 +244,8 @@ export class ClientSignallingChannel extends SignallingChannel {
         this.#ws = null;
     }
 
-    async #onMessage ( evt ) {
+    async #onMessage ( evt, ws ) {
+        if ( ws !== this.#ws ) return;
         let msg;
         try {
             msg = JSON.parse(evt.data).client;
@@ -167,9 +255,23 @@ export class ClientSignallingChannel extends SignallingChannel {
         if ( ! msg ) return;
 
         if ( msg.connect ) {
+            const reclaiming = this.#resumeToken !== undefined;
             if ( msg.connect.success ) {
                 this.#attached = true;
+                this.#resumeToken = msg.connect.resumeToken ?? this.#resumeToken;
+                if ( reclaiming ) {
+                    this.#reconnectAttempts = 0;
+                    this.onusable();
+                    return;
+                }
                 return this.onattached(msg.connect.owner);
+            }
+            if ( reclaiming ) {
+                // The session lapsed, or its server is gone: nothing can be
+                // reached through this channel again.
+                this.#stranded = true;
+                this.onunusable();
+                return;
             }
             return this.onrejected(new Error(msg.connect.error));
         }
@@ -184,9 +286,14 @@ export class ClientSignallingChannel extends SignallingChannel {
         this.receive(msg);
     }
 
-    #onClosed () {
+    #onClosed ( ws ) {
+        if ( ws !== this.#ws ) return;
+        this.#ws = null;
         this.#attached = false;
         this.onunusable();
+        // Only a session that got as far as being attached is worth
+        // reclaiming; a handshake that dropped has nothing to come back to.
+        this.#scheduleReconnect();
     }
 }
 
@@ -233,12 +340,12 @@ export class ServerSignallingChannel extends SignallingChannel {
 
     // Every payload a peer server sends carries the connection id, since one
     // socket carries all of its clients.
-    sendOffer ( description, names ) {
-        return this.#post({ offer: { offer: description, names, id: this.#id } });
+    sendOffer ( description, names, gen ) {
+        return this.#post({ offer: { offer: description, names, gen, id: this.#id } });
     }
 
-    sendAnswer ( description, names ) {
-        return this.#post({ answer: { answer: description, names, id: this.#id } });
+    sendAnswer ( description, names, re ) {
+        return this.#post({ answer: { answer: description, names, re, id: this.#id } });
     }
 
     sendCandidate ( candidate ) {

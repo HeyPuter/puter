@@ -175,6 +175,29 @@ describe('PuterPeerServer connections', () => {
         expect(server.connections.has('conn-1')).toBe(false);
     });
 
+    it('treats a client whose socket dropped as away, and as back once it reclaims its session', async () => {
+        const server = await startServer();
+        const { ws, conn } = await connectClient(server);
+        const pc = FakePeerConnection.instances.at(-1);
+        pc.channels[0].open();
+        const closes = [];
+        conn.addEventListener('close', (e) => closes.push(e.reason));
+
+        await ws.onmessage({
+            data: JSON.stringify({ server: { disconnect: { id: 'conn-1', resumable: true } } }),
+        });
+        await flush();
+        // Away, not gone: a link that fails now is waited on, not torn down.
+        expect(conn.closed).toBe(false);
+        expect(closes).toEqual([]);
+
+        await ws.onmessage({ data: JSON.stringify({ server: { reconnect: { id: 'conn-1' } } }) });
+        await flush();
+        pc.setConnectionState('failed');
+        await flush();
+        expect(conn.closed).toBe(false);
+    });
+
     it('keeps established connections when its own socket drops', async () => {
         const server = await startServer();
         const { ws, conn } = await connectClient(server);
@@ -311,6 +334,36 @@ describe('PuterPeerServer reclaiming a dropped session', () => {
 
         const released = ws.sent.slice(before).map((raw) => JSON.parse(raw));
         expect(released).toContainEqual({ server: { release: {} } });
+    });
+
+    it('gives a server whose first registration failed up, rather than reconnecting it', async () => {
+        // start() rejecting hands the caller no server to close, so nothing
+        // of it may keep running.
+        vi.useFakeTimers();
+        const server = new PuterPeerServer({ signallerUrl: 'ws://signaller.test/', authToken: 'token' });
+        const started = server.start();
+        const first = FakeWebSocket.latest;
+        await openSocket(first);
+        first.onclose({});
+        await expect(started).rejects.toThrow('Connection closed unexpectedly');
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.latest).toBe(first);
+        expect(server.signallingAlive).toBe(false);
+    });
+
+    it('gives a server whose first registration was refused up too', async () => {
+        vi.useFakeTimers();
+        const server = new PuterPeerServer({ signallerUrl: 'ws://signaller.test/', authToken: 'token' });
+        const started = server.start();
+        const first = FakeWebSocket.latest;
+        await openSocket(first);
+        await answerCreate(first, { success: false, error: 'not allowed' });
+        await expect(started).rejects.toThrow('not allowed');
+
+        first.onclose?.({});
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.latest).toBe(first);
     });
 
     it('does not reconnect after close()', async () => {

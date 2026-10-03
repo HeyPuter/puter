@@ -50,6 +50,66 @@ const answerOffer = async ( channel ) => {
     await flush();
 };
 
+describe('renegotiation across a signalling outage', () => {
+    const camera = { kind: 'video', id: 'cam', readyState: 'live', addEventListener () {} };
+    const stream = { getTracks: () => [camera] };
+    const offersSent = (channel) => channel.delivered.filter((p) => p.offer).length;
+
+    it('makes the offer it could not send once signalling is back', async () => {
+        const { conn, pc, channel } = await makeConnection({ polite: true });
+        pc.setConnectionState('connected');
+        await flush();
+        const before = offersSent(channel);
+
+        channel.kill();
+        conn.publish('camera', stream);
+        await flush();
+        expect(offersSent(channel)).toBe(before);
+
+        channel.revive();
+        channel.onusable();
+        await flush();
+        expect(offersSent(channel)).toBe(before + 1);
+        expect(channel.delivered.at(-1).offer.names).toEqual({ 0: 'camera' });
+    });
+
+    it('makes again an offer that went out as the path died, once the peer is back', async () => {
+        const { conn, pc, channel } = await makeConnection({ polite: true });
+        pc.setConnectionState('connected');
+        await flush();
+
+        conn.publish('camera', stream);
+        await flush();
+        const before = offersSent(channel);
+        expect(pc.signalingState).toBe('have-local-offer'); // never answered
+
+        channel.onpeerback();
+        await flush();
+        expect(offersSent(channel)).toBe(before + 1);
+    });
+
+    it('holds the offer while the transport is down, and makes it once it is up', async () => {
+        // A polite offer crossing the impolite side's ICE restart is what
+        // froze video once; it waits for the link instead.
+        const { conn, pc, channel } = await makeConnection({ polite: true });
+        pc.setConnectionState('disconnected');
+        await flush();
+        const before = offersSent(channel);
+
+        channel.kill();
+        conn.publish('camera', stream);
+        await flush();
+        channel.revive();
+        channel.onusable();
+        await flush();
+        expect(offersSent(channel)).toBe(before);
+
+        pc.setConnectionState('connected');
+        await flush();
+        expect(offersSent(channel)).toBe(before + 1);
+    });
+});
+
 describe('ICE recovery', () => {
     it('rides out a transient disconnect without restarting or closing', async () => {
         const { conn, pc, closes } = await makeConnection();

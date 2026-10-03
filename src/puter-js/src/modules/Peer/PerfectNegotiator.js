@@ -26,6 +26,13 @@ export class PerfectNegotiator {
     #mayOffer = false;
     #tail = Promise.resolve();
     #offerQueued = false;
+    /**
+     * An offer was wanted and could not go: the signalling path was down, or
+     * the send failed. The browser raises the negotiation flag once and
+     * does not raise it again, so the offer is remembered here and made
+     * when the path is back (`signallingRestored`).
+     */
+    #offerPending = false;
     #waiters = new Set();
     #pendingCandidates = [];
     /**
@@ -92,19 +99,22 @@ export class PerfectNegotiator {
      *
      * @param {RTCSessionDescriptionInit} description
      * @param {Record<string, string>} [names]
+     * @param {number} [gen] the peer's number for this offer, echoed in our answer
      * @returns {Promise<void>}
      */
-    acceptOffer ( description, names ) {
-        return this.#enqueue(() => this.#applyOffer(description, names));
+    acceptOffer ( description, names, gen ) {
+        return this.#enqueue(() => this.#applyOffer(description, names, gen));
     }
 
     /**
      * @param {RTCSessionDescriptionInit} description
      * @param {Record<string, string>} [names]
+     * @param {number} [re] the number of the offer this answers, where the
+     *   peer (and the signaller between us) passed it back
      * @returns {Promise<void>}
      */
-    acceptAnswer ( description, names ) {
-        return this.#enqueue(() => this.#applyAnswer(description, names));
+    acceptAnswer ( description, names, re ) {
+        return this.#enqueue(() => this.#applyAnswer(description, names, re));
     }
 
     /**
@@ -134,6 +144,43 @@ export class PerfectNegotiator {
         // `#requestOffer` collapses this with the event's own request.
         this.#requestOffer();
         await negotiated;
+    }
+
+    /**
+     * The signalling path is usable again, or the peer reclaimed its
+     * session. An offer that could not go is made now - and so is one that
+     * went out and was never answered, since the path it went down is the
+     * one that just came back.
+     *
+     * @returns {void}
+     */
+    signallingRestored () {
+        if ( this.#pc.signalingState === 'have-local-offer' ) this.#offerPending = true;
+        this.#offerIfPending();
+    }
+
+    /**
+     * The transport is connected again. An offer held back while it was not
+     * goes now.
+     *
+     * @returns {void}
+     */
+    transportRestored () {
+        this.#offerIfPending();
+    }
+
+    /**
+     * Makes a remembered offer, once it can both reach the peer and not
+     * collide with an ICE restart from it: while the transport is down the
+     * impolite side may be restarting, and a polite offer crossing that
+     * restart is rolled back at the worst moment (see PuterPeerConnection's
+     * recovery). Any offer carries the whole of the current state, so a
+     * restart offer that goes out meanwhile settles it too.
+     */
+    #offerIfPending () {
+        if ( ! this.#offerPending || ! this.#enabled || ! this.#mayOffer ) return;
+        if ( ! this.#channel.alive || this.#pc.connectionState !== 'connected' ) return;
+        this.#requestOffer();
     }
 
     /**
@@ -177,6 +224,12 @@ export class PerfectNegotiator {
         // spend a whole answer timeout first.
         if ( ! this.#enabled || ! this.#mayOffer || ! this.#channel.alive
             || this.#pc.signalingState === 'closed' ) {
+            // Only a missing path is worth coming back to: before the opening
+            // exchange the browser raises the flag again itself once it is
+            // settled, and a closed connection has nothing left to offer.
+            if ( this.#enabled && this.#mayOffer && this.#pc.signalingState !== 'closed' ) {
+                this.#offerPending = true;
+            }
             this.#failUnboundWaiters(new Error('The connection cannot renegotiate'));
             return;
         }
@@ -188,10 +241,12 @@ export class PerfectNegotiator {
             this.#makingOffer = true;
             await this.#pc.setLocalDescription();
             const generation = ++this.#offerGeneration;
-            if ( ! this.#channel.sendOffer(this.#pc.localDescription, this.#localNames()) ) {
+            if ( ! this.#channel.sendOffer(this.#pc.localDescription, this.#localNames(), generation) ) {
+                this.#offerPending = true;
                 await this.#abandonOffer();
                 return;
             }
+            this.#offerPending = false;
             this.#bindWaiters(generation, carried);
         } catch ( e ) {
             this.#onerror(e);
@@ -217,7 +272,7 @@ export class PerfectNegotiator {
         this.#failWaiters(new Error('The signalling connection is unavailable'));
     }
 
-    async #applyOffer ( description, names ) {
+    async #applyOffer ( description, names, gen ) {
         const pc = this.#pc;
         if ( pc.signalingState === 'closed' ) return;
 
@@ -234,7 +289,7 @@ export class PerfectNegotiator {
         try {
             await this.#adopt(description, names);
             await pc.setLocalDescription();
-            const delivered = this.#channel.sendAnswer(pc.localDescription, this.#localNames());
+            const delivered = this.#channel.sendAnswer(pc.localDescription, this.#localNames(), gen);
 
             if ( pc.signalingState === 'stable' ) {
                 // A side that only answers may renegotiate freely once the
@@ -254,18 +309,27 @@ export class PerfectNegotiator {
         }
     }
 
-    async #applyAnswer ( description, names ) {
+    async #applyAnswer ( description, names, re ) {
         const pc = this.#pc;
         // An answer with no offer of ours outstanding replies to one that has
         // since been rolled back or replaced - several restart offers held up
         // by a stalled socket arrive at once, and so do their answers. There
         // is nothing for it to settle.
         if ( pc.signalingState !== 'have-local-offer' ) return;
+        // Nor is there for one that names an older offer than the one out
+        // now. Applied, it would pair our newest description with the peer's
+        // answer to an older one - an ICE restart answered with credentials
+        // the peer has already replaced - and report the newest as settled.
+        // An answer that names no offer comes from a peer, or through a
+        // signaller, that does not pass the number back; it is taken as the
+        // answer to the offer outstanding, as it always was.
+        const answered = Number.isInteger(re) ? re : this.#offerGeneration;
+        if ( answered !== this.#offerGeneration ) return;
         try {
             await this.#adopt(description, names);
             if ( pc.signalingState === 'stable' ) {
                 this.#mayOffer = true;
-                this.#settleNegotiation();
+                this.#settleNegotiation(answered);
             }
         } catch ( e ) {
             this.#onerror(e);
@@ -345,10 +409,14 @@ export class PerfectNegotiator {
         return rebound;
     }
 
-    /** Settles the waiters whose offer this answer replied to. */
-    #settleNegotiation () {
+    /**
+     * Settles the waiters whose offer this answer replied to - and those of
+     * any offer it replaced, since the newer offer carried everything theirs
+     * did. A waiter for an offer not yet sent waits on.
+     */
+    #settleNegotiation ( generation ) {
         for ( const waiter of [...this.#waiters] ) {
-            if ( waiter.generation === null ) continue;
+            if ( waiter.generation === null || waiter.generation > generation ) continue;
             this.#waiters.delete(waiter);
             waiter.settle();
         }

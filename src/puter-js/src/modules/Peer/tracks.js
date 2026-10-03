@@ -26,10 +26,16 @@ const KINDS = ['audio', 'video'];
 export class TrackPublisher {
     #pc;
     #target;
-    /** name -> { stream, senders: Map<kind, RTCRtpSender>, options } */
+    /** name -> { stream, senders: Map<kind, RTCRtpSender>, tracks: Map<kind, track|null>, options } */
     #published = new Map();
     #remoteNames = new Map();
     #remoteStreams = new Map();
+    /**
+     * Streams surfaced under their m-section id because the peer never named
+     * them. No names map will ever list them, so they end with their tracks
+     * rather than with a description that leaves them out.
+     */
+    #unnamed = new Set();
     #closed = false;
 
     /**
@@ -79,7 +85,7 @@ export class TrackPublisher {
 
         let slot = this.#published.get(name);
         if ( ! slot ) {
-            slot = { stream: null, senders: new Map(), options: {} };
+            slot = { stream: null, senders: new Map(), tracks: new Map(), options: {} };
             this.#published.set(name, slot);
         }
         this.#merge(slot, options);
@@ -92,9 +98,18 @@ export class TrackPublisher {
             const sender = slot.senders.get(kind);
 
             if ( sender ) {
-                if ( sender.track !== track ) sender.replaceTrack(track).catch(() => {});
+                // Compared with what was last asked for rather than with
+                // `sender.track`: replaceTrack lands asynchronously, so a
+                // pause and an immediate resume would otherwise see the old
+                // track still on the sender, skip the resume, and leave the
+                // pause to land after it.
+                if ( slot.tracks.get(kind) !== track ) {
+                    slot.tracks.set(kind, track);
+                    sender.replaceTrack(track).catch(() => {});
+                }
             } else if ( track ) {
                 slot.senders.set(kind, this.#pc.addTrack(track, slot.stream));
+                slot.tracks.set(kind, track);
             }
         }
 
@@ -112,12 +127,27 @@ export class TrackPublisher {
         if ( ! slot ) return;
         this.#published.delete(name);
 
-        for ( const sender of slot.senders.values() ) {
-            try {
+        for ( const sender of slot.senders.values() ) this.#withdraw(sender);
+    }
+
+    /**
+     * Stops a sender sending, and has that negotiated. removeTrack does it -
+     * but does nothing at all for a sender with no track, which is what a
+     * paused publication has, so the peer would never hear it ended. That
+     * case gets by hand what removeTrack would have done to the transceiver.
+     */
+    #withdraw ( sender ) {
+        try {
+            if ( sender.track ) {
                 this.#pc.removeTrack(sender);
-            } catch {
-                // connection already closed
+                return;
             }
+            const transceiver = this.#pc.getTransceivers?.().find((t) => t.sender === sender);
+            if ( ! transceiver ) return;
+            if ( transceiver.direction === 'sendrecv' ) transceiver.direction = 'recvonly';
+            else if ( transceiver.direction === 'sendonly' ) transceiver.direction = 'inactive';
+        } catch {
+            // connection already closed
         }
     }
 
@@ -176,7 +206,7 @@ export class TrackPublisher {
                 // its track says so.
                 const live = new Set(this.#remoteNames.values());
                 for ( const name of [...this.#remoteStreams.keys()] ) {
-                    if ( ! live.has(name) ) this.#endRemote(name);
+                    if ( ! live.has(name) && ! this.#unnamed.has(name) ) this.#endRemote(name);
                 }
             },
             rollback: () => {
@@ -214,12 +244,14 @@ export class TrackPublisher {
         // A peer that publishes without naming (an older SDK, or a raw
         // addTrack on the exposed handle) is surfaced under its m-section id
         // rather than dropped.
-        const name = this.#remoteNames.get(mid) ?? String(mid ?? evt.track.id);
+        const named = this.#remoteNames.get(mid);
+        const name = named ?? String(mid ?? evt.track.id);
 
         let stream = this.#remoteStreams.get(name);
         if ( ! stream ) {
             stream = new MediaStream();
             this.#remoteStreams.set(name, stream);
+            if ( named === undefined ) this.#unnamed.add(name);
         }
         if ( ! stream.getTracks().includes(evt.track) ) stream.addTrack(evt.track);
 
@@ -236,6 +268,7 @@ export class TrackPublisher {
         const stream = this.#remoteStreams.get(name);
         if ( ! stream ) return;
         this.#remoteStreams.delete(name);
+        this.#unnamed.delete(name);
         this.#target.dispatchEvent(new PuterPeerMediaEndedEvent(name, stream));
     }
 

@@ -81,14 +81,20 @@ export class FakePeerConnection {
 
     addTrack (track, stream) {
         const sender = new FakeSender(track);
-        this.transceivers.push({ sender, mid: String(this.transceivers.length) });
+        this.transceivers.push(new FakeTransceiver(this, sender, String(this.transceivers.length)));
         this.fire('negotiationneeded');
         return sender;
     }
 
+    /** As the spec has it: a sender with no track is left alone. */
     removeTrack (sender) {
+        if ( sender.track === null ) return;
         sender.track = null;
         sender.removed = true;
+        const transceiver = this.transceivers.find((t) => t.sender === sender);
+        if ( transceiver ) {
+            transceiver.setDirectionQuietly(transceiver.direction === 'sendrecv' ? 'recvonly' : 'inactive');
+        }
         this.fire('negotiationneeded');
     }
 
@@ -173,16 +179,47 @@ export class FakePeerConnection {
     }
 }
 
+/** A transceiver whose direction raises the negotiation flag when changed. */
+export class FakeTransceiver {
+    #pc;
+    #direction = 'sendrecv';
+
+    constructor (pc, sender, mid) {
+        this.#pc = pc;
+        this.sender = sender;
+        this.mid = mid;
+    }
+
+    get direction () {
+        return this.#direction;
+    }
+
+    set direction (value) {
+        if ( value === this.#direction ) return;
+        this.#direction = value;
+        this.#pc.fire('negotiationneeded');
+    }
+
+    setDirectionQuietly (value) {
+        this.#direction = value;
+    }
+}
+
 /** A sender whose encoding parameters a test can inspect. */
 export class FakeSender {
     removed = false;
     #params = { encodings: [{}] };
+    /** Replacements asked for, in order; the sender's track changes only once one lands. */
+    replacements = [];
 
     constructor (track) {
         this.track = track;
     }
 
+    /** Lands a turn later, as the browser's does: `track` is unchanged until then. */
     async replaceTrack (track) {
+        this.replacements.push(track);
+        await Promise.resolve();
         this.track = track;
     }
 
@@ -231,12 +268,12 @@ export class LoopbackChannel extends SignallingChannel {
         this._alive = true;
     }
 
-    sendOffer (description, names) {
-        return this.#post({ offer: { offer: description, names } });
+    sendOffer (description, names, gen) {
+        return this.#post({ offer: { offer: description, names, gen } });
     }
 
-    sendAnswer (description, names) {
-        return this.#post({ answer: { answer: description, names } });
+    sendAnswer (description, names, re) {
+        return this.#post({ answer: { answer: description, names, re } });
     }
 
     sendCandidate (candidate) {

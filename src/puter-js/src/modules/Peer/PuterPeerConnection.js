@@ -140,13 +140,16 @@ export class PuterPeerConnection extends EventTarget {
 
         this.peerconnection.onconnectionstatechange = () => this.#onConnectionState();
 
-        this.#channel.onoffer = (description, names) => this.#negotiator.acceptOffer(description, names);
-        this.#channel.onanswer = (description, names) => this.#negotiator.acceptAnswer(description, names);
+        this.#channel.onoffer = (description, names, gen) => this.#negotiator.acceptOffer(description, names, gen);
+        this.#channel.onanswer = (description, names, re) => this.#negotiator.acceptAnswer(description, names, re);
         this.#channel.oncandidate = (candidate) => this.#negotiator.acceptCandidate(candidate);
         this.#channel.onbye = (reason) => this.#onBye(reason);
         this.#channel.onpeergone = (reason, resumable) => this.#onPeerGone(reason, resumable);
         this.#channel.onunusable = () => this.#onSignallingLost();
-        this.#channel.onusable = () => this.#wakeSignallingWaiters();
+        this.#channel.onusable = () => {
+            this.#wakeSignallingWaiters();
+            this.#negotiator.signallingRestored();
+        };
         this.#channel.onpeerback = () => this.#onPeerBack();
     }
 
@@ -210,6 +213,7 @@ export class PuterPeerConnection extends EventTarget {
         this.#peerAway = false;
         this.#wakeSignallingWaiters();
         this.#wakeTransportWaiters();
+        this.#negotiator.signallingRestored();
     }
 
     /**
@@ -233,6 +237,7 @@ export class PuterPeerConnection extends EventTarget {
         switch ( state ) {
             case 'connected':
                 this.#setLinkState('connected');
+                this.#negotiator.transportRestored();
                 break;
             // 'disconnected' is transient: ICE either recovers by itself or
             // escalates to 'failed', which is where recovery belongs. Nothing

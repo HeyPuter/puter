@@ -34,7 +34,7 @@ A string invite code created by `puter.peer.serve()`.
 - `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges may apply.
 - `anonToken` (`String`) Join without a Puter session. Any uuid — it identifies this guest for the duration of the session, and no sign-in prompt is shown. The host sees the guest as `anonymous`, so anything you want to call them is yours to send over the connection.
 - `turnGrant` (`String`) A grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/). Lets a guest use the Puter-managed relays on the host's account. Without one, a guest connects only where a direct connection is possible; with `forceRelay`, a guest needs one.
-- `recoveryTimeout` (`Number`) How long, in milliseconds, the connection keeps trying to repair a broken link before it closes, counted from when the link first showed trouble. Defaults to `60000`.
+- `recoveryTimeout` (`Number`) How long, in milliseconds, the connection keeps trying to restore a broken link before it closes, counted from when the link first showed trouble. Defaults to `60000`.
 
 ## Return value
 
