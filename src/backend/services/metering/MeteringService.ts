@@ -1216,6 +1216,22 @@ export class MeteringService extends PuterService {
             );
 
         const currentMonth = this.monthYearString();
+
+        // An app sees its own usage only, never the rest of the account's.
+        const appId = actor.effectiveApp?.uid;
+        if (appId) {
+            const [appUsage, appTotals] = await Promise.all([
+                this.#readActorAppUsage(actor.user.uuid, appId, currentMonth),
+                this.#actorAppTotals(actor.user.uuid, currentMonth),
+            ]);
+            return {
+                usage: appUsage,
+                appTotals: appTotals[appId]
+                    ? { [appId]: appTotals[appId] }
+                    : {},
+            };
+        }
+
         const monthKey = `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${currentMonth}`;
 
         const { res } = await this.stores.meteringBuffer.get({
@@ -1247,25 +1263,6 @@ export class MeteringService extends PuterService {
             actor.user.uuid,
             currentMonth,
         );
-
-        const appId = actor.effectiveApp?.uid;
-        if (appId && Object.keys(appTotals).length > 0) {
-            const filtered: Record<string, AppTotals> = {};
-            const others: AppTotals = {} as AppTotals;
-            Object.entries(appTotals).forEach(([appKey, appUsage]) => {
-                if (appKey === appId) {
-                    filtered[appKey] = appUsage;
-                } else {
-                    Object.entries(appUsage).forEach(([usageKind, amount]) => {
-                        const key = usageKind as keyof AppTotals;
-                        if (!others[key]) others[key] = 0;
-                        others[key] += amount;
-                    });
-                }
-            });
-            if (others) filtered['others'] = others;
-            return { usage: resolvedUsage, appTotals: filtered };
-        }
 
         return { usage: resolvedUsage, appTotals };
     }
