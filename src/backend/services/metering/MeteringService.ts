@@ -182,6 +182,13 @@ export class MeteringService extends PuterService {
     static SUBSCRIPTION_CACHE_LIMIT = 50_000;
 
     /**
+     * How long an answer is reused when a lookup behind it failed and it fell
+     * back. Short so the real plan returns soon after the store recovers, but
+     * long enough that an outage doesn't send every gated request back to it.
+     */
+    static SUBSCRIPTION_FALLBACK_CACHE_MS = 5_000;
+
+    /**
      * How long "does this actor have budget left" is reused before being
      * recomputed, and how many actors are remembered at once.
      *
@@ -450,7 +457,9 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a subscription id. The first
-     * resolver that returns a non-empty id wins; later resolvers are skipped.
+     * resolver that returns a non-empty id wins; later resolvers are skipped. A
+     * resolver whose lookup fails should throw rather than return null, so the
+     * fallback it causes isn't cached as the actor's plan.
      */
     registerSubscriptionResolver(fn: SubscriptionResolver): void {
         this.subscriptionResolvers.push(fn);
@@ -2061,7 +2070,13 @@ export class MeteringService extends PuterService {
         const cached = this.subscriptionCache.get(uuid);
         if (cached && cached.expiresAt > now) return cached.policy;
 
-        const policy = await this.#resolveActorSubscription(actor);
+        const { policy, lookupFailed } =
+            await this.#resolveActorSubscription(actor);
+
+        // Without the email (an actor built from a few row fields), the
+        // email-keyed default and fallback can't be resolved, so the answer
+        // isn't this account's plan and must not be cached under it.
+        if (actor.user.email === undefined) return policy;
 
         // Map preserves insertion order; FIFO-evict so a flood of one-shot
         // actors can't grow this without bound.
@@ -2074,26 +2089,36 @@ export class MeteringService extends PuterService {
         }
         this.subscriptionCache.set(uuid, {
             policy,
-            expiresAt: now + MeteringService.SUBSCRIPTION_CACHE_MS,
+            expiresAt:
+                now +
+                (lookupFailed
+                    ? MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS
+                    : MeteringService.SUBSCRIPTION_CACHE_MS),
         });
         return policy;
     }
 
-    async #resolveActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
+    /** `lookupFailed`: a resolver or the allowance read threw, so it fell back. */
+    async #resolveActorSubscription(
+        actor: Actor,
+    ): Promise<{ policy: SubscriptionPolicy; lookupFailed: boolean }> {
         const fallbackDefault = this.config.unlimitedMetering
             ? UNLIMITED_SUBSCRIPTION
             : actor.user?.email
               ? DEFAULT_FREE_SUBSCRIPTION
               : DEFAULT_TEMP_SUBSCRIPTION;
 
-        const resolvedDefault =
-            (await this.firstResolver(
-                this.defaultSubscriptionResolvers,
-                actor,
-            )) || fallbackDefault;
-        const resolvedUser =
-            (await this.firstResolver(this.subscriptionResolvers, actor)) ||
-            resolvedDefault;
+        const defaults = await this.firstResolver(
+            this.defaultSubscriptionResolvers,
+            actor,
+        );
+        const resolvedDefault = defaults.id || fallbackDefault;
+        const user = await this.firstResolver(
+            this.subscriptionResolvers,
+            actor,
+        );
+        const resolvedUser = user.id || resolvedDefault;
+        const resolverFailed = defaults.failed || user.failed;
 
         const availablePolicies: SubscriptionPolicy[] = [
             ...this.extraPolicies,
@@ -2112,31 +2137,43 @@ export class MeteringService extends PuterService {
             availablePolicies.find((p) => p.id === resolvedUser) ??
             availablePolicies.find((p) => p.id === resolvedDefault) ??
             availablePolicies.find((p) => p.id === fallbackDefault);
-        if (policy) return this.#withMonthAllowance(actor.user.uuid!, policy);
+        if (policy) {
+            const withAllowance = await this.#withMonthAllowance(
+                actor.user.uuid!,
+                policy,
+            );
+            return {
+                policy: withAllowance.policy,
+                lookupFailed: resolverFailed || withAllowance.failed,
+            };
+        }
         console.warn(
             `[metering] no registered policy for '${resolvedUser}' or` +
                 ` '${resolvedDefault}' — falling back to` +
                 ` '${REGISTERED_USER_FREE.id}'`,
         );
-        return REGISTERED_USER_FREE as SubscriptionPolicy;
+        return {
+            policy: REGISTERED_USER_FREE as SubscriptionPolicy,
+            lookupFailed: resolverFailed,
+        };
     }
 
     /**
      * `policy` with the month's allowance override applied, if one is set for
      * it (see `setMonthAllowance`). Free and unmetered policies never carry
-     * one, so they skip the read.
+     * one, so they skip the read. `failed` when the read threw.
      */
     async #withMonthAllowance(
         userUuid: string,
         policy: SubscriptionPolicy,
         month: string = this.monthYearString(),
-    ): Promise<SubscriptionPolicy> {
+    ): Promise<{ policy: SubscriptionPolicy; failed: boolean }> {
         if (
             FREE_SUBSCRIPTION_IDS.has(policy.id) ||
             policy.id === UNLIMITED_SUBSCRIPTION ||
             !(policy.monthUsageAllowance > 0)
         ) {
-            return policy;
+            return { policy, failed: false };
         }
         try {
             const allowance = await this.#readMonthAllowance(
@@ -2144,18 +2181,22 @@ export class MeteringService extends PuterService {
                 policy.id,
                 month,
             );
-            return allowance === null
-                ? policy
-                : ({
-                      ...policy,
-                      monthUsageAllowance: allowance,
-                  } as SubscriptionPolicy);
+            return {
+                policy:
+                    allowance === null
+                        ? policy
+                        : ({
+                              ...policy,
+                              monthUsageAllowance: allowance,
+                          } as SubscriptionPolicy),
+                failed: false,
+            };
         } catch (e) {
             // The policy's own allowance is what applied before any override.
             console.warn(
                 `[metering] month allowance read failed for ${userUuid}: ${(e as Error).message}`,
             );
-            return policy;
+            return { policy, failed: true };
         }
     }
 
@@ -2321,7 +2362,7 @@ export class MeteringService extends PuterService {
     ): Promise<number | null> {
         const policy = this.getRegisteredPolicy(policyId);
         if (!policy) return null;
-        return (await this.#withMonthAllowance(userUuid, policy, month))
+        return (await this.#withMonthAllowance(userUuid, policy, month)).policy
             .monthUsageAllowance;
     }
 
@@ -2420,19 +2461,22 @@ export class MeteringService extends PuterService {
         tracked.finally(() => this.pendingAuxPromises.delete(tracked));
     }
 
+    /** The first non-empty answer, and whether any resolver threw on the way. */
     private async firstResolver(
         resolvers: SubscriptionResolver[],
         actor: Actor,
-    ): Promise<string | null> {
+    ): Promise<{ id: string | null; failed: boolean }> {
+        let failed = false;
         for (const resolver of resolvers) {
             try {
                 const result = await resolver(actor);
-                if (result) return result;
+                if (result) return { id: result, failed };
             } catch (e) {
+                failed = true;
                 console.warn('[metering] subscription resolver failed', e);
             }
         }
-        return null;
+        return { id: null, failed };
     }
 
     // -- Internals: monthly charges -----------------------------------

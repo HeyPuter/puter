@@ -46,7 +46,10 @@ const PICTURE_DATA_URL = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i;
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type ProfileOwner = Pick<UserRow, 'id' | 'uuid' | 'username' | 'suspended'>;
+type ProfileOwner = Pick<
+    UserRow,
+    'id' | 'uuid' | 'username' | 'email' | 'suspended'
+>;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -236,7 +239,12 @@ export class ProfileService extends PuterService {
         return actorHasSubscription(
             this.services.metering,
             makeActor({
-                user: { id: user.id, uuid: user.uuid, username: user.username },
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                },
             }),
             true,
             this.config,
