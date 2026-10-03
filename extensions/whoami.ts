@@ -193,19 +193,6 @@ export const handleWhoami = async (
         // this endpoint is polled, and a mint is a write.
         referral_code: user.referral_code,
         oidc_only: oidcOnly,
-        taskbar_items: isUser
-            ? await getTaskbarItems(
-                  user,
-                  {
-                      clients,
-                      stores,
-                      services,
-                      apiBaseUrl: String(extension.config.api_base_url ?? ''),
-                      config: extension.config,
-                  },
-                  { iconSize, noIcons },
-              )
-            : undefined,
         otp: !!user.otp_enabled,
         feature_flags,
         created_ts: toUnixSeconds(user.timestamp),
@@ -232,6 +219,21 @@ export const handleWhoami = async (
         } catch {
             // OIDC not configured
         }
+    }
+
+    // Taskbar items — only sent to user actors
+    if (isUser) {
+        details.taskbar_items = await getTaskbarItems(
+            user,
+            {
+                clients,
+                stores,
+                services,
+                apiBaseUrl: String(extension.config.api_base_url ?? ''),
+                config: extension.config,
+            },
+            { iconSize, noIcons },
+        );
     }
 
     // Directories — only sent to user actors
@@ -299,7 +301,12 @@ export const handleWhoami = async (
         details.app_name = app.uid;
     }
 
-    const builtKeys = isUser ? null : new Set(Object.keys(details));
+    // A key core left undefined isn't built, so a listener can't fill it for an app.
+    const builtKeys = isUser
+        ? null
+        : new Set(
+              Object.keys(details).filter((key) => details[key] !== undefined),
+          );
     try {
         await clients.event.emitAndWait(
             'whoami.details',

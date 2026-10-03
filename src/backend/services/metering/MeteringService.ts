@@ -1511,14 +1511,10 @@ export class MeteringService extends PuterService {
             appId || actor.effectiveApp?.uid || GLOBAL_APP_KEY;
 
         const actorAppId = actor.effectiveApp?.uid;
-        if (
-            actorAppId &&
-            actorAppId !== resolvedAppId &&
-            resolvedAppId !== GLOBAL_APP_KEY
-        ) {
+        if (actorAppId && actorAppId !== resolvedAppId) {
             throw new HttpError(
                 403,
-                'Actor can only get usage details for their own app or global app',
+                'Actor can only get usage details for their own app',
                 { legacyCode: 'forbidden' },
             );
         }

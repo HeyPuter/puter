@@ -1364,20 +1364,17 @@ describe('MeteringService', () => {
             });
         });
 
-        it('allows an app actor to query the global namespace', async () => {
-            const userOnly: Actor = { user: makeUser() };
-            await target.incrementUsage(userOnly, 'kv:read', 1, 60);
+        it('forbids an app actor from querying the global namespace', async () => {
             const appActor: Actor = resolveActor({
-                user: userOnly.user,
+                user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
             });
-            await waitFor(async () => {
-                const r = await target.getActorCurrentMonthAppUsageDetails(
+            await expect(
+                target.getActorCurrentMonthAppUsageDetails(
                     appActor,
                     GLOBAL_APP_KEY,
-                );
-                expect(r.total).toBe(60);
-            });
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
         });
 
         it('forbids an app actor from querying another app', async () => {

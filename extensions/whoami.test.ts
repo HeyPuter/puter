@@ -298,15 +298,18 @@ describe('whoami extension — handleWhoami', () => {
             });
         };
 
-        const whoamiWithListener = async (actor: Actor) => {
+        const whoamiWithListener = async (
+            actor: Actor,
+            listener: typeof addAccountDetails = addAccountDetails,
+        ) => {
             const { res, captured } = makeRes();
-            server.clients.event.on('whoami.details', addAccountDetails);
+            server.clients.event.on('whoami.details', listener);
             try {
                 await runWithContext({ actor }, () =>
                     handleWhoami(makeReq(), res),
                 );
             } finally {
-                server.clients.event.off('whoami.details', addAccountDetails);
+                server.clients.event.off('whoami.details', listener);
             }
             return captured.body as Record<string, unknown>;
         };
@@ -362,6 +365,21 @@ describe('whoami extension — handleWhoami', () => {
                 subscription: { tier: 'pro', status: 'trialing' },
                 accountEligible: true,
             });
+        });
+
+        it('cannot add taskbar_items for an app actor, which core omits', async () => {
+            const user = await seedUser();
+            const body = await whoamiWithListener(
+                makeActor({
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: 'app-test-actor' },
+                }),
+                (_key, event) => {
+                    event.details.taskbar_items = [{ name: 'injected' }];
+                },
+            );
+
+            expect(body).not.toHaveProperty('taskbar_items');
         });
     });
 
