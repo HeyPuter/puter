@@ -5427,6 +5427,139 @@ describe('FSService — cross-app AppData access', () => {
     });
 });
 
+describe('FSService AppData root guard', () => {
+    // Launch adopts whatever directory sits at `AppData/<appUid>`, and grants on
+    // a directory follow it, so an app able to put its root in another app's
+    // place would keep its access to everything that app stores there.
+    let owner: TestUser;
+    let appUid: string;
+    let otherUid: string;
+    let root: FSEntry;
+    let userActor: Actor;
+    let appActor: Actor;
+
+    const as = <T>(actor: Actor, fn: () => Promise<T>) =>
+        runWithContext({ actor }, fn);
+
+    const tokenActor = (issuer: Actor, fullAccess: boolean) =>
+        makeActor({
+            user: owner.actor.user,
+            accessToken: { uid: `tok-${uuidv4()}`, issuer, fullAccess },
+        });
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        appUid = `app-${uuidv4()}`;
+        otherUid = `app-${uuidv4()}`;
+        root = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${appUid}`,
+            createMissingParents: true,
+        });
+        userActor = makeActor({ user: owner.actor.user });
+        appActor = makeActor({ user: owner.actor.user, app: { uid: appUid } });
+    });
+
+    it('refuses an app renaming its root or moving it away', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        await expect(
+            as(appActor, () => fs.rename(owner.userId, root, otherUid)),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: root,
+                    destinationParent: trash,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/AppData/${appUid}`))?.uuid).toBe(
+            root.uuid,
+        );
+    });
+
+    it('refuses an app moving an entry into a root’s place', async () => {
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+        const appData = (await entryAt(owner, '/AppData'))!;
+
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: appData,
+                    newName: otherUid,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(await entryAt(owner, `/AppData/${otherUid}`)).toBeNull();
+    });
+
+    it('refuses an app-issued token and a scoped token', async () => {
+        for (const actor of [
+            tokenActor(appActor, false),
+            tokenActor(userActor, false),
+        ]) {
+            await expect(
+                as(actor, () => fs.rename(owner.userId, root, otherUid)),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        }
+    });
+
+    it('still lets an app rename and move inside its root, and delete the root', async () => {
+        const file = await writeFile(owner, `${root.path}/state.json`, '{}');
+        const sub = await fs.mkdir(owner.userId, { path: `${root.path}/sub` });
+
+        const renamed = await as(appActor, () =>
+            fs.rename(owner.userId, file, 'state-2.json'),
+        );
+        const moved = await as(appActor, () =>
+            fs.move(owner.userId, { source: renamed, destinationParent: sub }),
+        );
+        expect(moved.path).toBe(`${root.path}/sub/state-2.json`);
+
+        await as(appActor, () =>
+            fs.remove(owner.userId, { entry: root, recursive: true }),
+        );
+        expect(await entryAt(owner, `/AppData/${appUid}`)).toBeNull();
+    });
+
+    it('leaves the account free to trash, restore and rename a root', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const appData = (await entryAt(owner, '/AppData'))!;
+
+        // The desktop trashes under the entry's uid and restores under the
+        // original name.
+        const trashed = await as(userActor, () =>
+            fs.move(owner.userId, {
+                source: root,
+                destinationParent: trash,
+                newName: root.uuid,
+            }),
+        );
+        const restored = await as(userActor, () =>
+            fs.move(owner.userId, {
+                source: trashed,
+                destinationParent: appData,
+                newName: appUid,
+            }),
+        );
+        expect(restored.path).toBe(root.path);
+
+        const renamed = await as(tokenActor(userActor, true), () =>
+            fs.rename(owner.userId, restored, otherUid),
+        );
+        expect(renamed.path).toBe(`${owner.home}/AppData/${otherUid}`);
+
+        // No actor: an internal caller.
+        const back = await fs.rename(owner.userId, renamed, appUid);
+        expect(back.path).toBe(root.path);
+    });
+});
+
 describe('FSService home-region placement', () => {
     let regionServer: PuterServer;
     let regionFs: FSService;
