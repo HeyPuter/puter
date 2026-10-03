@@ -717,6 +717,7 @@ export type EventMap = {
             email?: string;
             app_name?: string;
         };
+        /** False for an app actor: add only `subscribed` / `paid_storage` then. */
         isUser: boolean;
     };
     'wisp.get-policy': {

@@ -8,6 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { makeActor, type Actor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
 import { PuterServer } from '../src/backend/server.ts';
 import { setupTestServer } from '../src/backend/testUtil.ts';
@@ -87,6 +88,80 @@ describe('metering extension — handleMeteringUsage', () => {
         expect(
             (captured.body as Record<string, unknown>).allowanceInfo,
         ).toBeDefined();
+    });
+
+    describe('usage split across apps', () => {
+        const seedUsage = async () => {
+            const user = await seedUser();
+            const owner = { uuid: user.uuid, id: user.id as number };
+            const metering = server.services.metering;
+            await metering.incrementUsage(
+                makeActor({ user: owner, app: { uid: 'app-mine' } }),
+                'kv:read',
+                1,
+                10,
+            );
+            await metering.incrementUsage(
+                makeActor({ user: owner, app: { uid: 'app-other' } }),
+                'kv:write',
+                1,
+                20,
+            );
+            await metering.incrementUsage(
+                makeActor({ user: owner }),
+                'kv:list',
+                1,
+                40,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+            return owner;
+        };
+
+        const usageAs = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor }, () =>
+                handleMeteringUsage(makeReq(), res),
+            );
+            return captured.body as {
+                usage: Record<string, unknown> & { total: number };
+                appTotals: Record<string, unknown>;
+                allowanceInfo: Record<string, unknown>;
+            };
+        };
+
+        it('reports only the calling app’s own usage to an app actor', async () => {
+            const owner = await seedUsage();
+            const body = await usageAs(
+                makeActor({ user: owner, app: { uid: 'app-mine' } }),
+            );
+
+            expect(body.usage.total).toBe(10);
+            expect(Object.keys(body.usage).sort()).toEqual([
+                'kv:read',
+                'total',
+            ]);
+            expect(body.appTotals).toEqual({
+                'app-mine': { total: 10, count: 1 },
+            });
+            expect(body.allowanceInfo).toMatchObject({
+                remaining: expect.any(Number),
+                monthUsageAllowance: expect.any(Number),
+            });
+        });
+
+        it('still reports the whole account to the user', async () => {
+            const owner = await seedUsage();
+            const body = await usageAs(makeActor({ user: owner }));
+
+            expect(body.usage.total).toBe(70);
+            expect(body.usage).toHaveProperty('kv:read');
+            expect(body.usage).toHaveProperty('kv:write');
+            expect(body.usage).toHaveProperty('kv:list');
+            expect(body.appTotals).toMatchObject({
+                'app-mine': { total: 10, count: 1 },
+                'app-other': { total: 20, count: 1 },
+            });
+        });
     });
 });
 

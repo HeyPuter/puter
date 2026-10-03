@@ -1192,8 +1192,8 @@ describe('MeteringService', () => {
             expect(result.appTotals.B?.total).toBe(50);
         });
 
-        it('filters appTotals by actor.app.uid and rolls others into "others"', async () => {
-            const userId = actor.user.uuid;
+        it('scopes usage and appTotals to the calling app', async () => {
+            const userId = makeUser().uuid;
             const appA: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'A', id: 1 },
@@ -1203,13 +1203,59 @@ describe('MeteringService', () => {
                 app: { uid: 'B', id: 2 },
             });
             await target.incrementUsage(appA, 'kv:read', 1, 100);
-            await target.incrementUsage(appB, 'kv:read', 1, 50);
+            await target.incrementUsage(appB, 'kv:write', 1, 50);
+            await target.incrementUsage(
+                { user: { uuid: userId } },
+                'kv:list',
+                1,
+                25,
+            );
             await server.stores.meteringBuffer.flushCycle();
 
             const r = await target.getActorCurrentMonthUsageDetails(appA);
-            expect(r.appTotals.A?.total).toBe(100);
-            expect(r.appTotals.others?.total).toBe(50);
-            expect(r.appTotals).not.toHaveProperty('B');
+            expect(r.usage.total).toBe(100);
+            expect(r.usage['kv:read']).toMatchObject({ cost: 100 });
+            expect(r.usage).not.toHaveProperty('kv:write');
+            expect(r.usage).not.toHaveProperty('kv:list');
+            expect(r.appTotals).toEqual({ A: { total: 100, count: 1 } });
+
+            // The account's own view is unchanged.
+            const own = await target.getActorCurrentMonthUsageDetails({
+                user: { uuid: userId },
+            });
+            expect(own.usage.total).toBe(175);
+            expect(own.usage).toHaveProperty('kv:write');
+            expect(own.appTotals.A?.total).toBe(100);
+            expect(own.appTotals.B?.total).toBe(50);
+        });
+
+        it('scopes an app reached through an access token it issued', async () => {
+            const user = makeUser();
+            const app = resolveActor({ user, app: { uid: 'issuer-app' } });
+            await target.incrementUsage(app, 'kv:read', 1, 30);
+            await target.incrementUsage({ user }, 'kv:write', 1, 70);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const token = resolveActor({
+                user,
+                accessToken: { uid: 'tok', issuer: app },
+            });
+            const r = await target.getActorCurrentMonthUsageDetails(token);
+            expect(r.usage.total).toBe(30);
+            expect(r.appTotals).toEqual({
+                'issuer-app': { total: 30, count: 1 },
+            });
+        });
+
+        it('gives an app with no usage an empty view', async () => {
+            const user = makeUser();
+            await target.incrementUsage({ user }, 'kv:write', 1, 70);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const r = await target.getActorCurrentMonthUsageDetails(
+                resolveActor({ user, app: { uid: 'idle-app' } }),
+            );
+            expect(r).toEqual({ usage: { total: 0 }, appTotals: {} });
         });
 
         it('rejects an actor with no user uuid', async () => {
@@ -3486,7 +3532,7 @@ describe('MeteringService', () => {
             expect(appTotals['app-new']).toEqual({ total: 10, count: 1 });
         });
 
-        it('an app actor sees only its own total, with everyone else folded into others', async () => {
+        it('an app actor sees only its own total', async () => {
             const bufActor: Actor = { user: makeUser() };
             await target.incrementUsage(
                 resolveActor({ ...bufActor, app: { uid: 'app-mine' } }),
@@ -3509,9 +3555,7 @@ describe('MeteringService', () => {
             const { appTotals } =
                 await target.getActorCurrentMonthUsageDetails(appActor);
 
-            expect(appTotals['app-mine']).toEqual({ total: 10, count: 1 });
-            expect(appTotals['app-theirs']).toBeUndefined();
-            expect(appTotals.others).toEqual({ total: 20, count: 1 });
+            expect(appTotals).toEqual({ 'app-mine': { total: 10, count: 1 } });
         });
 
         it('caches the app-totals listing and invalidates it on a correction', async () => {
