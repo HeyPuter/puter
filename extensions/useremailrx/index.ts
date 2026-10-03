@@ -1,7 +1,9 @@
 import { extension } from '@heyputer/backend/src/extensions';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import type { Request } from 'express';
 import {
     MAX_MESSAGE_BYTES,
+    isPuterEmailAddress,
     isTempUser,
     puterEmailUsername,
     storeInboxMessage,
@@ -15,10 +17,38 @@ const secretsEqual = (a: string, b: string): boolean =>
         createHmac('sha256', COMPARE_KEY).update(b).digest(),
     );
 
-const INGRESS_SECRET = (
-    (extension.config as Record<string, unknown>).userEmail as
-        { secret?: string } | undefined
-)?.secret;
+const USER_EMAIL_CONFIG = (extension.config as Record<string, unknown>)
+    .userEmail as { secret?: string; feedbackAddresses?: unknown } | undefined;
+
+const INGRESS_SECRET = USER_EMAIL_CONFIG?.secret;
+
+/**
+ * Local parts that take complaint feedback rather than naming a mailbox. The
+ * same names are reserved at signup, so no account can be handed them.
+ */
+const DEFAULT_FEEDBACK_ADDRESSES = ['fbl', 'abuse', 'postmaster'];
+const FEEDBACK_ADDRESSES = new Set(
+    (Array.isArray(USER_EMAIL_CONFIG?.feedbackAddresses)
+        ? USER_EMAIL_CONFIG.feedbackAddresses
+        : DEFAULT_FEEDBACK_ADDRESSES
+    ).map((local) => String(local).toLowerCase()),
+);
+
+/**
+ * Feedback is handed over whole, so it is read into memory; a complaint report
+ * quotes one message and has no business near the mailbox ceiling.
+ */
+const MAX_FEEDBACK_BYTES = 5 * 1024 * 1024;
+
+const isFeedbackAddress = (to: string): boolean =>
+    isPuterEmailAddress(to) &&
+    FEEDBACK_ADDRESSES.has(puterEmailUsername(to).toLowerCase());
+
+const readBody = async (req: Request): Promise<Buffer> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks);
+};
 
 if (!INGRESS_SECRET) {
     console.warn(
@@ -75,8 +105,36 @@ if (!INGRESS_SECRET) {
             const stores = extension.import('store');
             const services = extension.import('service');
 
+            const to = String(req.query.to ?? '');
+            let content: Buffer | Request = req;
+            if (isFeedbackAddress(to)) {
+                if (size > MAX_FEEDBACK_BYTES) {
+                    refuse(413, 'close');
+                    return;
+                }
+                const raw = await readBody(req);
+                const event = {
+                    to,
+                    from:
+                        typeof req.query.from === 'string'
+                            ? req.query.from
+                            : null,
+                    raw,
+                    handled: false,
+                };
+                await extension
+                    .import('client')
+                    .event.emitAndWait('email.ingress.feedback', event, {});
+                if (event.handled) {
+                    res.end();
+                    return;
+                }
+                // Nobody took it: route it like any other message.
+                content = raw;
+            }
+
             const user = await stores.user.getByUsername(
-                puterEmailUsername(req.query.to as string),
+                puterEmailUsername(to),
             );
             if (!user) {
                 refuse(404, 'drain');
@@ -84,15 +142,15 @@ if (!INGRESS_SECRET) {
             }
 
             if (isTempUser(user)) {
-                req.resume();
+                if (content === req) req.resume();
                 res.end();
                 return;
             }
 
             await storeInboxMessage(services.fs, user, {
                 subject: req.query.subject,
-                content: req,
-                size,
+                content,
+                size: Buffer.isBuffer(content) ? content.length : size,
             });
 
             const { SECRET: _secret, ..._loggableQuery } = req.query;

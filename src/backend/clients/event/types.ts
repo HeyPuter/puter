@@ -267,6 +267,17 @@ export type EventMap = {
         message: string | null;
         [key: string]: unknown;
     };
+    // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
+    // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
+    // mailbox; otherwise it is routed like any other message.
+    'email.ingress.feedback': {
+        /** The envelope recipient, as the relay presented it. */
+        to: string;
+        from: string | null;
+        /** The whole message, exactly as received. */
+        raw: Buffer;
+        handled: boolean;
+    };
     'user.save_account': {
         user_id: number;
         old_username?: string;
@@ -861,10 +872,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
