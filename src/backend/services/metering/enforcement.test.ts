@@ -21,6 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
+import { FREE_SUBSCRIPTION_IDS, isFreeSubscription } from './consts.js';
 import {
     actorHasSubscription,
     actorOnPaidPlan,
@@ -257,6 +258,28 @@ describe('subscriptionSatisfies', () => {
         expect(subscriptionSatisfies('user_free', false)).toBe(true);
         expect(subscriptionSatisfies('business', false)).toBe(true);
         expect(subscriptionSatisfies('user_free', [])).toBe(true);
+    });
+});
+
+describe('isFreeSubscription', () => {
+    it('is true for exactly the free policies', () => {
+        for (const id of FREE_SUBSCRIPTION_IDS) {
+            expect(isFreeSubscription(id)).toBe(true);
+        }
+        for (const id of ['professional', 'unlimited', 'some-paid-tier', '']) {
+            expect(isFreeSubscription(id)).toBe(false);
+        }
+        // Untyped callers can pass an id that never resolved.
+        expect(isFreeSubscription(undefined as never)).toBe(false);
+        expect(isFreeSubscription(null as never)).toBe(false);
+    });
+
+    it('is the complement of a `true` requirement', () => {
+        for (const id of [...FREE_SUBSCRIPTION_IDS, 'professional', '']) {
+            expect(subscriptionSatisfies(id, true)).toBe(
+                !isFreeSubscription(id),
+            );
+        }
     });
 });
 

@@ -23,7 +23,7 @@ import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
-import { FREE_SUBSCRIPTION_IDS } from '../../services/metering/consts.js';
+import { isFreeSubscription } from '../../services/metering/consts.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
@@ -960,8 +960,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         if (model.subscriberOnly) {
             const subscription = await metering.getActorSubscription(actor);
-            // Every free plan, not two named ones.
-            if (FREE_SUBSCRIPTION_IDS.has(subscription.id)) {
+            if (isFreeSubscription(subscription.id)) {
                 throw new HttpError(
                     403,
                     `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,

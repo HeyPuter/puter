@@ -915,6 +915,46 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         });
     });
 
+    it('admits a plan outside the free set to subscriber-only models', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'subonly-paid',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 100, 'output-tokens': 100 },
+                max_tokens: 8192,
+                subscriberOnly: true,
+            },
+        ]);
+        const d = await makeDriver();
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            1_000_000,
+        );
+        vi.spyOn(
+            server.services.metering,
+            'getActorSubscription',
+        ).mockResolvedValue({ id: 'some-paid-tier' } as never);
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(() =>
+            d.complete({
+                model: 'subonly-paid',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(completeSpy).toHaveBeenCalledOnce();
+    });
+
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {

@@ -21,7 +21,7 @@ import type { RouteRateLimit } from '../../core/http/types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
-    FREE_SUBSCRIPTION_IDS,
+    isFreeSubscription,
 } from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
@@ -69,7 +69,7 @@ export const limitFor = (
     if (subscriptionId === null) return tier.limit;
     const own = tier.bySubscription[subscriptionId];
     if (typeof own === 'number') return own;
-    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
+    return isFreeSubscription(subscriptionId)
         ? (tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION] ?? tier.limit)
         : tier.limit;
 };

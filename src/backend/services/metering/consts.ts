@@ -78,5 +78,9 @@ export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
     ORG_SEAT_FREE_SUBSCRIPTION,
 ]);
 
+/** Whether a policy id is a free plan. Check free-ness here, not on the set. */
+export const isFreeSubscription = (id: string): boolean =>
+    FREE_SUBSCRIPTION_IDS.has(id);
+
 // WARNING: DO NOT USE THESE IN PROD
 export const UNLIMITED_SUBSCRIPTION = 'unlimited';

@@ -27,7 +27,6 @@ import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
     DETAIL_PATH_COUNTER,
-    FREE_SUBSCRIPTION_IDS,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
     METRICS_V2_PREFIX,
@@ -38,6 +37,7 @@ import {
     UNLIMITED_SUBSCRIPTION,
     USAGE_DETAIL_SHARD_COUNT,
     V1_CLAIM_THROUGH_MONTH,
+    isFreeSubscription,
 } from './consts';
 import { EGRESS_COSTS } from './costs';
 import type {
@@ -2132,7 +2132,7 @@ export class MeteringService extends PuterService {
         month: string = this.monthYearString(),
     ): Promise<SubscriptionPolicy> {
         if (
-            FREE_SUBSCRIPTION_IDS.has(policy.id) ||
+            isFreeSubscription(policy.id) ||
             policy.id === UNLIMITED_SUBSCRIPTION ||
             !(policy.monthUsageAllowance > 0)
         ) {
