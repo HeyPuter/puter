@@ -1034,6 +1034,47 @@ ol li::before {
 	margin-top: -4px;
 }
 
+.download-prompt.ai-builder-link {
+	background: linear-gradient(90deg, #ebf3ff, #f5f5f5);
+}
+
+.download-prompt.ai-builder-link:hover {
+	background: linear-gradient(90deg, #e1edff, #f0f0f0);
+}
+
+.sidebar-tooltip {
+	position: fixed;
+	z-index: 1000;
+	max-width: 220px;
+	padding: 8px 12px;
+	border-radius: 5px;
+	background-color: #333;
+	color: #fff;
+	font-size: 13px;
+	line-height: 1.4;
+	pointer-events: none;
+	opacity: 0;
+	visibility: hidden;
+	transform: translate(-4px, -50%);
+	transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+
+.sidebar-tooltip::before {
+	content: '';
+	position: absolute;
+	right: 100%;
+	top: 50%;
+	margin-top: -6px;
+	border: 6px solid transparent;
+	border-right-color: #333;
+}
+
+.sidebar-tooltip.visible {
+	opacity: 1;
+	visibility: visible;
+	transform: translate(0, -50%);
+}
+
 
 
 
