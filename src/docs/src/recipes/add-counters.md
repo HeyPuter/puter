@@ -138,6 +138,46 @@ if ( count === 1 ) {
 [Query a collection](/recipes/query-collection/) shows how to read a range of
 dated keys back, such as one month.
 
+## Keep the Highest Score
+
+[`puter.kv.incr()`](/KV/incr/) adds to a number, but it can't keep the highest
+of several, such as a game's best score. The simple way is to read the best
+score, compare, and write:
+
+```js
+async function saveScore (score) {
+    const best = await puter.kv.get('highScore') ?? 0;
+
+    if ( score > best ) {
+        await puter.kv.set('highScore', score);
+    }
+}
+```
+
+If two tabs finish a game at the same moment, both can read the old best, and
+the lower score can be the one saved last. When that matters, give each new best
+its own key, with the score padded to a fixed width so the keys sort in number
+order. The highest score is then the last key:
+
+```js
+const scoreKey = (score) => `score:${ String(score).padStart(10, '0') }`;
+
+async function bestScore () {
+    const { items } = await puter.kv.list({ pattern: 'score:', reverse: true, limit: 1 });
+    return items.length > 0 ? Number(items[0].slice('score:'.length)) : 0;
+}
+
+async function saveScore (score) {
+    if ( score > await bestScore() ) {
+        await puter.kv.set(scoreKey(score), { at: Date.now() });
+    }
+}
+```
+
+`reverse: true` lists keys from last to first, so `limit: 1` returns only the
+highest. Two tabs writing at once each add their own key, and the higher one
+always comes first.
+
 ## Reset a Counter
 
 To start over, delete the key with the [`puter.kv.del()`](/KV/del/) method. The
