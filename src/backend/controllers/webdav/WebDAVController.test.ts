@@ -10,7 +10,9 @@ import { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { RouteDescriptor } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { WebDAVController } from './WebDAVController.js';
 
@@ -1544,6 +1546,98 @@ describe('WebDAVController verbs', () => {
             expect(captured.body as string).toContain(
                 `<D:href>/${username}/</D:href>`,
             );
+        });
+
+        describe('root collection per credential', () => {
+            // Own address, so the per-IP auth failure bucket the rest of the
+            // file draws on can't refuse these.
+            const propfindRoot = (authorization: string) =>
+                dispatch({
+                    method: 'PROPFIND',
+                    path: '/',
+                    headers: { authorization },
+                    ip: '203.0.113.53',
+                });
+
+            const mintToken = async (userId: number, permission: string) => {
+                const user = (await server.stores.user.getById(userId))!;
+                return server.services.auth.createAccessToken(
+                    makeActor({ user }),
+                    [[permission]],
+                );
+            };
+
+            it('lists the home for a password login and a full-access token', async () => {
+                const username = `webdav-root-${Math.random()
+                    .toString(36)
+                    .slice(2, 10)}`;
+                const created = await server.stores.user.create({
+                    username,
+                    uuid: uuidv4(),
+                    password: await bcryptHash('correct-horse', 4),
+                    email: `${username}@test.local`,
+                    free_storage: 100 * 1024 * 1024,
+                    requires_email_confirmation: false,
+                });
+                await generateDefaultFsentries(
+                    server.clients.db,
+                    server.stores.user,
+                    created,
+                );
+                const fullAccess = await mintToken(created.id, FULL_API_ACCESS);
+
+                for (const authorization of [
+                    basicAuth(username, 'correct-horse'),
+                    basicAuth('-token', fullAccess),
+                ]) {
+                    const captured = await propfindRoot(authorization);
+                    expect(captured.statusCode).toBe(207);
+                    expect(captured.body as string).toContain(
+                        `<D:href>/${username}/</D:href>`,
+                    );
+                }
+            });
+
+            it('leaves the home out for a token scoped below it', async () => {
+                const { userId, username } = await makeUser();
+                const home = (await server.stores.fsEntry.getEntryByPath(
+                    `/${username}`,
+                ))!;
+                const documents = (await server.stores.fsEntry.getEntryByPath(
+                    `/${username}/Documents`,
+                ))!;
+                const scoped = await mintToken(
+                    userId,
+                    `fs:${documents.uuid}:read`,
+                );
+
+                const captured = await propfindRoot(
+                    basicAuth('-token', scoped),
+                );
+
+                expect(captured.statusCode).toBe(207);
+                const xml = captured.body as string;
+                expect(xml).toContain('<D:href>/</D:href>');
+                expect(xml).not.toContain(`/${username}/`);
+                expect(xml).not.toContain(home.uuid);
+            });
+
+            it('lists the home for a token that can read it', async () => {
+                const { userId, username } = await makeUser();
+                const home = (await server.stores.fsEntry.getEntryByPath(
+                    `/${username}`,
+                ))!;
+                const scoped = await mintToken(userId, `fs:${home.uuid}:read`);
+
+                const captured = await propfindRoot(
+                    basicAuth('-token', scoped),
+                );
+
+                expect(captured.statusCode).toBe(207);
+                expect(captured.body as string).toContain(
+                    `<D:href>/${username}/</D:href>`,
+                );
+            });
         });
 
         it('describes a single file when asked for one', async () => {

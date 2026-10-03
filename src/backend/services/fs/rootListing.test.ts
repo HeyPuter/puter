@@ -19,11 +19,12 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
 import type { PermissionService } from '../permission/PermissionService.js';
 import { listRootEntries } from './rootListing.js';
 
@@ -66,7 +67,23 @@ const makeUser = async () => {
     return { userId: created.id, username, actor };
 };
 
-const listFor = (actor: Actor) => listRootEntries(actor, fsEntryStore);
+const listFor = (actor: Actor) =>
+    listRootEntries(
+        actor,
+        fsEntryStore,
+        server.services.acl,
+        server.stores.permission,
+    );
+
+// The actor a request bearing a freshly minted access token resolves to.
+const tokenActorFor = async (userId: number, permissions: string[]) => {
+    const user = (await server.stores.user.getById(userId))!;
+    const token = await server.services.auth.createAccessToken(
+        makeActor({ user }),
+        permissions.map((permission) => [permission]),
+    );
+    return (await server.services.auth.authenticateFromToken(token))!;
+};
 
 describe('listRootEntries', () => {
     it('shows the actor their own home directory, exactly once', async () => {
@@ -168,6 +185,79 @@ describe('listRootEntries', () => {
         // The heal throws (A holds the path); the path-based fallback must
         // not then hand B a listing of A's tree.
         expect(entries).toEqual([]);
+    });
+
+    it('leaves the home out for a token scoped below it, in one grant read', async () => {
+        const user = await makeUser();
+        const documents = (await fsEntryStore.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        const actor = await tokenActorFor(user.userId, [
+            `fs:${documents.uuid}:read`,
+        ]);
+        const hasAny = vi.spyOn(
+            server.stores.permission,
+            'hasAnyAccessTokenPerm',
+        );
+        const scan = vi.spyOn(permissionService, 'scan');
+
+        try {
+            await expect(listFor(actor)).resolves.toEqual([]);
+            expect(hasAny).toHaveBeenCalledTimes(1);
+            expect(scan).not.toHaveBeenCalled();
+        } finally {
+            hasAny.mockRestore();
+            scan.mockRestore();
+        }
+    });
+
+    it('shows the home to a token that can list it', async () => {
+        const user = await makeUser();
+        const home = (await fsEntryStore.getEntryByPath(`/${user.username}`))!;
+        const actor = await tokenActorFor(user.userId, [
+            `fs:${home.uuid}:list`,
+        ]);
+
+        const entries = await listFor(actor);
+
+        expect(entries.map((entry) => entry.path)).toEqual([
+            `/${user.username}`,
+        ]);
+    });
+
+    it('reads no token grants for a session or a full-access token', async () => {
+        const user = await makeUser();
+        const row = (await server.stores.user.getById(user.userId))!;
+        const session = makeActor({ user: row });
+        const fullAccess = await tokenActorFor(user.userId, [FULL_API_ACCESS]);
+        const hasAny = vi.spyOn(
+            server.stores.permission,
+            'hasAnyAccessTokenPerm',
+        );
+
+        try {
+            for (const actor of [session, fullAccess]) {
+                const entries = await listFor(actor);
+                expect(entries.map((entry) => entry.path)).toEqual([
+                    `/${user.username}`,
+                ]);
+            }
+            expect(hasAny).not.toHaveBeenCalled();
+        } finally {
+            hasAny.mockRestore();
+        }
+    });
+
+    it('shows the home to an app session', async () => {
+        const user = await makeUser();
+        const row = (await server.stores.user.getById(user.userId))!;
+        const actor = makeActor({ user: row, app: { uid: `app-${uuidv4()}` } });
+
+        const entries = await listFor(actor);
+
+        expect(entries.map((entry) => entry.path)).toEqual([
+            `/${user.username}`,
+        ]);
     });
 
     it('returns nothing for an actor with no user id or username', async () => {
