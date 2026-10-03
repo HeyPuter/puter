@@ -207,6 +207,83 @@ describe('metering extension — handleMeteringUsageForApp', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
+
+    describe('scoped to the calling app', () => {
+        const appUsageAs = async (actor: Actor, appIdOrName: string) => {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor }, () =>
+                handleMeteringUsageForApp(
+                    makeReq({ params: { appIdOrName } }),
+                    res,
+                ),
+            );
+            return captured.body as { total: number };
+        };
+
+        const seedApps = async () => {
+            const user = await seedUser();
+            const owner = { uuid: user.uuid, id: user.id as number };
+            const mine = `app-${uuidv4()}`;
+            const other = `app-${uuidv4()}`;
+            await server.services.metering.incrementUsage(
+                makeActor({ user: owner, app: { uid: mine } }),
+                'kv:read',
+                1,
+                10,
+            );
+            await server.services.metering.incrementUsage(
+                makeActor({ user: owner, app: { uid: other } }),
+                'kv:write',
+                1,
+                20,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+            return {
+                owner,
+                mine,
+                other,
+                asMine: makeActor({ user: owner, app: { uid: mine } }),
+            };
+        };
+
+        it('lets an app read its own usage', async () => {
+            const { mine, asMine } = await seedApps();
+            expect((await appUsageAs(asMine, mine)).total).toBe(10);
+        });
+
+        it('refuses an app another app’s usage', async () => {
+            const { other, asMine } = await seedApps();
+            await expect(appUsageAs(asMine, other)).rejects.toMatchObject({
+                statusCode: 403,
+            });
+        });
+
+        it('refuses an app another app’s usage by name', async () => {
+            const { owner, other, asMine } = await seedApps();
+            const name = `other-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [other, name, name, `https://${name}.example/`, owner.id],
+            );
+            await expect(appUsageAs(asMine, name)).rejects.toMatchObject({
+                statusCode: 403,
+            });
+        });
+
+        it('refuses an app the usage outside any app', async () => {
+            const { asMine } = await seedApps();
+            await expect(appUsageAs(asMine, 'os-global')).rejects.toMatchObject(
+                { statusCode: 403 },
+            );
+        });
+
+        it('still lets the user read any of their apps', async () => {
+            const { owner, mine, other } = await seedApps();
+            const asUser = makeActor({ user: owner });
+            expect((await appUsageAs(asUser, mine)).total).toBe(10);
+            expect((await appUsageAs(asUser, other)).total).toBe(20);
+        });
+    });
 });
 
 describe('metering extension — handleMeteringGlobalUsage', () => {

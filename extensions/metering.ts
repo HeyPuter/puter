@@ -6,6 +6,7 @@ import {
     servicesContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
+import { GLOBAL_APP_KEY } from '@heyputer/backend/src/services/metering/consts';
 import {
     creditMultiplierFrom,
     toCredits,
@@ -151,6 +152,21 @@ export const handleMeteringUsageForApp = async (
     let appId = String(req.params.appIdOrName ?? '');
     if (!appId) throw new HttpError(400, 'appId parameter is required');
 
+    // An app may read its own usage only; refuse a uid before any lookup.
+    const ownAppId = actor.effectiveApp?.uid;
+    const refuseOtherApp = (uid: string) => {
+        if (ownAppId && uid !== ownAppId) {
+            throw new HttpError(
+                403,
+                'An app can only get usage details for itself',
+                { legacyCode: 'forbidden' },
+            );
+        }
+    };
+    if (appId.startsWith('app-') || appId === GLOBAL_APP_KEY) {
+        refuseOtherApp(appId);
+    }
+
     // If not a UUID-shaped app UID, look up by name
     if (!appId.startsWith('app-')) {
         const appRows = (await clients.db.read(
@@ -162,6 +178,7 @@ export const handleMeteringUsageForApp = async (
         } else {
             throw new HttpError(404, 'App not found');
         }
+        refuseOtherApp(appId);
     }
 
     const appUsage =
