@@ -107,8 +107,8 @@ export type SubscriptionMetering = Pick<
 >;
 
 /**
- * `true`: any plan outside `FREE_SUBSCRIPTION_IDS`. An array: only those policy
- * ids. `false`: no requirement.
+ * `true`: any plan `isFreeSubscription` doesn't consider free. An array: only
+ * those policy ids. `false`: no requirement.
  */
 export type SubscriptionRequirement = boolean | readonly string[];
 

@@ -21,7 +21,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
-import { FREE_SUBSCRIPTION_IDS, isFreeSubscription } from './consts.js';
+import {
+    FREE_SUBSCRIPTION_IDS,
+    isFreeSubscription,
+    subscriptionOverride,
+} from './consts.js';
 import {
     actorHasSubscription,
     actorOnPaidPlan,
@@ -263,9 +267,10 @@ describe('subscriptionSatisfies', () => {
 
 describe('isFreeSubscription', () => {
     it('is true for exactly the free policies', () => {
-        for (const id of FREE_SUBSCRIPTION_IDS) {
-            expect(isFreeSubscription(id)).toBe(true);
-        }
+        // Literal ids: a loop over the set would pass if one were dropped.
+        expect(isFreeSubscription('user_free')).toBe(true);
+        expect(isFreeSubscription('temp_free')).toBe(true);
+        expect(isFreeSubscription('org_seat_free')).toBe(true);
         for (const id of ['professional', 'unlimited', 'some-paid-tier', '']) {
             expect(isFreeSubscription(id)).toBe(false);
         }
@@ -280,6 +285,26 @@ describe('isFreeSubscription', () => {
                 !isFreeSubscription(id),
             );
         }
+    });
+});
+
+describe('subscriptionOverride', () => {
+    const map = { user_free: 5, temp_free: 2, professional: 0 };
+
+    it('returns a listed plan its own entry, zero included', () => {
+        expect(subscriptionOverride(map, 'temp_free')).toBe(2);
+        expect(subscriptionOverride(map, 'professional')).toBe(0);
+    });
+
+    it('gives an unlisted free plan the default free entry', () => {
+        expect(subscriptionOverride(map, 'org_seat_free')).toBe(5);
+    });
+
+    it('leaves the rest to the caller', () => {
+        expect(subscriptionOverride(map, 'business')).toBeUndefined();
+        expect(
+            subscriptionOverride({ temp_free: 2 }, 'org_seat_free'),
+        ).toBeUndefined();
     });
 });
 

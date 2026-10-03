@@ -82,5 +82,20 @@ export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
 export const isFreeSubscription = (id: string): boolean =>
     FREE_SUBSCRIPTION_IDS.has(id);
 
+/**
+ * A plan's entry in a per-plan map. An unlisted free plan takes the default
+ * free plan's entry; `undefined` means the caller's paid default applies.
+ */
+export const subscriptionOverride = (
+    bySubscription: Record<string, number>,
+    id: string,
+): number | undefined => {
+    const own = bySubscription[id];
+    if (typeof own === 'number') return own;
+    return isFreeSubscription(id)
+        ? bySubscription[DEFAULT_FREE_SUBSCRIPTION]
+        : undefined;
+};
+
 // WARNING: DO NOT USE THESE IN PROD
 export const UNLIMITED_SUBSCRIPTION = 'unlimited';
