@@ -5498,6 +5498,36 @@ describe('FSService AppData root guard', () => {
         expect(await entryAt(owner, `/AppData/${otherUid}`)).toBeNull();
     });
 
+    it('refuses an app recording a trash origin other than the entry’s own', async () => {
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const trashAs = (originalPath: string) =>
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: trash,
+                    newName: inner.uuid,
+                    newMetadata: {
+                        original_name: otherUid,
+                        original_path: originalPath,
+                        trashed_ts: 1,
+                    },
+                }),
+            );
+
+        await expect(
+            trashAs(`${owner.home}/AppData/${otherUid}`),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect((await entryAt(owner, `/AppData/${appUid}/inner`))?.uuid).toBe(
+            inner.uuid,
+        );
+
+        const trashed = await trashAs(inner.path);
+        expect(trashed.path).toBe(`${owner.home}/Trash/${inner.uuid}`);
+    });
+
     it('refuses an app-issued token and a scoped token', async () => {
         for (const actor of [
             tokenActor(appActor, false),
@@ -5531,13 +5561,18 @@ describe('FSService AppData root guard', () => {
         const trash = (await entryAt(owner, '/Trash'))!;
         const appData = (await entryAt(owner, '/AppData'))!;
 
-        // The desktop trashes under the entry's uid and restores under the
-        // original name.
+        // As the desktop does it: trash under the entry's uid with its origin
+        // recorded, then restore under the original name.
         const trashed = await as(userActor, () =>
             fs.move(owner.userId, {
                 source: root,
                 destinationParent: trash,
                 newName: root.uuid,
+                newMetadata: {
+                    original_name: appUid,
+                    original_path: root.path,
+                    trashed_ts: 1,
+                },
             }),
         );
         const restored = await as(userActor, () =>
@@ -5545,6 +5580,7 @@ describe('FSService AppData root guard', () => {
                 source: trashed,
                 destinationParent: appData,
                 newName: appUid,
+                newMetadata: {},
             }),
         );
         expect(restored.path).toBe(root.path);

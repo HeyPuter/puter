@@ -4156,6 +4156,28 @@ export class FSService extends PuterService {
     }
 
     /**
+     * Restore moves a trashed entry back to `dirname(original_path)`, so a
+     * caller other than the account may only record the entry's own path there.
+     * Anything else would aim a later restore at a folder of its choosing, such
+     * as an AppData root's place.
+     */
+    #assertOriginalPathIsSource(
+        source: FSEntry,
+        metadata: Record<string, unknown> | null | undefined,
+    ): void {
+        if (!metadata || typeof metadata !== 'object') return;
+        if (!Object.hasOwn(metadata, 'original_path')) return;
+        if (metadata.original_path === source.path) return;
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor || isAccountContext(actor)) return;
+        throw new HttpError(
+            403,
+            '`original_path` must be the current path of the entry being moved',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
+    /**
      * A FILE shared directly with you is renameable with `write` on it — the
      * name is the file's own, and rename stays in place. A folder's name is
      * structure the owner's whole subtree hangs off, so folders (and anything
@@ -4592,6 +4614,7 @@ export class FSService extends PuterService {
         // Ahead of the overwrite below. A deduped name keeps the parent, so it
         // is covered too.
         this.#assertAppDataRootsStay(source.path, targetPath);
+        this.#assertOriginalPathIsSource(source, input.newMetadata);
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (collision && collision.uuid !== source.uuid) {

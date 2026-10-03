@@ -129,4 +129,33 @@ describe('AppData roots over HTTP', () => {
         );
         expect(unmoved?.path).toBe(`/${username}/AppData/${a.app_uid}`);
     });
+
+    it('refuses an app trashing a folder with a forged original_path', async () => {
+        const { username, token } = env.users.user;
+        const a = await launch(token, origin('appdata-origin'));
+        const bUid = await env.server.services.auth.appUidFromOrigin(
+            origin('appdata-origin-b'),
+        );
+        const root = await appRoot(a);
+        const made = await call('/mkdir', a.token, {
+            path: `${root.path}/inner`,
+        });
+        expect(made.status).toBe(200);
+        const inner = (await made.json()) as { uid: string; path: string };
+
+        const trash = (originalPath: string) =>
+            call('/move', a.token, {
+                source: inner.uid,
+                destination: `/${username}/Trash`,
+                new_name: inner.uid,
+                new_metadata: {
+                    original_name: bUid,
+                    original_path: originalPath,
+                    trashed_ts: 1,
+                },
+            });
+
+        expect((await trash(`/${username}/AppData/${bUid}`)).status).toBe(403);
+        expect((await trash(inner.path)).status).toBe(200);
+    });
 });
