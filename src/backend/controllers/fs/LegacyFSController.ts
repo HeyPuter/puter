@@ -1181,7 +1181,7 @@ export class LegacyFSController extends PuterController {
         // emitAndWait is required: the thumbnails extension rewrites
         // `event.url` from a data URL to an `s3://` pointer, and the DB
         // write below needs to see that rewrite.
-        const event = { url: thumbnail };
+        const event = { url: thumbnail, uuid: entry.uuid };
         await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
         await this.clients.db.write(
