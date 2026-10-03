@@ -1171,6 +1171,15 @@ export class PermissionStore extends PuterStore {
         return all.includes(permission);
     }
 
+    /** Whether the token holds any of `permissions`, from one read. */
+    async hasAnyAccessTokenPerm(
+        tokenUid: string,
+        permissions: readonly string[],
+    ): Promise<boolean> {
+        const all = await this.#readAccessTokenPerms(tokenUid);
+        return permissions.some((permission) => all.includes(permission));
+    }
+
     /** Call from AuthService after it mutates `access_token_permissions`. */
     async invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
         await this.publishCacheKeys({

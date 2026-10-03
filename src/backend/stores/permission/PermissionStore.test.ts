@@ -668,6 +668,28 @@ describe('PermissionStore', () => {
                 await store.hasAccessTokenPerm(`tok-${uuidv4()}`, 'driver:kv'),
             ).toBe(false);
         });
+
+        it('answers whether the token holds any of several grants', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
+                [tokenUid, 'fs:abc:read'],
+            );
+
+            expect(
+                await store.hasAnyAccessTokenPerm(tokenUid, [
+                    'fs:abc:list',
+                    'fs:abc:read',
+                ]),
+            ).toBe(true);
+            expect(
+                await store.hasAnyAccessTokenPerm(tokenUid, [
+                    'fs:abc:write',
+                    'fs:other:read',
+                ]),
+            ).toBe(false);
+            expect(await store.hasAnyAccessTokenPerm(tokenUid, [])).toBe(false);
+        });
     });
 
     // -- cache generation + scan/check caches ----------------------------
