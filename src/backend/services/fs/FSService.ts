@@ -38,6 +38,7 @@ import {
 import {
     Actor,
     handlerDepthOf,
+    isAccountContext,
     isAppActor,
     isPlainUserActor,
 } from '../../core/actor.js';
@@ -133,6 +134,14 @@ const foreignAppDataOwner = (
     const appUid = path.slice(prefix.length).split('/')[0];
     if (!appUid || appUid === ownAppUid) return null;
     return appUid;
+};
+
+/** `/<username>/AppData/<appUid>`: the directory an app's launch provisions. */
+const isAppDataRootPath = (path: string): boolean => {
+    const segments = path.split('/');
+    return (
+        segments.length === 4 && segments[2] === 'AppData' && segments[3] !== ''
+    );
 };
 
 const isNoSuchKeyError = (err: unknown): boolean => {
@@ -3972,6 +3981,7 @@ export class FSService extends PuterService {
         await this.#assertCanRename(entry, userId);
         this.#assertUsableName(newName);
         if (entry.name === newName) return entry;
+        this.#assertAppDataRootsStay(entry.path);
         await this.#assertCrossAppDeleteAllowed(entry.path);
 
         const parentPath = pathPosix.dirname(entry.path);
@@ -4126,6 +4136,45 @@ export class FSService extends PuterService {
                 { legacyCode: 'forbidden' },
             );
         }
+    }
+
+    /**
+     * An AppData root's name is its app's uid, launch adopts whatever directory
+     * holds that name, and grants on an entry follow it when it moves. So only
+     * the account itself may rename or move a root, or move an entry into a
+     * root's place.
+     */
+    #assertAppDataRootsStay(...paths: string[]): void {
+        if (!paths.some(isAppDataRootPath)) return;
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor || isAccountContext(actor)) return;
+        throw new HttpError(
+            403,
+            'Only the account owner can rename or move AppData folders',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
+    /**
+     * Restore moves a trashed entry back to `dirname(original_path)`, so a
+     * caller other than the account may only record the entry's own path there.
+     * Anything else would aim a later restore at a folder of its choosing, such
+     * as an AppData root's place.
+     */
+    #assertOriginalPathIsSource(
+        source: FSEntry,
+        metadata: Record<string, unknown> | null | undefined,
+    ): void {
+        if (!metadata || typeof metadata !== 'object') return;
+        if (!Object.hasOwn(metadata, 'original_path')) return;
+        if (metadata.original_path === source.path) return;
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor || isAccountContext(actor)) return;
+        throw new HttpError(
+            403,
+            '`original_path` must be the current path of the entry being moved',
+            { legacyCode: 'forbidden' },
+        );
     }
 
     /**
@@ -4562,6 +4611,10 @@ export class FSService extends PuterService {
             destinationParent.path === '/'
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
+        // Ahead of the overwrite below. A deduped name keeps the parent, so it
+        // is covered too.
+        this.#assertAppDataRootsStay(source.path, targetPath);
+        this.#assertOriginalPathIsSource(source, input.newMetadata);
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (collision && collision.uuid !== source.uuid) {
