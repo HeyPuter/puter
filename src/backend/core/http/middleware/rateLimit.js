@@ -23,7 +23,7 @@ import { withSpan } from '../../../util/span.js';
 import { HttpError } from '../HttpError.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
-    FREE_SUBSCRIPTION_IDS,
+    isFreeSubscription,
 } from '../../../services/metering/consts.js';
 
 /**
@@ -873,7 +873,7 @@ export const CONCURRENT_SLOT_TTL_MS = ORPHAN_SAFETY_TTL_MS;
 function overrideFor(bySubscription, subscriptionId) {
     const own = bySubscription[subscriptionId];
     if (typeof own === 'number') return own;
-    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
+    return isFreeSubscription(subscriptionId)
         ? bySubscription[DEFAULT_FREE_SUBSCRIPTION]
         : undefined;
 }

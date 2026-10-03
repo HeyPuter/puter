@@ -21,7 +21,7 @@ import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
-import { FREE_SUBSCRIPTION_IDS } from './consts.js';
+import { isFreeSubscription } from './consts.js';
 import type { MeteringService } from './MeteringService';
 
 // -- Credit enforcement ----------------------------------------------
@@ -148,7 +148,7 @@ export const subscriptionSatisfies = (
     if (Array.isArray(requirement)) {
         return requirement.length === 0 || requirement.includes(id);
     }
-    return !FREE_SUBSCRIPTION_IDS.has(id);
+    return !isFreeSubscription(id);
 };
 
 /**
