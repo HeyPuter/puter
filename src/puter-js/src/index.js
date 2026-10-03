@@ -4,6 +4,10 @@ import { hasOpaqueOrigin } from './lib/auth-popup.js';
 import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import { isFramedDocument } from './lib/appModeGate.js';
+import {
+    isUserSessionTokenPayload,
+    urlWithoutQueryParam,
+} from './lib/launchToken.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
@@ -618,6 +622,12 @@ export class Puter {
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
 
+        // A user session token must never be adopted from storage, and an
+        // earlier boot may have left one behind.
+        if (this.env === 'web' || this.env === 'app') {
+            this.discardStoredSessionToken_();
+        }
+
         // === Start :: Modules === //
 
         // The SDK is running in the Puter GUI (i.e. 'gui')
@@ -629,14 +639,26 @@ export class Puter {
         // Loaded in an iframe in the Puter GUI (i.e. 'app')
         // When SDK is loaded in App mode the initiation process should start when the DOM is ready
         else if (this.env === 'app') {
+            const urlTokenParam = URLParams.has('puter.auth.token')
+                ? 'puter.auth.token'
+                : 'auth_token';
             const bootstrapAuthToken = this.normalizeAuthTokenCandidate(
-                URLParams.get('puter.auth.token') ??
-                    URLParams.get('auth_token'),
+                URLParams.get(urlTokenParam),
             );
+            if (bootstrapAuthToken) {
+                this.stripLaunchTokenFromUrl_(urlTokenParam);
+            }
             try {
                 let selectedAuthToken = bootstrapAuthToken;
+                const godmodeToken = bootstrapAuthToken
+                    ? null
+                    : this.readStoredSessionToken_();
                 if (bootstrapAuthToken) {
                     this.setAuthToken(bootstrapAuthToken);
+                } else if (godmodeToken) {
+                    // A godmode app reloading in the same tab.
+                    this.setAuthToken(godmodeToken);
+                    selectedAuthToken = godmodeToken;
                 } else {
                     // No token in the URL — fall back to a stored token,
                     // but ONLY if it is allowed for the current API origin.
@@ -969,10 +991,21 @@ export class Puter {
             this.setAppID(tokenAppID);
         }
 
-        // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
+        // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
+        // A user session token (a godmode app's launch token) never goes there:
+        // an app keeps it in sessionStorage so a frame reload still has it.
         if (this.env === 'web' || this.env === 'app') {
+            this.storeSessionToken_(
+                this.env === 'app' &&
+                    this.isUserSessionToken_(normalizedAuthToken)
+                    ? normalizedAuthToken
+                    : null,
+            );
             try {
-                if (normalizedAuthToken) {
+                if (!normalizedAuthToken) {
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+                } else if (!this.isUserSessionToken_(normalizedAuthToken)) {
                     localStorage.setItem(
                         STORAGE_KEY_V2,
                         normalizedAuthToken,
@@ -983,9 +1016,6 @@ export class Puter {
                         STORAGE_KEY_ORIGIN_V2,
                         this.APIOrigin,
                     );
-                } else {
-                    localStorage.removeItem(STORAGE_KEY_V2);
-                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                 }
                 // Clear the retired key on every write, so a stale value
                 // never outlives the token that replaced it.
@@ -1064,6 +1094,7 @@ export class Puter {
     _clearAuthToken = function () {
         this.authToken = null;
         if (this.env === 'web' || this.env === 'app') {
+            this.storeSessionToken_(null);
             try {
                 localStorage.removeItem(STORAGE_KEY_V2);
                 localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
@@ -1274,6 +1305,117 @@ export class Puter {
             localStorage.removeItem(STORAGE_KEY_V1);
         } catch (e) {
             // No storage to clean up.
+        }
+    };
+
+    /**
+     * @internal
+     * Whether `token` is a user session token rather than an app token.
+     * Godmode apps are launched with one; it never goes to localStorage.
+     *
+     * @param {string | null} token
+     * @returns {boolean}
+     */
+    isUserSessionToken_ = function (token) {
+        return isUserSessionTokenPayload(this.decodeJwtPayload(token));
+    };
+
+    /**
+     * @internal
+     * Keep a godmode app's session token in sessionStorage, bound to the API
+     * origin like the localStorage copy, or clear it with `null`.
+     *
+     * @param {string | null} token
+     */
+    storeSessionToken_ = function (token) {
+        try {
+            if (token) {
+                sessionStorage.setItem(STORAGE_KEY_V2, token);
+                sessionStorage.setItem(STORAGE_KEY_ORIGIN_V2, this.APIOrigin);
+            } else {
+                sessionStorage.removeItem(STORAGE_KEY_V2);
+                sessionStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+            }
+        } catch (e) {
+            // No sessionStorage here.
+        }
+    };
+
+    /**
+     * @internal
+     * The session token a godmode app stored earlier in this tab, if it is one
+     * and is bound to the current API origin.
+     *
+     * @returns {string | null}
+     */
+    readStoredSessionToken_ = function () {
+        try {
+            const token = this.normalizeAuthTokenCandidate(
+                sessionStorage.getItem(STORAGE_KEY_V2),
+            );
+            const boundOrigin = this.normalizeStringCandidate(
+                sessionStorage.getItem(STORAGE_KEY_ORIGIN_V2),
+            );
+            if (
+                token &&
+                this.isUserSessionToken_(token) &&
+                this._storedTokenUsableForCurrentOrigin(boundOrigin)
+            ) {
+                return token;
+            }
+        } catch (e) {
+            // No sessionStorage here.
+        }
+        return null;
+    };
+
+    /**
+     * @internal
+     * Delete a user session token persisted by an older SDK build.
+     */
+    discardStoredSessionToken_ = function () {
+        try {
+            if (this.isUserSessionToken_(localStorage.getItem(STORAGE_KEY_V2))) {
+                localStorage.removeItem(STORAGE_KEY_V2);
+                localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+            }
+        } catch (e) {
+            // No storage to clean up.
+        }
+    };
+
+    /**
+     * @internal
+     * Remove the launch token from the address bar after the page loads, so it
+     * stops going out in Referer headers and in anything that records the page
+     * URL. Waiting for `load` keeps it readable to the app's own boot code.
+     *
+     * @param {string} param
+     */
+    stripLaunchTokenFromUrl_ = function (param) {
+        const strip = () => {
+            try {
+                const cleaned = urlWithoutQueryParam(
+                    globalThis.location.href,
+                    param,
+                );
+                if (cleaned) {
+                    globalThis.history.replaceState(
+                        globalThis.history.state,
+                        '',
+                        cleaned,
+                    );
+                }
+            } catch (e) {
+                // No history API, or a document that can't rewrite its URL.
+            }
+        };
+        // One task later, so the app's own `load` listeners still see it.
+        const stripSoon = () => setTimeout(strip, 0);
+        if (globalThis.document?.readyState === 'complete') {
+            stripSoon();
+        } else {
+            globalThis.addEventListener?.('load', stripSoon, { once: true });
         }
     };
 

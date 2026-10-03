@@ -32,8 +32,10 @@ import {
     buildPublicHostRedirect,
     getBootstrapToken,
     hostMatchesPrivateDomain,
+    isTopLevelNavigation,
     normalizeHost,
     normalizeHostRaw,
+    pathWithoutQueryParam,
     renderLoginBootstrapHtml,
     resolveOwnedAppForHostedSite,
     resolvePrivateIdentity,
@@ -375,6 +377,61 @@ describe('buildPrivateHostRedirect', () => {
                 { name: 'beans' },
                 cfg,
             ),
+        ).toBeNull();
+    });
+});
+
+describe('isTopLevelNavigation', () => {
+    const reqOf = (method: string, dest?: string): Request =>
+        ({
+            method,
+            headers: dest ? { 'sec-fetch-dest': dest } : {},
+        }) as unknown as Request;
+
+    it('is true only for a GET of a top-level page', () => {
+        expect(isTopLevelNavigation(reqOf('GET', 'document'))).toBe(true);
+        expect(isTopLevelNavigation(reqOf('GET', 'iframe'))).toBe(false);
+        expect(isTopLevelNavigation(reqOf('GET', 'script'))).toBe(false);
+        expect(isTopLevelNavigation(reqOf('POST', 'document'))).toBe(false);
+        expect(isTopLevelNavigation(reqOf('GET'))).toBe(false);
+    });
+});
+
+describe('pathWithoutQueryParam', () => {
+    const T = 'puter.auth.token';
+
+    it('removes the parameter and keeps the rest exactly as sent', () => {
+        expect(
+            pathWithoutQueryParam('/p/a.html?x=1&puter.auth.token=abc&y=a%20b+c', T),
+        ).toBe('/p/a.html?x=1&y=a%20b+c');
+    });
+
+    it('drops the query when nothing else is left', () => {
+        expect(pathWithoutQueryParam('/?puter.auth.token=abc', T)).toBe('/');
+    });
+
+    it('removes every occurrence, including a percent-encoded key', () => {
+        expect(
+            pathWithoutQueryParam('/?puter.auth.token=a&k=v&puter%2Eauth%2Etoken=b', T),
+        ).toBe('/?k=v');
+    });
+
+    it('returns null when the parameter is absent', () => {
+        expect(pathWithoutQueryParam('/?auth_token=abc', T)).toBeNull();
+        expect(pathWithoutQueryParam('/', T)).toBeNull();
+        expect(pathWithoutQueryParam(undefined, T)).toBeNull();
+    });
+
+    it('never produces a redirect off the current host', () => {
+        expect(pathWithoutQueryParam('//evil.example/?puter.auth.token=a', T)).toBe(
+            '/evil.example/',
+        );
+        expect(pathWithoutQueryParam('/\\evil.example/?puter.auth.token=a', T)).toBe(
+            '/evil.example/',
+        );
+        // URL parsing drops tabs, which would turn this into `//evil.example`.
+        expect(
+            pathWithoutQueryParam('/\t/evil.example/?puter.auth.token=a', T),
         ).toBeNull();
     });
 });
