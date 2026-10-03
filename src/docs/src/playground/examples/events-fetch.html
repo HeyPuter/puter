@@ -7,7 +7,7 @@
             let seen = 0;
             do {
                 const page = await puter.events.fetch({
-                    subject: 'notif:account',
+                    subject: 'notif:app-user',
                     after,
                 });
                 for (const event of page.items) {

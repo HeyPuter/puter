@@ -25,7 +25,7 @@ puter.events.fetch(options)
 
 #### `options` (Object) (required)
 
-- `subject` (String) (required): What to read: `notif:account` (the account's notifications), `notif:app-user` (the ones belonging to the app you're running as), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app).
+- `subject` (String) (required): What to read: `notif:app-user` (the ones belonging to the app you're running as), `notif:developer` (about your app, for its owner), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app). Apps and websites never see `account` notifications: `notif:account` returns an empty page for them.
 - `after` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
 - `limit` (Number): Events per page. Defaults to 50, max 200.
 
@@ -82,7 +82,7 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
             let seen = 0;
             do {
                 const page = await puter.events.fetch({
-                    subject: 'notif:account',
+                    subject: 'notif:app-user',
                     after,
                 });
                 for (const event of page.items) {
@@ -117,10 +117,10 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
 
             // Live first, so nothing arriving during the catch-up is lost —
             // `id` is what makes the overlap harmless.
-            const sub = await puter.events.onLocal('notif:account',
+            const sub = await puter.events.onLocal('notif:app-user',
                 ({ event }) => show(event));
 
-            const page = await puter.events.fetch({ subject: 'notif:account' });
+            const page = await puter.events.fetch({ subject: 'notif:app-user' });
             page.items.forEach(show);
 
             await sub.off();
