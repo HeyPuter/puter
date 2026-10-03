@@ -66,9 +66,15 @@ export interface Actor {
     session?: { uid: string; kind?: string | null } | null;
     /**
      * Events handler runs behind this actor's writes; set only from an events
-     * handler token. Provenance, not authority, so derived actors keep it.
+     * handler token or a token one minted. Provenance, not authority, so
+     * derived actors keep it.
      */
     handlerDepth?: number;
+    /**
+     * When the token behind `handlerDepth` expires, in unix seconds. An app
+     * token minted from this actor expires no later.
+     */
+    handlerExpiresAt?: number;
 }
 
 /** UUID of the baked-in system user (see 0025 seed migration). */
