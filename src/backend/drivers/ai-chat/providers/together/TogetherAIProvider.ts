@@ -52,7 +52,7 @@ export class TogetherAIProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
+        return 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo';
     }
 
     async models() {
@@ -108,6 +108,11 @@ export class TogetherAIProvider implements IChatProvider {
 
     async list() {
         return modelLookupNames(await this.models());
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `togetherai:${modelId.replace(/^togetherai:/, '')}`;
     }
 
     async complete({
@@ -174,7 +179,7 @@ export class TogetherAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `togetherai:${modelIdForParams}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

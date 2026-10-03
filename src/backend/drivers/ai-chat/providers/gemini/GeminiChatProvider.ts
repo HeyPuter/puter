@@ -58,6 +58,11 @@ export class GeminiChatProvider implements IChatProvider {
         return modelLookupNames(await this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string | undefined): string {
+        return `gemini:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -156,7 +161,7 @@ export class GeminiChatProvider implements IChatProvider {
                 this.meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `gemini:${modelUsed?.id}`,
+                    this.meteringModelKey(modelUsed?.id),
                     costsOverrideFromModel,
                 );
 

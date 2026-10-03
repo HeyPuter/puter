@@ -20,7 +20,7 @@
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
@@ -33,9 +33,12 @@ const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const ELEVENLABS_TTS_MODELS = [
     { id: DEFAULT_MODEL, name: 'Eleven Multilingual v2' },
+    { id: 'eleven_v4', name: 'Eleven v4' },
+    { id: 'eleven_v4_turbo', name: 'Eleven v4 Turbo' },
+    { id: 'eleven_v3', name: 'Eleven v3' },
+    { id: 'eleven_v3_conversational', name: 'Eleven v3 Conversational' },
     { id: 'eleven_flash_v2_5', name: 'Eleven Flash v2.5' },
-    { id: 'eleven_turbo_v2_5', name: 'Eleven Turbo v2.5' },
-    { id: 'eleven_v3', name: 'Eleven v3 Alpha' },
+    { id: 'eleven_flash_v2', name: 'Eleven Flash v2' },
 ];
 
 /**
@@ -50,7 +53,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
     private defaultVoiceId: string;
 
     constructor(
-        meteringService: MeteringService,
+        meteringService: AiMeteringService,
         config: {
             apiKey: string;
             apiBaseUrl?: string;
@@ -240,52 +243,60 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId];
         const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
+        const hold = await this.meteringService.reserveAiCredits(
             actor,
+            usageKey,
             totalCost,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient funds', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const payload: any = {
-            text,
-            model_id: modelId,
-            output_format: desiredFormat,
-        };
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const payload: any = {
+                text,
+                model_id: modelId,
+                output_format: desiredFormat,
+            };
 
-        const finalVoiceSettings = voice_settings ?? voiceSettings;
-        if (finalVoiceSettings) {
-            payload.voice_settings = finalVoiceSettings;
+            const finalVoiceSettings = voice_settings ?? voiceSettings;
+            if (finalVoiceSettings) {
+                payload.voice_settings = finalVoiceSettings;
+            }
+
+            const response = await this.request(
+                `/v1/text-to-speech/${voiceId}`,
+                {
+                    method: 'POST',
+                    body: payload,
+                },
+            );
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const stream = Readable.from(buffer);
+
+            this.meteringService.incrementUsage(
+                actor,
+                usageKey,
+                text.length,
+                totalCost,
+            );
+
+            const contentType =
+                response.headers.get('content-type') || 'audio/mpeg';
+
+            return {
+                dataType: 'stream',
+                content_type: contentType,
+                chunked: true,
+                stream,
+            };
+        } finally {
+            await hold.release();
         }
-
-        const response = await this.request(`/v1/text-to-speech/${voiceId}`, {
-            method: 'POST',
-            body: payload,
-        });
-
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const stream = Readable.from(buffer);
-
-        this.meteringService.incrementUsage(
-            actor,
-            usageKey,
-            text.length,
-            totalCost,
-        );
-
-        const contentType =
-            response.headers.get('content-type') || 'audio/mpeg';
-
-        return {
-            dataType: 'stream',
-            content_type: contentType,
-            chunked: true,
-            stream,
-        };
     }
 }

@@ -56,6 +56,11 @@ export class MoonshotProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `moonshotai:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -107,7 +112,7 @@ export class MoonshotProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `moonshotai:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

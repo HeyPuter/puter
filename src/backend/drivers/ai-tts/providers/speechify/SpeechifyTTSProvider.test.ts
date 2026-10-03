@@ -41,6 +41,7 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
@@ -62,8 +63,12 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as `TTSDriver` hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(server.services.metering, server.clients.event, 'ai-tts');
+
 const makeProvider = () =>
-    new SpeechifyTTSProvider(server.services.metering, { apiKey: 'test-key' });
+    new SpeechifyTTSProvider(aiMetering(), { apiKey: 'test-key' });
 
 const audioResponse = (audioData = Buffer.from('audio-bytes').toString('base64'), audioFormat = 'mp3') =>
     new Response(JSON.stringify({ audio_data: audioData, audio_format: audioFormat }), {
@@ -87,7 +92,7 @@ describe('SpeechifyTTSProvider construction', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
-                new SpeechifyTTSProvider(server.services.metering, {
+                new SpeechifyTTSProvider(aiMetering(), {
                     apiKey: '',
                 }),
         ).toThrow(/API key/i);
@@ -113,9 +118,7 @@ describe('SpeechifyTTSProvider catalog', () => {
         const provider = makeProvider();
         const engines = await provider.listEngines();
         const ids = engines.map((e) => e.id);
-        expect(ids).toEqual(
-            expect.arrayContaining(['simba-3.2', 'simba-english', 'simba-multilingual']),
-        );
+        expect(ids).toEqual(['simba-3.2']);
         for (const engine of engines) {
             expect(engine.provider).toBe('speechify');
         }
@@ -180,6 +183,18 @@ describe('SpeechifyTTSProvider.synthesize argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    // Speechify retired the Simba 1.6 models; the API answers them with model_retired.
+    it.each(['simba-english', 'simba-multilingual'])(
+        'throws 400 for the retired %s model',
+        async (model) => {
+            const provider = makeProvider();
+            await expect(
+                withTestActor(() => provider.synthesize({ text: 'hi', model })),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(fetchSpy).not.toHaveBeenCalled();
+        },
+    );
 });
 
 // ── Credit gate ─────────────────────────────────────────────────────
@@ -227,14 +242,14 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         await withTestActor(() =>
-            provider.synthesize({ text: 'hi', voice: 'alec', model: 'simba-english' }),
+            provider.synthesize({ text: 'hi', voice: 'alec', model: 'simba-3.2' }),
         );
 
         const body = JSON.parse(
             (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
         );
         expect(body.voice_id).toBe('alec');
-        expect(body.model).toBe('simba-english');
+        expect(body.model).toBe('simba-3.2');
     });
 
     it('does not re-wrap text that is already SSML', async () => {

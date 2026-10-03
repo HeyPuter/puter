@@ -19,8 +19,31 @@
 
 import type { IChatModel } from '../../types.js';
 
-// Hardcoded from https://models.dev/api.json
+// Hardcoded from https://api-docs.deepseek.com/quick_start/pricing. DeepSeek
+// bills half price off-peak; we charge the peak rate since the window isn't
+// known when a request is priced.
 export const DEEPSEEK_MODELS: IChatModel[] = [
+    {
+        puterId: 'deepseek:deepseek/deepseek-flash',
+        id: 'deepseek-flash',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-09-10',
+        name: 'DeepSeek V4.1 Flash',
+        aliases: ['deepseek/deepseek-flash'],
+        context: 1_000_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 30,
+            completion_tokens: 120,
+            cached_tokens: 0.6,
+        },
+        max_tokens: 384_000,
+    },
     {
         puterId: 'deepseek:deepseek/deepseek-v4-pro',
         id: 'deepseek-v4-pro',
@@ -29,24 +52,17 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
         tool_call: true,
         knowledge: '2026-04',
         release_date: '2026-04-24',
-        name: 'DeepSeek Chat',
-        aliases: [
-            'deepseek/deepseek-v4-pro',
-            'deepseek-chat',
-            'deepseek/deepseek-chat',
-            'deepseek/deepseek-reasoner',
-            'deepseek:deepseek/deepseek-reasoner',
-            'deepseek:deepseek/deepseek-chat',
-        ],
+        name: 'DeepSeek V4 Pro',
+        aliases: ['deepseek/deepseek-v4-pro'],
         context: 1_000_000,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 174,
-            completion_tokens: 348,
-            cached_tokens: 1.45,
+            prompt_tokens: 132,
+            completion_tokens: 396,
+            cached_tokens: 4.4,
         },
         max_tokens: 384_000,
     },

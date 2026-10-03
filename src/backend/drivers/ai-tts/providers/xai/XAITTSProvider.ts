@@ -20,7 +20,7 @@
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
@@ -56,7 +56,10 @@ export class XAITTSProvider extends TTSProvider {
 
     #apiKey: string;
 
-    constructor(meteringService: MeteringService, config: { apiKey: string }) {
+    constructor(
+        meteringService: AiMeteringService,
+        config: { apiKey: string },
+    ) {
         super(meteringService, config);
         if (!config.apiKey) {
             throw new Error('xAI TTS requires an API key');
@@ -130,100 +133,106 @@ export class XAITTSProvider extends TTSProvider {
         const ucentsPerChar = XAI_TTS_COSTS['xai-tts'] ?? 0;
         const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
+        const hold = await this.meteringService.reserveAiCredits(
             actor,
+            'xai:xai-tts:character',
             totalCost,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient funds', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        // Build request body
-        const body: Record<string, unknown> = {
-            text,
-            voice_id: voice,
-            language: language || 'en',
-        };
+        try {
+            // Build request body
+            const body: Record<string, unknown> = {
+                text,
+                voice_id: voice,
+                language: language || 'en',
+            };
 
-        // Handle output format
-        const formatStr = output_format || response_format;
-        if (formatStr) {
-            const codec = typeof formatStr === 'string' ? formatStr : 'mp3';
-            body.output_format = { codec };
-        }
+            // Handle output format
+            const formatStr = output_format || response_format;
+            if (formatStr) {
+                const codec = typeof formatStr === 'string' ? formatStr : 'mp3';
+                body.output_format = { codec };
+            }
 
-        const response = await fetch(`${API_BASE}/tts`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.#apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            console.error(
-                `[XAITTSProvider] API returned ${response.status}: ${errText}`,
-            );
-            // Map upstream status to an `upstream_*` HttpError so the
-            // alarm gate skips it. Mirrors ElevenLabs' translator —
-            // 4xx and 5xx both surface as 400 to the client (with the
-            // appropriate legacyCode), 429 stays 429, auth stays 500.
-            const legacyCode =
-                response.status >= 500
-                    ? 'upstream_provider_unavailable'
-                    : response.status === 401 || response.status === 403
-                      ? 'upstream_auth_failed'
-                      : response.status === 429
-                        ? 'upstream_rate_limited'
-                        : 'upstream_bad_request';
-            const exposedStatus =
-                legacyCode === 'upstream_rate_limited'
-                    ? 429
-                    : legacyCode === 'upstream_auth_failed'
-                      ? 500
-                      : 400;
-            throw new HttpError(
-                exposedStatus,
-                errText || `xAI TTS request failed (status ${response.status})`,
-                {
-                    legacyCode,
-                    fields: {
-                        provider: 'xai',
-                        upstreamStatus: response.status,
-                    },
+            const response = await fetch(`${API_BASE}/tts`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.#apiKey}`,
+                    'Content-Type': 'application/json',
                 },
+                body: JSON.stringify(body),
+            });
+
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                console.error(
+                    `[XAITTSProvider] API returned ${response.status}: ${errText}`,
+                );
+                // Map upstream status to an `upstream_*` HttpError so the
+                // alarm gate skips it. Mirrors ElevenLabs' translator —
+                // 4xx and 5xx both surface as 400 to the client (with the
+                // appropriate legacyCode), 429 stays 429, auth stays 500.
+                const legacyCode =
+                    response.status >= 500
+                        ? 'upstream_provider_unavailable'
+                        : response.status === 401 || response.status === 403
+                          ? 'upstream_auth_failed'
+                          : response.status === 429
+                            ? 'upstream_rate_limited'
+                            : 'upstream_bad_request';
+                const exposedStatus =
+                    legacyCode === 'upstream_rate_limited'
+                        ? 429
+                        : legacyCode === 'upstream_auth_failed'
+                          ? 500
+                          : 400;
+                throw new HttpError(
+                    exposedStatus,
+                    errText ||
+                        `xAI TTS request failed (status ${response.status})`,
+                    {
+                        legacyCode,
+                        fields: {
+                            provider: 'xai',
+                            upstreamStatus: response.status,
+                        },
+                    },
+                );
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const stream = Readable.from(buffer);
+
+            // Determine content type from response or codec
+            const respContentType =
+                response.headers.get('content-type') || 'audio/mpeg';
+            const codec =
+                (body.output_format as { codec?: string } | undefined)?.codec ??
+                'mp3';
+            const contentType = CODEC_CONTENT_TYPES[codec] || respContentType;
+
+            // Meter usage
+            this.meteringService.incrementUsage(
+                actor,
+                'xai:xai-tts:character',
+                text.length,
+                totalCost,
             );
+
+            return {
+                dataType: 'stream',
+                content_type: contentType,
+                chunked: true,
+                stream,
+            };
+        } finally {
+            await hold.release();
         }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const stream = Readable.from(buffer);
-
-        // Determine content type from response or codec
-        const respContentType =
-            response.headers.get('content-type') || 'audio/mpeg';
-        const codec =
-            (body.output_format as { codec?: string } | undefined)?.codec ??
-            'mp3';
-        const contentType = CODEC_CONTENT_TYPES[codec] || respContentType;
-
-        // Meter usage
-        this.meteringService.incrementUsage(
-            actor,
-            'xai:xai-tts:character',
-            text.length,
-            totalCost,
-        );
-
-        return {
-            dataType: 'stream',
-            content_type: contentType,
-            chunked: true,
-            stream,
-        };
     }
 }

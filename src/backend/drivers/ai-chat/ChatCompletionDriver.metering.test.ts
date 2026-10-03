@@ -434,6 +434,119 @@ describe('ChatCompletionDriver credit gate against real metering', () => {
     });
 });
 
+describe('ChatCompletionDriver credit gate with an AI cost factor', () => {
+    const FACTOR = 1.3;
+    let seenKeys: string[];
+    const listener = (key: string, event: { factor: number }) => {
+        seenKeys.push(key);
+        event.factor = FACTOR;
+    };
+
+    beforeEach(() => {
+        seenKeys = [];
+        server.clients.event.on('ai.cost.factor.*', listener as never);
+    });
+
+    afterEach(() => {
+        server.clients.event.off('ai.cost.factor.*', listener as never);
+    });
+
+    const okResult = {
+        message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+        usage: { input_tokens: 1, output_tokens: 1 },
+        finish_reason: 'stop',
+    } as never;
+
+    // Usage is recorded at cost × factor, so a cap sized at the bare cost
+    // lets a completion spend past what's left.
+    it('caps output at the factored price', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const allowance = (await metering.getActorSubscription(actor))
+            .monthUsageAllowance;
+        await metering.incrementUsage(
+            actor,
+            'test:prior-spend',
+            1,
+            Math.floor(allowance * 0.9),
+        );
+        const remaining = await metering.getRemainingUsage(actor);
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce(okResult);
+
+        await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'priced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    max_tokens: 100_000,
+                }),
+            actor,
+        );
+
+        const passed = completeSpy.mock.calls[0]![0] as { max_tokens: number };
+        expect(passed.max_tokens * 2000 * FACTOR).toBeLessThanOrEqual(
+            remaining,
+        );
+        expect(passed.max_tokens).toBeGreaterThan(
+            remaining / (2000 * FACTOR) - 10,
+        );
+    });
+
+    it('reserves the factored worst case', async () => {
+        const actor = freeUser() as never;
+        const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce(okResult);
+
+        await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'priced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    max_tokens: 10,
+                }),
+            actor,
+        );
+
+        const passed = completeSpy.mock.calls[0]![0] as { max_tokens: number };
+        expect(passed.max_tokens).toBe(10);
+        const [, held] = reserve.mock.calls[0]!;
+        // At least the 10 capped output tokens at 2000 × factor.
+        expect(held).toBeGreaterThanOrEqual(10 * 2000 * FACTOR);
+    });
+
+    // The factor is looked up by the key the provider records under, or a
+    // per-model factor would price the gate and the charge differently.
+    it('asks for the factor under the metering key the provider records with', async () => {
+        const proto = FakeChatProvider.prototype as unknown as {
+            meteringModelKey?: (id: string) => string;
+        };
+        proto.meteringModelKey = (id) => `fake-recorded:${id}`;
+        try {
+            vi.spyOn(
+                FakeChatProvider.prototype,
+                'complete',
+            ).mockResolvedValueOnce(okResult);
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: 'go' }],
+                    }),
+                freeUser() as never,
+            );
+            expect(seenKeys).toContain(
+                'ai.cost.factor.ai-chat.fake-recorded:priced',
+            );
+        } finally {
+            delete proto.meteringModelKey;
+        }
+    });
+});
+
 describe('ChatCompletionDriver credit gate on multimodal prompts', () => {
     it('prices attachments into the pre-flight affordability check', async () => {
         const actor = freeUser() as never;

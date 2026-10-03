@@ -77,6 +77,11 @@ export class HoonifyProvider implements IChatProvider {
         return modelIds;
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return modelId;
+    }
+
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
@@ -149,7 +154,7 @@ export class HoonifyProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    modelUsed.id,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

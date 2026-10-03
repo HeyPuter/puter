@@ -19,14 +19,14 @@
 
 /** Types for the `puter-speech2txt` driver interface. */
 
-import type { MeteringService } from '../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../util/aiCostFactor.js';
 import type { loadFileInput } from '../util/fileInput.js';
 
 /** The layers a provider needs to read its audio input and meter usage. */
 export interface ISpeechToTextDeps {
     stores: Parameters<typeof loadFileInput>[0];
     fs: Parameters<typeof loadFileInput>[1];
-    metering: MeteringService;
+    metering: AiMeteringService;
 }
 
 export interface ISpeechToTextModel {

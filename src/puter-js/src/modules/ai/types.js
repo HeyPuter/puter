@@ -58,7 +58,7 @@
  * Options for a chat completion request.
  *
  * @typedef {Object} ChatOptions
- * @property {string} [model] The model to use for the completion. Defaults to `gpt-5-nano` if not
+ * @property {string} [model] The model to use for the completion. Defaults to `gpt-5.4-nano` if not
  * specified.
  * @property {number} [temperature] Sampling temperature between 0 and 2. Lower values are more focused
  * and deterministic, higher values more random. Defaults to the model's own default.
@@ -159,7 +159,7 @@
  * @typedef {Object} Img2TxtOptions
  * @property {string | File | Blob} [source] Image or document: URL, Puter path, data URI, `File` or `Blob`.
  * @property {string} [model] OCR model: `'aws-textract'` (alias `'textract'`), `'mistral-ocr-latest'`
- * (OCR 4.1; aliases `'mistral-ocr-4'`, `'mistral-ocr-4-1'`), `'mistral-ocr-4-0'`, or `'mistral-ocr-2512'`
+ * (OCR 4.1; aliases `'mistral-ocr-4'`, `'mistral-ocr-4-1'`) or `'mistral-ocr-2512'`
  * (OCR 3; aliases `'mistral-ocr-3'`, `'mistral-ocr-3-0'`). The model picks its provider.
  * @property {string} [provider] `'aws-textract'` (default) or `'mistral'`; aliases `'aws'`, `'textract'`,
  * `'mistral-ocr'`. Without a `model`, the provider's default model runs.
@@ -260,11 +260,12 @@
  *
  * @typedef {Object} Txt2VidOptions
  * @property {string} [prompt] Text description of the clip.
- * @property {string} [provider] Pin the request to one provider: `'gemini-video-generation'`,
- * `'together-video-generation'` or `'byteplus-video-generation'`. Defaults to the provider that owns
- * `model`, or Google when neither is given.
+ * @property {string} [provider] Pin the request to one provider: `'together-video-generation'` or
+ * `'byteplus-video-generation'`. Defaults to the provider that owns `model`, or Together AI when
+ * neither is given.
  * @property {string} [driver] Same effect as `provider`.
- * @property {string} [model] Video model id (provider-specific). Defaults to `'veo-3.1-lite'`.
+ * @property {string} [model] Video model id (provider-specific). Defaults to
+ * `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video).
  * @property {number} [seconds] Clip length in seconds. A value the model does not offer falls back
  * to the model default.
  * @property {number} [duration] Alias of `seconds`.
@@ -277,10 +278,10 @@
  * base64, on every provider.
  * @property {string} [last_frame] Last-frame image, same formats as `input_reference`.
  * @property {string[]} [reference_images] Subject/style reference images (URL, data URI or base64).
- * Veo 3.1: up to 3; Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
- * @property {string} [negative_prompt] What to keep out of the video (Veo, Together).
+ * Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
+ * @property {string} [negative_prompt] What to keep out of the video (Together).
  * @property {boolean} [generate_audio] Generate a soundtrack on models that support audio (Seedance 2.x
- * and 1.5 Pro, and Together models with audio). Defaults to `true` on Seedance.
+ * and Together models with audio). Defaults to `true` on Seedance.
  * @property {number} [seed] Random seed (Together, Seedance 1.x).
  * @property {number} [width] Output width in pixels on Together models sized in pixels; with `height`,
  * selects the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when omitted.

@@ -161,9 +161,30 @@ describe('OpenAiResponsesChatProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('OpenAiResponsesChatProvider model catalog', () => {
-    it('returns gpt-5-nano as the default', () => {
+    it('returns gpt-6-luna as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('gpt-5-nano');
+        expect(provider.getDefaultModel()).toBe('gpt-6-luna');
+    });
+
+    it.each([
+        'gpt-5',
+        'gpt-5-2025-08-07',
+        'gpt-5-mini',
+        'gpt-5-nano',
+        'gpt-5-pro',
+        'o1',
+        'o3',
+        'o3-2025-04-16',
+        'o3-mini',
+        'o4-mini',
+        'gpt-4.1-nano',
+    ])('no longer lists the deprecated %s', (id) => {
+        const { provider } = makeProvider();
+        const ids = provider
+            .models({ no_restrictions: true })
+            .flatMap((m) => [m.id, ...(m.aliases ?? [])]);
+        expect(ids).not.toContain(id);
+        expect(ids).not.toContain(`openai/${id}`);
     });
 
     it('exposes GPT-6 Astra with its API metadata and pricing', () => {
@@ -195,7 +216,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
         const ids = provider.models().map((m: { id: string }) => m.id);
         expect(ids).toContain('gpt-5.6-sol');
         expect(ids).toContain('gpt-6-astra');
-        expect(ids).not.toContain('gpt-5-nano-2025-08-07');
+        expect(ids).not.toContain('gpt-5.2-2025-12-11');
     });
 
     it.each([
@@ -238,7 +259,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
             .map((m: { id: string }) => m.id);
         // Both responses-only AND chat-only ids should be present.
         expect(ids).toContain('gpt-5.6-sol');
-        expect(ids).toContain('gpt-5-nano-2025-08-07');
+        expect(ids).toContain('gpt-5.2-2025-12-11');
     });
 
     it('list() flattens canonical ids and aliases for Responses models', () => {
@@ -388,10 +409,10 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(args.service_tier).toBe('default');
     });
 
-    it('drops reasoning_effort/verbosity for gpt-5 models and forwards them for non-gpt-5 reasoning models', async () => {
+    it('drops reasoning_effort/verbosity for gpt-5 models and forwards them for other non-gpt-6 models', async () => {
         const { provider } = makeProvider();
 
-        // gpt-5-pro: gpt-5 family → drops the controls.
+        // gpt-5.2-pro: gpt-5 family → drops the controls.
         responsesCreateMock.mockResolvedValueOnce(baseResponse);
         await withTestActor(() =>
             provider.complete({
@@ -405,19 +426,19 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect('reasoning_effort' in gpt5Args).toBe(false);
         expect('verbosity' in gpt5Args).toBe(false);
 
-        // o3: not gpt-5 → forwards both.
+        // gpt-4.1: neither gpt-5 nor gpt-6 → forwards both.
         responsesCreateMock.mockResolvedValueOnce(baseResponse);
         await withTestActor(() =>
             provider.complete({
-                model: 'o3',
+                model: 'gpt-4.1',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning_effort: 'medium',
                 verbosity: 'low',
             } as never),
         );
-        const [o3Args] = responsesCreateMock.mock.calls[1]!;
-        expect(o3Args.reasoning_effort).toBe('medium');
-        expect(o3Args.verbosity).toBe('low');
+        const [gpt41Args] = responsesCreateMock.mock.calls[1]!;
+        expect(gpt41Args.reasoning_effort).toBe('medium');
+        expect(gpt41Args.verbosity).toBe('low');
     });
 
     it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'])(
@@ -525,25 +546,25 @@ describe('OpenAiResponsesChatProvider model resolution', () => {
         );
     });
 
-    it('resolves the bare default-model name (gpt-5-nano alias) to its canonical id', async () => {
+    it('resolves a bare undated alias (gpt-5.2) to its canonical snapshot id', async () => {
         const { provider } = makeProvider();
         responsesCreateMock.mockResolvedValueOnce(baseResponse);
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-nano',
+                model: 'gpt-5.2',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        // `gpt-5-nano` is an alias of gpt-5-nano-2025-08-07 in the catalog.
+        // `gpt-5.2` is an alias of gpt-5.2-2025-12-11 in the catalog.
         expect(responsesCreateMock.mock.calls[0]![0].model).toBe(
-            'gpt-5-nano-2025-08-07',
+            'gpt-5.2-2025-12-11',
         );
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'openai:gpt-5-nano-2025-08-07',
+            'openai:gpt-5.2-2025-12-11',
             expect.any(Object),
         );
     });

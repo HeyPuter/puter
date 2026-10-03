@@ -11,8 +11,12 @@ import type { Actor } from '../../core/actor.ts';
 import type { AiCostFactorEvent } from '../../clients/event/types.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
-import { aiModelKey } from './aiCostFactor.ts';
-import type { MeteringService } from './MeteringService.ts';
+import type { MeteringService } from '../../services/metering/MeteringService.ts';
+import {
+    type AiMeteringService,
+    aiModelKey,
+    withAiCostFactor,
+} from './aiCostFactor.ts';
 
 type Listener = (
     key: `ai.cost.factor.${string}`,
@@ -22,14 +26,14 @@ type Listener = (
 describe('AI cost factor', () => {
     let server: PuterServer;
     let metering: MeteringService;
-    let scoped: MeteringService;
+    let scoped: AiMeteringService;
     let actor: Actor;
     let listeners: Listener[];
 
     beforeAll(async () => {
         server = await setupTestServer();
         metering = server.services.metering;
-        scoped = metering.withAiCostFactor('ai-chat');
+        scoped = withAiCostFactor(metering, server.clients.event, 'ai-chat');
         // Counters buffer before they're written onward; stop the drain loop
         // so nothing fires mid-assertion.
         await server.stores.meteringBuffer.onServerShutdown();
@@ -234,7 +238,7 @@ describe('AI cost factor', () => {
 
     it('re-scoping returns the same view rather than stacking factors', async () => {
         listen(1.04);
-        const again = scoped.withAiCostFactor('ai-chat');
+        const again = withAiCostFactor(scoped, server.clients.event, 'ai-chat');
         expect(again).toBe(scoped);
 
         const result = await again.incrementUsage(
@@ -244,6 +248,54 @@ describe('AI cost factor', () => {
             1000,
         );
         expect(result.total).toBe(1040);
+    });
+
+    it('reports the factor a model is priced at', async () => {
+        listen(1.3);
+        expect(await scoped.costFactor(actor, 'claude:sonnet')).toBe(1.3);
+    });
+
+    describe('reserveAiCredits', () => {
+        it('gates and holds at the factored cost', async () => {
+            listen(1.3);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            const reserve = vi.spyOn(metering, 'reserveCredits');
+            try {
+                const hold = await scoped.reserveAiCredits(
+                    actor,
+                    'openai:tts-1:character',
+                    1000,
+                );
+                await hold?.release();
+                expect(check).toHaveBeenCalledWith(actor, 1300);
+                expect(reserve).toHaveBeenCalledWith(actor, 1300);
+            } finally {
+                check.mockRestore();
+                reserve.mockRestore();
+            }
+        });
+
+        it('takes no hold when the factored cost is unaffordable', async () => {
+            listen(1.3);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockImplementation(async (_actor, amount) => amount <= 1000);
+            const reserve = vi.spyOn(metering, 'reserveCredits');
+            try {
+                const hold = await scoped.reserveAiCredits(
+                    actor,
+                    'openai:tts-1:character',
+                    1000,
+                );
+                expect(hold).toBeNull();
+                expect(reserve).not.toHaveBeenCalled();
+            } finally {
+                check.mockRestore();
+                reserve.mockRestore();
+            }
+        });
     });
 
     it('survives a listener that throws', async () => {

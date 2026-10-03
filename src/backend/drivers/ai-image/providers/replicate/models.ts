@@ -127,7 +127,7 @@ export const REPLICATE_IMAGE_GENERATION_MODELS: ReplicateImageModel[] = [
         id: 'black-forest-labs/flux-2-klein-9b-base',
         replicateId: 'black-forest-labs/flux-2-klein-9b-base',
         puterId: 'replicate:black-forest-labs/flux-2-klein-9b-base',
-        aliases: ['flux-2-klein-9b-base', 'flux-2-klein-9b'],
+        aliases: ['flux-2-klein-9b-base'],
         name: 'FLUX.2 Klein 9B',
         costs_currency: 'usd-cents',
         index_cost_key: 'output_mp',

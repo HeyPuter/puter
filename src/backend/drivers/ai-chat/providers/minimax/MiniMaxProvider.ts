@@ -58,6 +58,11 @@ export class MiniMaxProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `minimax:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -111,7 +116,7 @@ export class MiniMaxProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `minimax:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

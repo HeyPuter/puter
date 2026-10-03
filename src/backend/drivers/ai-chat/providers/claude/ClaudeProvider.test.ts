@@ -265,6 +265,22 @@ describe('ClaudeProvider model catalog', () => {
         expect(ids).toContain('claude-haiku');
         expect(ids).toContain('claude-haiku-4-5-20251001');
     });
+
+    it('caps claude-sonnet-4-6 output at its 128K sync limit', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.models().find((m) => m.id === 'claude-sonnet-4-6')
+                ?.max_tokens,
+        ).toBe(128_000);
+    });
+
+    it('drops the deprecated claude-sonnet-4-5 and its aliases', async () => {
+        const { provider } = makeProvider();
+        const ids = await provider.list();
+        expect(ids).not.toContain('claude-sonnet-4-5-20250929');
+        expect(ids).not.toContain('claude-sonnet-4-5');
+        expect(ids).not.toContain('claude-sonnet-4.5');
+    });
 });
 
 // ── Request shape (Anthropic-specific) ──────────────────────────────

@@ -19,8 +19,11 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import {
     DEFAULT_SPEECH_TO_TEXT_PROVIDER,
@@ -68,8 +71,12 @@ export class SpeechToTextDriver extends PuterDriver {
     #providers: Record<string, ISpeechToTextProvider> = {};
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override onServerStart() {

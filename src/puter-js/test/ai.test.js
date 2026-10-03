@@ -5,13 +5,13 @@
 // check /puterai/chat/models/details when one starts failing with
 // "Model not found" (provider catalogs rotate, especially openrouter).
 const TEST_MODELS = [
-    "openrouter:openai/gpt-5.3-chat",
-    "openrouter:anthropic/claude-opus-4.7-fast",
+    "openrouter:openai/gpt-6-luna",
+    "openrouter:anthropic/claude-haiku-4.5",
     "google/gemini-2.5-pro",
-    "deepseek-chat",
+    "deepseek-flash",
     "gpt-5.1",
-    "gpt-5-nano",
-    "openai/gpt-5-nano",
+    "gpt-6-luna",
+    "openai/gpt-6-luna",
     "claude-sonnet-5",
 ];
 
@@ -281,7 +281,7 @@ const TEST_IMAGE_URL = "https://assets.puter.site/doge.jpeg";
 // Direct-claude models are excluded: the claude provider is the one chat
 // provider that doesn't infer the `type` on the SDK's `{ image_url }`
 // media blocks, so the vision shorthand 400s against Anthropic today.
-const VISION_MODELS = ["gpt-5-nano", "gemini-2.5-pro"];
+const VISION_MODELS = ["gpt-6-luna", "gemini-2.5-pro"];
 
 // The test image is a Shiba Inu; any vision-capable model should say so.
 const assertMentionsDog = function(result) {
@@ -310,7 +310,7 @@ const testChatTestModeCore = async function() {
 const testChatTestModeThenOptionsCore = async function() {
     // Documented form with testMode BEFORE options:
     // chat(prompt, testMode, options)
-    const result = await puter.ai.chat("Hello, how are you?", true, { model: "gpt-5-nano" });
+    const result = await puter.ai.chat("Hello, how are you?", true, { model: "gpt-6-luna" });
     assert(typeof result === 'object' && result !== null, "chat(prompt, testMode, options) should return an object");
     assert(typeof result.message === 'object', "result should have message object");
 };
@@ -466,8 +466,8 @@ const testChatEquivalencePromptVsMessagesCore = async function() {
     // chat([{ content: prompt }], options) — same wire request, so the
     // responses must come back with the same shape.
     const prompt = "Reply with the word: hello";
-    const viaPrompt = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
-    const viaMessages = await puter.ai.chat([{ content: prompt }], { model: "gpt-5-nano" });
+    const viaPrompt = await puter.ai.chat(prompt, { model: "gpt-6-luna" });
+    const viaMessages = await puter.ai.chat([{ content: prompt }], { model: "gpt-6-luna" });
     assertSameSignature(
         chatResponseSignature(viaPrompt),
         chatResponseSignature(viaMessages),
@@ -478,8 +478,8 @@ const testChatEquivalenceTestModePositionsCore = async function() {
     // The docs allow testMode before options and after; both orderings
     // must behave identically.
     const prompt = "Hello, how are you?";
-    const flagFirst = await puter.ai.chat(prompt, true, { model: "gpt-5-nano" });
-    const flagLast = await puter.ai.chat(prompt, { model: "gpt-5-nano" }, true);
+    const flagFirst = await puter.ai.chat(prompt, true, { model: "gpt-6-luna" });
+    const flagLast = await puter.ai.chat(prompt, { model: "gpt-6-luna" }, true);
     assertSameSignature(
         chatResponseSignature(flagFirst),
         chatResponseSignature(flagLast),
@@ -572,8 +572,8 @@ const generateIntegrationTests = function() {
             'Integration: chat(prompt, testMode, options) documented argument order',
             testChatTestModeThenOptionsCore),
         integrationTest('testChatFunctionCalling_gpt_5_nano',
-            'Integration: full tool-call round trip (request, execute, respond) with gpt-5-nano',
-            () => testChatFunctionCallingCore('gpt-5-nano')),
+            'Integration: full tool-call round trip (request, execute, respond) with gpt-6-luna',
+            () => testChatFunctionCallingCore('gpt-6-luna')),
         integrationTest('testListModels',
             'Integration: listModels returns real models and honors the provider filter',
             testListModelsCore),

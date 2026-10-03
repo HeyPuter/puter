@@ -41,6 +41,7 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
@@ -62,8 +63,12 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as `TTSDriver` hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(server.services.metering, server.clients.event, 'ai-tts');
+
 const makeProvider = () =>
-    new XAITTSProvider(server.services.metering, { apiKey: 'test-key' });
+    new XAITTSProvider(aiMetering(), { apiKey: 'test-key' });
 
 const audioResponse = (body = 'audio-bytes', contentType = 'audio/mpeg') =>
     new Response(body, { status: 200, headers: { 'content-type': contentType } });
@@ -84,7 +89,7 @@ describe('XAITTSProvider construction', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
-                new XAITTSProvider(server.services.metering, {
+                new XAITTSProvider(aiMetering(), {
                     apiKey: '',
                 }),
         ).toThrow(/API key/i);

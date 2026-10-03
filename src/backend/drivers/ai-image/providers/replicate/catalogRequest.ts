@@ -45,6 +45,7 @@ const singleImageKeys = [
     'image_reference',
     'image_reference_url',
     'subject_reference',
+    'img_cond_path',
 ];
 const countKeys = [
     'num_outputs',

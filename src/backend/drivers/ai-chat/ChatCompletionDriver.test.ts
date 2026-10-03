@@ -181,7 +181,7 @@ describe('ChatCompletionDriver model catalog', () => {
 
 describe('ChatCompletionDriver.complete auth and model resolution', () => {
     it('uses a free fake completion in test mode without taking a credit hold', async () => {
-        const creditGate = vi.spyOn(server.services.metering, 'withAiCostFactor');
+        const creditGate = vi.spyOn(server.services.metering, 'getRemainingUsage');
         const complete = vi.spyOn(FakeChatProvider.prototype, 'complete');
 
         const result = await withTestActor(() =>

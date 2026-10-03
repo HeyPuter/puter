@@ -188,7 +188,7 @@ describe('GeminiImageProvider.generate argument validation', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'edit',
                     input_images: ['NOT-A-DATA-URI-AND-NOT-RECOGNIZED'],
                 }),
@@ -251,35 +251,6 @@ describe('GeminiImageProvider.generate argument validation', () => {
             }),
         );
     });
-
-    it('ignores quality on a model without tiers', async () => {
-        generateContentMock.mockResolvedValueOnce({
-            candidates: [
-                {
-                    content: {
-                        parts: [
-                            {
-                                inlineData: {
-                                    mimeType: 'image/png',
-                                    data: 'BASE64IMG',
-                                },
-                            },
-                        ],
-                    },
-                },
-            ],
-            usageMetadata: { promptTokenCount: 12 },
-        });
-        await withTestActor(() =>
-            makeProvider().generate({
-                model: 'gemini-2.5-flash-image',
-                prompt: 'hi',
-                quality: 'high',
-            }),
-        );
-        const config = generateContentMock.mock.calls[0][0].config;
-        expect(config.imageConfig).not.toHaveProperty('imageSize');
-    });
 });
 
 // ── generateContent (Flash) path ────────────────────────────────────
@@ -334,20 +305,38 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         },
     );
 
+    it('routes nano-banana-pro-preview to gemini-3-pro-image', async () => {
+        generateContentMock.mockResolvedValueOnce(inlineImageResponse);
+        await withTestActor(() =>
+            makeProvider().generate({ model: 'nano-banana-pro-preview', prompt: 'hi' }),
+        );
+        expect(generateContentMock.mock.calls[0]![0].model).toBe('gemini-3-pro-image');
+    });
+
+    it.each(['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview', 'nano-banana'])(
+        'drops the deprecated %s instead of redirecting it',
+        (model) => {
+            const names = makeProvider()
+                .models()
+                .flatMap((m) => [m.id, ...(m.aliases ?? [])]);
+            expect(names).not.toContain(model);
+        },
+    );
+
     it('forwards prompt + aspectRatio config and routes to generateContent', async () => {
         const provider = makeProvider();
         generateContentMock.mockResolvedValueOnce(inlineImageResponse);
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'a tiny red dot',
                 ratio: { w: 16, h: 9 },
             }),
         );
 
         const sent = generateContentMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gemini-2.5-flash-image');
+        expect(sent.model).toBe('gemini-3.1-flash-lite-image');
         expect(sent.contents[0]).toEqual({ text: 'a tiny red dot' });
         expect(sent.config.responseModalities).toEqual(['TEXT', 'IMAGE']);
         expect(sent.config.imageConfig.aspectRatio).toBe('16:9');
@@ -359,7 +348,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'hi',
                 ratio: { w: 100, h: 99 }, // not in allowedRatios
             }),
@@ -376,7 +365,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         const result = await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'hi',
             }),
         );
@@ -393,7 +382,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'add a hat',
                 input_images: ['https://example.com/in.png'],
             }),
@@ -423,7 +412,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'hi',
                 }),
             ),
@@ -437,7 +426,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'hi',
                 }),
             ),
@@ -451,21 +440,21 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'hi',
             }),
         );
 
-        // Flash model costs: input=30, output=250, output_image=3000 (cents per 1M tokens).
+        // Flash-Lite Image costs: input=25, output=150, output_image=3000 (cents per 1M tokens).
         expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
         const types = (
             entries as Array<{ usageType: string; usageAmount: number }>
         ).map((e) => e.usageType);
         expect(types).toEqual([
-            'gemini:gemini-2.5-flash-image:input',
-            'gemini:gemini-2.5-flash-image:output:text',
-            'gemini:gemini-2.5-flash-image:output:image',
+            'gemini:gemini-3.1-flash-lite-image:input',
+            'gemini:gemini-3.1-flash-lite-image:output:text',
+            'gemini:gemini-3.1-flash-lite-image:output:image',
         ]);
         // Image-token amount comes from candidatesTokensDetails (modality=IMAGE).
         const imageEntry = (
@@ -490,7 +479,7 @@ it('maps a nearby aspect hint to the closest Gemini aspect', async () => {
     await withTestActor(() =>
         makeProvider().generate({
             prompt: 'hi',
-            model: 'gemini-2.5-flash-image',
+            model: 'gemini-3.1-flash-lite-image',
             ratio: { w: 17, h: 10 },
         }),
     );

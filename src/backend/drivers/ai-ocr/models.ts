@@ -44,16 +44,9 @@ export const OCR_MODELS: readonly OcrModel[] = [
     {
         id: 'mistral-ocr-4-1',
         provider: 'mistral',
-        // Preserve Puter's old 2503 spelling by routing it to OCR 4.1.
-        aliases: ['mistral-ocr-latest', 'mistral-ocr-4', 'mistral-ocr-2503'],
+        aliases: ['mistral-ocr-latest', 'mistral-ocr-4'],
         pageUsageType: 'mistral-ocr:mistral-ocr-4-1:page',
         annotationUsageType: 'mistral-ocr:mistral-ocr-4-1:annotations:page',
-    },
-    {
-        id: 'mistral-ocr-4-0',
-        provider: 'mistral',
-        pageUsageType: 'mistral-ocr:mistral-ocr-4-0:page',
-        annotationUsageType: 'mistral-ocr:mistral-ocr-4-0:annotations:page',
     },
     {
         id: 'mistral-ocr-2512',
@@ -66,7 +59,11 @@ export const OCR_MODELS: readonly OcrModel[] = [
 
 /** Models the vendor no longer serves, with the reason callers see. */
 export const RETIRED_OCR_MODELS: Readonly<Record<string, string>> = {
+    'mistral-ocr-2503':
+        'Puter no longer supports this deprecated model; use mistral-ocr-latest.',
     'mistral-ocr-2505':
+        'Puter no longer supports this deprecated model; use mistral-ocr-latest.',
+    'mistral-ocr-4-0':
         'Puter no longer supports this deprecated model; use mistral-ocr-latest.',
 };
 

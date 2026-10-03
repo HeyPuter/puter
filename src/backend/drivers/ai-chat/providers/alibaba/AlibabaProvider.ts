@@ -58,6 +58,11 @@ export class AlibabaProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `alibaba:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -100,7 +105,7 @@ export class AlibabaProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `alibaba:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

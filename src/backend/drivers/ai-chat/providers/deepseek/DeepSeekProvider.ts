@@ -41,7 +41,7 @@ export class DeepSeekProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'deepseek-v4-pro';
+        return 'deepseek-flash';
     }
 
     models() {
@@ -50,6 +50,11 @@ export class DeepSeekProvider implements IChatProvider {
 
     async list() {
         return modelLookupNames(this.models());
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `deepseek:${modelId}`;
     }
 
     async complete({
@@ -131,7 +136,7 @@ export class DeepSeekProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `deepseek:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

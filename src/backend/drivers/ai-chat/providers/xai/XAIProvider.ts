@@ -29,6 +29,7 @@ import type {
 } from '../../types.js';
 import { XAI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { buildCostsOverride } from '../../utils/pricing.js';
 
 export class XAIProvider implements IChatProvider {
     #openai: OpenAI;
@@ -53,6 +54,11 @@ export class XAIProvider implements IChatProvider {
 
     async list() {
         return modelLookupNames(this.models());
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `xai:${modelId}`;
     }
 
     async complete({
@@ -89,19 +95,25 @@ export class XAIProvider implements IChatProvider {
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * Number(modelUsed.costs[key] ?? 0)];
-                    }),
+                // xAI reports cached reads inside `prompt_tokens`; bill them
+                // only at the cached rate.
+                const metered = OpenAIUtil.extractMeteredUsage(usage);
+                const trackedUsage = {
+                    ...metered,
+                    prompt_tokens:
+                        metered.prompt_tokens - metered.cached_tokens,
+                };
+                const costsOverride = buildCostsOverride(
+                    trackedUsage,
+                    modelUsed,
                 );
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `xai:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
-                return trackedUsage;
+                return metered;
             },
             stream,
             completion,

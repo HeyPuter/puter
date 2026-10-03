@@ -33,7 +33,8 @@
 import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
-import type { MeteringService } from '../services/metering/MeteringService.js';
+import { NO_CREDIT_HOLD } from '../services/metering/types.js';
+import type { AiMeteringService } from './util/aiCostFactor.js';
 
 /**
  * Returns the env var value, or `undefined` if missing/empty. Used as the gate
@@ -63,15 +64,17 @@ export const INTEGRATION_TEST_TIMEOUT_MS = 90_000;
  * need the provider's metering calls to not throw and to short-circuit credit
  * checks.
  */
-export const makeMeteringStub = (): MeteringService =>
+export const makeMeteringStub = (): AiMeteringService =>
     ({
         utilRecordUsageObject: () => Promise.resolve([] as never),
         incrementUsage: () => Promise.resolve({} as never),
         batchIncrementUsages: () => Promise.resolve([] as never),
         hasEnoughCredits: () => Promise.resolve(true),
+        costFactor: () => Promise.resolve(1),
+        reserveAiCredits: () => Promise.resolve(NO_CREDIT_HOLD),
         getRemainingUsage: () => Promise.resolve(Number.MAX_SAFE_INTEGER),
         getReportedCosts: () => [],
-    }) as unknown as MeteringService;
+    }) as unknown as AiMeteringService;
 
 /**
  * Run `fn` inside a request-scoped context with `SYSTEM_ACTOR` set, which is

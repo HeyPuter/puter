@@ -20,7 +20,7 @@
 /**
  * Integration test for the BytePlus ModelArk provider.
  *
- * Uses `seed-1-6-flash-250715` with `thinking: disabled` passed through
+ * Uses `seed-2-0-mini-260428` with `thinking: disabled` passed through
  * `custom`. Ark's seed models default to deep reasoning and route those
  * tokens to a `reasoning_content` field, leaving `content` empty under
  * tight budgets. Disabling thinking forces a plain text response so the
@@ -41,7 +41,7 @@ import { BytePlusProvider } from './BytePlusProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_BYTEPLUS_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('BytePlusProvider (integration)', () => {
-    it('returns a non-empty completion from seed-1-6-flash-250715', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+    it('returns a non-empty completion from seed-2-0-mini-260428', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new BytePlusProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),
@@ -49,7 +49,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))('BytePlusProvider (integration)', () => 
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-flash-250715',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'Say hi in one word.' }],
                 max_tokens: 16,
                 custom: { thinking: { type: 'disabled' } },
