@@ -786,6 +786,8 @@ const en = {
         setup2fa_5_confirmation_1: 'I have saved my recovery codes in a secure location',
         setup2fa_5_confirmation_2: 'I am ready to enable 2FA',
         setup2fa_5_button: 'Enable 2FA',
+        setup2fa_password_instructions: 'Enter your password to set up 2FA.',
+        setup2fa_code_expired: 'That code has expired. Enter the current code from your authenticator app to finish.',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Enter 2FA Code',
