@@ -39,6 +39,7 @@ let userUuid: string;
 let otherId: number;
 let appUid: string;
 let appToken: string;
+let readUrlToken: string;
 let otherAppUid: string;
 
 interface ApiResponse {
@@ -123,6 +124,19 @@ beforeAll(async () => {
     appToken = await env.server.services.auth.getUserAppToken(
         actor.actor!,
         appUid,
+    );
+
+    // What a `getReadURL()` URL carries when the account itself mints one.
+    const file = `/${env.users.user.username}/fetch-read-url`;
+    await env.server.services.fs.mkdir(userId, {
+        path: file,
+        createMissingParents: true,
+    });
+    const entry = await env.server.stores.fsEntry.getEntryByPath(file);
+    readUrlToken = await env.server.services.auth.createAccessToken(
+        actor.actor!,
+        [[`fs:${entry!.uid}:read`]],
+        { label: 'fetch-read-url' },
     );
 }, BOOT_TIMEOUT_MS);
 
@@ -257,6 +271,29 @@ describe('who a fetch may see', () => {
             audience: 'app-user',
             appUid,
         });
+    });
+
+    it('hands a scoped token with no app nothing of the mailbox', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) {
+            await seed(userId, { title: 'account only' });
+            await seed(userId, { title: 'app row' }, {
+                audience: 'app-user',
+                appUid,
+            });
+        }
+
+        // Two rows per slice and a page of one, so a cursor would show.
+        for (const subject of [
+            'notif:account',
+            'notif:app-user',
+            `notif:${appUid}:app-user`,
+        ]) {
+            const page = await fetchPage(readUrlToken, { subject, limit: 1 });
+            expect(page.status).toBe(200);
+            expect(page.body.items).toEqual([]);
+            expect(page.body.cursor).toBeUndefined();
+        }
     });
 
     it('answers empty for another app\'s rows rather than saying they exist', async () => {
