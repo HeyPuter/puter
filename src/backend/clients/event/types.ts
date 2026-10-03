@@ -669,7 +669,8 @@ export type EventMap = {
         uid?: string;
         thumbnail?: string | null;
     };
-    'thumbnail.created': { url: string };
+    /** `uuid` is the entry the thumbnail belongs to. */
+    'thumbnail.created': { url: string; uuid: string };
     'thumbnail.upload.prepare': {
         items: { index: number; item_uid: string }[];
         uploadUrl?: string;

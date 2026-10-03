@@ -534,6 +534,36 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         expect(row?.thumbnail).toBe(thumbnail);
     });
 
+    it('tells thumbnail listeners which entry the thumbnail is for', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/bound-thumb.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+
+        const seen: unknown[] = [];
+        const listener = (_key: string, data: unknown) => {
+            seen.push(data);
+        };
+        server.clients.event.on('thumbnail.created', listener as never);
+        try {
+            const { res } = makeRes();
+            await withActor(actor, () =>
+                controller.updateFsentryThumbnail(
+                    makeReq({
+                        body: {
+                            uid: uuid,
+                            thumbnail: 'data:image/png;base64,aGVsbG8=',
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+        } finally {
+            server.clients.event.off('thumbnail.created', listener as never);
+        }
+        expect(seen).toEqual([expect.objectContaining({ uuid })]);
+    });
+
     it("refuses to retag another user's entry", async () => {
         const owner = await makeUser();
         const stranger = await makeUser();
