@@ -599,7 +599,7 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
  *
  * Pass `actorUserId` so a signature over someone else's entry — a shared file —
  * expires rather than outliving the share (see
- * NON_OWNER_SIGNATURE_TTL_SECONDS).
+ * NON_OWNER_SIGNATURE_TTL_SECONDS). The signature is bound to `entry.userId`.
  */
 export function signEntry(
     entry: {
@@ -610,7 +610,7 @@ export function signEntry(
         accessed: number | null;
         modified: number;
         created: number | null;
-        userId?: number;
+        userId: number;
     },
     config: SigningConfig,
     opts: { actorUserId?: number; ttlSeconds?: number } = {},

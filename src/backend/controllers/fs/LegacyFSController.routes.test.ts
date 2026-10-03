@@ -18,6 +18,7 @@
  */
 
 import type { Request, RequestHandler, Response } from 'express';
+import { createHash } from 'node:crypto';
 import { Readable, Writable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -752,6 +753,158 @@ describe('LegacyFSController.file (signed streaming)', () => {
             statusCode: 401,
             legacyCode: 'account_suspended',
         });
+    });
+});
+
+// -- signed URLs across an ownership change ----------------------------
+
+describe('LegacyFSController signed URLs across an ownership change', () => {
+    type Signed = { uid: string; read_url: string; write_url?: string };
+
+    const queryOf = (url: string) => {
+        const parsed = new URL(url);
+        return {
+            uid: parsed.searchParams.get('uid')!,
+            expires: parsed.searchParams.get('expires')!,
+            signature: parsed.searchParams.get('signature')!,
+        };
+    };
+
+    // No actor: a link holder needs no account.
+    const listSigned = async (url: string) => {
+        const { res, captured } = makeRes();
+        await controller.file(makeReq({ query: queryOf(url) }), res);
+        return captured.body as Array<Signed & { fsentry_name: string }>;
+    };
+
+    const readSigned = async (url: string) => {
+        const { res, captured, finished } = makeStreamRes();
+        await controller.file(makeReq({ query: queryOf(url) }), res);
+        await finished;
+        return captured.text();
+    };
+
+    const signAs = async (actor: Actor, path: string): Promise<Signed> => {
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.sign(
+                makeReq({
+                    body: { items: [{ path, action: 'write' }] },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        return (captured.body as { signatures: Signed[] }).signatures[0];
+    };
+
+    const moveAs = async (
+        actor: Actor,
+        body: { source: string; destination: string },
+    ) =>
+        withActor(actor, () =>
+            controller.move(makeReq({ body, actor }), makeRes().res),
+        );
+
+    it('refuses the URL and the child URLs it minted once a write share hands the entry to another user', async () => {
+        const alice = await makeUser();
+        const bob = await makeUser();
+        const dir = `/${alice.username}/Documents/signed-dir`;
+        await writeFileEntry(alice.actor, `${dir}/a.txt`, 'alice-bytes');
+        const signed = await signAs(alice.actor, dir);
+
+        const [child] = await listSigned(signed.read_url);
+        expect(child.fsentry_name).toBe('a.txt');
+        expect(await readSigned(child.read_url)).toBe('alice-bytes');
+
+        // Bob lets Alice write into his folder, and moving hers there makes
+        // it Bob's. Then he revokes the share and adds a file of his own.
+        const inbox = await server.services.fs.mkdir(bob.userId, {
+            path: `/${bob.username}/Documents/inbox`,
+        });
+        const grant = `fs:${inbox.uuid}:write`;
+        await server.services.permission.grantUserUserPermission(
+            bob.actor,
+            alice.username,
+            grant,
+            {},
+        );
+        await moveAs(alice.actor, { source: dir, destination: inbox.path });
+        await server.services.permission.revokeUserUserPermission(
+            bob.actor,
+            alice.username,
+            grant,
+        );
+        const movedDir = `${inbox.path}/signed-dir`;
+        await writeFileEntry(bob.actor, `${movedDir}/bob.txt`, 'bob-bytes');
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(movedDir))!.userId,
+        ).toBe(bob.userId);
+
+        await expect(listSigned(signed.read_url)).rejects.toMatchObject({
+            statusCode: 403,
+        });
+        // Refused on the signature, even for a caller allowed to write there.
+        await expect(
+            withActor(bob.actor, () =>
+                controller.writeFile(
+                    makeReq({
+                        query: {
+                            ...queryOf(signed.write_url!),
+                            operation: 'mkdir',
+                        },
+                        body: { name: 'via-old-url' },
+                        actor: bob.actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        // Moved descendants keep a cached owner until the entry cache expires.
+        await server.stores.fsEntry.invalidateEntryCacheByUuid(child.uid);
+        await expect(readSigned(child.read_url)).rejects.toMatchObject({
+            statusCode: 403,
+        });
+    });
+
+    it('keeps the URL working across moves and renames by the same owner', async () => {
+        const { actor, username } = await makeUser();
+        const dir = `/${username}/Documents/kept-dir`;
+        await writeFileEntry(actor, `${dir}/a.txt`, 'kept-bytes');
+        const signed = await signAs(actor, dir);
+        const [child] = await listSigned(signed.read_url);
+
+        await moveAs(actor, {
+            source: dir,
+            destination: `/${username}/Pictures`,
+        });
+        await withActor(actor, () =>
+            controller.rename(
+                makeReq({
+                    body: { uid: signed.uid, new_name: 'renamed-dir' },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const [listed] = await listSigned(signed.read_url);
+        expect(listed.fsentry_name).toBe('a.txt');
+        expect(await readSigned(listed.read_url)).toBe('kept-bytes');
+        expect(await readSigned(child.read_url)).toBe('kept-bytes');
+    });
+
+    it('still serves a URL signed before signatures were bound to the owner', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/legacy.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'legacy-bytes');
+        const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+        const signature = createHash('sha256')
+            .update(`${uuid}/read/${signingCfg().secret}/${expires}`)
+            .digest('hex');
+        const url = `${signingCfg().apiBaseUrl}/file?uid=${uuid}&expires=${expires}&signature=${signature}`;
+        expect(await readSigned(url)).toBe('legacy-bytes');
     });
 });
 
