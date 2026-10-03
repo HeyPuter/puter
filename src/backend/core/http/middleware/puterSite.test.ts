@@ -542,6 +542,34 @@ describe('createPuterSiteMiddleware — file serving', () => {
         expect(piped!.equals(body)).toBe(true);
     });
 
+    // Metering resolves the billed account's plan from this actor, and some
+    // plans are keyed on the account's email.
+    it('bills an anonymous visit to the owner, email included', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `bill-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(owner.id, `${homePath}/index.html`, Buffer.from('hi'));
+
+        const req = makeReq({
+            hostname: `${sub}.site.puter.localhost`,
+            path: '/index.html',
+        });
+        const { res } = makeRes();
+        await buildMiddleware()(req, res, vi.fn());
+
+        expect(req.egressActor?.user).toMatchObject({
+            uuid: owner.uuid,
+            id: owner.id,
+            email: owner.email,
+        });
+    });
+
     it('emits site.htmlServed with the original URL target including query string', async () => {
         const owner = await makeUserWithHome();
         const homePath = `/${owner.username}`;

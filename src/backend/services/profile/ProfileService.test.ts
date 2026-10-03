@@ -53,6 +53,8 @@ describe('ProfileService', () => {
      * out of the next one's.
      */
     const plans = new Map<string, string>();
+    /** Plans granted by address rather than bought, keyed by email. */
+    const plansByEmail = new Map<string, string>();
 
     const makeUser = async (): Promise<UserRow> => {
         const username = `pr-${Math.random().toString(36).slice(2, 10)}`;
@@ -105,6 +107,9 @@ describe('ProfileService', () => {
         });
         server.services.metering.registerSubscriptionResolver(
             (actor) => plans.get(actor.user?.uuid ?? '') ?? null,
+        );
+        server.services.metering.registerDefaultSubscriptionResolver(
+            (actor) => plansByEmail.get(actor.user?.email ?? '') ?? null,
         );
     }, 120_000);
 
@@ -250,6 +255,21 @@ describe('ProfileService', () => {
             ).toBe(false);
         });
         expect(await service.isPubliclyVisible(user)).toBe(false);
+    });
+
+    it('resolves the owner plan the way the owner would, email-keyed plans included', async () => {
+        const user = await makeUser();
+        plansByEmail.set(user.email!, 'business');
+        try {
+            expect(await service.isPubliclyVisible(user)).toBe(true);
+            const own = await server.services.metering.getActorSubscription({
+                user,
+            });
+            expect(own.id).toBe('business');
+        } finally {
+            plansByEmail.delete(user.email!);
+            server.services.metering.invalidateActorSubscription(user.uuid);
+        }
     });
 
     it('withholds the hosted <uuid>.profile file for a free owner on site.access.check', async () => {

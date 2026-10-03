@@ -148,6 +148,7 @@ interface UserRow {
     id: number;
     uuid: string;
     username: string;
+    email?: string | null;
     suspended?: number | null;
 }
 
@@ -763,6 +764,7 @@ export const createPuterSiteMiddleware = (
                 uuid: owner.uuid,
                 id: owner.id,
                 username: owner.username,
+                email: owner.email ?? null,
                 suspended: !!owner.suspended,
             },
         };

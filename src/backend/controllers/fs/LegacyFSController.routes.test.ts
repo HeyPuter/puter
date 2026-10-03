@@ -735,6 +735,26 @@ describe('LegacyFSController.file (signed streaming)', () => {
         );
     });
 
+    // Metering resolves the billed account's plan from this actor, and some
+    // plans are keyed on the account's email.
+    it('bills an anonymous read to the owner, email included', async () => {
+        const { actor, userId, username } = await makeUser();
+        const { query } = await signedQuery(
+            actor,
+            `/${username}/Documents/signed-billed.txt`,
+            'billed',
+        );
+        const req = makeReq({ query });
+        const { res, finished } = makeStreamRes();
+        await controller.file(req, res);
+        await finished;
+        expect(req.egressActor?.user).toMatchObject({
+            id: userId,
+            uuid: actor.user.uuid,
+            email: `${username}@test.local`,
+        });
+    });
+
     it('rejects a signature minted before the owner was suspended', async () => {
         const { actor, userId, username } = await makeUser();
         const { query } = await signedQuery(
