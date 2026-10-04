@@ -246,30 +246,20 @@ export class ProfileService extends PuterService {
     // -- Bootstrap ---------------------------------------------------
 
     /**
-     * Ensure the profiles directory and the subdomain serving it exist. Public
-     * so `DefaultUserService` can call it right after creating the admin on
-     * first boot — this service is registered before it, so its own
-     * `onServerStart` finds no admin yet. Idempotent.
+     * Set up the system-owned profiles directory and the subdomain serving it.
+     * Idempotent.
      */
     async ensureProfilesDirectory(): Promise<void> {
-        const adminUser = await this.stores.user.getByUsername('admin');
-        if (!adminUser) {
-            console.warn(
-                '[profile] admin user not found; deferring profiles directory setup',
-            );
-            return;
-        }
-        this.#ownerUserId = adminUser.id;
-
-        const dirEntry = await ensureSystemSite(this.stores, {
+        const ownerUserId = await ensureSystemSite(this.stores, {
             subdomain: PROFILES_SUBDOMAIN,
             dirPath: PROFILES_PATH_PREFIX,
-            creatorUserId: adminUser.id,
             isProtected: true,
         });
-        if (!dirEntry) {
-            console.warn('[profile] failed to ensure profiles directory');
+        if (ownerUserId === null) {
+            console.warn('[profile] system user not found; profiles disabled');
+            return;
         }
+        this.#ownerUserId = ownerUserId;
     }
 
     // -- Storage -----------------------------------------------------

@@ -23,8 +23,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import type { AppIconService } from '../appIcon/AppIconService.js';
-import type { ProfileService } from '../profile/ProfileService.js';
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { UNLIMITED_SUBSCRIPTION } from '../metering/consts.js';
 
@@ -71,17 +69,6 @@ export class DefaultUserService extends PuterService {
             // rotates the printed bootstrap password.
             tmpPassword = crypto.randomBytes(16).toString('hex');
             user = await this.#createAdminUser(tmpPassword);
-            // AppIconService is registered before us, so its own onServerStart
-            // bailed on its first-boot bootstrap (admin didn't exist yet).
-            // Poke it here so the `/system/app_icons/` dir + subdomain exist
-            // by the time the first icon arrives.
-            await (
-                this.services.appIcon as AppIconService
-            ).ensureIconsDirectory();
-            // Same for the profiles directory + subdomain.
-            await (
-                this.services.profile as ProfileService
-            ).ensureProfilesDirectory();
         } else {
             const metadata = (user.metadata ?? {}) as Record<string, unknown>;
             const stashed = metadata.tmp_password;

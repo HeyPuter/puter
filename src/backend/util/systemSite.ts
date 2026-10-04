@@ -17,41 +17,58 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { SYSTEM_ACTOR_UUID } from '../core/actor.js';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../stores/fs/FSEntryStore.js';
 import type { SubdomainStore } from '../stores/subdomain/SubdomainStore.js';
+import type { UserStore } from '../stores/user/UserStore.js';
 import { isUniqueViolation } from './dbError.js';
 
 /**
- * Ensure `dirPath` exists (created as `creatorUserId` if missing) and that
- * `subdomain` serves it. Idempotent.
+ * Ensure `dirPath` and every directory above it exist and belong to the system
+ * user, and that `subdomain` serves `dirPath` as the system user. Directories
+ * another account created are re-owned, and a site row registered to anyone
+ * else or pointing elsewhere is replaced — the hosting middleware won't serve a
+ * site whose user doesn't own its root. Idempotent.
  *
- * The site is registered to the directory's owner, not the creator: a missing
- * parent directory may already belong to another user, and the hosting
- * middleware refuses a site whose user doesn't own its root. A row registered
- * to anyone else, or pointing at another directory, is replaced.
+ * Returns the system user's id (the account to write the site's files as), or
+ * null if there is no system user.
  */
 export async function ensureSystemSite(
-    stores: { fsEntry: FSEntryStore; subdomain: SubdomainStore },
+    stores: {
+        fsEntry: FSEntryStore;
+        subdomain: SubdomainStore;
+        user: UserStore;
+    },
     {
         subdomain,
         dirPath,
-        creatorUserId,
         isProtected = false,
     }: {
         subdomain: string;
         dirPath: string;
-        creatorUserId: number;
         isProtected?: boolean;
     },
-): Promise<FSEntry | null> {
-    const dir =
-        (await stores.fsEntry.getEntryByPath(dirPath)) ??
-        (await stores.fsEntry.resolveParentDirectory(
-            creatorUserId,
-            dirPath,
+): Promise<number | null> {
+    const systemUser = await stores.user.getByUuid(SYSTEM_ACTOR_UUID);
+    if (!systemUser) return null;
+    const systemUserId = Number(systemUser.id);
+
+    const segments = dirPath.split('/').filter(Boolean);
+    let dir: FSEntry | null = null;
+    for (let i = 1; i <= segments.length; i++) {
+        const path = `/${segments.slice(0, i).join('/')}`;
+        dir = await stores.fsEntry.resolveParentDirectory(
+            systemUserId,
+            path,
             true,
-        ));
+        );
+        if (Number(dir.userId) !== systemUserId) {
+            dir = await stores.fsEntry.updateEntry(dir.uuid, {
+                userId: systemUserId,
+            });
+        }
+    }
     if (!dir) return null;
 
     // Primary read: the cache can hold a stale negative entry on first boot.
@@ -60,17 +77,17 @@ export async function ensureSystemSite(
     });
     if (
         site &&
-        Number(site.user_id) === Number(dir.userId) &&
+        Number(site.user_id) === systemUserId &&
         Number(site.root_dir_id) === Number(dir.id)
     ) {
-        return dir;
+        return systemUserId;
     }
     if (site) await stores.subdomain.deleteByUuid(site.uuid);
 
-    // Runs concurrently on first boot; the unique constraint picks one row.
+    // Concurrent boots can race here; the unique constraint picks one row.
     try {
         await stores.subdomain.create({
-            userId: dir.userId,
+            userId: systemUserId,
             subdomain,
             rootDirId: dir.id,
             isProtected,
@@ -78,5 +95,5 @@ export async function ensureSystemSite(
     } catch (e) {
         if (!isUniqueViolation(e)) throw e;
     }
-    return dir;
+    return systemUserId;
 }

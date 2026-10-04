@@ -21,15 +21,12 @@ import { Writable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { SYSTEM_ACTOR_UUID } from '../../core/actor.js';
 import { createPuterSiteMiddleware } from '../../core/http/middleware/puterSite.js';
 import type { PuterServer } from '../../server.js';
 import type { IConfig } from '../../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import {
-    createTestUser,
-    setupTestServer,
-    TEST_ADMIN_CREDENTIALS,
-} from '../../testUtil.js';
+import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import {
     PROFILE_BIO_MAX_LENGTH,
@@ -89,14 +86,7 @@ describe('ProfileService', () => {
 
     beforeAll(async () => {
         server = await setupTestServer();
-        // `no_default_user` leaves no admin, so the bootstrap deferred; create
-        // one the way the client env does and run it again.
-        await createTestUser(server, {
-            ...TEST_ADMIN_CREDENTIALS,
-            admin: true,
-        });
         service = server.services.profile;
-        await service.ensureProfilesDirectory();
 
         server.services.metering.registerPolicy({
             id: 'business',
@@ -112,16 +102,17 @@ describe('ProfileService', () => {
         await server?.shutdown();
     });
 
-    it('bootstraps an admin-owned directory served by a protected system subdomain', async () => {
+    it('bootstraps a system-owned directory served by a protected system subdomain', async () => {
         const dir =
             await server.stores.fsEntry.getEntryByPath(PROFILES_PATH_PREFIX);
-        const admin = await server.stores.user.getByUsername('admin');
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
         expect(dir?.isDir).toBe(true);
-        expect(dir?.userId).toBe(admin!.id);
+        expect(dir?.userId).toBe(systemUser!.id);
 
         const site =
             await server.stores.subdomain.getBySubdomain(PROFILES_SUBDOMAIN);
-        expect(site?.user_id).toBe(admin!.id);
+        expect(site?.user_id).toBe(systemUser!.id);
         expect(site?.root_dir_id).toBe(dir!.id);
         expect(Boolean(site?.protected)).toBe(true);
 
@@ -154,9 +145,10 @@ describe('ProfileService', () => {
         const entry = await server.stores.fsEntry.getEntryByPath(
             `${PROFILES_PATH_PREFIX}/${user.uuid}.profile`,
         );
-        const admin = await server.stores.user.getByUsername('admin');
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
         expect(entry).not.toBeNull();
-        expect(entry!.userId).toBe(admin!.id);
+        expect(entry!.userId).toBe(systemUser!.id);
 
         // A second patch leaves untouched fields alone, and `null` clears.
         expect(
@@ -346,10 +338,6 @@ describe('ProfileService', () => {
             profileGate: { enabled: false },
         } as never);
         try {
-            await createTestUser(gated, {
-                ...TEST_ADMIN_CREDENTIALS,
-                admin: true,
-            });
             const created = await gated.stores.user.create({
                 username: 'free-user',
                 uuid: uuidv4(),

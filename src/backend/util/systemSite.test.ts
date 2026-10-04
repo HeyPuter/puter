@@ -19,94 +19,82 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SYSTEM_ACTOR_UUID } from '../core/actor.js';
 import type { PuterServer } from '../server.js';
 import { setupTestServer } from '../testUtil.js';
 import { ensureSystemSite } from './systemSite.js';
 
 describe('ensureSystemSite', () => {
     let server: PuterServer;
-    let creatorId: number;
-    let otherId: number;
+    let systemUserId: number;
+    let otherUserId: number;
 
-    const makeUserId = async () => {
-        const username = `ss-${uuidv4().slice(0, 8)}`;
-        const created = await server.stores.user.create({
-            username,
-            uuid: uuidv4(),
-            password: null,
-            email: `${username}@test.local`,
-            requires_email_confirmation: false,
-        } as Parameters<typeof server.stores.user.create>[0]);
-        return created.id;
-    };
     const uniqueName = () => `ss-${uuidv4().slice(0, 8)}`;
+    const ownerOf = async (path: string) =>
+        (await server.stores.fsEntry.getEntryByPath(path))?.userId;
 
     beforeAll(async () => {
         server = await setupTestServer();
-        creatorId = await makeUserId();
-        otherId = await makeUserId();
+        systemUserId = (await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID))!
+            .id;
+        const username = uniqueName();
+        otherUserId = (
+            await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email: `${username}@test.local`,
+                requires_email_confirmation: false,
+            } as Parameters<typeof server.stores.user.create>[0])
+        ).id;
     }, 60_000);
 
     afterAll(async () => {
         await server?.shutdown();
     }, 60_000);
 
-    it('creates the directory and registers the site to its creator', async () => {
+    it('creates the directories and site as the system user', async () => {
+        const root = `/${uniqueName()}`;
         const subdomain = uniqueName();
-        const dir = await ensureSystemSite(server.stores, {
-            subdomain,
-            dirPath: `/${uniqueName()}/files`,
-            creatorUserId: creatorId,
-        });
-        expect(dir?.userId).toBe(creatorId);
+        expect(
+            await ensureSystemSite(server.stores, {
+                subdomain,
+                dirPath: `${root}/files`,
+            }),
+        ).toBe(systemUserId);
 
+        expect(await ownerOf(root)).toBe(systemUserId);
+        const dir = await server.stores.fsEntry.getEntryByPath(`${root}/files`);
+        expect(dir?.userId).toBe(systemUserId);
         const site = await server.stores.subdomain.getBySubdomain(subdomain);
-        expect(site?.user_id).toBe(creatorId);
+        expect(site?.user_id).toBe(systemUserId);
         expect(site?.root_dir_id).toBe(dir!.id);
         expect(Boolean(site?.protected)).toBe(false);
     });
 
-    it('registers the site to the directory owner when the parent belongs to someone else', async () => {
+    it('re-owns directories and replaces a site another account holds, then leaves them alone', async () => {
         const root = `/${uniqueName()}`;
-        await server.stores.fsEntry.resolveParentDirectory(otherId, root, true);
-
-        const subdomain = uniqueName();
-        const dir = await ensureSystemSite(server.stores, {
-            subdomain,
-            dirPath: `${root}/files`,
-            creatorUserId: creatorId,
-        });
-        expect(dir?.userId).toBe(otherId);
-        expect(
-            (await server.stores.subdomain.getBySubdomain(subdomain))?.user_id,
-        ).toBe(otherId);
-    });
-
-    it("replaces a site registered to a user who doesn't own its directory, then leaves it alone", async () => {
-        const dirPath = `/${uniqueName()}`;
+        const dirPath = `${root}/files`;
         const dir = await server.stores.fsEntry.resolveParentDirectory(
-            otherId,
+            otherUserId,
             dirPath,
             true,
         );
         const subdomain = uniqueName();
         const stale = await server.stores.subdomain.create({
-            userId: creatorId,
+            userId: otherUserId,
             subdomain,
             rootDirId: dir.id,
             isProtected: true,
         });
 
-        const opts = {
-            subdomain,
-            dirPath,
-            creatorUserId: creatorId,
-            isProtected: true,
-        };
+        const opts = { subdomain, dirPath, isProtected: true };
         await ensureSystemSite(server.stores, opts);
+        expect(await ownerOf(root)).toBe(systemUserId);
+        expect(await ownerOf(dirPath)).toBe(systemUserId);
         const healed = await server.stores.subdomain.getBySubdomain(subdomain);
         expect(healed?.uuid).not.toBe(stale.uuid);
-        expect(healed?.user_id).toBe(otherId);
+        expect(healed?.user_id).toBe(systemUserId);
         expect(healed?.root_dir_id).toBe(dir.id);
         expect(Boolean(healed?.protected)).toBe(true);
 

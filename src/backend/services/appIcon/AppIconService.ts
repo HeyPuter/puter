@@ -38,10 +38,11 @@ const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
 /**
  * App icon generation service.
  *
- * 1. On boot: ensures `/system/app_icons/` exists and that the `puter-app-icons`
- *    subdomain points at it. Icons are then served through Puter's regular
- *    hosting path (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`)
- *    — no custom route, no custom S3 plumbing.
+ * 1. On boot: ensures `/system/app_icons/` exists, owned by the system user, and
+ *    that the `puter-app-icons` subdomain points at it. Icons are then served
+ *    through Puter's regular hosting path
+ *    (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`) — no custom
+ *    route, no custom S3 plumbing.
  * 2. On `app.new-icon` event: decodes the data URL, resizes via sharp to the 6
  *    standard sizes, and writes the PNGs into that directory via FSService. The
  *    write populates the CDN-backed subdomain automatically because
@@ -76,7 +77,10 @@ export class AppIconService extends PuterService {
             );
         }
 
-        this.#dirReady = this.ensureIconsDirectory();
+        // Retried from the icon pipeline if this fails at boot.
+        this.#dirReady = this.ensureIconsDirectory().catch((e) => {
+            console.warn('[app-icon] icons directory setup failed', e);
+        });
 
         this.clients.event.on(
             'app.new-icon',
@@ -108,6 +112,12 @@ export class AppIconService extends PuterService {
                 }
             },
         );
+    }
+
+    // Let in-flight icon runs finish while the layers they write through are up.
+    override async onServerShutdown(): Promise<void> {
+        await this.#dirReady;
+        await Promise.all([...this.#inFlight.values()].map((s) => s.done));
     }
 
     /**
@@ -163,36 +173,17 @@ export class AppIconService extends PuterService {
 
     // -- Bootstrap ---------------------------------------------------
 
-    /**
-     * Public so `DefaultUserService` can call it immediately after it creates
-     * the admin user on first boot — otherwise we'd lose the race
-     * (AppIconService is registered BEFORE DefaultUserService and its own
-     * `onServerStart` runs when no admin exists yet). Idempotent: safe to call
-     * repeatedly.
-     */
+    /** Set up the system-owned icons directory and its subdomain. Idempotent. */
     async ensureIconsDirectory(): Promise<void> {
-        // The admin user owns the icons directory. DefaultUserService
-        // creates the admin on first boot; if it doesn't exist yet we
-        // bail and try again the next time an icon is processed.
-        const adminUser = await this.stores.user.getByUsername('admin');
-        if (!adminUser) {
-            console.warn(
-                '[app-icon] admin user not found; deferring icons directory setup',
-            );
-            return;
-        }
-        this.#ownerUserId = adminUser.id;
-
-        // Runs twice on first boot: un-awaited from our own `onServerStart`,
-        // then from `DefaultUserService` right after it creates the admin.
-        const dirEntry = await ensureSystemSite(this.stores, {
+        const ownerUserId = await ensureSystemSite(this.stores, {
             subdomain: APP_ICONS_SUBDOMAIN,
             dirPath: APP_ICONS_PATH_PREFIX,
-            creatorUserId: adminUser.id,
         });
-        if (!dirEntry) {
-            console.warn('[app-icon] failed to ensure icons directory');
+        if (ownerUserId === null) {
+            console.warn('[app-icon] system user not found; icons disabled');
+            return;
         }
+        this.#ownerUserId = ownerUserId;
     }
 
     // -- Icon pipeline -----------------------------------------------
@@ -267,8 +258,7 @@ export class AppIconService extends PuterService {
     async #processIcon(data: Record<string, unknown>): Promise<void> {
         if (this.#dirReady) await this.#dirReady;
         if (!this.#ownerUserId) {
-            // Retry the bootstrap — admin may have been created in the
-            // meantime (e.g. first-boot race).
+            // The boot-time setup failed; retry it.
             await this.ensureIconsDirectory();
             if (!this.#ownerUserId) return;
         }

@@ -22,6 +22,7 @@ import { Writable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { SYSTEM_ACTOR_UUID } from '../../core/actor.js';
 import { createPuterSiteMiddleware } from '../../core/http/middleware/puterSite.js';
 import type { PuterServer } from '../../server.js';
 import type { IConfig } from '../../types.js';
@@ -34,7 +35,7 @@ const PNG_DATA_URL =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=';
 const ICONS_PATH = '/system/app_icons';
 
-describe('AppIconService — icons directory owned by another user', () => {
+describe('AppIconService — system-owned icons site', () => {
     let server: PuterServer;
 
     beforeAll(async () => {
@@ -95,9 +96,58 @@ describe('AppIconService — icons directory owned by another user', () => {
         return statusCode;
     };
 
-    // Databases from older versions have `/system` owned by the `system` user,
-    // while the subdomain was registered to the admin.
-    it('re-registers the subdomain to the directory owner so icons are served', async () => {
+    const setOwner = async (path: string, userId: number) => {
+        const entry = await server.stores.fsEntry.getEntryByPath(path);
+        await server.clients.db.write(
+            'UPDATE `fsentries` SET `user_id` = ? WHERE `id` = ?',
+            [userId, entry!.id],
+        );
+        await server.stores.fsEntry.invalidateEntryCacheById(entry!.id);
+    };
+    const registerSiteTo = async (userId: number) => {
+        const site =
+            await server.stores.subdomain.getBySubdomain('puter-app-icons');
+        await server.stores.subdomain.deleteByUuid(site!.uuid);
+        await server.stores.subdomain.create({
+            userId,
+            subdomain: 'puter-app-icons',
+            rootDirId: site!.root_dir_id,
+        });
+    };
+
+    it('writes icons as the system user into a system-owned site', async () => {
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
+        const uid = `app-${uuidv4()}`;
+        await server.clients.event.emitAndWait(
+            'app.new-icon',
+            { app_uid: uid, data_url: PNG_DATA_URL },
+            {},
+        );
+
+        for (const path of [
+            '/system',
+            ICONS_PATH,
+            `${ICONS_PATH}/${uid}-64.png`,
+        ]) {
+            expect(
+                (await server.stores.fsEntry.getEntryByPath(path))?.userId,
+                path,
+            ).toBe(systemUser!.id);
+        }
+        expect(
+            (await server.stores.subdomain.getBySubdomain('puter-app-icons'))
+                ?.user_id,
+        ).toBe(systemUser!.id);
+        expect(await fetchIconStatus(`/${uid}-64.png`)).toBe(200);
+    });
+
+    // Older databases: the directory belongs to the system user but the
+    // subdomain was registered to the admin, so every icon 404s.
+    it('re-registers a subdomain the admin holds to the system user', async () => {
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
+        const admin = await server.stores.user.getByUsername('admin');
         const uid = `app-${uuidv4()}`;
         await server.clients.event.emitAndWait(
             'app.new-icon',
@@ -105,24 +155,39 @@ describe('AppIconService — icons directory owned by another user', () => {
             {},
         );
         const iconPath = `/${uid}-64.png`;
-        expect(await fetchIconStatus(iconPath)).toBe(200);
 
-        const systemUser = await server.stores.user.getByUsername('system');
-        for (const path of ['/system', ICONS_PATH]) {
-            const entry = await server.stores.fsEntry.getEntryByPath(path);
-            await server.clients.db.write(
-                'UPDATE `fsentries` SET `user_id` = ? WHERE `id` = ?',
-                [systemUser!.id, entry!.id],
-            );
-            await server.stores.fsEntry.invalidateEntryCacheById(entry!.id);
-        }
+        await registerSiteTo(admin!.id);
         expect(await fetchIconStatus(iconPath)).toBe(404);
 
         await server.services.appIcon.ensureIconsDirectory();
-
-        const site =
-            await server.stores.subdomain.getBySubdomain('puter-app-icons');
-        expect(site?.user_id).toBe(systemUser!.id);
+        expect(
+            (await server.stores.subdomain.getBySubdomain('puter-app-icons'))
+                ?.user_id,
+        ).toBe(systemUser!.id);
         expect(await fetchIconStatus(iconPath)).toBe(200);
+    });
+
+    // Databases set up by earlier versions of this service: the directories
+    // and the subdomain all belong to the admin.
+    it('moves an admin-owned icons site over to the system user', async () => {
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
+        const admin = await server.stores.user.getByUsername('admin');
+        await setOwner('/system', admin!.id);
+        await setOwner(ICONS_PATH, admin!.id);
+        await registerSiteTo(admin!.id);
+
+        await server.services.appIcon.ensureIconsDirectory();
+
+        for (const path of ['/system', ICONS_PATH]) {
+            expect(
+                (await server.stores.fsEntry.getEntryByPath(path))?.userId,
+                path,
+            ).toBe(systemUser!.id);
+        }
+        expect(
+            (await server.stores.subdomain.getBySubdomain('puter-app-icons'))
+                ?.user_id,
+        ).toBe(systemUser!.id);
     });
 });
