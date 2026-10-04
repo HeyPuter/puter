@@ -18,6 +18,7 @@
  */
 
 import { isSpanContextValid, trace } from '@opentelemetry/api';
+import { setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net';
 import { puterClients } from './clients';
 import { loadConfig } from './config';
 import { puterControllers } from './controllers';
@@ -32,8 +33,15 @@ import { installJsonConsole } from './util/jsonConsole.js';
 // it stops accepting connections.
 const GRACEFUL_DRAIN_MS = 90_000;
 
+// Node's happy-eyeballs default (250 ms) abandons a slow IPv4 handshake and
+// falls through to IPv6; on hosts with no IPv6 route, one dropped SYN fails
+// the whole connect. 2 s outlasts a single SYN retransmit.
+const CONNECT_ATTEMPT_TIMEOUT_MS = 2_000;
+
 // if called directly, start the server
 if (require.main === module) {
+    setDefaultAutoSelectFamilyAttemptTimeout(CONNECT_ATTEMPT_TIMEOUT_MS);
+
     const config = loadConfig();
 
     // Structured logging: when `log_format: "json"`, replace the global console

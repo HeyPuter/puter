@@ -701,6 +701,26 @@ describe('OIDCController login callback', () => {
         expect(captured.redirectUrl).toContain('auth_error=1');
     });
 
+    it('redirects with auth_error when the provider is unreachable', async () => {
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockRejectedValue(
+            new TypeError('fetch failed'),
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        expect(captured.redirectUrl).toContain('auth_error=1');
+    });
+
     it('parses code/state from the POST body (Apple form_post)', async () => {
         const state = oidc().signState({
             provider: 'custom',
@@ -1724,6 +1744,30 @@ describe('OIDCController revalidate callback', () => {
         // which the revalidate handler renders as a 400 text response.
         expect(captured.statusCode).toBe(400);
         expect(String(captured.body)).toContain('Missing');
+    });
+
+    it('returns 400 when the userinfo request cannot reach the provider', async () => {
+        const state = oidc().signState({
+            provider: 'custom',
+            flow: 'revalidate',
+            user_uuid: uuidv4(),
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockRejectedValue(
+            new TypeError('fetch failed'),
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/revalidate',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.statusCode).toBe(400);
+        expect(String(captured.body)).toContain('Please try again');
     });
 
     it('returns 403 when the OIDC sub resolves to a different account than the session', async () => {
