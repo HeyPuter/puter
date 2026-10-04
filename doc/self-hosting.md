@@ -14,6 +14,7 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 
 - **Docker** with the `compose` plugin.
 - A **domain** with DNS access — you need a wildcard record (`*.your-domain.com` → server IP). Puter routes by subdomain (`api.<domain>`, `site.<domain>`, `app.<domain>`).
+- For single-host/IP or tailnet-only deployments, set `api_base_url` to a path on the same origin (for example `http://puter.localhost/api`) to expose API routes as `/api/...` without an API subdomain. Site/app hosting still uses their configured subdomains.
 - Optional: **TLS certs** (or `certbot` to grab them — see Step 3).
 
 ## What's running
