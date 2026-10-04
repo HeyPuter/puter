@@ -350,6 +350,70 @@ describe('revoke-own-access-token over HTTP', () => {
         }
         expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
     });
+
+    // These three run last in the file's shared `env.users.user`: each one
+    // revokes a session belonging to `owner.token` / `owner.workerToken`, so
+    // later tests can't rely on those credentials still being live.
+
+    it('a revoked access token yields 401 with no reauth_token or auth_id', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const readToken = await mintReadToken(owner.token, file.uid);
+
+        const revoke = await call(
+            'POST',
+            '/auth/revoke-own-access-token',
+            owner.token,
+            { token: readToken },
+        );
+        expect(revoke.status).toBe(200);
+
+        const res = await call('GET', '/whoami', readToken);
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.code).toBe('reauth_required');
+        expect(body.reauth_token).toBeUndefined();
+        expect(body.auth_id).toBeUndefined();
+    });
+
+    it('a revoked worker session gets no reauth_token even though it rides the session token type', async () => {
+        const owner = env.users.user;
+        const decoded = env.server.services.token.verify(
+            'auth',
+            owner.workerToken,
+        ) as { session_uid: string };
+        await env.server.stores.session.removeByUuid(decoded.session_uid);
+
+        const res = await call('GET', '/whoami', owner.workerToken);
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.code).toBe('reauth_required');
+        expect(body.reauth_token).toBeUndefined();
+        expect(body.auth_id).toBeUndefined();
+    });
+
+    it('a revoked GUI session still gets a reauth_token', async () => {
+        const owner = env.users.user;
+        const decoded = env.server.services.token.verify('auth', owner.token) as {
+            session_uid: string;
+        };
+        await env.server.stores.session.removeByUuid(decoded.session_uid);
+
+        const res = await call('GET', '/whoami', owner.token);
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.code).toBe('reauth_required');
+        expect(typeof body.reauth_token).toBe('string');
+
+        const user = await env.server.stores.user.getByUsername(
+            owner.username,
+        );
+        expect(
+            env.server.services.auth.verifyReauthToken(
+                body.reauth_token as string,
+            ).authId,
+        ).toBe(user!.uuid);
+    });
 });
 
 /**

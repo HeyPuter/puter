@@ -843,6 +843,90 @@ describe('FSController.statEntry', () => {
         );
         expect((captured.body as { name: string }).name).toBe('share-budget');
     });
+
+    describe('parentUid of a home child', () => {
+        const tokenActorFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            const token = await server.services.auth.createAccessToken(
+                makeActor({ user }),
+                [[permission]],
+            );
+            return (await server.services.auth.authenticateFromToken(token))!;
+        };
+
+        it('nulls it for a token scoped below the home', async () => {
+            const { userId } = await makeUser();
+            const user = (await server.stores.user.getById(userId))!;
+            const username = user.username!;
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const scoped = await tokenActorFor(
+                userId,
+                `fs:${documents.uuid}:read`,
+            );
+
+            const { res, captured } = makeRes();
+            await withActor(scoped, () =>
+                controller.statEntry(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: scoped,
+                    }),
+                    res,
+                ),
+            );
+            expect((captured.body as { parentUid: unknown }).parentUid).toBe(
+                null,
+            );
+        });
+
+        it('keeps it for a token that can list the home', async () => {
+            const { userId } = await makeUser();
+            const user = (await server.stores.user.getById(userId))!;
+            const username = user.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            const scoped = await tokenActorFor(userId, `fs:${home.uuid}:list`);
+
+            const { res, captured } = makeRes();
+            await withActor(scoped, () =>
+                controller.statEntry(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: scoped,
+                    }),
+                    res,
+                ),
+            );
+            expect((captured.body as { parentUid: unknown }).parentUid).toBe(
+                home.uuid,
+            );
+        });
+
+        it('keeps it for a session actor', async () => {
+            const { actor } = await makeUser();
+            const username = actor.user!.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.statEntry(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect((captured.body as { parentUid: unknown }).parentUid).toBe(
+                home.uuid,
+            );
+        });
+    });
 });
 
 // ── /readdir (readdirEntries) ───────────────────────────────────────

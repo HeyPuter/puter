@@ -956,6 +956,189 @@ describe('LegacyFSController signed URLs across an ownership change', () => {
         const url = `${signingCfg().apiBaseUrl}/file?uid=${uuid}&expires=${expires}&signature=${signature}`;
         expect(await readSigned(url)).toBe('legacy-bytes');
     });
+
+    it('refuses that same pre-binding URL once legacy_file_signatures is off', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/legacy-off.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'legacy-bytes');
+        const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+        const signature = createHash('sha256')
+            .update(`${uuid}/read/${signingCfg().secret}/${expires}`)
+            .digest('hex');
+        const url = `${signingCfg().apiBaseUrl}/file?uid=${uuid}&expires=${expires}&signature=${signature}`;
+
+        const config = (
+            controller as unknown as { config: { legacy_file_signatures?: boolean } }
+        ).config;
+        config.legacy_file_signatures = false;
+        try {
+            await expect(readSigned(url)).rejects.toMatchObject({
+                statusCode: 403,
+            });
+        } finally {
+            config.legacy_file_signatures = undefined;
+        }
+    });
+
+    it('still serves an owner-bound signature while legacy_file_signatures is off', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/owner-bound-while-off.txt`;
+        await writeFileEntry(actor, path, 'owner-bytes');
+        const signed = await signAs(actor, path);
+
+        const config = (
+            controller as unknown as { config: { legacy_file_signatures?: boolean } }
+        ).config;
+        config.legacy_file_signatures = false;
+        try {
+            expect(await readSigned(signed.read_url)).toBe('owner-bytes');
+        } finally {
+            config.legacy_file_signatures = undefined;
+        }
+    });
+});
+
+// -- /file: non-UUID uid skips the entry-store lookup -------------------
+
+describe('LegacyFSController.file (non-UUID uid)', () => {
+    it('rejects a non-UUID uid without touching the entry store', async () => {
+        const spy = vi.spyOn(server.stores.fsEntry, 'getEntryByUuid');
+        const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+        const { res } = makeRes();
+        await expect(
+            controller.file(
+                makeReq({
+                    query: {
+                        uid: 'not-a-uuid',
+                        expires: String(expires),
+                        signature: 'deadbeef',
+                    },
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(spy).not.toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('still looks up a UUID-shaped uid that does not exist', async () => {
+        const spy = vi.spyOn(server.stores.fsEntry, 'getEntryByUuid');
+        const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+        const { res } = makeRes();
+        await expect(
+            controller.file(
+                makeReq({
+                    query: {
+                        uid: uuidv4(),
+                        expires: String(expires),
+                        signature: 'deadbeef',
+                    },
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(spy).toHaveBeenCalledTimes(1);
+        spy.mockRestore();
+    });
+
+    it('looks up a uuid whose version and variant nibbles are nonstandard', async () => {
+        const spy = vi.spyOn(server.stores.fsEntry, 'getEntryByUuid');
+        const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+        const { res } = makeRes();
+        await expect(
+            controller.file(
+                makeReq({
+                    query: {
+                        uid: '0123abcd-0000-0000-0000-0123456789ab',
+                        expires: String(expires),
+                        signature: 'deadbeef',
+                    },
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(spy).toHaveBeenCalledTimes(1);
+        spy.mockRestore();
+    });
+});
+
+// -- /file via a signature minted by someone other than the owner -------
+//
+// `/sign` binds the signature to the entry's owner, not to whoever calls
+// `/sign` — a grantee reading a shared file, or an app signing inside its
+// own AppData, both mint signatures over an entry they don't own. Covers
+// that those still read through `/file`.
+
+describe('LegacyFSController /file via a non-owner-minted signature', () => {
+    const queryOf = (url: string) => {
+        const parsed = new URL(url);
+        return {
+            uid: parsed.searchParams.get('uid')!,
+            expires: parsed.searchParams.get('expires')!,
+            signature: parsed.searchParams.get('signature')!,
+        };
+    };
+
+    it('reads through /file when a grantee with read access signs the URL', async () => {
+        const owner = await makeUser();
+        const grantee = await makeUser();
+        const path = `/${owner.username}/Documents/grantee-read.txt`;
+        const { uuid } = await writeFileEntry(owner.actor, path, 'grantee-bytes');
+        await server.services.permission.grantUserUserPermission(
+            owner.actor,
+            grantee.username,
+            `fs:${uuid}:read`,
+            {},
+        );
+
+        const { res: signRes, captured: signCaptured } = makeRes();
+        await withActor(grantee.actor, () =>
+            controller.sign(
+                makeReq({
+                    body: { items: [{ uid: uuid, action: 'read' }] },
+                    actor: grantee.actor,
+                }),
+                signRes,
+            ),
+        );
+        const signed = (
+            signCaptured.body as { signatures: Array<{ read_url: string }> }
+        ).signatures[0];
+
+        const { res, captured, finished } = makeStreamRes();
+        await controller.file(makeReq({ query: queryOf(signed.read_url) }), res);
+        await finished;
+        expect(captured.statusCode).toBe(200);
+        expect(captured.text()).toBe('grantee-bytes');
+    });
+
+    it('reads through /file when an app actor signs inside its AppData root', async () => {
+        const { actor, username } = await makeUser();
+        const appUid = `routes-sign-app-${uuidv4()}`;
+        const appActor = makeActor({ ...actor, app: { uid: appUid } });
+        const path = `/${username}/AppData/${appUid}/app-read.txt`;
+        await writeFileEntry(actor, path, 'app-bytes');
+
+        const { res: signRes, captured: signCaptured } = makeRes();
+        await withActor(appActor, () =>
+            controller.sign(
+                makeReq({
+                    body: { items: [{ path, action: 'read' }] },
+                    actor: appActor,
+                }),
+                signRes,
+            ),
+        );
+        const signed = (
+            signCaptured.body as { signatures: Array<{ read_url: string }> }
+        ).signatures[0];
+
+        const { res, captured, finished } = makeStreamRes();
+        await controller.file(makeReq({ query: queryOf(signed.read_url) }), res);
+        await finished;
+        expect(captured.statusCode).toBe(200);
+        expect(captured.text()).toBe('app-bytes');
+    });
 });
 
 // -- /writeFile operation dispatch -------------------------------------

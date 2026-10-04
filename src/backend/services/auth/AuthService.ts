@@ -342,6 +342,9 @@ export class AuthService extends PuterService {
      *
      * `handlerDepth` stamps the writes made with the token as that many events
      * handler runs deep; `expiresInSeconds` bounds a token that carries one.
+     * Refuses an actor that is itself running behind a handler — the minted
+     * token would outlive any one run, so stamping it with the caller's depth
+     * would only delay the escape, not close it.
      */
     async createWorkerAppToken(
         actor: Actor,
@@ -353,6 +356,16 @@ export class AuthService extends PuterService {
             throw new HttpError(403, 'Actor must be a user', {
                 legacyCode: 'forbidden',
             });
+        }
+        // A handler's own writes already carry its depth; minting a fresh
+        // worker token here would start that worker's whole lifetime at
+        // depth 0 and escape the cap for good, not just for this run.
+        if (actor.handlerDepth) {
+            throw new HttpError(
+                403,
+                'An events handler cannot create a worker',
+                { legacyCode: 'events_handler_worker_forbidden' },
+            );
         }
         if (!workerName) {
             throw new HttpError(400, 'Missing `workerName`', {
@@ -2125,7 +2138,6 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        const auth_id = this.#authIdFor(user as UserRow);
 
         // v2 tokens prefer `session_uid`; v1 only carries `uuid`. Both
         // store the web-session uuid.
@@ -2136,6 +2148,13 @@ export class AuthService extends PuterService {
                   sessionUuid,
               )) as SessionRow | null)
             : null;
+
+        // Only a browser session gets a reauth token back. A worker credential
+        // rides the same token type, so check both the claim and the row.
+        const auth_id =
+            decoded.worker || (rawRow?.kind ?? 'web') !== 'web'
+                ? undefined
+                : this.#authIdFor(user as UserRow);
 
         if (rawRow?.revoked_at != null) {
             return { reauth: { reason: 'session_revoked', auth_id } };
@@ -2166,7 +2185,6 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        const auth_id = this.#authIdFor(user as UserRow);
 
         const app = await this.stores.app.getByUid(decoded.app_uid);
         if (!app) return { invalid: true };
@@ -2193,16 +2211,28 @@ export class AuthService extends PuterService {
             )) as SessionRow | null;
         }
 
+        // An app token never carries `auth_id` on its reauth result: only a
+        // user's own session/GUI token can be reattached via a reauth token.
         if (rawRow?.revoked_at != null) {
-            return { reauth: { reason: 'session_revoked', auth_id } };
+            return { reauth: { reason: 'session_revoked' } };
         }
         if (rawRow?.expires_at != null && rawRow.expires_at <= nowSeconds()) {
-            return { reauth: { reason: 'session_expired', auth_id } };
+            return { reauth: { reason: 'session_expired' } };
         }
 
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+
+        // An origin app's uid is derived from the origin, so a deleted app's
+        // uid returns with the next app on that origin. A session older than
+        // the app was made for the earlier one. Checked before `touch()` so a
+        // rejected token doesn't slide the old session's expiry.
+        const notBefore = this.#appSessionsNotBefore(app);
+        const createdAt = Number(session.created_at);
+        if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
+            return { reauth: { reason: 'session_revoked' } };
+        }
 
         this.stores.session
             .touch({
@@ -2212,15 +2242,6 @@ export class AuthService extends PuterService {
                 userAgent: ctx.userAgent,
             })
             .catch(() => {});
-
-        // An origin app's uid is derived from the origin, so a deleted app's
-        // uid returns with the next app on that origin. A session older than
-        // the app was made for the earlier one.
-        const notBefore = this.#appSessionsNotBefore(app);
-        const createdAt = Number(session.created_at);
-        if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
-            return { reauth: { reason: 'session_revoked', auth_id } };
-        }
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
         this.#applyHandlerDepth(actor, decoded);
@@ -2248,21 +2269,22 @@ export class AuthService extends PuterService {
 
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        const auth_id = this.#authIdFor(user as UserRow);
 
         let session: SessionRow | null = null;
         if (decoded.session_uid) {
             const rawRow = (await this.stores.session.getByUuidAny(
                 decoded.session_uid,
             )) as SessionRow | null;
+            // No `auth_id` on an access token's reauth result: a reauth token
+            // is only ever minted for the user's own session/GUI token.
             if (rawRow?.revoked_at != null) {
-                return { reauth: { reason: 'session_revoked', auth_id } };
+                return { reauth: { reason: 'session_revoked' } };
             }
             if (
                 rawRow?.expires_at != null &&
                 rawRow.expires_at <= nowSeconds()
             ) {
-                return { reauth: { reason: 'session_expired', auth_id } };
+                return { reauth: { reason: 'session_expired' } };
             }
             if (!rawRow) return { invalid: true };
             session = rawRow;

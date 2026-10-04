@@ -56,6 +56,7 @@ import {
     splitParentAndName,
 } from '../../services/fs/resolveNode.js';
 import { maskEntryPath } from '../../services/fs/sharePathMask.js';
+import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     buildHostedBackingDenial,
     hostedIndexUrlBackingIsUnavailable,
@@ -102,6 +103,11 @@ import {
 type RouterCache = Map<string, RequestHandler | null>;
 
 const additionalRoutePaths: Record<string, string> = {};
+
+// Shape only: version and variant nibbles aren't checked, so a row whose uuid
+// wasn't minted by an RFC-conforming generator still resolves.
+const UUID_SHAPE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Legacy `/batch` multipart upload caps. Each file is buffered fully into
 // memory before any quota / storage check runs, so without these limits an
@@ -509,11 +515,18 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        const [suggestedApps, appsById, shareFlags] = await Promise.all([
-            this.services.suggestedApps.getSuggestedApps(entry),
-            loadLegacyAssociatedApps(this.stores.app, [entry]),
-            this.services.share.shareFlags(actor, [entry]),
-        ]);
+        const [suggestedApps, appsById, shareFlags, parentUid] =
+            await Promise.all([
+                this.services.suggestedApps.getSuggestedApps(entry),
+                loadLegacyAssociatedApps(this.stores.app, [entry]),
+                this.services.share.shareFlags(actor, [entry]),
+                clientParentUid(
+                    actor,
+                    entry,
+                    this.services.acl,
+                    this.stores.permission,
+                ),
+            ]);
         entry.suggestedApps = suggestedApps;
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
@@ -525,6 +538,7 @@ export class LegacyFSController extends PuterController {
             },
             appsById,
             isShared: shareFlags.get(entry.uuid) ?? null,
+            parentUid,
         });
 
         // Optional hydrations:
@@ -2834,7 +2848,11 @@ export class LegacyFSController extends PuterController {
             signature: query.signature as string,
         };
         const { uid } = parseSignedQuery(signed);
-        const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+        // A non-UUID uid can never match a real entry — skip the cache/DB
+        // round trip a forged request would otherwise pay for on every hit.
+        const entry = UUID_SHAPE.test(uid)
+            ? await this.stores.fsEntry.getEntryByUuid(uid)
+            : null;
         verifySignature(signed, action, signingCfg, entry?.userId ?? null);
         // Only a signature from before owner binding verifies without an entry.
         if (!entry)

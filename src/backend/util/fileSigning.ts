@@ -28,8 +28,10 @@ import type { FSEntry } from '../stores/fs/FSEntry.js';
  * Signatures are an HMAC over uid, action, expiry and the entry's owner when
  * signed, and verify only while the entry still has that owner. Signatures
  * issued before owner binding, `sha256(<uid>/<action>/<secret>/<expires>)`,
- * still verify without the owner check. Both are hex in the same param, so the
- * verifier tries each. A `write` signature also satisfies `read`.
+ * still verify without the owner check by default — `allowLegacySignatures`
+ * (config `legacy_file_signatures`) turns that off. Both formats are hex in
+ * the same param, so the verifier tries each. A `write` signature also
+ * satisfies `read`.
  */
 
 export type SignAction = 'read' | 'write';
@@ -37,6 +39,8 @@ export type SignAction = 'read' | 'write';
 export interface SigningConfig {
     secret: string;
     apiBaseUrl: string;
+    /** Accept the pre-owner-binding signature format. Default true. */
+    allowLegacySignatures?: boolean;
 }
 
 export interface SignedFile {
@@ -208,6 +212,28 @@ export function parseSignedQuery(query: SignedQuery): {
 }
 
 /**
+ * Legacy (pre-owner-binding) signatures have no expiry on being phased out, so
+ * operators need a way to see usage trend toward zero. Logs at most once per
+ * `LEGACY_SIGNATURE_WARN_INTERVAL_MS`, with the count of hits since the last
+ * log — never the uid or signature itself.
+ */
+const LEGACY_SIGNATURE_WARN_INTERVAL_MS = 5 * 60 * 1000;
+let legacySignatureHits = 0;
+let legacySignatureWindowStart = 0;
+
+function noteLegacySignatureAccepted(): void {
+    legacySignatureHits++;
+    const now = Date.now();
+    if (now - legacySignatureWindowStart < LEGACY_SIGNATURE_WARN_INTERVAL_MS)
+        return;
+    console.warn(
+        `[fileSigning] accepted ${legacySignatureHits} request(s) authorized by a pre-owner-binding (legacy) file signature`,
+    );
+    legacySignatureHits = 0;
+    legacySignatureWindowStart = now;
+}
+
+/**
  * Verify a request's URL signature for a given action. A valid `write`
  * signature also authorises `read`. `ownerUserId` is the entry's current owner,
  * or null when it doesn't exist; then only a pre-binding signature can pass.
@@ -222,6 +248,7 @@ export function verifySignature(
     const { uid, expires, signature } = parseSignedQuery(query);
     const actions: SignAction[] =
         action === 'write' ? ['write'] : ['write', action];
+    const allowLegacy = config.allowLegacySignatures ?? true;
     for (const candidate of actions) {
         if (
             ownerUserId !== null &&
@@ -238,12 +265,15 @@ export function verifySignature(
         )
             return;
         if (
+            allowLegacy &&
             signaturesEqual(
                 signature,
                 computeLegacySignature(uid, candidate, config.secret, expires),
             )
-        )
+        ) {
+            noteLegacySignatureAccepted();
             return;
+        }
     }
 
     throw new HttpError(403, 'Authentication failed', {

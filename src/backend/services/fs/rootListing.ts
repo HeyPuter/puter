@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { posix as pathPosix } from 'node:path';
 import {
     isAccessTokenActor,
     isAccountContext,
@@ -114,4 +115,37 @@ export async function rootShowsHome(
         actor.accessToken!.uid,
         aclService.permissionsFor(home.uuid, mode),
     );
+}
+
+/**
+ * The `parentUid` to publish for `entry`. Nulled when the parent is the
+ * issuer's own home and the access token behind this response can't list it —
+ * otherwise the uuid alone would name a home that `rootShowsHome` keeps out of
+ * root listings. A direct child of anything else returns its own `parentUid`
+ * without a lookup.
+ */
+export async function clientParentUid(
+    actor: Actor,
+    entry: Pick<FSEntry, 'path' | 'parentUid'>,
+    aclService: ACLService,
+    permissionStore: PermissionStore,
+): Promise<string | null> {
+    const parentUid = entry.parentUid ?? null;
+    if (
+        !parentUid ||
+        !isAccessTokenActor(actor) ||
+        isAccountContext(actor) ||
+        !actor.user.username ||
+        pathPosix.dirname(entry.path) !== `/${actor.user.username}`
+    ) {
+        return parentUid;
+    }
+    const visible = await rootShowsHome(
+        actor,
+        { uuid: parentUid },
+        'list',
+        aclService,
+        permissionStore,
+    );
+    return visible ? parentUid : null;
 }
