@@ -393,7 +393,7 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 | ----------------------------- | ------------------------------ | ---- | ---- |
 | Handler runs in one chain     | Per account holding the subscription | 12 | 4 |
 
-- A write made through a handler's `user` in the events worker, or through a token `user` creates, is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain.
+- A write made through a handler's `user` in the events worker, or through a token `user` creates, is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain. `user.workers.create` is refused rather than counted — a handler cannot start an untracked chain through a worker of its own.
 - When an event reaches the limit, the events worker runs no handler for it. A `broadcast` one still reaches connected clients without running the persistent handler; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
 - If the holder's plan can't be looked up, the free number applies. A server with no metering uses the paid number.
 

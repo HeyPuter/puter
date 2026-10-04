@@ -1296,6 +1296,40 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 403 });
         });
 
+        it('createWorkerAppToken refuses an actor running behind a handler (403)', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                handlerDepth: 1,
+            } as Actor;
+            await expect(
+                authService.createWorkerAppToken(
+                    actor,
+                    `app-${uuidv4()}`,
+                    'wk-handler',
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'events_handler_worker_forbidden',
+            });
+        });
+
+        it('createWorkerAppToken still mints for a plain actor passing handlerDepth via options', async () => {
+            // The events-delivery mint path (`resolveGrantActor`): the actor
+            // itself carries no handlerDepth, only the options do.
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const token = await authService.createWorkerAppToken(
+                actor,
+                `app-${uuidv4()}`,
+                'wk-delivery',
+                { handlerDepth: 2 },
+            );
+            expect(decodeAuth(token).handler_depth).toBe(2);
+        });
+
         it('createWorkerAppToken rejects an empty workerName (400)', async () => {
             const user = await makeUser();
             const actor = {

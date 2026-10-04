@@ -342,6 +342,9 @@ export class AuthService extends PuterService {
      *
      * `handlerDepth` stamps the writes made with the token as that many events
      * handler runs deep; `expiresInSeconds` bounds a token that carries one.
+     * Refuses an actor that is itself running behind a handler — the minted
+     * token would outlive any one run, so stamping it with the caller's depth
+     * would only delay the escape, not close it.
      */
     async createWorkerAppToken(
         actor: Actor,
@@ -353,6 +356,16 @@ export class AuthService extends PuterService {
             throw new HttpError(403, 'Actor must be a user', {
                 legacyCode: 'forbidden',
             });
+        }
+        // A handler's own writes already carry its depth; minting a fresh
+        // worker token here would start that worker's whole lifetime at
+        // depth 0 and escape the cap for good, not just for this run.
+        if (actor.handlerDepth) {
+            throw new HttpError(
+                403,
+                'An events handler cannot create a worker',
+                { legacyCode: 'events_handler_worker_forbidden' },
+            );
         }
         if (!workerName) {
             throw new HttpError(400, 'Missing `workerName`', {
