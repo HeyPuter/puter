@@ -261,10 +261,10 @@ export class MeteringService extends PuterService {
      */
     private pendingAuxPromises = new Set<Promise<unknown>>();
 
-    /** Uuid → resolved policy + expiry. See SUBSCRIPTION_CACHE_MS. */
+    /** Uuid → resolved policy + expiry; `lookupFailed` marks a fallback. */
     private subscriptionCache = new Map<
         string,
-        { policy: SubscriptionPolicy; expiresAt: number }
+        { policy: SubscriptionPolicy; expiresAt: number; lookupFailed: boolean }
     >();
 
     /** Uuid → the last budget state announced, so a retry loop emits once. */
@@ -561,12 +561,13 @@ export class MeteringService extends PuterService {
                 appCallCount: 1,
             });
 
-            const [usageResult, actorSubscription, actorAddons] =
-                await Promise.all([
-                    usageResultPromise,
-                    this.getActorSubscription(actor),
-                    this.getActorAddons(actor),
-                ]);
+            const [usageResult, subscription, actorAddons] = await Promise.all([
+                usageResultPromise,
+                this.#actorSubscriptionWithStatus(actor),
+                this.getActorAddons(actor),
+            ]);
+            const { policy: actorSubscription, provisionalUntil } =
+                subscription;
 
             const actorUsages = await this.exactUsageNearAllowance(
                 userId,
@@ -601,6 +602,7 @@ export class MeteringService extends PuterService {
                 settledAllowanceUsed,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
+                provisionalUntil,
             );
 
             const own = this.#withDetail(actorUsages, usageResult.detail);
@@ -723,12 +725,13 @@ export class MeteringService extends PuterService {
                 appCallCount: usages.length,
             });
 
-            const [usageResult, actorSubscription, actorAddons] =
-                await Promise.all([
-                    usageResultPromise,
-                    this.getActorSubscription(actor),
-                    this.getActorAddons(actor),
-                ]);
+            const [usageResult, subscription, actorAddons] = await Promise.all([
+                usageResultPromise,
+                this.#actorSubscriptionWithStatus(actor),
+                this.getActorAddons(actor),
+            ]);
+            const { policy: actorSubscription, provisionalUntil } =
+                subscription;
 
             const actorUsages = await this.exactUsageNearAllowance(
                 userId,
@@ -761,6 +764,7 @@ export class MeteringService extends PuterService {
                 settledAllowanceUsed,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
+                provisionalUntil,
             );
 
             const own = this.#withDetail(actorUsages, usageResult.detail);
@@ -1839,12 +1843,13 @@ export class MeteringService extends PuterService {
         const uuid = actor.user?.uuid;
         if (!uuid) return;
         try {
-            const subscription = await this.getActorSubscription(actor);
+            const { policy: subscription, provisionalUntil } =
+                await this.#actorSubscriptionWithStatus(actor);
             // A non-positive allowance is how a policy says it isn't metered
             // (the overuse alarm reads it the same way) — no budget to run out
             // of, and no reason to pay for the reads below.
             if (!(subscription.monthUsageAllowance > 0)) {
-                this.rememberHasCredits(uuid, true);
+                this.rememberHasCredits(uuid, true, provisionalUntil);
                 return;
             }
             const [addons, totals] = await Promise.all([
@@ -1859,11 +1864,20 @@ export class MeteringService extends PuterService {
                 ),
                 subscription.monthUsageAllowance,
                 addons,
+                provisionalUntil,
             );
         } catch (e) {
-            // Leave whatever is cached in place rather than caching a failure;
-            // an actor with no entry answers `true` and is tried again next
-            // request.
+            // Fail open briefly instead of replaying a stale answer, or
+            // blocking every request on the failing store.
+            const stale = this.creditCache.get(uuid);
+            if (!stale || stale.expiresAt <= Date.now()) {
+                this.creditCache.set(uuid, {
+                    hasCredits: true,
+                    expiresAt:
+                        Date.now() +
+                        MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS,
+                });
+            }
             console.warn(
                 `[metering] credit refresh failed for ${uuid}: ${(e as Error).message}`,
             );
@@ -1885,9 +1899,10 @@ export class MeteringService extends PuterService {
         allowanceUsed: number,
         monthUsageAllowance: number,
         addons: UsageAddons | null | undefined,
+        provisionalUntil: number | undefined,
     ): void {
         if (!(monthUsageAllowance > 0)) {
-            this.rememberHasCredits(userId, true);
+            this.rememberHasCredits(userId, true, provisionalUntil);
             return;
         }
         const remaining = MeteringService.remainingFrom(
@@ -1895,7 +1910,9 @@ export class MeteringService extends PuterService {
             monthUsageAllowance,
             addons,
         );
-        this.rememberHasCredits(userId, remaining > 0);
+        this.rememberHasCredits(userId, remaining > 0, provisionalUntil);
+        // A provisional plan may not be this actor's; don't alert on it.
+        if (provisionalUntil !== undefined) return;
         this.#noteCreditState(
             userId,
             remaining,
@@ -1952,11 +1969,23 @@ export class MeteringService extends PuterService {
         }
     }
 
-    private rememberHasCredits(userId: string, hasCredits: boolean): void {
+    /**
+     * `provisionalUntil` is an absolute cap, so repeated writes inside a
+     * provisional window can't extend the entry.
+     */
+    private rememberHasCredits(
+        userId: string,
+        hasCredits: boolean,
+        provisionalUntil: number | undefined,
+    ): void {
+        const expiresAt = Math.min(
+            Date.now() + MeteringService.CREDIT_CACHE_MS,
+            provisionalUntil ?? Number.POSITIVE_INFINITY,
+        );
         const existing = this.creditCache.get(userId);
         if (existing) {
             existing.hasCredits = hasCredits;
-            existing.expiresAt = Date.now() + MeteringService.CREDIT_CACHE_MS;
+            existing.expiresAt = expiresAt;
             return;
         }
         // Map preserves insertion order; FIFO-evict so a flood of one-shot
@@ -1965,10 +1994,7 @@ export class MeteringService extends PuterService {
             const oldest = this.creditCache.keys().next().value;
             if (oldest !== undefined) this.creditCache.delete(oldest);
         }
-        this.creditCache.set(userId, {
-            hasCredits,
-            expiresAt: Date.now() + MeteringService.CREDIT_CACHE_MS,
-        });
+        this.creditCache.set(userId, { hasCredits, expiresAt });
     }
 
     /**
@@ -1999,6 +2025,18 @@ export class MeteringService extends PuterService {
     }
 
     async getActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
+        return (await this.#actorSubscriptionWithStatus(actor)).policy;
+    }
+
+    /**
+     * `provisionalUntil` is set when the answer may not be this actor's plan
+     * (failed lookup, or an actor missing its email or numeric id). Clean
+     * answers need no cap because plan changes drop both caches.
+     */
+    async #actorSubscriptionWithStatus(actor: Actor): Promise<{
+        policy: SubscriptionPolicy;
+        provisionalUntil?: number;
+    }> {
         if (!actor.user?.uuid)
             throw new HttpError(403, 'Actor must be a user to get policy', {
                 legacyCode: 'forbidden',
@@ -2007,15 +2045,39 @@ export class MeteringService extends PuterService {
         const uuid = actor.user.uuid;
         const now = Date.now();
         const cached = this.subscriptionCache.get(uuid);
-        if (cached && cached.expiresAt > now) return cached.policy;
+        if (cached && cached.expiresAt > now)
+            return {
+                policy: cached.policy,
+                provisionalUntil: cached.lookupFailed
+                    ? cached.expiresAt
+                    : undefined,
+            };
 
-        const { policy, lookupFailed } =
-            await this.#resolveActorSubscription(actor);
+        const resolved = await this.#resolveActorSubscription(actor);
 
-        // Without the email (an actor built from a few row fields), the
-        // email-keyed default and fallback can't be resolved, so the answer
-        // isn't this account's plan and must not be cached under it.
-        if (actor.user.email === undefined) return policy;
+        // Missing the email or numeric id some resolvers key on, so the answer
+        // may not be this account's plan. `email: null` (a temp user) caches.
+        if (
+            actor.user.email === undefined ||
+            typeof actor.user.id !== 'number'
+        ) {
+            return {
+                policy: resolved.policy,
+                provisionalUntil:
+                    now + MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS,
+            };
+        }
+
+        // A concurrent miss may have cached a clean answer meanwhile; keep it.
+        const stillFresh = this.subscriptionCache.get(uuid);
+        if (
+            resolved.lookupFailed &&
+            stillFresh &&
+            stillFresh.expiresAt > now &&
+            !stillFresh.lookupFailed
+        ) {
+            return { policy: stillFresh.policy };
+        }
 
         // Map preserves insertion order; FIFO-evict so a flood of one-shot
         // actors can't grow this without bound.
@@ -2026,15 +2088,20 @@ export class MeteringService extends PuterService {
             const oldest = this.subscriptionCache.keys().next().value;
             if (oldest !== undefined) this.subscriptionCache.delete(oldest);
         }
+        const expiresAt =
+            now +
+            (resolved.lookupFailed
+                ? MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS
+                : MeteringService.SUBSCRIPTION_CACHE_MS);
         this.subscriptionCache.set(uuid, {
-            policy,
-            expiresAt:
-                now +
-                (lookupFailed
-                    ? MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS
-                    : MeteringService.SUBSCRIPTION_CACHE_MS),
+            policy: resolved.policy,
+            lookupFailed: resolved.lookupFailed,
+            expiresAt,
         });
-        return policy;
+        return {
+            policy: resolved.policy,
+            provisionalUntil: resolved.lookupFailed ? expiresAt : undefined,
+        };
     }
 
     /** `lookupFailed`: a resolver or the allowance read threw, so it fell back. */
