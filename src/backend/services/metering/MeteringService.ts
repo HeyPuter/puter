@@ -1543,7 +1543,7 @@ export class MeteringService extends PuterService {
     async getRemainingUsage(actor: Actor): Promise<number> {
         const [{ remaining }, held] = await Promise.all([
             this.getAllowedUsage(actor),
-            this.#outstandingHolds(actor),
+            this.getOutstandingHolds(actor),
         ]);
         return Math.max(0, (remaining || 0) - held);
     }
@@ -1603,7 +1603,7 @@ export class MeteringService extends PuterService {
     }
 
     /** Budget this actor has committed to requests that are still running. */
-    async #outstandingHolds(actor: Actor): Promise<number> {
+    async getOutstandingHolds(actor: Actor): Promise<number> {
         const userId = actor?.user?.uuid;
         if (!userId || isSystemActor(actor)) return 0;
         return this.stores.creditHold.outstanding(userId);

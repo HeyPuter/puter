@@ -91,10 +91,11 @@ export class TogetherAIProvider implements IChatProvider {
                             ),
                         ),
                     },
-                    // Together only reports a context length. The driver caps
-                    // output at max_tokens minus an estimated input count, which
-                    // runs low on whitespace-poor prompts — reserve headroom so
-                    // the cap doesn't overshoot the context as often.
+                    // Together only reports a context length, so most of it
+                    // stands in for an output limit. The driver also caps
+                    // output at what the window leaves after an estimated
+                    // prompt, which runs low on whitespace-poor prompts — the
+                    // headroom keeps short prompts from overshooting it.
                     max_tokens: model.context_length
                         ? Math.floor(model.context_length * 0.95)
                         : 8000,

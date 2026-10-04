@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
 import { makeActor } from './core/actor';
+import type { Actor } from './core/actor';
+import { runWithContext } from './core/context';
 import { PuterServer } from './server';
 import { IConfig } from './types';
 import { puterClients } from './clients';
@@ -397,3 +399,24 @@ export const setupPuterTestEnv = async (
         throw e;
     }
 };
+
+/**
+ * `controller` with each handler run inside a request scope of its own, as the
+ * router runs it — for tests that call handlers directly. The scope carries the
+ * request's actor.
+ */
+export const inRequestScope = <T extends object>(controller: T): T =>
+    new Proxy(controller, {
+        get(target, prop) {
+            const value = Reflect.get(target, prop, target);
+            if (typeof value !== 'function') return value;
+            return (...args: unknown[]) =>
+                runWithContext(
+                    {
+                        actor: (args[0] as { actor?: Actor } | undefined)
+                            ?.actor,
+                    },
+                    () => value.apply(target, args),
+                );
+        },
+    });

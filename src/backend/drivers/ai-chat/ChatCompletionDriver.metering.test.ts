@@ -38,6 +38,7 @@ import {
     vi,
 } from 'vitest';
 
+import { Context } from '../../core/context.js';
 import type { UsageInput } from '../../services/metering/types.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -45,7 +46,7 @@ import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import type { IChatCompleteResult } from './types.js';
-import type { AIChatStream } from './utils/Streaming.js';
+import { type AIChatStream, ChatStreamAbortedError } from './utils/Streaming.js';
 
 let server: PuterServer;
 
@@ -365,6 +366,8 @@ describe('ChatCompletionDriver credit gate against real metering', () => {
         // Let the first request clear the gate and take its hold.
         await vi.waitFor(() => expect(completeSpy).toHaveBeenCalledTimes(1));
 
+        // Nothing is spent yet, only held: a retry once the first finishes is
+        // the remedy, not a top-up.
         await expect(
             withTestActor(
                 () =>
@@ -375,8 +378,9 @@ describe('ChatCompletionDriver credit gate against real metering', () => {
                 actor,
             ),
         ).rejects.toMatchObject({
-            statusCode: 402,
-            legacyCode: 'insufficient_funds',
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+            code: 'credits_reserved',
         });
         // The second request never reached a provider.
         expect(completeSpy).toHaveBeenCalledTimes(1);
@@ -617,5 +621,248 @@ describe('ChatCompletionDriver credit gate on multimodal prompts', () => {
             legacyCode: 'insufficient_funds',
         });
         expect(completeSpy).toHaveBeenCalledTimes(1);
+    });
+});
+
+// `max_tokens` is a model's output limit and `context` its whole window; the
+// cap is the lesser of the limit and what the window leaves after the prompt.
+describe('ChatCompletionDriver output ceiling', () => {
+    // ~15k estimated tokens: past an 8192-token output limit.
+    const longPrompt = [{ role: 'user', content: 'x '.repeat(20_000) }];
+
+    const withModel = async (model: Record<string, unknown>) => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
+            { ...PRICED_MODEL, ...model },
+        ] as never);
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            Number.MAX_SAFE_INTEGER,
+        );
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValue({
+                message: { role: 'assistant', content: 'ok' },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+        const d = await makeDriver();
+        await withTestActor(() =>
+            d.complete({ model: 'priced', messages: longPrompt }),
+        );
+        return (completeSpy.mock.calls[0]![0] as { max_tokens: number })
+            .max_tokens;
+    };
+
+    it('serves a prompt longer than the output limit when the window fits it', async () => {
+        expect(await withModel({ max_tokens: 8192, context: 200_000 })).toBe(
+            8192,
+        );
+    });
+
+    it('caps output at what the window leaves after the prompt', async () => {
+        const maxTokens = await withModel({
+            max_tokens: 32_000,
+            context: 32_000,
+        });
+        expect(maxTokens).toBeGreaterThan(0);
+        expect(maxTokens).toBeLessThan(32_000 - 10_000);
+    });
+
+    it('leaves a prompt estimated past the window for the provider to refuse', async () => {
+        expect(await withModel({ max_tokens: 8192, context: 10_000 })).toBe(
+            8192,
+        );
+    });
+});
+
+describe('ChatCompletionDriver when the balance runs out', () => {
+    const spentToATenth = async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const allowance = (await metering.getActorSubscription(actor))
+            .monthUsageAllowance;
+        await metering.incrementUsage(
+            actor,
+            'test:prior-spend',
+            1,
+            Math.floor(allowance * 0.9),
+        );
+        return actor;
+    };
+
+    /** A non-stream completion that reports `output(cap)` output tokens. */
+    const completeWithOutput = async (
+        actor: never,
+        output: (cap: number) => number,
+    ) => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementationOnce(
+            async (args) =>
+                ({
+                    message: { role: 'assistant', content: 'cut' },
+                    usage: {
+                        input_tokens: 1,
+                        output_tokens: output(
+                            (args as { max_tokens: number }).max_tokens,
+                        ),
+                    },
+                    finish_reason: 'length',
+                }) as never,
+        );
+        return withTestActor(async () => {
+            await driver.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'go' }],
+            });
+            return Context.get('driverMetadata') as Record<string, unknown>;
+        }, actor);
+    };
+
+    it('flags a completion that used all of a balance-bound cap', async () => {
+        const metadata = await completeWithOutput(
+            await spentToATenth(),
+            (cap) => cap,
+        );
+        expect(metadata.usage_limited).toBe(true);
+    });
+
+    it('leaves a completion that stopped short of the cap alone', async () => {
+        const metadata = await completeWithOutput(
+            await spentToATenth(),
+            (cap) => cap - 1,
+        );
+        expect(metadata.usage_limited).toBeUndefined();
+    });
+
+    it('does not flag a cap that only the account’s own holds shrank', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const allowance = (await metering.getActorSubscription(actor))
+            .monthUsageAllowance;
+        // The whole 8192-token limit is affordable from the balance...
+        expect(allowance - 1000).toBeGreaterThan(8192 * 2000);
+        // ...but a request in flight holds most of it.
+        const hold = await metering.reserveCredits(
+            actor,
+            allowance - 8192 * 1000,
+        );
+        try {
+            const metadata = await completeWithOutput(actor, (cap) => cap);
+            expect(metadata.usage_limited).toBeUndefined();
+        } finally {
+            await hold.release();
+        }
+    });
+
+    it('marks the usage line of a stream that ran the balance out', async () => {
+        const actor = await spentToATenth();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementationOnce(
+            async (args) =>
+                streamOf(async ({ chatStream }) => {
+                    chatStream
+                        .message()
+                        .contentBlock({ type: 'text' })
+                        .addText('cut');
+                    chatStream.end({
+                        input_tokens: 1,
+                        output_tokens: (args as { max_tokens: number })
+                            .max_tokens,
+                    });
+                }) as never,
+        );
+        const { stream } = (await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'priced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    stream: true,
+                }),
+            actor,
+        )) as unknown as { stream: Readable };
+
+        let body = '';
+        for await (const chunk of stream as AsyncIterable<Buffer>) {
+            body += chunk.toString();
+        }
+        const usageLine = body
+            .trim()
+            .split('\n')
+            .map((l) => JSON.parse(l))
+            .find((l) => l.type === 'usage');
+        expect(usageLine.metadata).toEqual({ usage_limited: true });
+    });
+
+    it('refuses with 402, not the retryable 429, when nothing is held', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const allowance = (await metering.getActorSubscription(actor))
+            .monthUsageAllowance;
+        await metering.incrementUsage(actor, 'test:prior-spend', 1, allowance);
+        await expect(
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: 'go' }],
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'insufficient_funds',
+        });
+    });
+});
+
+describe('ChatCompletionDriver when the caller hangs up', () => {
+    it('stops the generation and gives the hold back', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const abort = new AbortController();
+        let resume: () => void = () => {};
+        const paused = new Promise<void>((r) => {
+            resume = r;
+        });
+        let providerError: unknown;
+
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            streamOf(async ({ chatStream }) => {
+                const block = chatStream.message().contentBlock({ type: 'text' });
+                block.addText('first');
+                await paused;
+                try {
+                    // An upstream still generating: keeps writing until told.
+                    for (let i = 0; i < 1000; i++) block.addText('more');
+                } catch (e) {
+                    providerError = e;
+                    throw e;
+                }
+            }) as never,
+        );
+        const metered = vi.spyOn(metering, 'batchIncrementUsages');
+
+        const { stream } = (await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return driver.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'go' }],
+                stream: true,
+            });
+        }, actor)) as unknown as { stream: Readable };
+        expect(await metering.getOutstandingHolds(actor)).toBeGreaterThan(0);
+
+        abort.abort();
+        resume();
+
+        let body = '';
+        for await (const chunk of stream as AsyncIterable<Buffer>) {
+            body += chunk.toString();
+        }
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(providerError).toBeInstanceOf(ChatStreamAbortedError);
+        // Nobody is listening, so no error line is written for the abort.
+        expect(body).not.toContain('"type":"error"');
+        expect(await metering.getOutstandingHolds(actor)).toBe(0);
+        // What was generated before the hang-up is still charged.
+        expect(metered).toHaveBeenCalled();
     });
 });
