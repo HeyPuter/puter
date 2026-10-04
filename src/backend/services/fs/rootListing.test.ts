@@ -26,7 +26,7 @@ import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
 import type { PermissionService } from '../permission/PermissionService.js';
-import { listRootEntries } from './rootListing.js';
+import { clientParentUid, listRootEntries } from './rootListing.js';
 
 let server: PuterServer;
 let fsEntryStore: FSEntryStore;
@@ -265,5 +265,84 @@ describe('listRootEntries', () => {
         await expect(
             listFor({ user: { username: 'no-such-user' } as Actor['user'] }),
         ).resolves.toEqual([]);
+    });
+});
+
+describe('clientParentUid', () => {
+    const parentUidFor = (
+        actor: Actor,
+        entry: { path: string; parentUid: string | null },
+    ) =>
+        clientParentUid(
+            actor,
+            entry,
+            server.services.acl,
+            server.stores.permission,
+        );
+
+    it('nulls a home child’s parent for a token scoped below the home', async () => {
+        const user = await makeUser();
+        const documents = (await fsEntryStore.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        const actor = await tokenActorFor(user.userId, [
+            `fs:${documents.uuid}:read`,
+        ]);
+
+        await expect(parentUidFor(actor, documents)).resolves.toBeNull();
+    });
+
+    it('keeps it for a token that can list the home', async () => {
+        const user = await makeUser();
+        const home = (await fsEntryStore.getEntryByPath(`/${user.username}`))!;
+        const documents = (await fsEntryStore.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        const actor = await tokenActorFor(user.userId, [
+            `fs:${home.uuid}:list`,
+        ]);
+
+        await expect(parentUidFor(actor, documents)).resolves.toBe(home.uuid);
+    });
+
+    it('keeps it for a session or a full-access token', async () => {
+        const user = await makeUser();
+        const documents = (await fsEntryStore.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        const fullAccess = await tokenActorFor(user.userId, [FULL_API_ACCESS]);
+
+        for (const actor of [user.actor, fullAccess]) {
+            await expect(parentUidFor(actor, documents)).resolves.toBe(
+                documents.parentUid,
+            );
+        }
+    });
+
+    it('does not look up permissions for an entry that is not a direct home child', async () => {
+        const user = await makeUser();
+        const documents = (await fsEntryStore.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        const nested = {
+            path: `/${user.username}/Documents/nested`,
+            parentUid: documents.uuid,
+        };
+        const actor = await tokenActorFor(user.userId, [
+            `fs:${documents.uuid}:read`,
+        ]);
+        const hasAny = vi.spyOn(
+            server.stores.permission,
+            'hasAnyAccessTokenPerm',
+        );
+
+        try {
+            await expect(parentUidFor(actor, nested)).resolves.toBe(
+                documents.uuid,
+            );
+            expect(hasAny).not.toHaveBeenCalled();
+        } finally {
+            hasAny.mockRestore();
+        }
     });
 });

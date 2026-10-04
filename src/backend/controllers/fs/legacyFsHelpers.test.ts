@@ -412,6 +412,23 @@ describe('toLegacyEntry', () => {
         );
         expect(shaped.associated_app).toBeNull();
     });
+
+    it('uses the parentUid override, including null, over the entry’s own', async () => {
+        const hidden = await toLegacyEntry(undefined, baseEntry(), {
+            parentUid: null,
+        });
+        expect(hidden.parent_id).toBeNull();
+        expect(hidden.parent_uid).toBeNull();
+
+        const overridden = await toLegacyEntry(undefined, baseEntry(), {
+            parentUid: 'other-parent',
+        });
+        expect(overridden.parent_id).toBe('other-parent');
+        expect(overridden.parent_uid).toBe('other-parent');
+
+        const defaulted = await toLegacyEntry(undefined, baseEntry());
+        expect(defaulted.parent_uid).toBe('parent-1');
+    });
 });
 
 describe('loadLegacyAssociatedApps short-circuit', () => {

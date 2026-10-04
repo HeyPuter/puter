@@ -57,6 +57,7 @@ import {
     splitParentAndName,
 } from '../../services/fs/resolveNode.js';
 import { maskEntryPath } from '../../services/fs/sharePathMask.js';
+import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     buildHostedBackingDenial,
     hostedIndexUrlBackingIsUnavailable,
@@ -510,11 +511,18 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        const [suggestedApps, appsById, shareFlags] = await Promise.all([
-            this.services.suggestedApps.getSuggestedApps(entry),
-            loadLegacyAssociatedApps(this.stores.app, [entry]),
-            this.services.share.shareFlags(actor, [entry]),
-        ]);
+        const [suggestedApps, appsById, shareFlags, parentUid] =
+            await Promise.all([
+                this.services.suggestedApps.getSuggestedApps(entry),
+                loadLegacyAssociatedApps(this.stores.app, [entry]),
+                this.services.share.shareFlags(actor, [entry]),
+                clientParentUid(
+                    actor,
+                    entry,
+                    this.services.acl,
+                    this.stores.permission,
+                ),
+            ]);
         entry.suggestedApps = suggestedApps;
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
@@ -526,6 +534,7 @@ export class LegacyFSController extends PuterController {
             },
             appsById,
             isShared: shareFlags.get(entry.uuid) ?? null,
+            parentUid,
         });
 
         // Optional hydrations:
