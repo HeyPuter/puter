@@ -697,11 +697,12 @@ export class SubdomainStore extends PuterStore {
         const before = await this.getByUuid(uuid, { primary: true });
         if (!before) return null;
 
+        // No `database_id` here: the MySQL schema has no such column.
         await this.clients.db.write(
             `UPDATE \`subdomains\`
                 SET \`user_id\` = ?, \`root_dir_id\` = ?, \`protected\` = \`protected\` OR ?,
                     \`app_owner\` = NULL, \`associated_app_id\` = NULL,
-                    \`database_id\` = NULL, \`domain\` = NULL
+                    \`domain\` = NULL
               WHERE \`uuid\` = ?`,
             [userId, rootDirId, this.clients.db.booleanValue(protect), uuid],
         );
