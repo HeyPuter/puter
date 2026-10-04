@@ -393,13 +393,22 @@ export class OCRDriver extends PuterDriver {
      * provider runs so the account's concurrent calls see it. Usage is still
      * metered from the pages the provider reports.
      */
-    async #holdCredits(actor: Actor, cost: number): Promise<CreditHold> {
-        const metering = this.services.metering;
-        if (!(await metering.hasEnoughCredits(actor, cost)))
+    async #holdCredits(
+        actor: Actor,
+        usageType: string,
+        cost: number,
+    ): Promise<CreditHold> {
+        // Priced at the cost factor usage is recorded at.
+        const hold = await this.#aiMetering.reserveAiCredits(
+            actor,
+            usageType,
+            cost,
+        );
+        if (!hold)
             throw new HttpError(402, 'Insufficient credits', {
                 legacyCode: 'insufficient_funds',
             });
-        return metering.reserveCredits(actor, cost);
+        return hold;
     }
 
     // -- AWS Textract -------------------------------------------------
@@ -453,6 +462,7 @@ export class OCRDriver extends PuterDriver {
         const costPerPage = OCR_COSTS[model.pageUsageType];
         const hold = await this.#holdCredits(
             actor,
+            model.pageUsageType,
             costPerPage * estimateOcrPages(loaded, model.provider),
         );
         try {
@@ -557,6 +567,7 @@ export class OCRDriver extends PuterDriver {
                 : 0);
         const hold = await this.#holdCredits(
             actor,
+            model.pageUsageType,
             costPerPage * estimateOcrPages(loaded, model.provider, args.pages),
         );
 

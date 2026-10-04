@@ -816,6 +816,26 @@ describe('OCRDriver credit pre-flight', () => {
         expect(cost).toBe(perPage * 12);
     });
 
+    it('prices the hold at the AI cost factor', async () => {
+        const { actor } = await makeUser();
+        const doubled = (_key: string, event: { factor: number }) => {
+            event.factor = 2;
+        };
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(3)),
+                    provider: 'mistral',
+                }),
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(checkedCosts()).toEqual([perPage * 3 * 2]);
+    });
+
     it('refuses with 402 a PDF the balance cannot cover, even when one page fits', async () => {
         const { actor } = await makeUser();
         const remaining =
