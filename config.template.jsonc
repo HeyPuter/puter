@@ -41,8 +41,9 @@
     // Fully-qualified externally-visible URL. Computed from protocol/domain/
     // pub_port if unset.
     "origin": "http://puter.localhost:4100",
-    // Public base URL for the API subdomain (used to build signed URLs and
-    // surfaced to the client by the `installedApps` and `whoami` extensions).
+    // Public API base URL. By default this is the api.<domain> subdomain.
+    // For single-host/IP deployments, set it to a same-origin path instead,
+    // for example "http://puter.localhost:4100/api".
     "api_base_url": "http://api.puter.localhost:4100",
     // Subdomains Puter routes on. Wildcard DNS (`*.<domain>`) must point at
     // this server for site/app hosting to work.
