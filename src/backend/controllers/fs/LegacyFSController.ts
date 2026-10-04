@@ -21,6 +21,7 @@ import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
+import { validate as validateUuid } from 'uuid';
 import {
     assertResolvedActor,
     isAccessTokenActor,
@@ -2834,7 +2835,11 @@ export class LegacyFSController extends PuterController {
             signature: query.signature as string,
         };
         const { uid } = parseSignedQuery(signed);
-        const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+        // A non-UUID uid can never match a real entry — skip the cache/DB
+        // round trip a forged request would otherwise pay for on every hit.
+        const entry = validateUuid(uid)
+            ? await this.stores.fsEntry.getEntryByUuid(uid)
+            : null;
         verifySignature(signed, action, signingCfg, entry?.userId ?? null);
         // Only a signature from before owner binding verifies without an entry.
         if (!entry)

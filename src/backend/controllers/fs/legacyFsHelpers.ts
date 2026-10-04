@@ -591,7 +591,11 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
             { legacyCode: 'internal_error' },
         );
     }
-    return { secret, apiBaseUrl };
+    return {
+        secret,
+        apiBaseUrl,
+        allowLegacySignatures: config.legacy_file_signatures !== false,
+    };
 }
 
 /**

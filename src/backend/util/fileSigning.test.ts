@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
 import {
     isSignatureValid,
@@ -212,5 +212,81 @@ describe('fileSigning owner binding', () => {
         ]);
         expect(url.searchParams.get('signature')).toBe(signed.signature);
         expect(signed.signature).toMatch(/^[0-9a-f]{64}$/);
+    });
+});
+
+describe('fileSigning legacy signature switch', () => {
+    const legacySign = (action: 'read' | 'write', expires: number) => {
+        const uid = makeEntry().uuid;
+        return {
+            uid,
+            expires: String(expires),
+            signature: createHash('sha256')
+                .update(`${uid}/${action}/${CONFIG.secret}/${expires}`)
+                .digest('hex'),
+        };
+    };
+    const farFuture = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+
+    it('accepts a pre-binding signature when allowLegacySignatures is unset (default on)', () => {
+        const read = legacySign('read', farFuture);
+        expect(isSignatureValid(read, 'read', CONFIG, OWNER_ID)).toBe(true);
+    });
+
+    it('refuses a pre-binding signature once allowLegacySignatures is false', () => {
+        const read = legacySign('read', farFuture);
+        const config = { ...CONFIG, allowLegacySignatures: false };
+        expect(() => verifySignature(read, 'read', config, OWNER_ID)).toThrow(
+            /Authentication failed/,
+        );
+    });
+
+    it('still accepts an owner-bound signature when allowLegacySignatures is false', () => {
+        const config = { ...CONFIG, allowLegacySignatures: false };
+        const signed = signFile(makeEntry(), config);
+        expect(() =>
+            verifySignature(
+                queryFromUrl(signed.read_url),
+                'read',
+                config,
+                OWNER_ID,
+            ),
+        ).not.toThrow();
+    });
+});
+
+describe('fileSigning legacy signature visibility', () => {
+    it('warns when a legacy signature is accepted, not for an owner-bound one', async () => {
+        vi.resetModules();
+        const fresh = await import('./fileSigning.js');
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const uid = makeEntry().uuid;
+            const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+            const legacy = {
+                uid,
+                expires: String(expires),
+                signature: createHash('sha256')
+                    .update(`${uid}/read/${CONFIG.secret}/${expires}`)
+                    .digest('hex'),
+            };
+            expect(
+                fresh.isSignatureValid(legacy, 'read', CONFIG, OWNER_ID),
+            ).toBe(true);
+            expect(warn).toHaveBeenCalledTimes(1);
+            // The log is operational, not forensic — no uid or signature in it.
+            expect(warn.mock.calls[0]?.[0]).not.toContain(uid);
+
+            const signed = fresh.signFile(makeEntry(), CONFIG);
+            fresh.verifySignature(
+                queryFromUrl(signed.read_url),
+                'read',
+                CONFIG,
+                OWNER_ID,
+            );
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally {
+            warn.mockRestore();
+        }
     });
 });

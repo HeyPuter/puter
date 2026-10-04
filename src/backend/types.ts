@@ -800,6 +800,14 @@ interface IConfigOptional {
     allow_gui_origins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
+    /**
+     * Accept the pre-owner-binding signature format on signed file URLs
+     * alongside the current owner-bound one. Default true, so URLs minted
+     * before owner binding shipped keep working. Set false once those have
+     * aged out — the old format has no owner check, so a signed folder URL
+     * keeps authorizing reads after the folder moves to another owner.
+     */
+    legacy_file_signatures?: boolean;
     /** Name of the session cookie the auth probe reads. */
     cookie_name: string;
     /** Minimum password length for login/signup validation. */
