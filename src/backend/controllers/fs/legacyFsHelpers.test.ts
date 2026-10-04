@@ -256,7 +256,21 @@ describe('signingConfigFromAppConfig', () => {
                 url_signature_secret: 's3cret',
                 api_base_url: 'https://api.test',
             } as never),
-        ).toEqual({ secret: 's3cret', apiBaseUrl: 'https://api.test' });
+        ).toEqual({
+            secret: 's3cret',
+            apiBaseUrl: 'https://api.test',
+            allowLegacySignatures: true,
+        });
+    });
+
+    it('stops accepting pre-binding signatures when legacy_file_signatures is false', () => {
+        expect(
+            signingConfigFromAppConfig({
+                url_signature_secret: 's3cret',
+                api_base_url: 'https://api.test',
+                legacy_file_signatures: false,
+            } as never).allowLegacySignatures,
+        ).toBe(false);
     });
 
     it('fails loudly when the signing secret is missing', () => {
