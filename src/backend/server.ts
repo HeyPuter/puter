@@ -111,6 +111,53 @@ import type {
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
 
+type ApiPathRouting = {
+    prefix: string;
+    hostname: string;
+};
+
+/**
+ * A path-based API endpoint is enabled only when `api_base_url` is a
+ * same-origin URL with a non-root pathname. This keeps the traditional
+ * `api.<domain>` routing untouched while allowing self-hosted deployments
+ * whose network only exposes one hostname/IP.
+ */
+const resolveApiPathRouting = (config: IConfig): ApiPathRouting | null => {
+    try {
+        const origin = new URL(config.origin);
+        const api = new URL(config.api_base_url);
+
+        if (api.origin !== origin.origin || api.search || api.hash) {
+            return null;
+        }
+
+        const prefix = api.pathname.replace(/\\/+$/, '');
+        if (!prefix || prefix === '/') {
+            return null;
+        }
+
+        return {
+            prefix,
+            hostname: origin.hostname,
+        };
+    } catch {
+        return null;
+    }
+};
+
+const allowsApiSubdomain = (
+    subdomain: RouteDescriptor['options']['subdomain'],
+): boolean =>
+    subdomain === 'api' ||
+    (Array.isArray(subdomain) && subdomain.includes('api'));
+
+const joinApiRoutePath = (prefix: string, routePath: string): string => {
+    if (routePath === '' || routePath === '/') {
+        return prefix;
+    }
+    return `${prefix}${routePath.startsWith('/') ? routePath : `/${routePath}`}`;
+};
+
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
     stores!: LayerInstances<typeof puterStores>;
@@ -118,6 +165,7 @@ export class PuterServer {
     controllers!: LayerInstances<typeof puterControllers>;
     drivers!: LayerInstances<typeof puterDrivers>;
     #config: IConfig;
+    #apiPathRouting: ApiPathRouting | null;
     #app!: ReturnType<typeof express>;
     #server: ReturnType<ReturnType<typeof express>['listen']> | null = null;
     #removeProcessGuards: (() => void) | null = null;
@@ -133,6 +181,7 @@ export class PuterServer {
         drivers: typeof puterDrivers = puterDrivers,
     ) {
         this.#config = config;
+        this.#apiPathRouting = resolveApiPathRouting(config);
         // Expose config to the extension API (extension.config)
         Object.assign(configContainer, config);
         this.#ready = this.#setupServer(
@@ -721,6 +770,12 @@ export class PuterServer {
         this.#app.use((req, res, next) => {
             const origin = req.headers.origin;
             const subdomain = activeSubdomain(req);
+            const apiPath = this.#apiPathRouting;
+            const isApiPathRequest =
+                apiPath !== null &&
+                req.hostname === apiPath.hostname &&
+                (req.path === apiPath.prefix ||
+                    req.path.startsWith(`${apiPath.prefix}/`));
 
             // Allow any origin. puter.js is meant to be consumed from
             // arbitrary third-party sites, so reflect the caller's origin
@@ -728,8 +783,9 @@ export class PuterServer {
             res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
             if (origin) res.vary('Origin');
 
-            // Sticky cookies require api to allow credentials, but only for the API subdomain, and be careful not to set any other credentials on it
-            if (subdomain === 'api' && origin) {
+            // Sticky cookies require credentials on both the traditional api
+            // subdomain and the explicitly configured same-origin api path.
+            if ((subdomain === 'api' || isApiPathRequest) && origin) {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             } else if (subdomain === 'dav') {
                 res.setHeader('Access-Control-Allow-Credentials', 'false');
@@ -923,6 +979,7 @@ export class PuterServer {
     ) {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
+        let routeSubdomainGate: RequestHandler | undefined;
 
         // Validated here rather than trusted, and by the same function the
         // driver decorator uses: a malformed requirement is a boot failure
@@ -962,7 +1019,8 @@ export class PuterServer {
         const isUse = route.method === 'use';
         if (opts.subdomain !== undefined) {
             if (opts.subdomain !== '*' && !isUse) {
-                mwChain.push(subdomainGate(opts.subdomain));
+                routeSubdomainGate = subdomainGate(opts.subdomain);
+                mwChain.push(routeSubdomainGate);
             }
             // subdomain: '*' → no gate, match any subdomain
         } else if (!isUse) {
@@ -1297,18 +1355,52 @@ export class PuterServer {
 
         // All express + WebDAV verbs accept the same (path, ...handlers) shape.
         // The `RouteMethod` union is the allowlist of method names we expose.
-        const method = app[route.method as keyof Application] as unknown;
-        if (typeof method !== 'function') {
-            throw new Error(
-                `Express app does not support method: ${route.method}`,
+        const registerRoute = (
+            path: string,
+            middleware: RequestHandler[],
+        ): void => {
+            const method = app[route.method as keyof Application] as unknown;
+            if (typeof method !== 'function') {
+                throw new Error(
+                    `Express app does not support method: ${route.method}`,
+                );
+            }
+            (method as (...args: unknown[]) => unknown).call(
+                app,
+                path,
+                ...middleware,
+                route.handler,
             );
+        };
+
+        registerRoute(fullPath, mwChain);
+
+        // A same-origin path in api_base_url is an explicit opt-in for
+        // path-based API access. Reuse the complete API middleware chain,
+        // except for the hostname-based subdomain gate that only makes sense
+        // on the traditional api.<domain> endpoint.
+        if (
+            !isUse &&
+            this.#apiPathRouting &&
+            allowsApiSubdomain(opts.subdomain) &&
+            typeof fullPath === 'string'
+        ) {
+            const aliasPath = joinApiRoutePath(
+                this.#apiPathRouting.prefix,
+                fullPath,
+            );
+            const apiAliasGate: RequestHandler = (req, _res, next) => {
+                if (req.hostname !== this.#apiPathRouting!.hostname) {
+                    next('route');
+                    return;
+                }
+                next();
+            };
+            const aliasMiddleware = mwChain.filter(
+                (middleware) => middleware !== routeSubdomainGate,
+            );
+            registerRoute(aliasPath, [apiAliasGate, ...aliasMiddleware]);
         }
-        (method as (...args: unknown[]) => unknown).call(
-            app,
-            fullPath,
-            ...mwChain,
-            route.handler,
-        );
     }
 
     /**
