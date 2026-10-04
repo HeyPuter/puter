@@ -147,6 +147,15 @@ describe('assertCreatablePath', () => {
         );
     });
 
+    it('rejects AppData/Trash regardless of case', () => {
+        expect(() => assertCreatablePath('/dan/appdata/x', 'dan')).toThrowError(
+            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+        );
+        expect(() => assertCreatablePath('/dan/TRASH/x', 'dan')).toThrowError(
+            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+        );
+    });
+
     it('allows exactly MAX_CREATE_DEPTH components below home', () => {
         const deep = `/dan/${Array.from({ length: MAX_CREATE_DEPTH }, (_, i) => `d${i}`).join('/')}`;
         expect(() => assertCreatablePath(deep, 'dan')).not.toThrow();
