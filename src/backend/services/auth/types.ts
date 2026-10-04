@@ -51,6 +51,8 @@ export interface SessionTokenPayload extends TokenPayloadBase {
     uuid: string;
     /** User uuid (plain). */
     user_uid: string;
+    /** Set on a worker credential riding this token type; not a browser session. */
+    worker?: boolean;
 }
 
 /**

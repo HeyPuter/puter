@@ -340,10 +340,9 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(appToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: a reauth token is only ever minted for the
+            // user's own session/GUI token, never an app token.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('app-under-user: returns reauth.session_expired when the app session expires_at is in the past', async () => {
@@ -372,10 +371,7 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(appToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_expired',
-                auth_id: user.uuid,
-            });
+            expect(result.reauth).toEqual({ reason: 'session_expired' });
         });
 
         // ── Access-token verify path ───────────────────────────────
@@ -404,10 +400,8 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(accessToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: access tokens never get a reauth token.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('access-token: returns reauth.session_expired when the access-token session expires_at is in the past', async () => {
@@ -440,10 +434,27 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(accessToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_expired',
-                auth_id: user.uuid,
-            });
+            expect(result.reauth).toEqual({ reason: 'session_expired' });
+        });
+
+        it('a revoked worker session gets no auth_id even though it rides the session token type', async () => {
+            const user = await makeUser();
+            const actor: Actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            };
+            const { token, session } =
+                await authService.createWorkerSessionToken(
+                    actor,
+                    user,
+                    `w-${uuidv4()}`,
+                );
+            await server.stores.session.removeByUuid(
+                (session as { uuid: string }).uuid,
+            );
+
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
     });
 
@@ -1515,10 +1526,9 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(token);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: a worker credential isn't a browser session,
+            // even though it rides the session/gui token type.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('createWorkerSessionToken after revoke mints a new session uuid (composite cache invalidates)', async () => {

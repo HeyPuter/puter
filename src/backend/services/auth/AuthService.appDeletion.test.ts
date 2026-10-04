@@ -259,4 +259,20 @@ describe('an app uid that returns after its app was deleted', () => {
         expect(await isRevoked(sessionUid(old))).toBe(true);
         expect((await authenticate(fresh)).actor).toBeTruthy();
     });
+
+    it('rejects a stale app token with no auth_id or reauth_token', async () => {
+        const { app, actor } = await createApp();
+        const token = await env.server.services.auth.getUserAppToken(
+            actor,
+            app.uid,
+        );
+        await backdateSession(sessionUid(token), 3600);
+
+        const res = await api('/whoami', token);
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.code).toBe('reauth_required');
+        expect(body.reauth_token).toBeUndefined();
+        expect(body.auth_id).toBeUndefined();
+    });
 });
