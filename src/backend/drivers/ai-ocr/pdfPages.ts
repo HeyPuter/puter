@@ -38,12 +38,10 @@ const TYPE_PAGE = /\/Type[\s\0]*\/Page(?![^\s\0/<>[\]()%{}])/;
 const TYPE_PAGES = /\/Type[\s\0]*\/Pages(?![^\s\0/<>[\]()%{}])/;
 const TYPE_OBJECT_STREAM = /\/Type[\s\0]*\/ObjStm(?![^\s\0/<>[\]()%{}])/;
 const HAS_TYPE = /\/Type[\s\0]*\//;
-const HAS_KIDS = /\/Kids[\s\0]*\[/;
-const REF = (key: string) =>
-    new RegExp(`\\/${key}[\\s\\0]+\\d{1,10}[\\s\\0]+\\d{1,10}[\\s\\0]+R\\b`);
-const HAS_PARENT = REF('Parent');
+const KIDS = /\/Kids[\s\0]*\[([^\]]*)\]/;
+const KID_REF = /(?<!\d)(\d{1,10})[\s\0]+\d{1,10}[\s\0]+R\b/g;
 const COUNT = /\/Count[\s\0]+(\d{1,10})(?![\d.])/;
-const COUNT_INDIRECT = REF('Count');
+const COUNT_INDIRECT = /\/Count[\s\0]+\d{1,10}[\s\0]+\d{1,10}[\s\0]+R\b/;
 const STREAM_START = />>[\s\0]*stream(?:\r\n|\r|\n)/;
 const FLATE_FILTER =
     /\/Filter[\s\0]*(?:\/(?:FlateDecode|Fl)|\[[\s\0]*\/(?:FlateDecode|Fl)[\s\0]*\])/;
@@ -128,8 +126,21 @@ export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
     // shrink the tree can't undercount what an earlier one established.
     const treeCounts = new Map<number, number>();
     const pageObjects = new Set<number>();
+    // A page tree kid with no /Type and no /Kids is a page to real readers.
+    // Only kids count: outline items, widgets and name-tree leaves look the
+    // same but never sit in a page tree's /Kids.
+    const treeKids = new Set<number>();
+    const untypedLeaves = new Set<number>();
     const visit = (id: number, rawDict: string): boolean => {
         const dict = decodeNameEscapes(rawDict);
+        const typed = HAS_TYPE.test(dict);
+        const kids = KIDS.exec(dict);
+        // An untyped node needs a /Count to pass as a page tree node; form
+        // fields and name trees carry /Kids without one.
+        if (kids && (TYPE_PAGES.test(dict) || (!typed && COUNT.test(dict)))) {
+            for (const ref of kids[1]!.matchAll(KID_REF))
+                treeKids.add(Number(ref[1]));
+        }
         if (TYPE_PAGES.test(dict)) {
             // An indirect /Count (`N 0 R`) isn't a count — it's a reference
             // whose object number happens to look like one.
@@ -139,14 +150,8 @@ export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
             treeCounts.set(id, Math.max(count, treeCounts.get(id) ?? 0));
             return count >= limit;
         }
-        // A kid with no /Type is still a page to any real reader as long as
-        // it isn't an intermediate node (no /Kids); only trust that reading
-        // when /Type is missing entirely, not just unrecognized.
-        const isUntypedPage =
-            !HAS_TYPE.test(dict) &&
-            HAS_PARENT.test(dict) &&
-            !HAS_KIDS.test(dict);
-        if (TYPE_PAGE.test(dict) || isUntypedPage) pageObjects.add(id);
+        if (TYPE_PAGE.test(dict)) pageObjects.add(id);
+        else if (!typed && !kids) untypedLeaves.add(id);
         return pageObjects.size >= limit;
     };
 
@@ -183,6 +188,9 @@ export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
         }
     }
 
+    for (const id of untypedLeaves) {
+        if (treeKids.has(id)) pageObjects.add(id);
+    }
     let pages = pageObjects.size;
     for (const count of treeCounts.values()) pages = Math.max(pages, count);
     return pages > 0 ? Math.min(pages, limit) : null;

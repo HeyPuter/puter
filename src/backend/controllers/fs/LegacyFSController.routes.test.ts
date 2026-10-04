@@ -1040,6 +1040,26 @@ describe('LegacyFSController.file (non-UUID uid)', () => {
         expect(spy).toHaveBeenCalledTimes(1);
         spy.mockRestore();
     });
+
+    it('looks up a uuid whose version and variant nibbles are nonstandard', async () => {
+        const spy = vi.spyOn(server.stores.fsEntry, 'getEntryByUuid');
+        const expires = Math.ceil(Date.now() / 1000) + 9_999_999_999_999;
+        const { res } = makeRes();
+        await expect(
+            controller.file(
+                makeReq({
+                    query: {
+                        uid: '0123abcd-0000-0000-0000-0123456789ab',
+                        expires: String(expires),
+                        signature: 'deadbeef',
+                    },
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(spy).toHaveBeenCalledTimes(1);
+        spy.mockRestore();
+    });
 });
 
 // -- /file via a signature minted by someone other than the owner -------

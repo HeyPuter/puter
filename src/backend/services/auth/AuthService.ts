@@ -2138,11 +2138,6 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        // A worker credential rides the session/gui token type but isn't a
-        // browser session — never hand back a reauth token for one.
-        const auth_id = decoded.worker
-            ? undefined
-            : this.#authIdFor(user as UserRow);
 
         // v2 tokens prefer `session_uid`; v1 only carries `uuid`. Both
         // store the web-session uuid.
@@ -2153,6 +2148,13 @@ export class AuthService extends PuterService {
                   sessionUuid,
               )) as SessionRow | null)
             : null;
+
+        // Only a browser session gets a reauth token back. A worker credential
+        // rides the same token type, so check both the claim and the row.
+        const auth_id =
+            decoded.worker || (rawRow?.kind ?? 'web') !== 'web'
+                ? undefined
+                : this.#authIdFor(user as UserRow);
 
         if (rawRow?.revoked_at != null) {
             return { reauth: { reason: 'session_revoked', auth_id } };

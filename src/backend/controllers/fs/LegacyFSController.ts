@@ -21,7 +21,6 @@ import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import { validate as validateUuid } from 'uuid';
 import {
     assertResolvedActor,
     isAccessTokenActor,
@@ -104,6 +103,11 @@ import {
 type RouterCache = Map<string, RequestHandler | null>;
 
 const additionalRoutePaths: Record<string, string> = {};
+
+// Shape only: version and variant nibbles aren't checked, so a row whose uuid
+// wasn't minted by an RFC-conforming generator still resolves.
+const UUID_SHAPE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Legacy `/batch` multipart upload caps. Each file is buffered fully into
 // memory before any quota / storage check runs, so without these limits an
@@ -2846,7 +2850,7 @@ export class LegacyFSController extends PuterController {
         const { uid } = parseSignedQuery(signed);
         // A non-UUID uid can never match a real entry — skip the cache/DB
         // round trip a forged request would otherwise pay for on every hit.
-        const entry = validateUuid(uid)
+        const entry = UUID_SHAPE.test(uid)
             ? await this.stores.fsEntry.getEntryByUuid(uid)
             : null;
         verifySignature(signed, action, signingCfg, entry?.userId ?? null);
