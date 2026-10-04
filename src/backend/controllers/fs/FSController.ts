@@ -2732,10 +2732,13 @@ export class FSController extends PuterController {
             return fsEntry;
         }
 
-        const thumbnailPayload = { url: requestedThumbnail };
+        const thumbnailPayload = {
+            url: requestedThumbnail,
+            uuid: fsEntry.uuid,
+        };
         // emitAndWait — the thumbnails extension may rewrite `url` from a
-        // data URL to an `s3://` pointer; plain `emit` races with the DB
-        // update below.
+        // data URL to an `s3://` pointer bound to `uuid`, or drop a pointer
+        // not minted for it; plain `emit` races with the DB update below.
         await this.clients.event.emitAndWait(
             'thumbnail.created',
             thumbnailPayload,
@@ -2824,6 +2827,9 @@ export class FSController extends PuterController {
                         index: item.index,
                         contentType: item.contentType,
                         ...(item.size !== undefined ? { size: item.size } : {}),
+                        // The entry the upload lands on; its thumbnail key is
+                        // bound to it.
+                        item_uid: responses[item.index]?.objectKey ?? '',
                     }) as ThumbnailUploadPrepareItem,
             ),
         };
