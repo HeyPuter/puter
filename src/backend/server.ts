@@ -131,7 +131,10 @@ const resolveApiPathRouting = (config: IConfig): ApiPathRouting | null => {
             return null;
         }
 
-        const prefix = api.pathname.replace(/\\/+$/, '');
+        let prefix = api.pathname;
+        while (prefix.length > 1 && prefix.endsWith('/')) {
+            prefix = prefix.slice(0, -1);
+        }
         if (!prefix || prefix === '/') {
             return null;
         }
