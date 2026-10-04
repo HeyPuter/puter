@@ -72,7 +72,7 @@ describe('ensureSystemSite', () => {
         expect(Boolean(site?.protected)).toBe(false);
     });
 
-    it('re-owns directories and replaces a site another account holds, then leaves them alone', async () => {
+    it('re-owns directories and reclaims a site another account holds, then leaves them alone', async () => {
         const root = `/${uniqueName()}`;
         const dirPath = `${root}/files`;
         const dir = await server.stores.fsEntry.resolveParentDirectory(
@@ -93,7 +93,8 @@ describe('ensureSystemSite', () => {
         expect(await ownerOf(root)).toBe(systemUserId);
         expect(await ownerOf(dirPath)).toBe(systemUserId);
         const healed = await server.stores.subdomain.getBySubdomain(subdomain);
-        expect(healed?.uuid).not.toBe(stale.uuid);
+        // Updated in place, not replaced: same row, same uuid.
+        expect(healed?.uuid).toBe(stale.uuid);
         expect(healed?.user_id).toBe(systemUserId);
         expect(healed?.root_dir_id).toBe(dir.id);
         expect(Boolean(healed?.protected)).toBe(true);
@@ -108,5 +109,37 @@ describe('ensureSystemSite', () => {
         expect(
             (await server.stores.subdomain.getBySubdomain(subdomain))?.uuid,
         ).toBe(healed!.uuid);
+    });
+
+    it('never clears protected, and drops the previous holder’s bindings', async () => {
+        const root = `/${uniqueName()}`;
+        const dirPath = `${root}/files`;
+        const dir = await server.stores.fsEntry.resolveParentDirectory(
+            otherUserId,
+            dirPath,
+            true,
+        );
+        const subdomain = uniqueName();
+        const stale = await server.stores.subdomain.create({
+            userId: otherUserId,
+            subdomain,
+            rootDirId: dir.id,
+            isProtected: true,
+        });
+        await server.clients.db.write(
+            'UPDATE `subdomains` SET `domain` = ?, `preamble_version` = ? WHERE `uuid` = ?',
+            ['example.test', 'v1', stale.uuid],
+        );
+
+        // Not asked for protection; the existing flag stays anyway.
+        await ensureSystemSite(server.stores, { subdomain, dirPath });
+
+        const healed = await server.stores.subdomain.getBySubdomain(subdomain);
+        expect(healed?.uuid).toBe(stale.uuid);
+        expect(healed?.user_id).toBe(systemUserId);
+        expect(healed?.root_dir_id).toBe(dir.id);
+        expect(Boolean(healed?.protected)).toBe(true);
+        expect(healed?.domain ?? null).toBeNull();
+        expect(healed?.preamble_version).toBe('v1');
     });
 });

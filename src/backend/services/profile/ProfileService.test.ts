@@ -33,9 +33,9 @@ import {
     PROFILE_DISPLAY_NAME_MAX_LENGTH,
     PROFILE_PICTURE_MAX_BYTES,
     PROFILES_PATH_PREFIX,
-    PROFILES_SUBDOMAIN,
     type ProfileService,
 } from './ProfileService.js';
+import { PROFILES_SUBDOMAIN } from '../../util/systemSite.js';
 
 const PICTURE =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
@@ -371,6 +371,32 @@ describe('ProfileService', () => {
             );
         } finally {
             await gated.shutdown();
+        }
+    });
+
+    it('saves a profile past the system user’s storage allowance', async () => {
+        const limited = await setupTestServer({
+            is_storage_limited: true,
+            storage_capacity: 50,
+        } as never);
+        try {
+            const created = await limited.stores.user.create({
+                username: 'limited-user',
+                uuid: uuidv4(),
+                password: null,
+                email: 'limited@test.local',
+                requires_email_confirmation: false,
+            } as Parameters<typeof limited.stores.user.create>[0]);
+            const user = (await limited.stores.user.getById(created.id))!;
+            const bio = 'x'.repeat(200);
+
+            await limited.services.profile.updateProfile(user, { bio });
+
+            expect((await limited.services.profile.getProfile(user)).bio).toBe(
+                bio,
+            );
+        } finally {
+            await limited.shutdown();
         }
     });
 

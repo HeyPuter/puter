@@ -22,6 +22,7 @@ import {
     decodeStrictBase64,
     sniffImageMime,
 } from './mediaSniff.js';
+import { APP_ICONS_SUBDOMAIN } from './systemSite.js';
 
 // Re-exported for existing importers.
 export { SVG_SNIFF_WINDOW, sniffImageMime };
@@ -41,9 +42,6 @@ export const DEFAULT_APP_ICON_SIZE = 256;
 // The sizes AppIconService generates, and so the only ones the endpoint and
 // the direct subdomain URLs can serve.
 export const APP_ICON_SIZES: readonly number[] = [16, 32, 64, 128, 256, 512];
-
-// Subdomain where AppIconService publishes generated icons.
-const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 
 // MIME types accepted on the write path for `data:` icon URLs. Anything
 // outside this allowlist is rejected so a malicious caller can't stash,

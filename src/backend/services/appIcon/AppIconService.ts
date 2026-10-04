@@ -20,17 +20,21 @@
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
 import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
-import { ensureSystemSite } from '../../util/systemSite.js';
+import {
+    APP_ICONS_SUBDOMAIN,
+    ensureSystemSite,
+} from '../../util/systemSite.js';
+import { UNLIMITED_STORAGE_ALLOWANCE } from '../fs/FSService.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types.js';
 
-const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const APP_ICONS_PATH_PREFIX = '/system/app_icons';
 
 // Minimum gap between read-triggered runs for one uid, so an icon that fails
 // to process isn't retried on every GET.
 const ICON_RETRY_COOLDOWN_MS = 10 * 60_000;
 const ICON_ATTEMPTS_MAX_KEYS = 10_000;
+const SHUTDOWN_WAIT_MS = 5_000;
 
 const ORIGINAL_ICON_FILENAME = (uid: string) => `${uid}.png`;
 const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
@@ -114,10 +118,27 @@ export class AppIconService extends PuterService {
         );
     }
 
-    // Let in-flight icon runs finish while the layers they write through are up.
+    // Let in-flight icon runs finish while the layers they write through are up,
+    // but not past a few seconds: a stalled run retries on the next read, and
+    // the rest of shutdown (metering flush included) must not wait on it.
     override async onServerShutdown(): Promise<void> {
-        await this.#dirReady;
-        await Promise.all([...this.#inFlight.values()].map((s) => s.done));
+        let timer: NodeJS.Timeout | undefined;
+        const limit = new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, SHUTDOWN_WAIT_MS);
+        });
+        try {
+            await Promise.race([
+                (async () => {
+                    await this.#dirReady;
+                    await Promise.all(
+                        [...this.#inFlight.values()].map((s) => s.done),
+                    );
+                })(),
+                limit,
+            ]);
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /**
@@ -178,6 +199,7 @@ export class AppIconService extends PuterService {
         const ownerUserId = await ensureSystemSite(this.stores, {
             subdomain: APP_ICONS_SUBDOMAIN,
             dirPath: APP_ICONS_PATH_PREFIX,
+            isProtected: true,
         });
         if (ownerUserId === null) {
             console.warn('[app-icon] system user not found; icons disabled');
@@ -322,15 +344,21 @@ export class AppIconService extends PuterService {
 
     async #writeIcon(filename: string, buffer: Buffer): Promise<void> {
         if (!this.#ownerUserId) return;
-        await this.services.fs.write(this.#ownerUserId, {
-            fileMetadata: {
-                path: `${APP_ICONS_PATH_PREFIX}/${filename}`,
-                size: buffer.length,
-                contentType: 'image/png',
-                overwrite: true,
-                createMissingParents: true,
+        // The system user's allowance isn't sized for every app's icons.
+        await this.services.fs.write(
+            this.#ownerUserId,
+            {
+                fileMetadata: {
+                    path: `${APP_ICONS_PATH_PREFIX}/${filename}`,
+                    size: buffer.length,
+                    contentType: 'image/png',
+                    overwrite: true,
+                    createMissingParents: true,
+                },
+                fileContent: Readable.from(buffer),
             },
-            fileContent: Readable.from(buffer),
-        });
+            undefined,
+            UNLIMITED_STORAGE_ALLOWANCE,
+        );
     }
 }

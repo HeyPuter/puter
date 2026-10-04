@@ -24,12 +24,16 @@ import type { SubdomainStore } from '../stores/subdomain/SubdomainStore.js';
 import type { UserStore } from '../stores/user/UserStore.js';
 import { isUniqueViolation } from './dbError.js';
 
+// The system sites, reserved from user registration.
+export const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
+export const PROFILES_SUBDOMAIN = 'puter-profiles';
+
 /**
  * Ensure `dirPath` and every directory above it exist and belong to the system
  * user, and that `subdomain` serves `dirPath` as the system user. Directories
  * another account created are re-owned, and a site row registered to anyone
- * else or pointing elsewhere is replaced — the hosting middleware won't serve a
- * site whose user doesn't own its root. Idempotent.
+ * else or pointing elsewhere is reclaimed in place — the hosting middleware
+ * won't serve a site whose user doesn't own its root. Idempotent.
  *
  * Returns the system user's id (the account to write the site's files as), or
  * null if there is no system user.
@@ -78,13 +82,26 @@ export async function ensureSystemSite(
     if (
         site &&
         Number(site.user_id) === systemUserId &&
-        Number(site.root_dir_id) === Number(dir.id)
+        Number(site.root_dir_id) === Number(dir.id) &&
+        (!isProtected || Boolean(site.protected))
     ) {
         return systemUserId;
     }
-    if (site) await stores.subdomain.deleteByUuid(site.uuid);
+    // In place, so the name is never free for someone else to register. A
+    // row deleted since the read falls through to create.
+    if (
+        site &&
+        (await stores.subdomain.reclaimByUuid(site.uuid, {
+            userId: systemUserId,
+            rootDirId: dir.id,
+            protect: isProtected,
+        }))
+    ) {
+        return systemUserId;
+    }
 
-    // Concurrent boots can race here; the unique constraint picks one row.
+    // MySQL/Postgres keep one row for concurrent creates; SQLite has no unique
+    // index on `subdomain`, so racing creates there can both land.
     try {
         await stores.subdomain.create({
             userId: systemUserId,
