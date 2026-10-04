@@ -321,6 +321,65 @@ describe('PuterServer host header validation', () => {
     });
 });
 
+describe('PuterServer API path routing', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                api_base_url: `http://puter.localhost:${port}/api`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('serves API routes from the configured path on the root host', async () => {
+        const res = await rawRequest(
+            port,
+            '/api/peer/signaller-info',
+            {
+                host: `puter.localhost:${port}`,
+                origin: 'https://third-party.example',
+            },
+        );
+
+        expect(res.status).toBe(200);
+        expect(JSON.parse(res.body)).toEqual({
+            url: null,
+            fallbackIce: [],
+        });
+        expect(res.headers['access-control-allow-credentials']).toBe('true');
+    });
+
+    it('keeps the existing API subdomain endpoint working', async () => {
+        const res = await rawRequest(port, '/peer/signaller-info', {
+            host: `api.puter.localhost:${port}`,
+        });
+
+        expect(res.status).toBe(200);
+        expect(JSON.parse(res.body)).toEqual({
+            url: null,
+            fallbackIce: [],
+        });
+    });
+
+    it('does not expose the API path through another subdomain', async () => {
+        const res = await rawRequest(port, '/api/peer/signaller-info', {
+            host: `other.puter.localhost:${port}`,
+        });
+
+        expect(res.status).toBe(404);
+    });
+});
 /**
  * Express reads subdomains relative to a fixed label count, so a root domain
  * deeper than two labels is the case that breaks: `puter` reads as an active
