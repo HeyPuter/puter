@@ -245,9 +245,9 @@ const generate_file_context_menu = async function (options) {
     }
 
     // -------------------------------------------
-    // Restore
+    // Restore (only a direct child of Trash carries restore metadata)
     // -------------------------------------------
-    if ( is_trashed ) {
+    if ( is_trashed && path.dirname($(el_item).attr('data-path') || '') === window.trash_path ) {
         menu_items.push({
             html: i18n('restore'),
             onClick: async function () {

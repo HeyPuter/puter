@@ -70,7 +70,10 @@ export function assertCreatablePath(path: string, username: string): void {
         });
     }
     const segments = path.slice(home.length + 1).split('/');
-    if (segments[0] === 'AppData' || segments[0] === 'Trash') {
+    // fsentries.path collates case-insensitively, so a differently-cased
+    // segment names the same row — the refusal must match that.
+    const first = segments[0]?.toLowerCase();
+    if (first === 'appdata' || first === 'trash') {
         throw new HttpError(403, 'Cannot create at this location', {
             legacyCode: 'forbidden',
         });

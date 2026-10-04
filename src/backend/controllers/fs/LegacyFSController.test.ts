@@ -75,7 +75,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
     const refreshed = (await server.stores.user.getById(created.id))!;
     return {
         userId: refreshed.id,
-        actor: {
+        actor: makeActor({
             user: {
                 id: refreshed.id,
                 uuid: refreshed.uuid,
@@ -83,7 +83,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
                 email: refreshed.email ?? null,
                 email_confirmed: true,
             } as Actor['user'],
-        },
+        }),
     };
 };
 

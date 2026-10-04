@@ -130,7 +130,7 @@ describe('AppData roots over HTTP', () => {
         expect(unmoved?.path).toBe(`/${username}/AppData/${a.app_uid}`);
     });
 
-    it('refuses an app trashing a folder with a forged original_path', async () => {
+    it('rewrites a forged trash original_path from an app instead of trusting it', async () => {
         const { username, token } = env.users.user;
         const a = await launch(token, origin('appdata-origin'));
         const bUid = await env.server.services.auth.appUidFromOrigin(
@@ -143,19 +143,31 @@ describe('AppData roots over HTTP', () => {
         expect(made.status).toBe(200);
         const inner = (await made.json()) as { uid: string; path: string };
 
-        const trash = (originalPath: string) =>
-            call('/move', a.token, {
-                source: inner.uid,
-                destination: `/${username}/Trash`,
-                new_name: inner.uid,
-                new_metadata: {
-                    original_name: bUid,
-                    original_path: originalPath,
-                    trashed_ts: 1,
-                },
-            });
+        // Forging the other app's root as the trash origin would let the
+        // owner's (unchecked) restore recreate the file there. Refusing the
+        // move outright would also break an ordinary delete by anyone who
+        // isn't the account, so the forged keys are corrected instead.
+        const trash = await call('/move', a.token, {
+            source: inner.uid,
+            destination: `/${username}/Trash`,
+            new_name: inner.uid,
+            new_metadata: {
+                original_name: bUid,
+                original_path: `/${username}/AppData/${bUid}`,
+                trashed_ts: 1,
+            },
+        });
+        expect(trash.status).toBe(200);
 
-        expect((await trash(`/${username}/AppData/${bUid}`)).status).toBe(403);
-        expect((await trash(inner.path)).status).toBe(200);
+        const trashed = await env.server.stores.fsEntry.getEntryByUuid(
+            inner.uid,
+        );
+        const metadata = JSON.parse(trashed!.metadata!) as Record<
+            string,
+            unknown
+        >;
+        expect(metadata.original_path).toBe(inner.path);
+        expect(metadata.original_name).toBe('inner');
+        expect(metadata.trashed_ts).not.toBe(1);
     });
 });

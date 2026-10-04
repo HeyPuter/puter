@@ -3487,6 +3487,10 @@ const TabFiles = {
         const metadataStr = $(el_item).attr('data-metadata');
         const metadata = metadataStr ? JSON.parse(metadataStr) : {};
 
+        // Only a direct child of Trash carries restore metadata.
+        if ( path.dirname($(el_item).attr('data-path') || '') !== window.trash_path ) {
+            throw new Error('Cannot restore: only top-level Trash items can be restored');
+        }
         if ( ! metadata.original_path ) {
             throw new Error('Cannot restore: original path not found in metadata');
         }
