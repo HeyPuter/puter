@@ -17,9 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Actor } from '../../core/actor.js';
+import {
+    isAccessTokenActor,
+    isAccountContext,
+    type Actor,
+} from '../../core/actor.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
+import type { PermissionStore } from '../../stores/permission/PermissionStore.js';
+import type { AclMode, ACLService } from '../acl/ACLService.js';
 
 /**
  * Synthesize the listing for the virtual root `/`. There is no fsentry row at
@@ -27,11 +33,14 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
  *
  * Issuer homes are deliberately absent: a grant on a file says nothing about
  * its ancestors, so listing them advertised folders `readdir` then refused to
- * open. Shares are reached through the sharing API instead.
+ * open. Shares are reached through the sharing API instead. For the same reason
+ * a scoped access token sees its own home only when it can list it.
  */
 export async function listRootEntries(
     actor: Actor,
     fsEntryStore: FSEntryStore,
+    aclService: ACLService,
+    permissionStore: PermissionStore,
 ): Promise<FSEntry[]> {
     const entries: FSEntry[] = [];
     const seenPaths = new Set<string>();
@@ -70,5 +79,39 @@ export async function listRootEntries(
 
     await pushByUsername(actor.user.username);
 
-    return entries;
+    const shown: FSEntry[] = [];
+    for (const entry of entries) {
+        if (
+            await rootShowsHome(
+                actor,
+                entry,
+                'list',
+                aclService,
+                permissionStore,
+            )
+        ) {
+            shown.push(entry);
+        }
+    }
+    return shown;
+}
+
+/**
+ * Whether a root listing may show the actor's home. Only a scoped access token
+ * is checked, against its own grants on the home in one read. The issuer needs
+ * no check: it is the owner or an app acting for them, and root shows the home
+ * to both.
+ */
+export async function rootShowsHome(
+    actor: Actor,
+    home: Pick<FSEntry, 'uuid'>,
+    mode: AclMode,
+    aclService: ACLService,
+    permissionStore: PermissionStore,
+): Promise<boolean> {
+    if (!isAccessTokenActor(actor) || isAccountContext(actor)) return true;
+    return permissionStore.hasAnyAccessTokenPerm(
+        actor.accessToken!.uid,
+        aclService.permissionsFor(home.uuid, mode),
+    );
 }
