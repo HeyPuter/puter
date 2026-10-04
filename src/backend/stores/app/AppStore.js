@@ -66,6 +66,9 @@ const INDEX_URL_CHUNK_SIZE = 900;
 // analytics source once and backfill) and left to autoexpire — these counts
 // tolerate being slightly stale, so there's no background refresh.
 const STATS_CACHE_TTL_SECONDS = 30 * 60;
+// `app-` + a UUID. ClickHouse's `app_opens.app_uid` is FixedString(40) and
+// fails the whole query on a longer value.
+const APP_UID_MAX_BYTES = 40;
 
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
@@ -1337,8 +1340,13 @@ export class AppStore extends PuterStore {
 
     // -- Stats internals ----------------------------------------------
 
-    async #queryStatsForUids(uids) {
+    async #queryStatsForUids(requestedUids) {
         const out = new Map();
+        // Marketplace callers pass item ids too. One longer than an app uid
+        // can't have opens, so leave it at zero rather than query it.
+        const uids = requestedUids.filter(
+            (u) => Buffer.byteLength(u, 'utf8') <= APP_UID_MAX_BYTES,
+        );
         if (uids.length === 0) return out;
 
         const clickhouse = this.clients.clickhouse;
