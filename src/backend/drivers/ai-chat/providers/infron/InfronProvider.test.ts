@@ -212,6 +212,16 @@ const SAMPLE_API_MODELS = [
         is_display_only: true,
         supported_endpoint_types: ['openai'],
     },
+    {
+        // Deprecated upstream — filtered out even though still listed.
+        id: 'example/deprecated-model',
+        display_name: 'Deprecated',
+        category_type: 'LLM',
+        deprecated: true,
+        supported_endpoint_types: ['openai'],
+        min_prompt_price: 1,
+        min_completion_price: 2,
+    },
 ];
 
 const seedModelsCache = () =>
@@ -320,7 +330,7 @@ describe('InfronProvider model catalog', () => {
         });
     });
 
-    it('list() prefixes ids with infron: and filters non-chat and display-only entries', async () => {
+    it('list() prefixes ids with infron: and filters non-chat, display-only, and deprecated entries', async () => {
         const { provider } = makeProvider();
         const ids = await provider.list();
         expect(ids).toContain('infron:deepseek/deepseek-v4-flash');
@@ -328,6 +338,7 @@ describe('InfronProvider model catalog', () => {
         expect(ids).toContain('infron:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('infron:black-forest-labs/flux-2.1');
         expect(ids).not.toContain('infron:example/display-only-model');
+        expect(ids).not.toContain('infron:example/deprecated-model');
     });
 
     it('caches the model list in kv after the first axios round-trip', async () => {

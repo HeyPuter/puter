@@ -976,7 +976,7 @@ describe('OCRDriver model routing', () => {
         ['aws-textract', 'textract'],
         ['textract', 'textract'],
         ['mistral-ocr-latest', 'mistral'],
-        ['mistral-ocr-4-0', 'mistral'],
+        ['mistral-ocr-4-1', 'mistral'],
         ['MISTRAL-OCR-2512', 'mistral'],
     ])('model %s alone selects the %s backend', async (model, expected) => {
         const { actor } = await makeUser();
@@ -1002,7 +1002,9 @@ describe('OCRDriver model routing', () => {
     });
 
     it.each([
+        [{ model: 'mistral-ocr-2503' }, 'no longer available'],
         [{ model: 'mistral-ocr-2505' }, 'no longer available'],
+        [{ model: 'mistral-ocr-4-0' }, 'no longer available'],
         [{ model: 'gpt-4o' }, 'Unknown OCR model'],
         [{ model: '' }, 'non-empty string'],
         [
@@ -1025,22 +1027,6 @@ describe('OCRDriver model routing', () => {
         });
         expect(textractSendMock).not.toHaveBeenCalled();
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
-    });
-
-    it('keeps the retired mistral-ocr-2503 working on the model Mistral serves it with', async () => {
-        const { actor } = await makeUser();
-        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
-
-        await withActor(actor, () =>
-            driver.recognize({
-                source: dataUrl(Buffer.from('img'), 'image/png'),
-                model: 'mistral-ocr-2503',
-            }),
-        );
-
-        expect(mistralOcrProcessMock.mock.calls[0]![0].model).toBe(
-            'mistral-ocr-4-1',
-        );
     });
 });
 

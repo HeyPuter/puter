@@ -28,6 +28,7 @@ import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
@@ -75,7 +76,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
     const refreshed = (await server.stores.user.getById(created.id))!;
     return {
         userId: refreshed.id,
-        actor: {
+        actor: makeActor({
             user: {
                 id: refreshed.id,
                 uuid: refreshed.uuid,
@@ -83,7 +84,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
                 email: refreshed.email ?? null,
                 email_confirmed: true,
             } as Actor['user'],
-        },
+        }),
     };
 };
 
@@ -1136,6 +1137,71 @@ describe('LegacyFSController.readdir', () => {
         );
         // Root listing returns an array (the actor's home entries).
         expect(Array.isArray(captured.body)).toBe(true);
+    });
+
+    describe('at the root, per credential', () => {
+        const listRoot = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.readdir(
+                    makeReq({ body: { path: '/' }, actor }),
+                    res,
+                ),
+            );
+            return captured.body as Array<{ path: string }>;
+        };
+
+        const tokenActorFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            const token = await server.services.auth.createAccessToken(
+                makeActor({ user }),
+                [[permission]],
+            );
+            return (await server.services.auth.authenticateFromToken(token))!;
+        };
+
+        it('lists the home for a session and a full-access token', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const user = (await server.stores.user.getById(userId))!;
+            const fullAccess = await tokenActorFor(userId, FULL_API_ACCESS);
+
+            for (const credential of [makeActor({ user }), fullAccess]) {
+                const entries = await listRoot(credential);
+                expect(entries.map((entry) => entry.path)).toEqual([
+                    `/${username}`,
+                ]);
+            }
+        });
+
+        it('leaves the home out for a token scoped below it', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const scoped = await tokenActorFor(
+                userId,
+                `fs:${documents.uuid}:read`,
+            );
+
+            expect(await listRoot(scoped)).toEqual([]);
+        });
+
+        it('lists the home for a token that can list it', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            const scoped = await tokenActorFor(userId, `fs:${home.uuid}:list`);
+
+            const entries = await listRoot(scoped);
+
+            expect(entries.map((entry) => entry.path)).toEqual([
+                `/${username}`,
+            ]);
+        });
     });
 
     it('rejects readdir on a non-directory with 400', async () => {

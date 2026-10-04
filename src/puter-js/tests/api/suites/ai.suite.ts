@@ -408,7 +408,7 @@ export default suite('ai', {
             test_mode: true,
         })) as { model?: string };
         // The openai provider's documented transcription default.
-        t.assert.equal(result.model, 'gpt-4o-mini-transcribe');
+        t.assert.equal(result.model, 'gpt-transcribe');
     },
 
     'speech2txt resolves every xai provider alias': async (t) => {
@@ -434,17 +434,23 @@ export default suite('ai', {
             provider: 'whisper',
             test_mode: true,
         })) as { model?: string };
-        t.assert.equal(result.model, 'gpt-4o-mini-transcribe');
+        t.assert.equal(result.model, 'gpt-transcribe');
     },
 
-    'speech2txt translate uses the openai translation default': async (t) => {
+    'speech2txt translate is rejected on openai': async (t) => {
         useApiToken(t);
-        const result = (await t.puter.ai.speech2txt({
-            file: TINY_AUDIO,
-            translate: true,
-            test_mode: true,
-        })) as { model?: string };
-        t.assert.equal(result.model, 'whisper-1');
+        // No current OpenAI model serves `/audio/translations`.
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                translate: true,
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('Translation is not supported'),
+            `translate should be refused, got ${text}`,
+        );
     },
 
     'speech2txt rejects an unknown provider': async (t) => {
@@ -496,7 +502,7 @@ export default suite('ai', {
         const defaulted = await callList({});
         const ids = defaulted.map((m) => m.id);
         t.assert.ok(
-            ids.includes('whisper-1'),
+            ids.includes('gpt-transcribe'),
             `default list should be the openai catalogue, got ${JSON.stringify(ids)}`,
         );
         t.assert.ok(
@@ -507,7 +513,7 @@ export default suite('ai', {
         const all = await callList({ provider: 'all' });
         const allIds = all.map((m) => m.id);
         t.assert.ok(
-            allIds.includes('whisper-1') && allIds.includes('xai-stt'),
+            allIds.includes('gpt-transcribe') && allIds.includes('xai-stt'),
             `provider "all" should aggregate every catalogue, got ${JSON.stringify(allIds)}`,
         );
         for (const model of all) {
@@ -528,8 +534,10 @@ export default suite('ai', {
                 { provider: 'grok' },
             ),
         ) as Array<{ id?: string }>;
-        t.assert.equal(models.length, 1);
-        t.assert.equal(models[0]?.id, 'xai-stt');
+        t.assert.deepEqual(
+            models.map((m) => m.id),
+            ['xai-stt', 'grok-voice-transcribe-2.0'],
+        );
     },
 
     'the legacy per-provider speech2txt driver names still route': async (t) => {
@@ -568,13 +576,13 @@ export default suite('ai', {
         // to the unified driver and fall through to the default.
         t.assert.equal(
             await callDriver('openai-speech2txt'),
-            'gpt-4o-mini-transcribe',
+            'gpt-transcribe',
         );
         t.assert.equal(await callDriver('xai-speech2txt'), 'xai-stt');
         // The canonical name is not a provider alias — it takes the default.
         t.assert.equal(
             await callDriver('ai-speech2txt'),
-            'gpt-4o-mini-transcribe',
+            'gpt-transcribe',
         );
     },
 
@@ -686,7 +694,7 @@ export default suite('ai', {
             'aws-textract',
             'textract',
             'mistral-ocr-latest',
-            'mistral-ocr-4-0',
+            'mistral-ocr-4-1',
             'mistral-ocr-2512',
         ];
         for (const model of models) {

@@ -20,12 +20,12 @@
 /**
  * Offline unit tests for OpenAITTSProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs OpenAITTSProvider directly against the live
- * wired `MeteringService` so the recording side runs end-to-end. The
- * OpenAI SDK is mocked at the module boundary — that's the real
- * network egress point. The companion integration test
- * (OpenAITTSProvider.integration.test.ts) covers the real API.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs OpenAITTSProvider directly against the live wired
+ * `MeteringService` so the recording side runs end-to-end. The OpenAI SDK is
+ * mocked at the module boundary — that's the real network egress point. The
+ * companion integration test (OpenAITTSProvider.integration.test.ts) covers the
+ * real API.
  */
 
 import { Readable } from 'node:stream';
@@ -41,7 +41,9 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
@@ -90,8 +92,12 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as `TTSDriver` hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(server.services.metering, server.clients.event, 'ai-tts');
+
 const makeProvider = () =>
-    new OpenAITTSProvider(server.services.metering, { apiKey: 'test-key' });
+    new OpenAITTSProvider(aiMetering(), { apiKey: 'test-key' });
 
 const mockAudioResponse = (bytes = 'opus-audio') => ({
     arrayBuffer: async () =>
@@ -128,12 +134,31 @@ describe('OpenAITTSProvider catalog', () => {
         expect(voices.length).toBeGreaterThan(0);
         for (const voice of voices) {
             expect(voice.provider).toBe('openai');
-            expect(voice.supported_models).toEqual(
-                expect.arrayContaining(['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd']),
-            );
+            expect(voice.supported_models).toContain('gpt-4o-mini-tts');
         }
         // Default voice id is present.
         expect(voices.find((v) => v.id === 'alloy')).toBeDefined();
+    });
+
+    it.each(['ballad', 'cedar', 'marin', 'verse'])(
+        'limits %s to gpt-4o-mini-tts',
+        async (id) => {
+            const provider = makeProvider();
+            const voices = await provider.listVoices();
+            expect(voices.find((v) => v.id === id)?.supported_models).toEqual([
+                'gpt-4o-mini-tts',
+            ]);
+        },
+    );
+
+    it('offers the shared voices on every engine', async () => {
+        const provider = makeProvider();
+        const voices = await provider.listVoices();
+        expect(voices.find((v) => v.id === 'sage')?.supported_models).toEqual([
+            'gpt-4o-mini-tts',
+            'tts-1',
+            'tts-1-hd',
+        ]);
     });
 
     it('lists every documented engine with pricing_per_million_chars', async () => {
@@ -215,6 +240,32 @@ describe('OpenAITTSProvider.synthesize argument validation', () => {
         expect(speechCreateMock).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ['tts-1', 'marin'],
+        ['tts-1-hd', 'ballad'],
+    ])('throws 400 when %s is asked for the %s voice', async (model, voice) => {
+        const provider = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', model, voice }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(speechCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('forwards a gpt-4o-mini-tts-only voice on the default model', async () => {
+        const provider = makeProvider();
+        speechCreateMock.mockResolvedValueOnce(mockAudioResponse());
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'marin' }),
+        );
+        const [sent] = speechCreateMock.mock.calls[0]!;
+        expect(sent).toMatchObject({
+            model: 'gpt-4o-mini-tts',
+            voice: 'marin',
+        });
+    });
+
     it('throws 400 when the voice is not in the catalog', async () => {
         const provider = makeProvider();
         await expect(
@@ -237,6 +288,46 @@ describe('OpenAITTSProvider.synthesize credit gate', () => {
             withTestActor(() => provider.synthesize({ text: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(speechCreateMock).not.toHaveBeenCalled();
+    });
+    // Concurrent requests read the same balance; the hold is what lets each
+    // see the others' spend before it's recorded.
+    it('holds the cost while OpenAI runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 7, uuid: `tts-hold-${Date.now()}`, username: 'hold' },
+        });
+        const userId = actor.user!.uuid;
+        hasCreditsSpy.mockResolvedValue(true);
+        let heldDuringCall = -1;
+        speechCreateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(userId);
+            return mockAudioResponse();
+        });
+
+        const text = 'hold me';
+        await withTestActor(
+            () => provider.synthesize({ text, model: 'tts-1' }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(OPENAI_TTS_COSTS['tts-1'] * text.length);
+        expect(await server.stores.creditHold.outstanding(userId)).toBe(0);
+    });
+
+    it('releases the hold when OpenAI fails', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 8, uuid: `tts-fail-${Date.now()}`, username: 'fail' },
+        });
+        hasCreditsSpy.mockResolvedValue(true);
+        speechCreateMock.mockRejectedValueOnce(new Error('upstream down'));
+
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi' }), actor),
+        ).rejects.toThrow('upstream down');
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

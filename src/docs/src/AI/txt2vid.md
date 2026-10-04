@@ -1,10 +1,10 @@
 ---
 title: puter.ai.txt2vid()
-description: Generate short video clips from text or reference images with Veo, Seedance, Kling, Wan and other models through Puter.js.
+description: Generate short video clips from text or reference images with Wan, Seedance, Veo and other models through Puter.js.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Given a prompt, generate a short video clip using AI. Puter routes the request to one of three upstream providers (Google Veo, Together AI, BytePlus Seedance) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers.
+Given a prompt, generate a short video clip using AI. Puter routes the request to one of two upstream providers (Together AI, BytePlus Seedance) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers.
 
 ## Syntax
 
@@ -33,25 +33,27 @@ Additional settings for the generation request. Puter copies this object before 
 | Option | Type | Description |
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the video generation |
-| `model` | `String` | Video model to use. Defaults to `'veo-3.1-lite'`. See [Choosing a model](#choosing-a-model) |
-| `provider` | `String` | Pin the request to one provider: `'gemini-video-generation'`, `'together-video-generation'` or `'byteplus-video-generation'`. Only needed when a model id exists on more than one provider |
+| `model` | `String` | Video model to use. Defaults to `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video). See [Choosing a model](#choosing-a-model) |
+| `provider` | `String` | Pin the request to one provider: `'together-video-generation'` or `'byteplus-video-generation'`. Only needed when a model id exists on more than one provider |
 | `seconds` | `Number` | Target clip length in seconds. Each model supports a fixed set of durations; an unsupported value falls back to the model default instead of failing. `duration` is an alias |
 | `size` | `String` | Output size as `'WIDTHxHEIGHT'` (e.g. `'1280x720'`) on every provider. Models that work in resolution tiers take the tier of the shorter side plus the aspect ratio, and also accept the tier directly (`'720p'`). An unsupported value falls back to the model default. `resolution` is an alias |
 | `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when you leave them out |
 | `input_reference` | `String` | Image the clip starts from (image-to-video): a public URL, a `data:` URI or raw base64, on every provider |
 | `last_frame` | `String` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
 | `reference_images` | `Array<String>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame` |
-| `negative_prompt` | `String` | Text describing what to avoid in the video (Veo and Together AI) |
+| `negative_prompt` | `String` | Text describing what to avoid in the video (Together AI) |
 | `seed` | `Number` | Random seed for reproducible results (Together AI and Seedance 1.x) |
-| `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio; Veo always includes audio) |
+| `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio) |
 | `test_mode` | `Boolean` | When `true`, returns a sample video without using credits |
 | `puter_output_path` | `String` | When set, the generated video is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 
 #### Choosing a model
 
-Model ids are matched case-insensitively, and every model answers to a few spellings: the fully qualified id, the `org/model` form and the bare model name. `'google:google/veo-3.1-lite'`, `'google/veo-3.1-lite'`, `'veo-3.1-lite'` and `'veo-3.1-lite-generate-preview'` all select the same model. When a bare name is served by more than one provider (`'veo-3.1'` is offered by Google directly and through Together AI) Puter picks the cheaper listing; pass `provider` or the fully qualified id to choose explicitly.
+Model ids are matched case-insensitively, and every model answers to a few spellings: the fully qualified id, the `org/model` form and the bare model name. `'togetherai:wan-ai/wan2.7-t2v'`, `'wan-ai/wan2.7-t2v'` and `'wan2.7-t2v'` all select the same model. When a bare name is served by more than one provider Puter picks the cheaper listing; pass `provider` or the fully qualified id to choose explicitly.
 
-When you pass no model, Puter uses Veo 3.1 Lite on Google (`veo-3.1-lite`). A self-hosted Puter without a Google key falls back to the first provider it has a key for.
+When you pass no model, Puter uses Wan 2.7 text-to-video on Together AI (`wan2.7-t2v`). A self-hosted Puter without a Together AI key falls back to the first provider it has a key for.
+
+Google's Veo 3.1 preview models (`veo-3.1-generate-preview`, `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview`) are no longer offered: Google deprecated them with a shutdown on October 22, 2026, and requests for those ids fail with `Model not found`. Veo 3.1 and Veo 3.1 Lite remain available through Together AI (see below).
 
 `seconds` and `size` are normalized rather than rejected: a value the model does not offer is replaced by the model default, which is the first value listed in the tables below and also what you get when you leave the option out.
 
@@ -61,37 +63,12 @@ When you pass no model, Puter uses Veo 3.1 Lite on Google (`veo-3.1-lite`). A se
 
 | Provider | First frame | Last frame | Reference images |
 |----------|-------------|------------|------------------|
-| Google Veo 3.1 | Yes | Yes | Up to 3; forces an 8 second clip; `input_reference` and `last_frame` are ignored when set |
 | Together AI | Models with a `first` keyframe | Models with a `last` keyframe | Model-dependent (Seedance 2.5: up to 30) |
 | BytePlus Seedance | Yes | Yes, with `input_reference` | Seedance 2.0: up to 9; Seedance 2.5: up to 30; cannot be combined with frames |
 
-#### Google (Veo) options
-
-Available when using a Veo 3.1 model (provider `'gemini-video-generation'`). Google has retired Veo 3.0; Veo 2.0 is offered through Together AI instead (see the next section).
-
-| Model | Aliases | Durations (s) | Sizes | Reference images |
-|-------|---------|---------------|-------|------------------|
-| `veo-3.1-lite-generate-preview` (default) | `veo-3.1-lite`, `google/veo-3.1-lite` | `4`, `6`, `8` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920` | Up to 3 |
-| `veo-3.1-fast-generate-preview` | `veo-3.1-fast`, `google/veo-3.1-fast` | `4`, `6`, `8` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | Up to 3 |
-| `veo-3.1-generate-preview` | `veo-3.1`, `google/veo-3.1` | `4`, `6`, `8` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | Up to 3 |
-
-Sizes map onto Veo's aspect ratio (16:9 or 9:16) and resolution tier (720p, 1080p or 4K). 1080p and 4K clips, and any request that uses `reference_images`, are always 8 seconds long regardless of `seconds`. Veo is billed per second; 4K costs more than 720p and 1080p, and on Veo 3.1 Fast and Veo 3.1 Lite 1080p costs more than 720p. Every Veo clip comes with a generated soundtrack.
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `model` | `String` | Video model to use. Available: `'veo-3.1-lite-generate-preview'` (default), `'veo-3.1-fast-generate-preview'`, `'veo-3.1-generate-preview'` or any alias above |
-| `seconds` | `Number` | Clip length: `4` (default), `6` or `8` |
-| `size` | `String` | Output dimensions from the table above. Defaults to `'1280x720'`. `resolution` is an alias |
-| `negative_prompt` | `String` | Text describing what to avoid in the video |
-| `input_reference` | `String` | Image used as the first frame (image-to-video): URL, `data:` URI or raw base64 |
-| `last_frame` | `String` | Image used as the last frame, same formats. Ignored when `reference_images` is set |
-| `reference_images` | `Array<String>` | Up to 3 images (same formats) the model uses as subject or style references. When set, `input_reference` and `last_frame` are ignored and the clip is 8 seconds long |
-
-For more details, see the [Google Veo API reference](https://ai.google.dev/gemini-api/docs/video).
-
 #### Together AI options
 
-Available when using any model below (provider `'together-video-generation'`). Pass the model as `'org/model'`, or prefix it with `togetherai:` to make the routing explicit; `'togetherai:google/veo-3.1'` runs Veo through Together AI while a bare `'veo-3.1'` goes to Google directly.
+Available when using any model below (provider `'together-video-generation'`). Pass the model as `'org/model'`, or prefix it with `togetherai:` to make the routing explicit.
 
 Together AI models are priced in one of two ways, marked in the table:
 
@@ -102,11 +79,10 @@ Most models size their output in pixels: pass `size` as `'WIDTHxHEIGHT'` (or `wi
 
 | Model | Pricing | Duration (s) | Sizes | FPS | Keyframes | Notes |
 |-------|---------|--------------|-------|-----|-----------|-------|
-| `minimax/video-01-director` (default) | Per clip | 5 | `1366x768` | 25 | first | |
+| `minimax/video-01-director` | Per clip | 5 | `1366x768` | 25 | first | |
 | `minimax/hailuo-02` | Per clip | 10 | `1366x768`, `1920x1080` | 25 | first | |
-| `google/veo-2.0` | Per clip | 5 | `1280x720`, `720x1280` | 24 | first, last | |
-| `google/veo-3.1` | Per second | `4`, `6`, `8` | provider default | 24 | first, last | Pass as `togetherai:google/veo-3.1`; a bare `veo-3.1` goes to Google directly |
-| `google/veo-3.1-lite` | Per second | `4`, `6`, `8` | provider default | 24 | first, last | Pass as `togetherai:google/veo-3.1-lite` |
+| `google/veo-3.1` | Per second | `4`, `6`, `8` | provider default | 24 | first, last | Soundtrack always generated |
+| `google/veo-3.1-lite` | Per second | `4`, `6`, `8` | provider default | 24 | first, last | Soundtrack always generated |
 | `bytedance/seedance-1.0-lite` | Per clip | 5 | `864x480`, `736x544`, `640x640`, `960x416`, `416x960`, `1248x704`, `1120x832`, `960x960`, `1504x640`, `640x1504` | 24 | first, last | |
 | `bytedance/seedance-1.0-pro` | Per clip | 5 | same as Seedance 1.0 Lite | 24 | first, last | |
 | `bytedance/seedance-2.0` | Per second | 4 to 15, default 5 | provider default | 24 | first, last | Soundtrack generated by default |
@@ -114,11 +90,7 @@ Most models size their output in pixels: pass `size` as `'WIDTHxHEIGHT'` (or `wi
 | `pixverse/pixverse-v5` | Per clip | 5 | 360p, 540p, 720p or 1080p in 16:9, 4:3, 1:1, 3:4 or 9:16 (e.g. `1280x720`, `720x720`, `720x1280`) | 16, 24 | first, last | |
 | `pixverse/pixverse-v5.6` | Per second | provider default | provider default | | | |
 | `pixverse/pixverse-v6` | Per second | provider default | provider default | | | |
-| `kwaivgi/kling-2.1-master` | Per clip | 5 | `1920x1080`, `1080x1080`, `1080x1920` | 24 | first | |
-| `kwaivgi/kling-2.1-standard` | Per clip | 5 | `1920x1080`, `1080x1080`, `1080x1920` | 24 | first | Image-to-video: requires a first frame |
-| `kwaivgi/kling-2.1-pro` | Per clip | 5 | `1920x1080`, `1080x1080`, `1080x1920` | 24 | first, last | Image-to-video: requires a first frame |
-| `kwaivgi/kling-1.6-standard` | Per clip | 5 | `1920x1080`, `1080x1080`, `1080x1920` | 30, 24 | first | |
-| `wan-ai/wan2.7-t2v` | Per second | 2 to 15, default 5 | `720P`, `1080P` in 16:9, 9:16, 1:1, 4:3 or 3:4 | 30 | | Soundtrack generated |
+| `wan-ai/wan2.7-t2v` (default) | Per second | 2 to 15, default 5 | `720P`, `1080P` in 16:9, 9:16, 1:1, 4:3 or 3:4 | 30 | | Soundtrack generated |
 | `wan-ai/wan2.7-i2v` | Per second | 2 to 15, default 5 | as Wan 2.7 T2V | 30 | first, last | Image-to-video: requires a first frame |
 | `wan-ai/wan2.7-r2v` | Per second | 2 to 10, default 5 | as Wan 2.7 T2V | 30 | | Reference-to-video: requires `reference_images` |
 | `alibaba/happyhorse-1.0-t2v` | Per second | provider default | provider default | | | |
@@ -164,7 +136,6 @@ Available when using a Seedance model served by BytePlus ModelArk (provider `'by
 | `dreamina-seedance-2-0-260128` | `seedance-2-0` | 4 to 15, default 5 | `720p`, `480p`, `1080p`, `4k` | Yes | Yes | Up to 9 | No |
 | `dreamina-seedance-2-0-fast-260128` | `seedance-2-0-fast` | 4 to 15, default 5 | `720p`, `480p` | Yes | Yes | Up to 9 | No |
 | `dreamina-seedance-2-0-mini-260615` (default) | `seedance-2-0-mini` | 4 to 15, default 5 | `720p`, `480p` | Yes | Yes | Up to 9 | No |
-| `seedance-1-5-pro-251215` | `seedance-1-5-pro` | 4 to 12, default 5 | `720p`, `480p`, `1080p` | Yes | Yes | No | Yes |
 | `seedance-1-0-pro-250528` | `seedance-1-0-pro` | 2 to 12, default 5 | `1080p`, `480p`, `720p` | No | Yes | No | Yes |
 | `seedance-1-0-pro-fast-251015` | `seedance-1-0-pro-fast` | 2 to 12, default 5 | `1080p`, `480p`, `720p` | No | No | No | Yes |
 
@@ -206,8 +177,8 @@ The destination is checked before generation starts, so a path you cannot write 
 
 Every successful generation is charged to the user's AI credits according to the model, duration and resolution. Before contacting the provider, Puter compares the estimated cost with the remaining balance:
 
-- **Veo and Seedance** are priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters. Veo clips at 1080p or 4K, or with `reference_images`, are fixed at 8 seconds and therefore all-or-nothing.
-- **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table) are shortened like Veo and Seedance, and the final charge is the amount Together AI reports for the job.
+- **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
+- **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and the final charge is the amount Together AI reports for the job.
 
 A request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).
 
@@ -219,7 +190,7 @@ Video generation is slow: expect anywhere from tens of seconds to several minute
 
 A `Promise` that resolves to an `HTMLVideoElement` (in browsers) that you can append to the DOM straight away:
 
-- `src` is the clip's URL. Depending on the provider it is either an `https:` URL on the provider's storage (Together AI, Seedance, and usually Veo) or a `data:` URI holding the whole clip (Veo, when Google returns the bytes inline). Provider URLs are temporary; keep a copy with `puter_output_path` if you need the clip later.
+- `src` is the clip's URL: an `https:` URL on the provider's storage (Together AI or Seedance). Provider URLs are temporary; keep a copy with `puter_output_path` if you need the clip later.
 - `controls` is enabled and `preload` is `"metadata"`.
 - The `data-source` attribute carries the same URL, and `data-mime-type` the MIME type when it is known (for example `video/mp4`).
 - `String(video)` returns the URL, so the element can be dropped into a template or passed to `fetch()`.
@@ -239,7 +210,7 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | `message` | Human-readable reason. `error` carries the same text for older clients. |
 | `code` | Stable error code; see the table below. |
 | `errorCode` | A more specific code alongside a general `code`. Today the only value is `moderation_flagged`. |
-| `provider` | Which upstream handled the request: `gemini` (Veo), `together` or `byteplus`. Present on errors raised while a job was running. |
+| `provider` | Which upstream handled the request: `together` or `byteplus`. Present on errors raised while a job was running. |
 | `upstreamCode` | The provider's own error code, when it gave one. |
 | `upstreamStatus` | The HTTP status the provider returned, when it rejected the request before a job started. |
 
@@ -249,7 +220,7 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, or an image URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
 | `access_denied` | `puter_output_path` points somewhere the caller may not write. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
 | `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
-| `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request` from Together and BytePlus and `code: disallowed_value` from Veo. Change the prompt rather than retrying it as-is. |
+| `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |
 | `upstream_bad_request` | The provider rejected the request itself, for example a duration the model does not support. Arrives as HTTP 400; `message` and `upstreamCode` carry the provider's reason. |
 | `upstream_failed` | The provider accepted the request but generation failed on their side. Arrives as HTTP 502 and is safe to retry. |
 | `insufficient_funds` | Your balance cannot cover even the shortest clip the model offers (or, for a per-clip Together AI model, the clip). Arrives as HTTP 402; `message` states the shortfall. |
@@ -284,7 +255,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
     <script src="https://js.puter.com/v2/"></script>
     <script>
         puter.ai.txt2vid("A fox sprinting through a snow-covered forest at dusk", {
-            model: "veo-3.1-fast",
+            model: "wan2.7-t2v",
             seconds: 8,
             size: "1920x1080"
         }).then((video) => {
@@ -297,7 +268,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
 </html>
 ```
 
-<strong class="example-title">Use a Google Veo model with a negative prompt</strong>
+<strong class="example-title">Use Google Veo through Together AI with a negative prompt</strong>
 
 ```html;ai-txt2vid-veo
 <html>
@@ -305,9 +276,8 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
     <script src="https://js.puter.com/v2/"></script>
     <script>
         puter.ai.txt2vid("A hummingbird hovering over a red flower, macro lens, soft morning light", {
-            model: "veo-3.1-fast",
+            model: "togetherai:google/veo-3.1-lite",
             seconds: 6,
-            size: "1280x720",
             negative_prompt: "blurry, text, watermark, people"
         }).then((video) => {
             document.body.appendChild(video);
@@ -333,7 +303,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
             const file = e.target.files[0];
             if (!file) return;
 
-            // Seedance and Veo take the first frame as a data: URI
+            // Seedance takes the first frame as a data: URI
             const dataUri = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
@@ -401,7 +371,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
             }, 1000);
 
             try {
-                // No model given: the default Veo 3.1 Lite is used
+                // No model given: the default Wan 2.7 T2V is used
                 const video = await puter.ai.txt2vid("A lighthouse in a storm, waves crashing, dramatic lighting", {
                     seconds: 4
                 });

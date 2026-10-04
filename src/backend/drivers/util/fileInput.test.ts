@@ -237,6 +237,24 @@ describe('loadFileInput data URL', () => {
         expect(result.mimeType).toBe('image/svg+xml');
     });
 
+    // Audio upstreams pick the decoder from the extension; `input.mpeg` is
+    // rejected as corrupt.
+    it.each([
+        ['audio/mpeg', 'input.mp3'],
+        ['audio/x-wav', 'input.wav'],
+        ['audio/wave', 'input.wav'],
+        ['audio/x-m4a', 'input.m4a'],
+        ['audio/ogg', 'input.ogg'],
+    ])('names a %s data URL %s', async (mime, filename) => {
+        const { actor } = await makeUser();
+        const result = await callLoadFileInput(
+            actor,
+            `data:${mime};base64,QUJD`,
+        );
+        expect(result.filename).toBe(filename);
+        expect(result.mimeType).toBe(mime);
+    });
+
     it('defaults MIME to application/octet-stream when omitted', async () => {
         const { actor } = await makeUser();
         const result = await callLoadFileInput(actor, 'data:;base64,QUJD');

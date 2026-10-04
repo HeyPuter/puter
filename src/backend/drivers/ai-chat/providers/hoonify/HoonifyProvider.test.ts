@@ -49,6 +49,7 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { usdPerMToken } from '../../utils/pricing.js';
 import { HOONIFY_MODELS } from './models.js';
 import { HoonifyProvider } from './HoonifyProvider.js';
 
@@ -212,6 +213,41 @@ describe('HoonifyProvider model catalog', () => {
         // serves once Alibaba's route fails.
         const { provider } = makeProvider();
         expect(provider.list()).toContain('qwen/qwen3.6-27b');
+    });
+
+    it('exposes Inkling Small at its list pricing and sends its exact-case wire id', async () => {
+        const { provider } = makeProvider();
+        const inkling = provider
+            .models()
+            .find((m) => m.id === 'hoonify:thinkingmachines/inkling-small');
+        expect(inkling).toMatchObject({
+            wireId: 'thinkingmachines/Inkling-Small',
+            aliases: [
+                'hoonify/thinkingmachines/inkling-small',
+                'thinkingmachines/inkling-small',
+            ],
+            context: 262_144,
+            costs: usdPerMToken(0.5, 1.2, 0.1),
+        });
+
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        await withTestActor(() =>
+            provider.complete({
+                model: 'thinkingmachines/inkling-small',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+        expect(createMock.mock.calls[0]![0].model).toBe(
+            'thinkingmachines/Inkling-Small',
+        );
     });
 });
 

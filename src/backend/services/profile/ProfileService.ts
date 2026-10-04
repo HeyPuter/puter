@@ -21,11 +21,11 @@ import { Readable } from 'node:stream';
 import { makeActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import { isUniqueViolation } from '../../util/dbError.js';
+import { ensureSystemSite, PROFILES_SUBDOMAIN } from '../../util/systemSite.js';
+import { UNLIMITED_STORAGE_ALLOWANCE } from '../fs/FSService.js';
 import { actorHasSubscription } from '../metering/enforcement.js';
 import { PuterService } from '../types.js';
 
-export const PROFILES_SUBDOMAIN = 'puter-profiles';
 export const PROFILES_PATH_PREFIX = '/system/profiles';
 const PROFILE_FILE_SUFFIX = '.profile';
 
@@ -46,7 +46,10 @@ const PICTURE_DATA_URL = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i;
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type ProfileOwner = Pick<UserRow, 'id' | 'uuid' | 'username' | 'suspended'>;
+type ProfileOwner = Pick<
+    UserRow,
+    'id' | 'uuid' | 'username' | 'email' | 'suspended'
+>;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -110,10 +113,10 @@ const validateField = (field: ProfileField, value: unknown): string | null => {
 };
 
 /**
- * User profiles: one JSON file per account, `<user uuid>.profile`, in an
- * admin-owned directory that a system subdomain serves. Users hold no
- * filesystem grant on that directory; this service writes on their behalf and
- * decides what a file may contain.
+ * User profiles: one JSON file per account, `<user uuid>.profile`, in a system
+ * directory that a system subdomain serves. Users hold no filesystem grant on
+ * that directory; this service writes on their behalf and decides what a file
+ * may contain.
  *
  * A profile is public — readable by anyone through the API and the hosted file
  * — only while its owner is on a paid plan. The owner always reads and writes
@@ -236,7 +239,12 @@ export class ProfileService extends PuterService {
         return actorHasSubscription(
             this.services.metering,
             makeActor({
-                user: { id: user.id, uuid: user.uuid, username: user.username },
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                },
             }),
             true,
             this.config,
@@ -246,48 +254,20 @@ export class ProfileService extends PuterService {
     // -- Bootstrap ---------------------------------------------------
 
     /**
-     * Ensure the admin-owned directory and the subdomain serving it exist.
-     * Public so `DefaultUserService` can call it right after creating the admin
-     * on first boot — this service is registered before it, so its own
-     * `onServerStart` finds no admin yet. Idempotent.
+     * Set up the system-owned profiles directory and the subdomain serving it.
+     * Idempotent.
      */
     async ensureProfilesDirectory(): Promise<void> {
-        const adminUser = await this.stores.user.getByUsername('admin');
-        if (!adminUser) {
-            console.warn(
-                '[profile] admin user not found; deferring profiles directory setup',
-            );
+        const ownerUserId = await ensureSystemSite(this.stores, {
+            subdomain: PROFILES_SUBDOMAIN,
+            dirPath: PROFILES_PATH_PREFIX,
+            isProtected: true,
+        });
+        if (ownerUserId === null) {
+            console.warn('[profile] system user not found; profiles disabled');
             return;
         }
-        this.#ownerUserId = adminUser.id;
-
-        const dirEntry =
-            (await this.stores.fsEntry.getEntryByPath(PROFILES_PATH_PREFIX)) ??
-            (await this.stores.fsEntry.resolveParentDirectory(
-                adminUser.id,
-                PROFILES_PATH_PREFIX,
-                true,
-            ));
-        if (!dirEntry) {
-            console.warn('[profile] failed to ensure profiles directory');
-            return;
-        }
-
-        // Same first-boot race as the app-icons site: the existence check can
-        // pass twice, so the unique constraint is the arbiter.
-        if (await this.stores.subdomain.existsBySubdomain(PROFILES_SUBDOMAIN)) {
-            return;
-        }
-        try {
-            await this.stores.subdomain.create({
-                userId: adminUser.id,
-                subdomain: PROFILES_SUBDOMAIN,
-                rootDirId: dirEntry.id ?? null,
-                isProtected: true,
-            });
-        } catch (e) {
-            if (!isUniqueViolation(e)) throw e;
-        }
+        this.#ownerUserId = ownerUserId;
     }
 
     // -- Storage -----------------------------------------------------
@@ -333,16 +313,23 @@ export class ProfileService extends PuterService {
     ): Promise<void> {
         const ownerId = await this.#ownerId();
         const buffer = Buffer.from(JSON.stringify(profile), 'utf8');
-        await this.services.fs.write(ownerId, {
-            fileMetadata: {
-                path: profilePath(userUuid),
-                size: buffer.length,
-                contentType: 'application/json',
-                overwrite: true,
-                createMissingParents: true,
+        // Every user's profile lands under the system user, whose allowance
+        // isn't sized for that. Each file is capped at upload.
+        await this.services.fs.write(
+            ownerId,
+            {
+                fileMetadata: {
+                    path: profilePath(userUuid),
+                    size: buffer.length,
+                    contentType: 'application/json',
+                    overwrite: true,
+                    createMissingParents: true,
+                },
+                fileContent: Readable.from(buffer),
             },
-            fileContent: Readable.from(buffer),
-        });
+            undefined,
+            UNLIMITED_STORAGE_ALLOWANCE,
+        );
     }
 
     #normalize(stored: Record<string, unknown> | null): UserProfile {

@@ -146,11 +146,22 @@ describe('TogetherVideoProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('TogetherVideoProvider model catalog', () => {
-    it('getDefaultModel() returns the togetherai-prefixed director model', () => {
+    it('getDefaultModel() returns the togetherai-prefixed Wan 2.7 T2V model', () => {
         const provider = makeProvider();
-        expect(provider.getDefaultModel()).toBe(
-            'togetherai:minimax/video-01-director',
-        );
+        expect(provider.getDefaultModel()).toBe('togetherai:wan-ai/wan2.7-t2v');
+    });
+
+    it('drops the models Together no longer serves', () => {
+        const ids = TOGETHER_VIDEO_GENERATION_MODELS.map((m) => m.model);
+        for (const retired of [
+            'google/veo-2.0',
+            'kwaivgI/kling-2.1-master',
+            'kwaivgI/kling-2.1-standard',
+            'kwaivgI/kling-2.1-pro',
+            'kwaivgI/kling-1.6-standard',
+        ]) {
+            expect(ids).not.toContain(retired);
+        }
     });
 
     it('models() lists every catalog entry with togetherai- aliases populated', async () => {
@@ -209,13 +220,18 @@ describe('TogetherVideoProvider.generate argument validation', () => {
 
 // ── Credit gate ─────────────────────────────────────────────────────
 
+// Flat per-clip, pixel-sized model for tests that exercise that path.
+const DIRECTOR = 'togetherai:minimax/video-01-director';
+
 describe('TogetherVideoProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Together when actor lacks credits', async () => {
         const provider = makeProvider();
         hasCreditsSpy.mockResolvedValueOnce(false);
 
         await expect(
-            withTestActor(() => provider.generate({ prompt: 'hi' })),
+            withTestActor(() =>
+                provider.generate({ prompt: 'hi', model: DIRECTOR }),
+            ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(videosCreateMock).not.toHaveBeenCalled();
     });
@@ -271,7 +287,11 @@ describe('TogetherVideoProvider.generate parameter mapping', () => {
         });
 
         await withTestActor(() =>
-            provider.generate({ prompt: 'hi', no_extra_params: true }),
+            provider.generate({
+                prompt: 'hi',
+                model: DIRECTOR,
+                no_extra_params: true,
+            }),
         );
 
         const sent = videosCreateMock.mock.calls[0]![0];
@@ -290,6 +310,7 @@ describe('TogetherVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
+                model: DIRECTOR,
                 width: 1280,
                 height: 720,
                 fps: 24,
@@ -697,6 +718,27 @@ describe('TogetherVideoProvider.generate per-second models', () => {
         );
 
         expect(videosCreateMock.mock.calls[0]![0].generate_audio).toBe(false);
+    });
+
+    it('routes MiniMax H3 by its lowercased id and meters its 2k per-second rate', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:minimaxai/minimax-h3',
+                seconds: 5,
+            }),
+        );
+
+        const sent = videosCreateMock.mock.calls[0]![0];
+        expect(sent.model).toBe('MiniMaxAI/MiniMax-H3');
+        expect(sent.seconds).toBe('5');
+        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('together-video:MiniMaxAI/MiniMax-H3');
+        expect(count).toBe(5);
+        expect(cost).toBe(Math.round(13.91 * 5 * 1_000_000));
     });
 
     // Seedance 2.5 at its default 720p tier is 24.9 usd-cents/second and

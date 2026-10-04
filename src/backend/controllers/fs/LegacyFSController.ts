@@ -38,9 +38,15 @@ import {
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
-import type { SignedFile } from '../../util/fileSigning.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type {
+    SignAction,
+    SignedFile,
+    SigningConfig,
+} from '../../util/fileSigning.js';
 import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
+    parseSignedQuery,
     verifySignature,
 } from '../../util/fileSigning.js';
 import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
@@ -567,6 +573,8 @@ export class LegacyFSController extends PuterController {
             const rootChildren = await listRootEntries(
                 actor,
                 this.stores.fsEntry,
+                this.services.acl,
+                this.stores.permission,
             );
             const rootSuggestions =
                 await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -1181,7 +1189,7 @@ export class LegacyFSController extends PuterController {
         // emitAndWait is required: the thumbnails extension rewrites
         // `event.url` from a data URL to an `s3://` pointer, and the DB
         // write below needs to see that rewrite.
-        const event = { url: thumbnail };
+        const event = { url: thumbnail, uuid: entry.uuid };
         await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
         await this.clients.db.write(
@@ -1493,24 +1501,11 @@ export class LegacyFSController extends PuterController {
     writeFile = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
         const signingCfg = signingConfigFromAppConfig(this.config);
-        verifySignature(
-            {
-                uid: query.uid as string,
-                expires: query.expires as string,
-                signature: query.signature as string,
-            },
+        const targetEntry = await this.#resolveSignedEntry(
+            query,
             'write',
             signingCfg,
         );
-
-        const uid = typeof query.uid === 'string' ? query.uid : '';
-        const targetEntry = await resolveV1Selector(this.stores.fsEntry, {
-            uid,
-        });
-        if (!targetEntry)
-            throw new HttpError(404, 'Item not found', {
-                legacyCode: 'not_found',
-            });
 
         // Owner suspension check.
         const owner = await this.stores.user.getById(targetEntry.userId);
@@ -1735,18 +1730,7 @@ export class LegacyFSController extends PuterController {
     file = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
         const signingCfg = signingConfigFromAppConfig(this.config);
-        verifySignature(
-            {
-                uid: query.uid as string,
-                expires: query.expires as string,
-                signature: query.signature as string,
-            },
-            'read',
-            signingCfg,
-        );
-
-        const uid = typeof query.uid === 'string' ? query.uid : '';
-        const entry = await resolveV1Selector(this.stores.fsEntry, { uid });
+        const entry = await this.#resolveSignedEntry(query, 'read', signingCfg);
 
         // Owner-suspension guard — matches v1's /file. A signed URL stays
         // valid forever by default, so a signature minted before a suspension
@@ -1770,6 +1754,7 @@ export class LegacyFSController extends PuterController {
                     uuid: owner.uuid,
                     id: owner.id,
                     username: owner.username,
+                    email: owner.email ?? null,
                     suspended: !!(owner as { suspended?: unknown }).suspended,
                 },
             };
@@ -2833,6 +2818,32 @@ export class LegacyFSController extends PuterController {
     }
 
     // -- Helpers ---------------------------------------------------------
+
+    /**
+     * Resolve the entry a signed URL names and verify the signature against its
+     * current owner. Malformed or expired params fail before the lookup.
+     */
+    async #resolveSignedEntry(
+        query: Record<string, unknown>,
+        action: SignAction,
+        signingCfg: SigningConfig,
+    ): Promise<FSEntry> {
+        const signed = {
+            uid: query.uid as string,
+            expires: query.expires as string,
+            signature: query.signature as string,
+        };
+        const { uid } = parseSignedQuery(signed);
+        const entry = await this.stores.fsEntry.getEntryByUuid(uid);
+        verifySignature(signed, action, signingCfg, entry?.userId ?? null);
+        // Only a signature from before owner binding verifies without an entry.
+        if (!entry)
+            throw new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+        return entry;
+    }
+
     #requireActor(req: Request) {
         const actor = req.actor;
         if (!actor) {

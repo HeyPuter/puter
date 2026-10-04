@@ -31,6 +31,10 @@ import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { MANAGE_PERM_PREFIX } from '../../services/permission/consts.js';
+import {
+    APP_ICONS_SUBDOMAIN,
+    PROFILES_SUBDOMAIN,
+} from '../../util/systemSite.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
@@ -63,6 +67,8 @@ const RESERVED_SUBDOMAINS = new Set([
     'dev',
     'staging',
     'test',
+    APP_ICONS_SUBDOMAIN,
+    PROFILES_SUBDOMAIN,
 ]);
 
 /**

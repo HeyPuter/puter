@@ -1,10 +1,10 @@
 ---
 title: puter.ai.speech2txt()
-description: Transcribe or translate audio into text using OpenAI or xAI speech-to-text models.
+description: Transcribe audio into text using OpenAI or xAI speech-to-text models.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Converts spoken audio into text with optional English translation and diarization support. This helper wraps the Puter driver-backed transcription API (OpenAI and xAI) so you can work with local files, remote URLs, or in-memory blobs from the browser.
+Converts spoken audio into text, with speaker diarization on xAI. This helper wraps the Puter driver-backed transcription API (OpenAI and xAI) so you can work with local files, remote URLs, or in-memory blobs from the browser.
 
 ## Syntax
 
@@ -33,16 +33,13 @@ Fine-tune how transcription runs.
 
 - `file` / `audio` (String | File | Blob): Alternative way to pass the audio input.
 - `provider` (String): STT provider to use. `'openai'` (default) or `'xai'`. Aliases `'whisper'`, `'grok'` and `'x-ai'` are also accepted; anything else is rejected with a `bad_request` error.
-- `model` (String): One of `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, `gpt-4o-transcribe-diarize`, `whisper-1`, or any future backend-supported model. Defaults to `gpt-4o-mini-transcribe` for transcription and `whisper-1` for translation.
-- `translate` (Boolean): Set to `true` to force English output (uses the translations endpoint).
-- `response_format` (String): Desired output shape. Examples: `json`, `text`, `diarized_json`, `srt`, `verbose_json`, `vtt` (depends on the model).
+- `model` (String): `gpt-transcribe` (OpenAI default), or `grok-voice-transcribe-2.0` with `provider: 'xai'`. OpenAI deprecated `whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and `gpt-4o-transcribe-diarize`; Puter rejects them with `bad_request`.
+- `translate` (Boolean): Not supported. On OpenAI, `translate: true` fails with `bad_request`; on xAI it returns an ordinary transcript in the source language.
+- `response_format` (String): `json` (default) or `text` for OpenAI.
 - `language` (String): ISO language code hint for the input audio.
-- `prompt` (String): Optional context for models that support prompting (all except `gpt-4o-transcribe-diarize`).
+- `prompt` (String): Optional context to guide the transcription.
 - `temperature` (Number): Sampling temperature (0–1) for supported models.
 - `logprobs` (Boolean): Request token log probabilities where supported.
-- `timestamp_granularities` (Array\<String>): Include `segment` or `word` level timestamps on models that offer them (currently `whisper-1`).
-- `chunking_strategy` (String): Required for `gpt-4o-transcribe-diarize` inputs longer than 30 seconds (recommend `"auto"`).
-- `known_speaker_names` / `known_speaker_references` (Array): Optional diarization references encoded as data URLs.
 - `extra_body` (Object): Forwarded verbatim to the OpenAI API for experimental flags.
 - `stream` (Boolean): Reserved for future streaming support. Streaming is not currently supported.
 - `test_mode` (Boolean): When `true`, returns a sample response without using credits. Defaults to `false`.
@@ -66,7 +63,7 @@ When `true`, skips the live API call and returns a static sample transcript so y
 Returns a `Promise` that resolves to either:
 
 - A string (when `response_format: "text"`), or
-- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including diarization segments, timestamps, etc., depending on the selected model and format). This is the default, including when you pass a bare `source` with no options.
+- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including per-word timestamps and speakers on xAI, depending on the provider and options). This is the default, including when you pass a bare `source` with no options.
 
 ## Examples
 
@@ -80,31 +77,6 @@ Returns a `Promise` that resolves to either:
         (async () => {
             const transcript = await puter.ai.speech2txt('https://assets.puter.site/example.mp3');
             puter.print('Transcript:', transcript.text);
-        })();
-    </script>
-</body>
-</html>
-```
-
-<strong class="example-title">Translate to English with diarization</strong>
-
-```html
-<html>
-<body>
-    <script src="https://js.puter.com/v2/"></script>
-    <script>
-        (async () => {
-            const meeting = await puter.ai.speech2txt({
-                file: '~/test.mp3',
-                translate: true,
-                model: 'gpt-4o-transcribe-diarize',
-                response_format: 'diarized_json',
-                chunking_strategy: 'auto'
-            });
-
-            meeting.segments.forEach(segment => {
-                console.log(`${segment.speaker}: ${segment.text}`);
-            });
         })();
     </script>
 </body>

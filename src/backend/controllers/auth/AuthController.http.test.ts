@@ -17,11 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { TOTP } from 'otpauth';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
-import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import {
+    createTestUser,
+    setupPuterTestEnv,
+    type PuterTestEnv,
+} from '../../testUtil.js';
+import type { IConfig } from '../../types';
 
 /**
  * HTTP-level coverage for `/auth/revoke-own-access-token` — the route that
@@ -342,5 +349,202 @@ describe('revoke-own-access-token over HTTP', () => {
             expect(res.status).toBe(200);
         }
         expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
+    });
+});
+
+/**
+ * Enrolling a second factor: setup sits behind the user-protected gate, and
+ * enable needs a live code for the secret setup issued.
+ */
+describe('2FA enrollment over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({ teams_enabled: true } as IConfig);
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    const PASSWORD = 'tfa-http-password';
+
+    const uniq = () => Math.random().toString(36).slice(2, 10);
+
+    /** A signed-in password account with a confirmed address. */
+    const makeAccount = async () => {
+        const username = `tfa_${uniq()}`;
+        const { token } = await createTestUser(env.server, {
+            username,
+            password: PASSWORD,
+        });
+        const row = (await env.server.stores.user.getByUsername(username))!;
+        await env.server.stores.user.update(row.id, {
+            email: `${username}@test.local`,
+            email_confirmed: 1,
+        });
+        await env.server.stores.user.invalidateById(row.id);
+        return { username, token, userId: row.id };
+    };
+
+    /** The user-protected gate takes the session cookie on the GUI origin. */
+    const protectedPost = (
+        path: string,
+        token: string,
+        body: Record<string, unknown>,
+        credential: 'cookie' | 'bearer' = 'cookie',
+    ) =>
+        fetch(new URL(path, env.origin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                ...(credential === 'cookie'
+                    ? { cookie: `puter_auth_token=${token}` }
+                    : { authorization: `Bearer ${token}` }),
+            },
+            body: JSON.stringify(body),
+        });
+
+    const setup = (
+        token: string,
+        body: Record<string, unknown>,
+        credential: 'cookie' | 'bearer' = 'cookie',
+    ) => protectedPost('/user-protected/setup-2fa', token, body, credential);
+
+    const configure = (
+        token: string,
+        action: string,
+        body: Record<string, unknown> = {},
+    ) =>
+        fetch(new URL(`/auth/configure-2fa/${action}`, env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+        });
+
+    const otpState = async (userId: number) => {
+        const row = await env.server.stores.user.getByProperty('id', userId, {
+            force: true,
+        });
+        return {
+            secret: row?.otp_secret ?? null,
+            enabled: Boolean(row?.otp_enabled),
+        };
+    };
+
+    const liveTotp = (username: string, secret: string) =>
+        new TOTP({
+            issuer: 'puter.com',
+            label: username,
+            algorithm: 'SHA1',
+            digits: 6,
+            secret,
+        }).generate();
+
+    it('refuses setup to a session that has not re-proved the password', async () => {
+        const account = await makeAccount();
+
+        const noPassword = await setup(account.token, {});
+        expect(noPassword.status).toBe(403);
+        expect(await noPassword.text()).toContain('password_required');
+
+        const wrongPassword = await setup(account.token, { password: 'nope' });
+        expect(wrongPassword.status).toBe(400);
+        expect(await wrongPassword.text()).toContain('password_mismatch');
+
+        // Right password, but a bearer token is not the session cookie.
+        const bearer = await setup(
+            account.token,
+            { password: PASSWORD },
+            'bearer',
+        );
+        expect(bearer.status).toBe(401);
+
+        // The old ungated path no longer hands out a secret.
+        expect((await configure(account.token, 'setup')).status).toBe(400);
+
+        expect((await otpState(account.userId)).secret).toBeNull();
+    });
+
+    it('enrolls after the password, and enables only on a live code', async () => {
+        const account = await makeAccount();
+
+        const res = await setup(account.token, { password: PASSWORD });
+        expect(res.status).toBe(200);
+        const { secret, codes } = (await res.json()) as {
+            secret: string;
+            codes: string[];
+        };
+        expect(codes).toHaveLength(10);
+        expect((await otpState(account.userId)).secret).toBe(secret);
+
+        expect((await configure(account.token, 'enable')).status).toBe(400);
+        const foreign = otpCreateSecret(account.username).secret;
+        const wrong = await configure(account.token, 'enable', {
+            code: liveTotp(account.username, foreign),
+        });
+        expect(wrong.status).toBe(400);
+        expect(await wrong.text()).toContain('code_mismatch');
+        expect((await otpState(account.userId)).enabled).toBe(false);
+
+        const enabled = await configure(account.token, 'enable', {
+            code: liveTotp(account.username, secret),
+        });
+        expect(enabled.status).toBe(200);
+        expect((await otpState(account.userId)).enabled).toBe(true);
+    });
+
+    it('lets a seat its team holds for 2FA enroll through the same gate', async () => {
+        const owner = await makeAccount();
+        // The rule can only be turned on by an owner who has 2FA.
+        await env.server.stores.user.update(owner.userId, { otp_enabled: 1 });
+        await env.server.stores.user.invalidateById(owner.userId);
+        const team = await env.server.services.team.createTeam(owner.userId, {
+            name: 'Acme',
+        });
+        const seatName = `seat_${uniq()}`;
+        const { userId, temporaryPassword } =
+            await env.server.services.team.provisionAccount(
+                team.uid,
+                owner.userId,
+                { username: seatName },
+            );
+        await env.server.services.team.updateTeam(team.uid, owner.userId, {
+            require2fa: true,
+        });
+        const { token } = await env.server.services.auth.createSessionToken(
+            (await env.server.stores.user.getById(userId))!,
+        );
+
+        // First sign-in replaces the temporary password.
+        const changed = await protectedPost(
+            '/user-protected/change-password',
+            token,
+            { password: temporaryPassword, new_pass: 'seat-own-password' },
+        );
+        expect(changed.status).toBe(200);
+
+        const held = await fetch(new URL('/teams', env.apiOrigin), {
+            headers: { authorization: `Bearer ${token}` },
+        });
+        expect(held.status).toBe(403);
+        expect(await held.text()).toContain('two_factor_required');
+
+        const res = await setup(token, { password: 'seat-own-password' });
+        expect(res.status).toBe(200);
+        const { secret } = (await res.json()) as { secret: string };
+        const enabled = await configure(token, 'enable', {
+            code: liveTotp(seatName, secret),
+        });
+        expect(enabled.status).toBe(200);
+        expect((await otpState(userId)).enabled).toBe(true);
+
+        const released = await fetch(new URL('/teams', env.apiOrigin), {
+            headers: { authorization: `Bearer ${token}` },
+        });
+        expect(released.status).toBe(200);
     });
 });

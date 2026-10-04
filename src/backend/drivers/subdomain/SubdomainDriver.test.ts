@@ -23,6 +23,10 @@ import { makeActor } from '../../core/actor.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
+import {
+    APP_ICONS_SUBDOMAIN,
+    PROFILES_SUBDOMAIN,
+} from '../../util/systemSite.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { SubdomainDriver } from './SubdomainDriver.js';
@@ -152,6 +156,26 @@ describe('SubdomainDriver.create', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects the system-owned subdomains as reserved', async () => {
+        const { actor } = await makeUser();
+        for (const subdomain of [
+            APP_ICONS_SUBDOMAIN,
+            PROFILES_SUBDOMAIN,
+            'Puter-Profiles',
+        ]) {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            subdomain,
+                            root_dir: `/${actor.user!.username}/Public`,
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
     });
 
     it('rejects a duplicate subdomain with 409', async () => {

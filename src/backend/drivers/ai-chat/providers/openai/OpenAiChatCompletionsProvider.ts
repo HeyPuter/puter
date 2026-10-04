@@ -50,7 +50,7 @@ export class OpenAiChatProvider implements IChatProvider {
     /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
-    #defaultModel = 'gpt-5-nano';
+    #defaultModel = 'gpt-6-luna';
 
     #meteringService: MeteringService;
 
@@ -94,6 +94,11 @@ export class OpenAiChatProvider implements IChatProvider {
 
     getDefaultModel() {
         return this.#defaultModel;
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string | undefined): string {
+        return `openai:${modelId}`;
     }
 
     async complete(
@@ -247,7 +252,7 @@ export class OpenAiChatProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `openai:${modelUsed?.id}`,
+                    this.meteringModelKey(modelUsed?.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

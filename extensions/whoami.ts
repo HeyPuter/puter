@@ -71,6 +71,13 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
     'audit_metadata',
 ]);
 
+// What an app actor may receive from `whoami.details` listeners. Anything
+// else a listener adds describes the account, and only ships to user actors.
+const APP_VISIBLE_LISTENER_KEYS: ReadonlySet<string> = new Set([
+    'subscribed',
+    'paid_storage',
+]);
+
 // Depth-limited, cycle-safe walk deleting every SENSITIVE_KEYS entry it finds
 // at any level (`metadata` and `taskbar_items` are both nested structures).
 const scrubSensitive = (
@@ -186,19 +193,6 @@ export const handleWhoami = async (
         // this endpoint is polled, and a mint is a write.
         referral_code: user.referral_code,
         oidc_only: oidcOnly,
-        taskbar_items: isUser
-            ? await getTaskbarItems(
-                  user,
-                  {
-                      clients,
-                      stores,
-                      services,
-                      apiBaseUrl: String(extension.config.api_base_url ?? ''),
-                      config: extension.config,
-                  },
-                  { iconSize, noIcons },
-              )
-            : undefined,
         otp: !!user.otp_enabled,
         feature_flags,
         created_ts: toUnixSeconds(user.timestamp),
@@ -225,6 +219,21 @@ export const handleWhoami = async (
         } catch {
             // OIDC not configured
         }
+    }
+
+    // Taskbar items — only sent to user actors
+    if (isUser) {
+        details.taskbar_items = await getTaskbarItems(
+            user,
+            {
+                clients,
+                stores,
+                services,
+                apiBaseUrl: String(extension.config.api_base_url ?? ''),
+                config: extension.config,
+            },
+            { iconSize, noIcons },
+        );
     }
 
     // Directories — only sent to user actors
@@ -292,6 +301,12 @@ export const handleWhoami = async (
         details.app_name = app.uid;
     }
 
+    // A key core left undefined isn't built, so a listener can't fill it for an app.
+    const builtKeys = isUser
+        ? null
+        : new Set(
+              Object.keys(details).filter((key) => details[key] !== undefined),
+          );
     try {
         await clients.event.emitAndWait(
             'whoami.details',
@@ -300,6 +315,13 @@ export const handleWhoami = async (
         );
     } catch {
         /* best-effort */
+    }
+    if (builtKeys) {
+        for (const key of Object.keys(details)) {
+            if (!builtKeys.has(key) && !APP_VISIBLE_LISTENER_KEYS.has(key)) {
+                delete details[key];
+            }
+        }
     }
 
     const subscription = details.subscription as

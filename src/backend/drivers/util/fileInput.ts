@@ -321,8 +321,22 @@ function assertMax(buffer: Buffer, maxBytes?: number): void {
     }
 }
 
+/**
+ * MIME types whose subtype isn't the file extension. Upstreams like OpenAI's
+ * audio API pick the decoder from the extension and reject `input.mpeg`.
+ */
+const EXT_BY_MIME: Record<string, string> = {
+    'audio/mpeg': 'mp3',
+    'audio/x-wav': 'wav',
+    'audio/wave': 'wav',
+    'audio/x-m4a': 'm4a',
+};
+
 function filenameFromMime(mime: string): string {
-    const ext = mime.split('/')[1]?.split('+')[0] ?? 'bin';
+    const ext =
+        EXT_BY_MIME[mime.toLowerCase()] ??
+        mime.split('/')[1]?.split('+')[0] ??
+        'bin';
     return `input.${ext}`;
 }
 

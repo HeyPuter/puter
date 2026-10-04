@@ -294,6 +294,8 @@ async function UIItem (options) {
     const el_item_icon = document.querySelector(`#item-${item_id} .item-icon`);
     const el_item_name_editor = document.querySelector(`#item-${item_id} > .item-name-editor`);
     const is_trashed = ($(el_item).attr('data-path') || '').startsWith(`${window.trash_path }/`);
+    // Only a direct child of Trash carries restore metadata.
+    const is_restorable = is_trashed && path.dirname($(el_item).attr('data-path')) === window.trash_path;
 
     // update parent window's explorer item count if applicable
     if ( options.appendTo !== undefined ) {
@@ -957,6 +959,7 @@ async function UIItem (options) {
                     onClick: function () {
                         $selected_items.each(function () {
                             const ell = this;
+                            if ( path.dirname($(ell).attr('data-path')) !== window.trash_path ) return;
                             let metadata = $(ell).attr('data-metadata') === '' ? {} : JSON.parse($(ell).attr('data-metadata'));
                             window.move_items([ell], path.dirname(metadata.original_path));
                         });
@@ -1513,7 +1516,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Restore
             // -------------------------------------------
-            if ( is_trashed ) {
+            if ( is_restorable ) {
                 menu_items.push({
                     html: i18n('restore'),
                     onClick: async function () {

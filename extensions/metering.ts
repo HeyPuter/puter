@@ -6,6 +6,7 @@ import {
     servicesContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
+import { GLOBAL_APP_KEY } from '@heyputer/backend/src/services/metering/consts';
 import {
     creditMultiplierFrom,
     toCredits,
@@ -151,8 +152,9 @@ export const handleMeteringUsageForApp = async (
     let appId = String(req.params.appIdOrName ?? '');
     if (!appId) throw new HttpError(400, 'appId parameter is required');
 
-    // If not a UUID-shaped app UID, look up by name
-    if (!appId.startsWith('app-')) {
+    // If not a UUID-shaped app UID or the global sentinel, look up by name.
+    // Which apps an actor may read is MeteringService's call, not this route's.
+    if (!appId.startsWith('app-') && appId !== GLOBAL_APP_KEY) {
         const appRows = (await clients.db.read(
             'SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
             [appId],

@@ -27,7 +27,7 @@ import {
 } from '@aws-sdk/client-polly';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
@@ -63,7 +63,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
         null;
 
     constructor(
-        meteringService: MeteringService,
+        meteringService: AiMeteringService,
         config: {
             access_key: string;
             secret_key: string;
@@ -256,55 +256,62 @@ export class AWSPollyTTSProvider extends TTSProvider {
         const ucentsPerChar = AWS_POLLY_COSTS[engine] ?? 0;
         const totalCost = ucentsPerChar * text.length;
 
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
+        const hold = await this.meteringService.reserveAiCredits(
             actor,
+            usageType,
             totalCost,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient funds', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        // Resolve voice
-        let voice = voiceArg ?? undefined;
+        try {
+            // Resolve voice
+            let voice = voiceArg ?? undefined;
 
-        if (!voice && language) {
-            voice =
-                (await this.getLanguageAppropriateVoice(language, engine)) ??
-                undefined;
+            if (!voice && language) {
+                voice =
+                    (await this.getLanguageAppropriateVoice(
+                        language,
+                        engine,
+                    )) ?? undefined;
+            }
+
+            if (!voice) {
+                voice = await this.getDefaultVoiceForEngine(engine);
+            }
+
+            const client = this.getClient();
+
+            const params = {
+                Engine: engine as Engine,
+                OutputFormat: 'mp3' as const,
+                Text: text,
+                VoiceId: voice as VoiceId,
+                LanguageCode: (language ?? 'en-US') as LanguageCode,
+                TextType: (ssml ? 'ssml' : 'text') as 'ssml' | 'text',
+            };
+
+            const command = new SynthesizeSpeechCommand(params);
+            const response = await client.send(command);
+
+            this.meteringService.incrementUsage(
+                actor,
+                usageType,
+                text.length,
+                totalCost,
+            );
+
+            return {
+                dataType: 'stream',
+                content_type: 'audio/mpeg',
+                chunked: true,
+                stream: response.AudioStream as unknown as import('node:stream').Readable,
+            };
+        } finally {
+            await hold.release();
         }
-
-        if (!voice) {
-            voice = await this.getDefaultVoiceForEngine(engine);
-        }
-
-        const client = this.getClient();
-
-        const params = {
-            Engine: engine as Engine,
-            OutputFormat: 'mp3' as const,
-            Text: text,
-            VoiceId: voice as VoiceId,
-            LanguageCode: (language ?? 'en-US') as LanguageCode,
-            TextType: (ssml ? 'ssml' : 'text') as 'ssml' | 'text',
-        };
-
-        const command = new SynthesizeSpeechCommand(params);
-        const response = await client.send(command);
-
-        this.meteringService.incrementUsage(
-            actor,
-            usageType,
-            text.length,
-            totalCost,
-        );
-
-        return {
-            dataType: 'stream',
-            content_type: 'audio/mpeg',
-            chunked: true,
-            stream: response.AudioStream as unknown as import('node:stream').Readable,
-        };
     }
 }

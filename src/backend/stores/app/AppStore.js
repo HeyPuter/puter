@@ -235,7 +235,7 @@ export class AppStore extends PuterStore {
             );
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
-                `SELECT * FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
+                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
                 chunk,
             );
             for (const row of rows) {
@@ -474,7 +474,7 @@ export class AppStore extends PuterStore {
             // Fall through to DB on any cache failure.
         }
 
-        let sql = `SELECT * FROM \`apps\` ${whereClause} ORDER BY \`id\` ASC LIMIT ?`;
+        let sql = `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` ${whereClause} ORDER BY \`id\` ASC LIMIT ?`;
         const sqlParams = [...params, limit];
         if (offset > 0) {
             sql += ' OFFSET ?';
@@ -632,7 +632,7 @@ export class AppStore extends PuterStore {
             // the replica may not have it yet, which is exactly the lag
             // that let both callers past the existence check.
             const rows = await this.clients.db.pread(
-                'SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
+                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`uid\` = ? LIMIT 1`,
                 [uid],
             );
             if (rows.length === 0) throw error;
@@ -823,7 +823,7 @@ export class AppStore extends PuterStore {
         // Rows written before writes were canonicalized may carry a leading
         // dot (`.docx`); match both forms so they work without a migration.
         const rows = await this.clients.db.read(
-            `SELECT a.* FROM \`apps\` a
+            `SELECT a.*, ${this.#createdEpochColumn('a.')} FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
              WHERE fa.\`type\` IN (?, ?)`,
             [ext, `.${ext}`],
@@ -977,7 +977,7 @@ export class AppStore extends PuterStore {
             // owner of the name takes precedence over any historical
             // redirect still lingering in `old_app_names`.
             const directRows = await read(
-                'SELECT * FROM `apps` WHERE `name` = ? LIMIT 1',
+                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`name\` = ? LIMIT 1`,
                 [value],
             );
             if (directRows.length > 0) {
@@ -987,11 +987,26 @@ export class AppStore extends PuterStore {
         }
 
         const rows = await read(
-            `SELECT * FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
+            `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
             [value],
         );
         if (rows.length === 0) return null;
         return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * The row's creation time as unix seconds, computed by the database: the
+     * mysql driver reads a stored UTC timestamp as local time, so parsing
+     * `timestamp` in JS can be off by the server's UTC offset.
+     */
+    #createdEpochColumn(alias = '') {
+        const column = `${alias}\`timestamp\``;
+        const epoch = this.clients.db.case({
+            postgres: `EXTRACT(EPOCH FROM ${column})::bigint`,
+            mysql: `UNIX_TIMESTAMP(${column})`,
+            otherwise: `CAST(strftime('%s', ${column}) AS INTEGER)`,
+        });
+        return `${epoch} AS \`created_epoch\``;
     }
 
     /** `old_app_names` timestamp below which a redirect has expired. */
@@ -1009,7 +1024,7 @@ export class AppStore extends PuterStore {
      */
     async #resolveByOldName(name) {
         const rows = await this.clients.db.read(
-            `SELECT a.* FROM \`apps\` AS a
+            `SELECT a.*, ${this.#createdEpochColumn('a.')} FROM \`apps\` AS a
              INNER JOIN \`old_app_names\` AS o ON o.\`app_uid\` = a.\`uid\`
              WHERE o.\`name\` = ? AND o.\`timestamp\` >= ${this.#oldNameCutoffClause()}
              ORDER BY o.\`timestamp\` DESC
@@ -1189,6 +1204,9 @@ export class AppStore extends PuterStore {
             } catch {
                 row.metadata = null;
             }
+        }
+        if (row.created_epoch !== undefined && row.created_epoch !== null) {
+            row.created_epoch = Number(row.created_epoch);
         }
         // Alias created_at
         if (row.timestamp !== undefined && row.created_at === undefined) {

@@ -912,15 +912,18 @@ describe('FSController.startWrite', () => {
 
     it('attaches signed thumbnail upload targets published by a listener', async () => {
         const { actor, username } = await makeUser();
+        const itemUids: string[] = [];
         const listener = (_key: string, data: unknown) => {
             const payload = data as {
                 items: Array<{
                     index: number;
+                    item_uid: string;
                     uploadUrl?: string;
                     thumbnailUrl?: string;
                 }>;
             };
             for (const item of payload.items) {
+                itemUids.push(item.item_uid);
                 item.uploadUrl = `https://thumbs.test/put/${item.index}`;
                 item.thumbnailUrl = `https://thumbs.test/get/${item.index}`;
             }
@@ -949,6 +952,13 @@ describe('FSController.startWrite', () => {
             const body = captured.body as ClientSignedWriteResponse;
             expect(body.thumbnailUploadUrl).toBe('https://thumbs.test/put/0');
             expect(body.thumbnailUrl).toBe('https://thumbs.test/get/0');
+            // Listeners are told the entry the upload will complete into, so
+            // the thumbnail can be bound to it.
+            const session =
+                await server.stores.fsEntry.getPendingEntryBySessionId(
+                    body.sessionId,
+                );
+            expect(itemUids).toEqual([session?.objectKey]);
         } finally {
             server.clients.event.off(
                 'thumbnail.upload.prepare',
@@ -1197,6 +1207,38 @@ describe('FSController.completeWrite', () => {
             `/${username}/Documents/complete-thumb.txt`,
         );
         expect(stored?.thumbnail).toBe('https://thumbs.test/x.png');
+    });
+
+    it('tells thumbnail listeners which entry the thumbnail is for', async () => {
+        const { actor, username } = await makeUser();
+        const target = `/${username}/Documents/complete-bound-thumb.txt`;
+        const started = await startSignedWrite(actor, target, 2);
+        await fetch(started.url!, { method: 'PUT', body: 'yz' });
+
+        const seen: unknown[] = [];
+        const listener = (_key: string, data: unknown) => {
+            seen.push(data);
+        };
+        server.clients.event.on('thumbnail.created', listener as never);
+        try {
+            const { res } = makeRes();
+            await withActor(actor, () =>
+                controller.completeWrite(
+                    makeReq<CompleteWriteRequest>({
+                        body: {
+                            uploadId: started.sessionId,
+                            thumbnailData: 'https://thumbs.test/x.png',
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+        } finally {
+            server.clients.event.off('thumbnail.created', listener as never);
+        }
+        const stored = await server.stores.fsEntry.getEntryByPath(target);
+        expect(seen).toEqual([expect.objectContaining({ uuid: stored?.uuid })]);
     });
 
     it('404s an unknown upload id', async () => {

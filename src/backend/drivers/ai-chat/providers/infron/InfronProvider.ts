@@ -56,6 +56,7 @@ type InfronApiModel = {
     display_name?: string;
     category_type?: string;
     is_display_only?: boolean;
+    deprecated?: boolean;
     supported_endpoint_types?: string[];
     context_length?: number;
     max_output_tokens?: number;
@@ -222,6 +223,11 @@ export class InfronProvider implements IChatProvider {
     }
 
     /** AI Chat completion method. See AIChatService for more details. */
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return modelId;
+    }
+
     async complete({
         messages,
         stream,
@@ -310,7 +316,7 @@ export class InfronProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     billedTrackedUsage,
                     actor,
-                    modelUsed.id,
+                    this.meteringModelKey(modelUsed.id),
                     costOverwrites,
                 );
                 (billedTrackedUsage as Record<string, number>).usd_cents =
@@ -330,7 +336,7 @@ export class InfronProvider implements IChatProvider {
             this.#meteringService.utilRecordUsageObject(
                 trackedUsage,
                 actor,
-                modelUsed.id,
+                this.meteringModelKey(modelUsed.id),
                 costOverwrites,
             );
             return trackedUsage;
@@ -383,6 +389,7 @@ export class InfronProvider implements IChatProvider {
             // models — only chat-completion-capable models belong here.
             if (model.category_type !== 'LLM') continue;
             if (model.is_display_only) continue;
+            if (model.deprecated) continue;
             if (!(model.supported_endpoint_types ?? []).includes('openai')) {
                 continue;
             }

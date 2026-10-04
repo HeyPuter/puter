@@ -104,10 +104,10 @@ const examples = [
                 source: '/playground/examples/ai-resume-analyzer.html',
             },
             {
-                title: 'Chat with OpenAI o3-mini',
-                description: 'Chat with OpenAI o3-mini using Puter.js AI API. Run and experiment with this example directly in the playground.',
-                slug: 'ai-chat-openai-o3-mini',
-                source: '/playground/examples/ai-chat-openai-o3-mini.html',
+                title: 'Chat with OpenAI GPT-6 Luna',
+                description: 'Chat with OpenAI GPT-6 Luna using Puter.js AI API. Run and experiment with this example directly in the playground.',
+                slug: 'ai-chat-openai-gpt-6-luna',
+                source: '/playground/examples/ai-chat-openai-gpt-6-luna.html',
             },
             {
                 title: 'Chat with Claude Sonnet',
@@ -278,8 +278,8 @@ const examples = [
                 source: '/playground/examples/ai-txt2vid-options.html',
             },
             {
-                title: 'Text to Video with Google Veo',
-                description: 'Generate a video with a Google Veo model and a negative prompt using Puter.js AI API. Run and experiment with this example in the playground.',
+                title: 'Text to Video with Google Veo on Together AI',
+                description: 'Generate a video with Google Veo 3.1 Lite through Together AI and a negative prompt using Puter.js AI API. Run and experiment with this example in the playground.',
                 slug: 'ai-txt2vid-veo',
                 source: '/playground/examples/ai-txt2vid-veo.html',
             },

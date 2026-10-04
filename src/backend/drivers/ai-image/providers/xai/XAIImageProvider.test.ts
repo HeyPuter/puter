@@ -326,7 +326,7 @@ describe('XAIImageProvider.generate success path', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'grok-imagine-image-quality',
+                model: 'grok-imagine-image',
                 prompt: 'hi',
                 quality: '2k',
             }),
@@ -336,7 +336,7 @@ describe('XAIImageProvider.generate success path', () => {
         expect(sent.resolution).toBe('2k');
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
         expect((entries as Array<{ usageType: string }>)[0].usageType).toBe(
-            'xai:grok-imagine-image-quality:output:2k',
+            'xai:grok-imagine-image:output:2k',
         );
     });
 
@@ -547,6 +547,19 @@ describe('XAIImageProvider quality and reference limits', () => {
             ).toBe(6_000_000);
         },
     );
+
+    it.each([
+        'grok-imagine-image-quality',
+        'x-ai/grok-imagine-image-quality',
+        'grok-imagine-image-quality-20260403',
+        'grok-imagine-image-quality-latest',
+        'grok-imagine-image-pro',
+    ])('drops the retired %s instead of redirecting it', (model) => {
+        const names = makeProvider()
+            .models()
+            .flatMap((m) => [m.id, ...(m.aliases ?? [])]);
+        expect(names).not.toContain(model);
+    });
 
     it('resolves v2 auto quality to medium for edits', async () => {
         postMock.mockResolvedValueOnce({

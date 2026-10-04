@@ -40,7 +40,7 @@ export class GroqAIProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'llama-3.1-8b-instant';
+        return 'openai/gpt-oss-20b';
     }
 
     models() {
@@ -49,6 +49,11 @@ export class GroqAIProvider implements IChatProvider {
 
     async list() {
         return modelLookupNames(this.models());
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `groq:${modelId}`;
     }
 
     async complete({
@@ -99,7 +104,7 @@ export class GroqAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `groq:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

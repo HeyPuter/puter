@@ -55,7 +55,7 @@ Available when `provider: 'openai'`:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'gpt-4o-mini-tts'` (default), `'tts-1'`, `'tts-1-hd'` |
-| `voice` | `String` | Voice ID. Available: `'alloy'` (default), `'ash'`, `'ballad'`, `'coral'`, `'echo'`, `'fable'`, `'nova'`, `'onyx'`, `'sage'`, `'shimmer'` |
+| `voice` | `String` | Voice ID. Available: `'alloy'` (default), `'ash'`, `'coral'`, `'echo'`, `'fable'`, `'nova'`, `'onyx'`, `'sage'`, `'shimmer'`; `gpt-4o-mini-tts` also offers `'ballad'`, `'verse'`, `'marin'`, and `'cedar'` (other models reject them with `bad_request`) |
 | `response_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'opus'`, `'aac'`, `'flac'`, `'pcm'` |
 | `instructions` | `String` | Additional guidance for voice style (tone, speed, mood, etc.) |
 
@@ -67,7 +67,7 @@ Available when `provider: 'elevenlabs'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_flash_v2_5'`, `'eleven_turbo_v2_5'`, `'eleven_v3'` |
+| `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_v4'`, `'eleven_v4_turbo'`, `'eleven_v3'`, `'eleven_v3_conversational'`, `'eleven_flash_v2_5'`, `'eleven_flash_v2'` |
 | `voice` | `String` | Voice ID. Defaults to `'21m00Tcm4TlvDq8ikWAM'` (Rachel sample voice) |
 | `output_format` | `String` | Output format. Defaults to `'mp3_44100_128'` |
 | `voice_settings` | `Object` | Voice tuning options (stability, similarity boost, speed) |
@@ -80,7 +80,7 @@ Available when `provider: 'gemini'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | TTS model. Available: `'gemini-2.5-flash-preview-tts'` (default), `'gemini-2.5-pro-preview-tts'`, `'gemini-3.1-flash-tts-preview'` |
+| `model` | `String` | TTS model. Available: `'gemini-3.8-flash-tts'` (default), `'gemini-3.8-flash-lite-tts'` |
 | `voice` | `String` | Voice name. Defaults to `'Kore'`. Available: `'Zephyr'`, `'Puck'`, `'Charon'`, `'Kore'`, `'Fenrir'`, `'Leda'`, `'Orus'`, `'Aoede'`, `'Callirrhoe'`, `'Autonoe'`, `'Enceladus'`, `'Iapetus'`, `'Umbriel'`, `'Algieba'`, `'Despina'`, `'Erinome'`, `'Algenib'`, `'Rasalgethi'`, `'Laomedeia'`, `'Achernar'`, `'Alnilam'`, `'Schedar'`, `'Gacrux'`, `'Pulcherrima'`, `'Achird'`, `'Zubenelgenubi'`, `'Vindemiatrix'`, `'Sadachbia'`, `'Sadaltager'`, `'Sulafat'` |
 | `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.) |
 
@@ -106,7 +106,7 @@ Available when `provider: 'speechify'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | TTS model. Available: `'simba-3.2'` (default), `'simba-english'`, `'simba-multilingual'` |
+| `model` | `String` | TTS model. Available: `'simba-3.2'` (default) |
 | `voice` | `String` | Voice ID. Available: `'geffen_32'` (default), `'dominic_32'`, `'harper_32'`, `'hugh_32'`, `'imogen_32'` |
 | `output_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'ogg'`, `'aac'` |
 
@@ -222,7 +222,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
                 "Hello! This sample uses the Gemini Puck voice.",
                 {
                     provider: "gemini",
-                    model: "gemini-2.5-flash-preview-tts",
+                    model: "gemini-3.8-flash-tts",
                     voice: "Puck",
                     instructions: "Speak in a friendly, upbeat tone."
                 }

@@ -49,6 +49,7 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { usdPerMToken } from '../../utils/pricing.js';
 import { MetaProvider } from './MetaProvider.js';
 import { META_MODELS } from './models.js';
 
@@ -210,6 +211,21 @@ describe('MetaProvider model catalog', () => {
             }
         }
         expect(names).toContain('meta/muse-spark-1.2');
+    });
+
+    it('exposes muse-spark-1.3 at standard-tier rates', () => {
+        expect(
+            makeProvider()
+                .models()
+                .find((m) => m.id === 'muse-spark-1.3'),
+        ).toMatchObject({
+            puterId: 'meta:meta/muse-spark-1.3',
+            aliases: ['meta/muse-spark-1.3'],
+            context: 1_048_576,
+            max_tokens: 131_072,
+            release_date: '2026-09-02',
+            costs: usdPerMToken(1.25, 4.25, 0.15),
+        });
     });
 
     it('leaves the contributor tier out of the catalog entirely', () => {

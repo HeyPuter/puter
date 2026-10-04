@@ -20,7 +20,7 @@
 /**
  * Integration test for the Alibaba provider.
  *
- * Uses `qwen-turbo` (cheapest generally-available model). Skipped
+ * Uses `qwen-flash` (cheapest generally-available model). Skipped
  * when `PUTER_TEST_AI_ALIBABA_API_KEY` is unset.
  */
 
@@ -39,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_ALIBABA_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'AlibabaProvider (integration)',
     () => {
-        it('returns a non-empty completion from qwen-turbo', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns a non-empty completion from qwen-flash', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new AlibabaProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -47,7 +47,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'qwen-turbo',
+                    model: 'qwen-flash',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],

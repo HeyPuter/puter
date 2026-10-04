@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { SYSTEM_ACTOR_UUID } from '../../core/actor.js';
 import type { PuterServer } from '../../server.js';
 import type { IConfig } from '../../types.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -37,45 +38,34 @@ afterAll(async () => {
     await server?.shutdown();
 }, 60_000);
 
-describe('AppIconService — before the admin user exists', () => {
-    it('defers the icons directory setup instead of failing boot', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        try {
-            // The admin owns the icons directory, so without it there is
-            // nothing to hang the `puter-app-icons` subdomain off; the
-            // bootstrap backs off and retries on the next icon.
-            await server.services.appIcon.ensureIconsDirectory();
-            expect(warn).toHaveBeenCalledWith(
-                '[app-icon] admin user not found; deferring icons directory setup',
-            );
-            expect(
-                await server.stores.subdomain.existsBySubdomain(
-                    'puter-app-icons',
-                ),
-            ).toBe(false);
-        } finally {
-            warn.mockRestore();
-        }
-    });
-
-    it('makes the icon pipeline a no-op rather than a crash', async () => {
-        const uid = `app-${uuidv4()}`;
-        await expect(
-            server.clients.event.emitAndWait(
-                'app.new-icon',
-                {
-                    app_uid: uid,
-                    data_url:
-                        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=',
-                },
-                {},
-            ),
-        ).resolves.not.toThrow();
+describe('AppIconService — without an admin user', () => {
+    it('sets up the icons site and writes icons as the system user', async () => {
+        expect(await server.stores.user.getByUsername('admin')).toBeNull();
+        await server.services.appIcon.ensureIconsDirectory();
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
         expect(
-            await server.stores.fsEntry.getEntryByPath(
-                `/system/app_icons/${uid}.png`,
-            ),
-        ).toBeNull();
+            (await server.stores.subdomain.getBySubdomain('puter-app-icons'))
+                ?.user_id,
+        ).toBe(systemUser!.id);
+
+        const uid = `app-${uuidv4()}`;
+        await server.clients.event.emitAndWait(
+            'app.new-icon',
+            {
+                app_uid: uid,
+                data_url:
+                    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=',
+            },
+            {},
+        );
+        expect(
+            (
+                await server.stores.fsEntry.getEntryByPath(
+                    `/system/app_icons/${uid}.png`,
+                )
+            )?.userId,
+        ).toBe(systemUser!.id);
     });
 });
 

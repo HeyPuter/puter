@@ -25,6 +25,7 @@ import {
     catalogImageInputs,
     catalogOutputMegapixels,
 } from './catalogRequest.js';
+import { REPLICATE_IMAGE_GENERATION_MODELS } from './models.js';
 import type { IGenerateParams } from '../../types.js';
 
 const getModel = (id: string) =>
@@ -134,6 +135,50 @@ describe('priced Replicate catalog', () => {
         );
     });
 
+    it('prices the tiers of newer models and rejects the unpriced ones', () => {
+        expect(cost('bytedance/seedream-5-pro', { quality: '1k' })).toBe(
+            4_500_000,
+        );
+        expect(cost('openai/gpt-image-2.5-sunburst', { quality: 'max' })).toBe(
+            50_000_000,
+        );
+        expect(
+            cost('prunaai/p-image-ideogram', {
+                quality: '2K',
+                providerOptions: { thinking: 'very high' },
+            }),
+        ).toBe(4_950_000);
+        expect(
+            cost('luma/reframe-image', {
+                input_image: image,
+                providerOptions: { model: 'photon-1' },
+            }),
+        ).toBe(3_000_000);
+        expect(
+            cost('ideogram-ai/ideogram-4-5-precise-edit', {
+                input_image: image,
+                providerOptions: { quality: 'high' },
+            }),
+        ).toBe(22_000_000);
+        expect(() =>
+            cost('bytedance/seedream-5-pro', { quality: '1.5K' }),
+        ).toThrow(/size/);
+        expect(() =>
+            cost('ideogram-ai/ideogram-4-5', {
+                providerOptions: { quality: 'very_low' },
+            }),
+        ).toThrow(/quality/);
+    });
+
+    it('feeds the input image to flux-kontext-fast as img_cond_path', () => {
+        const input = buildCatalogInput(getModel('prunaai/flux-kontext-fast'), {
+            prompt,
+            input_image: image,
+        });
+        expect(input.img_cond_path).toBe(image);
+        expect(catalogImageInputs(input)).toEqual([image]);
+    });
+
     it('prices runtime in seconds rather than charging an example-image price', () => {
         expect(cost('stability-ai/sdxl', {}, 12.5)).toBe(1_218_750);
         expect(cost('stability-ai/sdxl', {}, 25)).toBe(2_437_500);
@@ -194,7 +239,7 @@ describe('priced Replicate catalog', () => {
 
     it('rejects required references, unsupported images, invalid arrays and empty workflows before inference', () => {
         expect(() =>
-            buildCatalogInput(getModel('black-forest-labs/flux-canny-pro'), {
+            buildCatalogInput(getModel('black-forest-labs/flux-canny-dev'), {
                 prompt,
             }),
         ).toThrow(/control_image/);
@@ -355,6 +400,32 @@ describe('Replicate catalog availability', () => {
             ).toBe(false);
         },
     );
+
+    it.each([
+        'black-forest-labs/flux-pro',
+        'black-forest-labs/flux-canny-pro',
+        'black-forest-labs/flux-depth-pro',
+        'black-forest-labs/flux-pro-finetuned',
+        'google/nano-banana',
+        'google/gemini-2.5-flash-image',
+        'openai/gpt-image-1',
+        'openai/gpt-image-1-mini',
+        'openai/gpt-image-1.5',
+        'stability-ai/stable-diffusion',
+        'xai/grok-imagine-image-quality',
+    ])('excludes %s, which its owner has deprecated', (id) => {
+        expect(REPLICATE_IMAGE_GENERATION_MODELS.some((m) => m.id === id)).toBe(
+            false,
+        );
+    });
+
+    it('points the flux-2-klein-9b alias at the distilled model, not the base', () => {
+        expect(
+            REPLICATE_IMAGE_GENERATION_MODELS.filter((m) =>
+                m.aliases?.includes('flux-2-klein-9b'),
+            ).map((m) => m.id),
+        ).toEqual(['black-forest-labs/flux-2-klein-9b']);
+    });
 
     it('requires the reference omitted from the SDXL ControlNet API required list', () => {
         expect(() =>
