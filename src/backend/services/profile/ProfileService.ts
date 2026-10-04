@@ -21,11 +21,11 @@ import { Readable } from 'node:stream';
 import { makeActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import { ensureSystemSite } from '../../util/systemSite.js';
+import { ensureSystemSite, PROFILES_SUBDOMAIN } from '../../util/systemSite.js';
+import { UNLIMITED_STORAGE_ALLOWANCE } from '../fs/FSService.js';
 import { actorHasSubscription } from '../metering/enforcement.js';
 import { PuterService } from '../types.js';
 
-export const PROFILES_SUBDOMAIN = 'puter-profiles';
 export const PROFILES_PATH_PREFIX = '/system/profiles';
 const PROFILE_FILE_SUFFIX = '.profile';
 
@@ -313,16 +313,23 @@ export class ProfileService extends PuterService {
     ): Promise<void> {
         const ownerId = await this.#ownerId();
         const buffer = Buffer.from(JSON.stringify(profile), 'utf8');
-        await this.services.fs.write(ownerId, {
-            fileMetadata: {
-                path: profilePath(userUuid),
-                size: buffer.length,
-                contentType: 'application/json',
-                overwrite: true,
-                createMissingParents: true,
+        // Every user's profile lands under the system user, whose allowance
+        // isn't sized for that. Each file is capped at upload.
+        await this.services.fs.write(
+            ownerId,
+            {
+                fileMetadata: {
+                    path: profilePath(userUuid),
+                    size: buffer.length,
+                    contentType: 'application/json',
+                    overwrite: true,
+                    createMissingParents: true,
+                },
+                fileContent: Readable.from(buffer),
             },
-            fileContent: Readable.from(buffer),
-        });
+            undefined,
+            UNLIMITED_STORAGE_ALLOWANCE,
+        );
     }
 
     #normalize(stored: Record<string, unknown> | null): UserProfile {
