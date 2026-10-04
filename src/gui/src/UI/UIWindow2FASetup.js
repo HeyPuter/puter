@@ -173,27 +173,6 @@ const CSS = `
     background: #f1f5f9;
     color: #334155;
 }
-.tfa-divider {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
-}
-.tfa-divider::before,
-.tfa-divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #e5e7eb;
-}
-.tfa-divider span {
-    font-size: 12px;
-    font-weight: 500;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
 /* ── Code input ────────────────────────────────────────────────────── */
 .tfa-code-section label {
     display: block;
@@ -532,9 +511,6 @@ const CSS = `
         font-size: 13px;
         margin-bottom: 14px;
     }
-    .tfa-divider {
-        margin-bottom: 14px;
-    }
     .tfa-codes-grid .tfa-code-item {
         padding: 8px 12px;
         font-size: 12px;
@@ -672,7 +648,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     // ── QR code mount point ────────────────────────────────────────────
     const qr_id = 'tfa-qr-' + (window.global_element_id = (window.global_element_id || 0) + 1);
 
-    const password_entry = new PasswordEntry({});
+    const password_entry = new PasswordEntry({ on_submit: confirm_identity });
     const place_password_entry = Placeholder();
 
     // ── Build HTML ───────────────────────────────────────────────────────
@@ -692,7 +668,12 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += '  </div>';
     h += '  <div class="tfa-progress-line"><div class="tfa-progress-line-fill"></div></div>';
     h += '  <div class="tfa-progress-step">';
-    h += `    <div class="tfa-progress-dot" data-step="3">${SVG_CHECK}</div>`;
+    h += '    <div class="tfa-progress-dot" data-step="3">3</div>';
+    h += '    <span class="tfa-progress-label">Verify</span>';
+    h += '  </div>';
+    h += '  <div class="tfa-progress-line"><div class="tfa-progress-line-fill"></div></div>';
+    h += '  <div class="tfa-progress-step">';
+    h += `    <div class="tfa-progress-dot" data-step="4">${SVG_CHECK}</div>`;
     h += '    <span class="tfa-progress-label">Done</span>';
     h += '  </div>';
     h += '</div>';
@@ -707,7 +688,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += `<button class="tfa-btn tfa-btn-primary tfa-confirm-btn">${i18n('continue')}</button>`;
     h += '</div>'; // end screen 0
 
-    // ── Screen 1: Scan QR + Enter Code ───────────────────────────────────
+    // ── Screen 1: Scan QR ─────────────────────────────────────────────────
     h += '<div class="tfa-screen" data-screen="1">';
     h += `<p class="tfa-instruction">${i18n('setup2fa_1_instructions', [], false)}</p>`;
     h += `<div class="tfa-qr-area"><div id="${qr_id}"></div></div>`;
@@ -718,17 +699,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += `  <button class="tfa-copy-secret" title="Copy secret key">${SVG_COPY}</button>`;
     h += '</div>';
 
-    h += '<div class="tfa-divider"><span>' + html_encode(i18n('setup2fa_3_step_heading')) + '</span></div>';
-
-    h += '<div class="tfa-code-section">';
-    h += '  <div class="tfa-code-inputs">';
-    for ( let i = 0; i < 6; i++ ) {
-        h += `<input type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="${i}" />`;
-    }
-    h += '  </div>';
-    h += '  <div class="tfa-code-error"></div>';
-    h += `  <div class="tfa-code-spinner"><div class="tfa-spinner-icon"></div><span>Verifying...</span></div>`;
-    h += '</div>';
+    h += `<button class="tfa-btn tfa-btn-primary tfa-scan-continue-btn">${i18n('continue')}</button>`;
     h += '</div>'; // end screen 1
 
     // ── Screen 2: Recovery Codes ─────────────────────────────────────────
@@ -756,17 +727,30 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += '  </div>';
     h += '</div>';
 
-    h += '<div class="tfa-step-error"></div>';
-    h += `<button class="tfa-btn tfa-btn-primary tfa-enable-btn" disabled>${html_encode(i18n('setup2fa_5_button'))}</button>`;
+    h += `<button class="tfa-btn tfa-btn-primary tfa-codes-continue-btn" disabled>${i18n('continue')}</button>`;
     h += '</div>'; // end screen 2
 
-    // ── Screen 3: Success ────────────────────────────────────────────────
+    // ── Screen 3: Verify Code ─────────────────────────────────────────────
     h += '<div class="tfa-screen" data-screen="3">';
+    h += `<p class="tfa-instruction">${html_encode(i18n('setup2fa_3_step_heading'))}</p>`;
+    h += '<div class="tfa-code-section">';
+    h += '  <div class="tfa-code-inputs">';
+    for ( let i = 0; i < 6; i++ ) {
+        h += `<input type="text" inputmode="numeric" maxlength="1" autocomplete="off" data-idx="${i}" />`;
+    }
+    h += '  </div>';
+    h += '  <div class="tfa-code-error"></div>';
+    h += `  <div class="tfa-code-spinner"><div class="tfa-spinner-icon"></div><span>Enabling...</span></div>`;
+    h += '</div>';
+    h += '</div>'; // end screen 3
+
+    // ── Screen 4: Success ────────────────────────────────────────────────
+    h += '<div class="tfa-screen" data-screen="4">';
     h += `<div class="tfa-success-icon">${SVG_SHIELD_CHECK}</div>`;
     h += `<div class="tfa-success-title">${html_encode(i18n('two_factor_enabled'))}</div>`;
     h += '<p class="tfa-success-text">Your account is now protected with two-factor authentication. You\'ll be asked for a verification code each time you sign in.</p>';
     h += `<button class="tfa-btn tfa-btn-success tfa-done-btn">Done</button>`;
-    h += '</div>'; // end screen 3
+    h += '</div>'; // end screen 4
 
     h += '</div>'; // end tfa-setup
 
@@ -861,8 +845,8 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
             fill.css('width', idx < n - 1 ? '100%' : '0%');
         });
 
-        // Focus first code input on screen 1
-        if ( n === 1 ) {
+        // Focus first code input on the verify-code screen
+        if ( n === 3 ) {
             setTimeout(() => $w.find('.tfa-code-inputs input').first().focus(), 100);
         }
     }
@@ -930,6 +914,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     }
 
     $w.find('.tfa-confirm-btn').on('click', confirm_identity);
+    $w.find('.tfa-scan-continue-btn').on('click', () => go_to_screen(2));
 
     // ── Code input handling ──────────────────────────────────────────────
     const $inputs = $w.find('.tfa-code-inputs input');
@@ -948,7 +933,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         // Check if all 6 digits entered
         const code = $inputs.map(function () { return $(this).val(); }).get().join('');
         if ( code.length === 6 && ! is_verifying ) {
-            verify_code(code);
+            enable_2fa(code);
         }
     });
 
@@ -979,46 +964,33 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         const last = Math.min(pasted.length, 6) - 1;
         $inputs.eq(last).focus();
         if ( pasted.length === 6 && ! is_verifying ) {
-            verify_code(pasted);
+            enable_2fa(pasted);
         }
     });
 
-    // Enable re-checks the code, so the one verified here is kept for it.
-    let verified_code = null;
-    let codes_confirmed = false;
-
+    // Entered on the last step, right before it's used, so it can't expire
+    // while the user is reading and saving the recovery codes.
     async function enable_2fa (code) {
-        const result = await api('enable', { code });
-        if ( result.ok ) {
-            setup_succeeded = true;
-            go_to_screen(3);
-        }
-        return result;
-    }
-
-    async function verify_code (code) {
         is_verifying = true;
         $inputs.attr('disabled', true);
         $w.find('.tfa-code-spinner').addClass('visible');
         $w.find('.tfa-code-error').text('');
 
-        // Back here after the recovery codes were confirmed, a fresh code
-        // finishes setup directly.
-        const ok = codes_confirmed
-            ? (await enable_2fa(code)).ok
-            : (await api('test', { code })).data.ok;
+        const { ok, data } = await api('enable', { code });
 
         $w.find('.tfa-code-spinner').removeClass('visible');
 
         if ( ok ) {
-            if ( ! codes_confirmed ) {
-                verified_code = code;
-                go_to_screen(2);
-            }
+            setup_succeeded = true;
+            go_to_screen(4);
         } else {
             $inputs.addClass('error').attr('disabled', false);
-            $w.find('.tfa-code-error').text('Invalid code. Please try again.');
-            // Clear and re-focus
+            // A fresh code only fails on a typo or a slow typist; let them retry here.
+            $w.find('.tfa-code-error').text(
+                data.code === 'code_mismatch'
+                    ? 'Invalid code. Please try again.'
+                    : (data.message || i18n('something_went_wrong', [], false))
+            );
             setTimeout(() => {
                 $inputs.val('').removeClass('error');
                 $inputs.first().focus();
@@ -1061,30 +1033,10 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     $w.find('.tfa-confirmations input[type="checkbox"]').on('change', function () {
         const all_checked = $w.find('.tfa-confirmations input[type="checkbox"]').toArray()
             .every(el => el.checked);
-        $w.find('.tfa-enable-btn').prop('disabled', ! all_checked);
+        $w.find('.tfa-codes-continue-btn').prop('disabled', ! all_checked);
     });
 
-    // ── Enable 2FA ───────────────────────────────────────────────────────
-    $w.find('.tfa-enable-btn').on('click', async function () {
-        const $btn = $(this);
-        const $error = $w.find('.tfa-screen[data-screen="2"] .tfa-step-error');
-        $btn.prop('disabled', true).text('Enabling...');
-        $error.text('');
-        codes_confirmed = true;
-
-        const { ok, data } = await enable_2fa(verified_code);
-        if ( ok ) return;
-
-        $btn.prop('disabled', false).text(i18n('setup2fa_5_button', [], false));
-        if ( data.code === 'code_mismatch' ) {
-            // The code from step 1 has expired by now; ask for a current one.
-            go_to_screen(1);
-            $inputs.val('').attr('disabled', false);
-            $w.find('.tfa-code-error').text(i18n('setup2fa_code_expired', [], false));
-            return;
-        }
-        $error.text(data.message || i18n('something_went_wrong', [], false));
-    });
+    $w.find('.tfa-codes-continue-btn').on('click', () => go_to_screen(3));
 
     // ── Done button ──────────────────────────────────────────────────────
     $w.find('.tfa-done-btn').on('click', function () {
