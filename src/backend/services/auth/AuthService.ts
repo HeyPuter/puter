@@ -1355,6 +1355,8 @@ export class AuthService extends PuterService {
             },
         );
 
+        // An events handler minting for its own app gets a token as deep as
+        // its own and no longer-lived, so minting can't restart its chain.
         return this.services.token.sign('auth', {
             type: 'app-under-user',
             version: '2',
@@ -1362,6 +1364,14 @@ export class AuthService extends PuterService {
             app_uid: appUid,
             session_uid: appSession?.uuid,
             auth_id: this.#authIdFor(actor.user as UserRow),
+            ...(actor.handlerDepth
+                ? {
+                      handler_depth: actor.handlerDepth,
+                      ...(actor.handlerExpiresAt
+                          ? { exp: actor.handlerExpiresAt }
+                          : {}),
+                  }
+                : {}),
         });
     }
 
@@ -1839,6 +1849,11 @@ export class AuthService extends PuterService {
         if (wantsFullAccess) {
             jwtPayload.full_access = true;
         }
+        // Writes made with a token an events handler mints stay in its chain.
+        // The requested lifetime stands: read URLs routinely outlive a run.
+        if (actor.handlerDepth) {
+            jwtPayload.handler_depth = actor.handlerDepth;
+        }
 
         // jsonwebtoken's SignOptions.expiresIn is typed as `number |
         // ${number}${unit}` (template literal), so a plain string can't
@@ -2208,9 +2223,7 @@ export class AuthService extends PuterService {
         }
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
-        const { handler_depth: handlerDepth } = decoded;
-        if (Number.isSafeInteger(handlerDepth) && handlerDepth! > 0)
-            actor.handlerDepth = handlerDepth;
+        this.#applyHandlerDepth(actor, decoded);
         return { actor };
     }
 
@@ -2275,22 +2288,32 @@ export class AuthService extends PuterService {
                 .catch(() => {});
         }
 
-        return {
-            actor: makeActor({
-                user: this.#actorUserFromRow(user),
-                accessToken: {
-                    uid: decoded.token_uid,
-                    issuer: authorizer,
-                    authorized: null,
-                    // Honor the signed full-access claim only for user-issued
-                    // tokens. App-issued tokens (`app_uid` present) can never be
-                    // full-access — mirrors the mint-time block — so even a
-                    // claim on one is ignored here.
-                    fullAccess:
-                        !decoded.app_uid && decoded.full_access === true,
-                },
-            }),
-        };
+        const actor = makeActor({
+            user: this.#actorUserFromRow(user),
+            accessToken: {
+                uid: decoded.token_uid,
+                issuer: authorizer,
+                authorized: null,
+                // Honor the signed full-access claim only for user-issued
+                // tokens. App-issued tokens (`app_uid` present) can never be
+                // full-access — mirrors the mint-time block — so even a
+                // claim on one is ignored here.
+                fullAccess: !decoded.app_uid && decoded.full_access === true,
+            },
+        });
+        this.#applyHandlerDepth(actor, decoded);
+        return { actor };
+    }
+
+    /** An events handler token's depth and expiry; see `Actor.handlerDepth`. */
+    #applyHandlerDepth(
+        actor: Actor,
+        decoded: AppUnderUserTokenPayload | AccessTokenPayload,
+    ): void {
+        const { handler_depth: handlerDepth, exp } = decoded;
+        if (!Number.isSafeInteger(handlerDepth) || handlerDepth! <= 0) return;
+        actor.handlerDepth = handlerDepth;
+        if (Number.isSafeInteger(exp)) actor.handlerExpiresAt = exp;
     }
 
     // -- Actor builders ----------------------------------------------
