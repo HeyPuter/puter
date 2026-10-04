@@ -28,6 +28,7 @@ import { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
+import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { PuterDriver } from '../types.js';
 import {
@@ -321,6 +322,11 @@ export class OCRDriver extends PuterDriver {
             throw new HttpError(500, 'Mistral OCR not configured', {
                 legacyCode: 'internal_error',
             });
+
+        // Cheap, cached check: reject a zero-balance actor before paying for
+        // the file load and page estimate, which a real credit check would
+        // reject anyway once it runs.
+        await assertActorHasCredits(this.services.metering, actor, this.config);
 
         const loaded = await loadFileInput(
             this.stores,

@@ -19,14 +19,31 @@
 
 import { inflateSync } from 'node:zlib';
 
-/** Total that object streams may inflate to before the count gives up. */
+/** Hard ceiling on inflated object-stream bytes, regardless of input size. */
 const MAX_INFLATED_BYTES = 64 * 1024 * 1024;
+/**
+ * Zlib can't compress past ~1032:1 — ties the worst case to what was actually
+ * uploaded.
+ */
+const MAX_INFLATE_RATIO = 1024;
+/**
+ * An object stream claiming more objects or a bigger header than this can't be
+ * trusted cheaply.
+ */
+const MAX_OBJSTM_OBJECTS = 100_000;
+const MAX_OBJSTM_HEADER_BYTES = 1024 * 1024;
 
 // A name ends at whitespace, a delimiter or the end of input.
 const TYPE_PAGE = /\/Type[\s\0]*\/Page(?![^\s\0/<>[\]()%{}])/;
 const TYPE_PAGES = /\/Type[\s\0]*\/Pages(?![^\s\0/<>[\]()%{}])/;
 const TYPE_OBJECT_STREAM = /\/Type[\s\0]*\/ObjStm(?![^\s\0/<>[\]()%{}])/;
+const HAS_TYPE = /\/Type[\s\0]*\//;
+const HAS_KIDS = /\/Kids[\s\0]*\[/;
+const REF = (key: string) =>
+    new RegExp(`\\/${key}[\\s\\0]+\\d{1,10}[\\s\\0]+\\d{1,10}[\\s\\0]+R\\b`);
+const HAS_PARENT = REF('Parent');
 const COUNT = /\/Count[\s\0]+(\d{1,10})(?![\d.])/;
+const COUNT_INDIRECT = REF('Count');
 const STREAM_START = />>[\s\0]*stream(?:\r\n|\r|\n)/;
 const FLATE_FILTER =
     /\/Filter[\s\0]*(?:\/(?:FlateDecode|Fl)|\[[\s\0]*\/(?:FlateDecode|Fl)[\s\0]*\])/;
@@ -61,10 +78,24 @@ const readObjectStream = (
 
     const count = Number(/\/N[\s\0]+(\d+)/.exec(dict)?.[1]);
     const first = Number(/\/First[\s\0]+(\d+)/.exec(dict)?.[1]);
+    if (!Number.isInteger(count) || count > MAX_OBJSTM_OBJECTS) return null;
+    if (!Number.isInteger(first) || first > MAX_OBJSTM_HEADER_BYTES)
+        return null;
     const text = content.toString('latin1');
-    if (!Number.isInteger(count) || !(first <= text.length)) return null;
-    // The header is `count` pairs of object number and offset from `first`.
-    const header = (text.slice(0, first).match(/\d+/g) ?? []).map(Number);
+    if (first > text.length) return null;
+
+    // The header is `count` pairs of object number and offset from `first`;
+    // read only that many integers instead of matching the whole prefix.
+    const header: number[] = [];
+    const digits = /\d+/g;
+    let match: RegExpExecArray | null;
+    while (
+        header.length < count * 2 &&
+        (match = digits.exec(text)) &&
+        match.index < first
+    ) {
+        header.push(Number(match[0]));
+    }
     if (header.length < count * 2) return null;
 
     const objects: Array<[number, string]> = [];
@@ -85,21 +116,37 @@ const readObjectStream = (
 export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
     if (!pdf.subarray(0, 1024).includes('%PDF-')) return null;
     const text = pdf.toString('latin1');
+    // Zlib bombs are a fixed multiple of their compressed size; scale the
+    // ceiling down for small files instead of always allowing the max.
+    const inflateBudget = Math.min(
+        MAX_INFLATED_BYTES,
+        pdf.length * MAX_INFLATE_RATIO,
+    );
 
-    // Keyed by object number, so a later definition replaces an earlier one
-    // as it does in an incrementally updated file.
+    // Keyed by object number. A redefinition can only raise what's counted
+    // for that id, never lower it — an unreferenced redefinition crafted to
+    // shrink the tree can't undercount what an earlier one established.
     const treeCounts = new Map<number, number>();
     const pageObjects = new Set<number>();
     const visit = (id: number, rawDict: string): boolean => {
         const dict = decodeNameEscapes(rawDict);
-        treeCounts.delete(id);
-        pageObjects.delete(id);
         if (TYPE_PAGES.test(dict)) {
-            const count = Number(COUNT.exec(dict)?.[1] ?? 0);
-            treeCounts.set(id, count);
+            // An indirect /Count (`N 0 R`) isn't a count — it's a reference
+            // whose object number happens to look like one.
+            const count = COUNT_INDIRECT.test(dict)
+                ? 0
+                : Number(COUNT.exec(dict)?.[1] ?? 0);
+            treeCounts.set(id, Math.max(count, treeCounts.get(id) ?? 0));
             return count >= limit;
         }
-        if (TYPE_PAGE.test(dict)) pageObjects.add(id);
+        // A kid with no /Type is still a page to any real reader as long as
+        // it isn't an intermediate node (no /Kids); only trust that reading
+        // when /Type is missing entirely, not just unrecognized.
+        const isUntypedPage =
+            !HAS_TYPE.test(dict) &&
+            HAS_PARENT.test(dict) &&
+            !HAS_KIDS.test(dict);
+        if (TYPE_PAGE.test(dict) || isUntypedPage) pageObjects.add(id);
         return pageObjects.size >= limit;
     };
 
@@ -117,7 +164,7 @@ export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
         const body = text.slice(start, end);
         const stream = STREAM_START.exec(body);
         const dict = stream ? body.slice(0, stream.index + 2) : body;
-        if (!TYPE_OBJECT_STREAM.test(dict)) {
+        if (!TYPE_OBJECT_STREAM.test(decodeNameEscapes(dict))) {
             if (visit(Number(header[1]), dict)) return limit;
             continue;
         }
@@ -128,11 +175,7 @@ export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
             start + stream.index + stream[0].length,
             start + dataEnd,
         );
-        const packed = readObjectStream(
-            dict,
-            data,
-            MAX_INFLATED_BYTES - inflated,
-        );
+        const packed = readObjectStream(dict, data, inflateBudget - inflated);
         if (!packed) return null;
         inflated += packed.inflated;
         for (const [id, objectDict] of packed.objects) {

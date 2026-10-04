@@ -71,8 +71,9 @@ describe('countPdfPages', () => {
         ).toBe(9);
     });
 
-    it('lets a later definition of an object replace an earlier one', () => {
-        // An incremental update that shrank the tree and dropped a page.
+    it("can't be shrunk by redefining an object number lower", () => {
+        // An unreferenced redefinition trying to pass off a smaller tree;
+        // a genuine object number reuse can only raise the count, never lower it.
         expect(
             countPdfPages(
                 pdf(
@@ -83,7 +84,55 @@ describe('countPdfPages', () => {
                         '3 0 obj\n<< /Type /Annot >>\nendobj\n',
                 ),
             ),
-        ).toBe(1);
+        ).toBe(3);
+    });
+
+    it('treats an indirect /Count as unknown rather than reading its reference as the total', () => {
+        expect(
+            countPdfPages(
+                pdf(
+                    '1 0 obj\n<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 3 0 R >>\nendobj\n',
+                ),
+            ),
+        ).toBeNull();
+    });
+
+    it('counts a kid with no /Type as long as it has no /Kids of its own', () => {
+        expect(
+            countPdfPages(
+                pdf(
+                    '1 0 obj\n<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 1 >>\nendobj\n' +
+                        '2 0 obj\n<< /Type /Page /Parent 1 0 R >>\nendobj\n' +
+                        '3 0 obj\n<< /Parent 1 0 R /MediaBox [0 0 612 792] >>\nendobj\n',
+                ),
+            ),
+        ).toBe(2);
+    });
+
+    it('decodes a # escaped /ObjStm type before deciding whether to unpack it', () => {
+        const header = '2 0\n';
+        const packedObject = '<< /Type /Page >>';
+        const objStm =
+            `5 0 obj\n<< /Type /ObjS#74m /N 1 /First ${header.length} >>\n` +
+            `stream\n${header}${packedObject}\nendstream\nendobj\n`;
+        expect(countPdfPages(pdf(objStm))).toBe(1);
+    });
+
+    it("refuses an object stream that claims more objects than it's worth counting", () => {
+        const objStm =
+            '1 0 obj\n<< /Type /ObjStm /N 100001 /First 4 >>\nstream\n1 0\nendstream\nendobj\n';
+        expect(countPdfPages(pdf(objStm))).toBeNull();
+    });
+
+    it('refuses an oversized /First without scanning the data behind it', () => {
+        // Without a cap this would run a regex match over ~2MB of digits.
+        const data = '1 '.repeat(1_000_000);
+        const objStm =
+            `1 0 obj\n<< /Type /ObjStm /N 1 /First ${data.length} >>\n` +
+            `stream\n${data}\nendstream\nendobj\n`;
+        const start = Date.now();
+        expect(countPdfPages(pdf(objStm))).toBeNull();
+        expect(Date.now() - start).toBeLessThan(500);
     });
 
     it('returns null for bytes that are not a PDF', () => {

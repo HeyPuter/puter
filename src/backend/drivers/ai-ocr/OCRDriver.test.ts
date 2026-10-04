@@ -357,7 +357,7 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     // fsEntry, and the driver's per-region TextractClient cache leaks
     // across tests.
 
-it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
+    it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
         const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
 
@@ -854,6 +854,27 @@ describe('OCRDriver credit pre-flight', () => {
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
         expect(await outstandingHolds(actor)).toBe(0);
+    });
+
+    it('rejects a zero-balance actor before estimating pages or holding credits', async () => {
+        const { actor } = await makeUser();
+        const noUsage = vi
+            .spyOn(server.services.metering, 'hasAnyUsageCached')
+            .mockResolvedValueOnce(false);
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(5)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+
+        // The estimate/hold path (which calls hasEnoughCredits) never ran.
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        noUsage.mockRestore();
     });
 
     it('releases the hold when the provider fails', async () => {
