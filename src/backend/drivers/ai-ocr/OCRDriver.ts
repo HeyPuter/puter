@@ -28,6 +28,7 @@ import { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
+import type { CreditHold } from '../../services/metering/types.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
@@ -40,10 +41,12 @@ import {
     DEFAULT_OCR_MODEL,
     findOcrModel,
     OCR_MAX_INPUT_BYTES,
+    OCR_MAX_PAGES,
     RETIRED_OCR_MODELS,
     type OcrModel,
     type OcrProviderId,
 } from './models.js';
+import { countPdfPages } from './pdfPages.js';
 
 /**
  * Driver implementing `puter-ocr` — document OCR. Two providers: •
@@ -165,6 +168,54 @@ const toMistralResponseFormat = (
             }),
         },
     };
+};
+
+const inputMimeType = (loaded: LoadedFile): string =>
+    loaded.mimeType ??
+    mimeFromName(loaded.filename) ??
+    'application/octet-stream';
+
+/**
+ * Declared documents (PDF, DOCX, PPTX, ...) and PDF bytes are documents; images
+ * and untyped bytes are read as a single image.
+ */
+const isDocumentInput = (loaded: LoadedFile): boolean => {
+    const mime = inputMimeType(loaded);
+    return (
+        loaded.buffer.subarray(0, 4).toString('latin1') === '%PDF' ||
+        loaded.filename.toLowerCase().endsWith('.pdf') ||
+        (!mime.startsWith('image/') && mime !== 'application/octet-stream')
+    );
+};
+
+/**
+ * The most pages a call can bill, known before the provider runs: a PDF's page
+ * count, or a size-based guess for other documents, capped by a `pages`
+ * selection and by what the provider reads in one call.
+ */
+const estimateOcrPages = (
+    loaded: LoadedFile,
+    provider: OcrProviderId,
+    selection?: unknown,
+): number => {
+    const maxPages = OCR_MAX_PAGES[provider];
+    if (maxPages <= 1 || !isDocumentInput(loaded)) return 1;
+    // A document we can't count is billed in proportion to its size, reaching
+    // the provider's page limit at its size limit (20 pages per MB for
+    // Mistral). Small files stay cheap; a large one can't pass as one page.
+    const documentPages =
+        countPdfPages(loaded.buffer, maxPages) ??
+        Math.ceil(
+            (loaded.buffer.length * maxPages) / OCR_MAX_INPUT_BYTES[provider],
+        );
+    const selected = Array.isArray(selection)
+        ? new Set(
+              selection.filter(
+                  (page) => Number.isInteger(page) && (page as number) >= 0,
+              ),
+          ).size
+        : 0;
+    return Math.max(1, Math.min(documentPages, maxPages, selected || Infinity));
 };
 
 export class OCRDriver extends PuterDriver {
@@ -337,17 +388,27 @@ export class OCRDriver extends PuterDriver {
         return null;
     }
 
-    async #assertCredits(actor: Actor, costPerPage: number) {
-        // Page count is only known once the provider answers, so pre-flight
-        // one page's cost and meter the real total afterward.
-        const hasCredits = await this.services.metering.hasEnoughCredits(
+    /**
+     * Refuse a call the balance can't cover, and hold its cost while the
+     * provider runs so the account's concurrent calls see it. Usage is still
+     * metered from the pages the provider reports.
+     */
+    async #holdCredits(
+        actor: Actor,
+        usageType: string,
+        cost: number,
+    ): Promise<CreditHold> {
+        // Priced at the cost factor usage is recorded at.
+        const hold = await this.#aiMetering.reserveAiCredits(
             actor,
-            costPerPage,
+            usageType,
+            cost,
         );
-        if (!hasCredits)
+        if (!hold)
             throw new HttpError(402, 'Insufficient credits', {
                 legacyCode: 'insufficient_funds',
             });
+        return hold;
     }
 
     // -- AWS Textract -------------------------------------------------
@@ -371,9 +432,6 @@ export class OCRDriver extends PuterDriver {
         model: OcrModel,
         actor: Actor,
     ) {
-        const costPerPage = OCR_COSTS[model.pageUsageType];
-        await this.#assertCredits(actor, costPerPage);
-
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
         const s3Info =
             loaded.fsEntry &&
@@ -401,51 +459,61 @@ export class OCRDriver extends PuterDriver {
             );
         };
 
-        let response;
-        try {
-            try {
-                response = await tryRun(Boolean(s3Info));
-            } catch (err) {
-                if (!(s3Info && err instanceof InvalidS3ObjectException))
-                    throw err;
-                response = await tryRun(false);
-            }
-        } catch (err) {
-            if (err instanceof UnsupportedDocumentException)
-                throw badRequest(
-                    'AWS Textract reads JPEG, PNG, TIFF and single-page PDF documents; use a Mistral OCR model for multi-page PDFs and other formats',
-                );
-            throw err;
-        }
-
-        const blocks: OcrBlock[] = [];
-        let pageCount = 0;
-        for (const block of (response.Blocks ?? []) as TextractBlock[]) {
-            if (block.BlockType === 'PAGE') {
-                pageCount += 1;
-                continue;
-            }
-            if (block.BlockType !== 'LINE' || !block.Text) continue;
-            blocks.push({
-                type: 'text/textract:LINE',
-                text: block.Text,
-                confidence: Number(block.Confidence ?? 0),
-                page: Math.max(pageCount - 1, 0),
-            });
-        }
-
-        const pages = pageCount || 1;
-        this.#aiMetering.incrementUsage(
+        const costPerPage = OCR_COSTS[model.pageUsageType];
+        const hold = await this.#holdCredits(
             actor,
             model.pageUsageType,
-            pages,
-            costPerPage * pages,
+            costPerPage * estimateOcrPages(loaded, model.provider),
         );
-        return {
-            model: model.id,
-            blocks,
-            text: blocks.map((b) => b.text).join('\n'),
-        };
+        try {
+            let response;
+            try {
+                try {
+                    response = await tryRun(Boolean(s3Info));
+                } catch (err) {
+                    if (!(s3Info && err instanceof InvalidS3ObjectException))
+                        throw err;
+                    response = await tryRun(false);
+                }
+            } catch (err) {
+                if (err instanceof UnsupportedDocumentException)
+                    throw badRequest(
+                        'AWS Textract reads JPEG, PNG, TIFF and single-page PDF documents; use a Mistral OCR model for multi-page PDFs and other formats',
+                    );
+                throw err;
+            }
+
+            const blocks: OcrBlock[] = [];
+            let pageCount = 0;
+            for (const block of (response.Blocks ?? []) as TextractBlock[]) {
+                if (block.BlockType === 'PAGE') {
+                    pageCount += 1;
+                    continue;
+                }
+                if (block.BlockType !== 'LINE' || !block.Text) continue;
+                blocks.push({
+                    type: 'text/textract:LINE',
+                    text: block.Text,
+                    confidence: Number(block.Confidence ?? 0),
+                    page: Math.max(pageCount - 1, 0),
+                });
+            }
+
+            const pages = pageCount || 1;
+            this.#aiMetering.incrementUsage(
+                actor,
+                model.pageUsageType,
+                pages,
+                costPerPage * pages,
+            );
+            return {
+                model: model.id,
+                blocks,
+                text: blocks.map((b) => b.text).join('\n'),
+            };
+        } finally {
+            await hold.release();
+        }
     }
 
     // -- Mistral OCR --------------------------------------------------
@@ -492,32 +560,30 @@ export class OCRDriver extends PuterDriver {
         const annotations =
             payload.documentAnnotationFormat !== undefined ||
             payload.bboxAnnotationFormat !== undefined;
-        await this.#assertCredits(
-            actor,
+        const costPerPage =
             OCR_COSTS[model.pageUsageType] +
-                (annotations && model.annotationUsageType
-                    ? OCR_COSTS[model.annotationUsageType]
-                    : 0),
+            (annotations && model.annotationUsageType
+                ? OCR_COSTS[model.annotationUsageType]
+                : 0);
+        const hold = await this.#holdCredits(
+            actor,
+            model.pageUsageType,
+            costPerPage * estimateOcrPages(loaded, model.provider, args.pages),
         );
 
-        const response = await this.#mistral!.ocr.process(payload);
-        this.#recordMistralUsage(response, model, actor, annotations);
-        return this.#normalizeMistralResponse(response, model);
+        try {
+            const response = await this.#mistral!.ocr.process(payload);
+            this.#recordMistralUsage(response, model, actor, annotations);
+            return this.#normalizeMistralResponse(response, model);
+        } finally {
+            await hold.release();
+        }
     }
 
     #mistralBuildChunk(loaded: LoadedFile): Record<string, unknown> {
-        const mime =
-            loaded.mimeType ??
-            mimeFromName(loaded.filename) ??
-            'application/octet-stream';
-        // Declared documents (PDF, DOCX, PPTX, ...) and PDF bytes go as a
-        // document; images and untyped bytes keep the image chunk.
-        const isDocument =
-            loaded.buffer.subarray(0, 4).toString('latin1') === '%PDF' ||
-            loaded.filename.toLowerCase().endsWith('.pdf') ||
-            (!mime.startsWith('image/') && mime !== 'application/octet-stream');
+        const mime = inputMimeType(loaded);
         const dataUrl = `data:${mime};base64,${loaded.buffer.toString('base64')}`;
-        if (isDocument) {
+        if (isDocumentInput(loaded)) {
             return {
                 type: 'document_url',
                 documentUrl: dataUrl,

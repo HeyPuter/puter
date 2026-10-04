@@ -78,6 +78,12 @@ export const OCR_MAX_INPUT_BYTES: Record<OcrProviderId, number> = {
     mistral: 50 * 1024 * 1024,
 };
 
+/** Most pages each provider reads in one call; Textract's sync API reads one. */
+export const OCR_MAX_PAGES: Record<OcrProviderId, number> = {
+    'aws-textract': 1,
+    mistral: 1000,
+};
+
 const MODEL_BY_NAME = new Map<string, OcrModel>();
 for (const model of OCR_MODELS) {
     MODEL_BY_NAME.set(model.id, model);

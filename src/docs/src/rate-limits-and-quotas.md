@@ -89,6 +89,8 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 
 `File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
 
+Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. An image, and any Textract input, counts as one page. Other documents, and PDFs whose pages can't be read, count 20 pages per MB, up to 1,000. That amount is reserved while the call runs; the charge is for the pages actually processed.
+
 ### Key-value store
 
 | Limit                           | Paid | Free | Anonymous |

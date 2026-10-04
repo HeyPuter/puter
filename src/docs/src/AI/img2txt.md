@@ -97,7 +97,7 @@ A rejection carries the error body as the backend sent it: `{ message, code }`.
 | `input_too_large` | Raised by the SDK before any request is made: a `File`, `Blob` or data URI input exceeds the selected model's limit. |
 | `storage_limit_reached` | The input is larger than the model accepts (HTTP 413). |
 | `bad_request` | The provider or model is unknown or retired, the model does not belong to the named provider, an option is invalid, or Textract cannot read the document. |
-| `insufficient_funds` | Your balance cannot cover the first page. Arrives as HTTP 402. |
+| `insufficient_funds` | Your balance cannot cover the whole document, checked before the provider runs. Arrives as HTTP 402. See [OCR limits](/rate-limits-and-quotas#ocr) for how pages are counted. |
 
 Other `upstream_*` codes mean the provider rejected the request or was unavailable; the `message` carries the provider's reason.
 
