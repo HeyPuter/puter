@@ -468,7 +468,8 @@ export class AuthModule extends PuterModule {
 
     /**
      * The user's resource usage for the current month, scoped to the calling
-     * app. Amounts are in microcents ($0.01 = 1,000,000).
+     * app. `allowanceInfo` covers the whole account, not just the app.
+     * Amounts are in microcents ($0.01 = 1,000,000).
      *
      * @returns {Promise<MonthlyUsage>}
      */

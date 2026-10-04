@@ -152,23 +152,9 @@ export const handleMeteringUsageForApp = async (
     let appId = String(req.params.appIdOrName ?? '');
     if (!appId) throw new HttpError(400, 'appId parameter is required');
 
-    // An app may read its own usage only; refuse a uid before any lookup.
-    const ownAppId = actor.effectiveApp?.uid;
-    const refuseOtherApp = (uid: string) => {
-        if (ownAppId && uid !== ownAppId) {
-            throw new HttpError(
-                403,
-                'An app can only get usage details for itself',
-                { legacyCode: 'forbidden' },
-            );
-        }
-    };
-    if (appId.startsWith('app-') || appId === GLOBAL_APP_KEY) {
-        refuseOtherApp(appId);
-    }
-
-    // If not a UUID-shaped app UID, look up by name
-    if (!appId.startsWith('app-')) {
+    // If not a UUID-shaped app UID or the global sentinel, look up by name.
+    // Which apps an actor may read is MeteringService's call, not this route's.
+    if (!appId.startsWith('app-') && appId !== GLOBAL_APP_KEY) {
         const appRows = (await clients.db.read(
             'SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
             [appId],
@@ -178,7 +164,6 @@ export const handleMeteringUsageForApp = async (
         } else {
             throw new HttpError(404, 'App not found');
         }
-        refuseOtherApp(appId);
     }
 
     const appUsage =

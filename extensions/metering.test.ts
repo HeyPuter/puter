@@ -283,6 +283,19 @@ describe('metering extension — handleMeteringUsageForApp', () => {
             expect((await appUsageAs(asUser, mine)).total).toBe(10);
             expect((await appUsageAs(asUser, other)).total).toBe(20);
         });
+
+        it('lets the user read their usage outside any app', async () => {
+            const { owner } = await seedApps();
+            const asUser = makeActor({ user: owner });
+            await server.services.metering.incrementUsage(
+                asUser,
+                'kv:read',
+                1,
+                5,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+            expect((await appUsageAs(asUser, 'os-global')).total).toBe(5);
+        });
     });
 });
 
