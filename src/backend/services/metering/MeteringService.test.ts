@@ -138,9 +138,11 @@ describe('MeteringService', () => {
     // Each test uses a fresh user so KV state from one test never leaks into
     // the next. Email present → registered-user policy; absent → temp.
     let actor: Actor;
+    let nextUserId = 1;
     const makeUser = (
         overrides: Partial<Actor['user']> = {},
     ): Actor['user'] => ({
+        id: nextUserId++,
         uuid: `meter-user-${Math.random().toString(36).slice(2)}`,
         username: 'meter-user',
         email: 'meter@test.com',
@@ -357,6 +359,88 @@ describe('MeteringService', () => {
             );
             expect((await target.getActorSubscription(partial)).id).toBe(
                 'by-email',
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        // Resolvers key on `id` too.
+        it('never caches an answer resolved without a numeric id, but serves one from the cache', async () => {
+            target.registerPolicy({
+                id: 'by-id',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi.fn(async (a: Actor) =>
+                typeof a.user.id === 'number' ? 'by-id' : null,
+            );
+            target.registerDefaultSubscriptionResolver(stub);
+            const { id: _id, ...partialUser } = actor.user;
+            const partial: Actor = { user: partialUser };
+
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            expect((await target.getActorSubscription(actor)).id).toBe('by-id');
+            // From the full actor's cache entry; the partial call wrote none.
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                'by-id',
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        // `email` is checked for presence, not truth: a temp user (`null`)
+        // is a real answer, unlike an actor missing the field entirely.
+        it('caches an email: null actor same as any other', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+            const tempActor: Actor = { user: makeUser({ email: null }) };
+
+            await target.getActorSubscription(tempActor);
+            await target.getActorSubscription(tempActor);
+
+            expect(stub).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps a fresh successful answer over a failure that resolves after it', async () => {
+            target.registerPolicy({
+                id: 'concurrent-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            let releaseFailure!: () => void;
+            let releaseSuccess!: () => void;
+            const failureGate = new Promise<void>((r) => {
+                releaseFailure = r;
+            });
+            const successGate = new Promise<void>((r) => {
+                releaseSuccess = r;
+            });
+            const stub = vi
+                .fn<(a: Actor) => Promise<string | null>>()
+                .mockImplementationOnce(async () => {
+                    await failureGate;
+                    throw new Error('store unavailable');
+                })
+                .mockImplementationOnce(async () => {
+                    await successGate;
+                    return 'concurrent-paid';
+                });
+            target.registerSubscriptionResolver(stub);
+
+            // Two concurrent cache misses for the same actor.
+            const failing = target.getActorSubscription(actor);
+            const succeeding = target.getActorSubscription(actor);
+
+            // The good answer lands and caches first...
+            releaseSuccess();
+            expect((await succeeding).id).toBe('concurrent-paid');
+            // ...then the failed one finishes after it, and must not
+            // replace what already cached.
+            releaseFailure();
+            expect((await failing).id).toBe('concurrent-paid');
+
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                'concurrent-paid',
             );
             expect(stub).toHaveBeenCalledTimes(2);
         });
@@ -1974,7 +2058,7 @@ describe('MeteringService', () => {
         });
 
         it('caches the allowance from a failed override read only briefly', async () => {
-            paidPolicy('month-paid', 10);
+            const paid = paidPolicy('month-paid', 10);
             target.registerSubscriptionResolver(async () => 'month-paid');
             await target.setMonthAllowance(
                 actor.user.uuid!,
@@ -1984,8 +2068,13 @@ describe('MeteringService', () => {
             const getSpy = vi
                 .spyOn(server.stores.kv, 'get')
                 .mockRejectedValueOnce(new Error('kv down'));
-            await target.getActorSubscription(actor);
+            // Falls back to the policy's own allowance, proving the rejection
+            // above was actually hit rather than reading the override.
+            const duringFailure = await target.getActorSubscription(actor);
             getSpy.mockRestore();
+            expect(duringFailure.monthUsageAllowance).toBe(
+                paid.monthUsageAllowance,
+            );
 
             const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
                 target.constructor as typeof MeteringService;
@@ -2147,6 +2236,281 @@ describe('MeteringService', () => {
 
             target.invalidateActorSubscription(actor.user.uuid!);
             expect(creditCache().has(actor.user.uuid!)).toBe(false);
+        });
+
+        // A failed lookup's fallback must not keep a paid user looking broke
+        // for the full credit-cache window — only for its own short one.
+        it('stops looking broke once the subscription fallback window passes and the lookup recovers', async () => {
+            target.registerPolicy({
+                id: 'fallback-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockResolvedValueOnce('fallback-paid')
+                .mockRejectedValueOnce(new Error('store down'))
+                .mockResolvedValue('fallback-paid');
+            target.registerSubscriptionResolver(stub);
+
+            // Spends past what the free-tier fallback would allow, but well
+            // under the real paid allowance.
+            await target.incrementUsage(actor, 'kv:read', 1, toMicroCents(2));
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+            const {
+                SUBSCRIPTION_CACHE_MS: subMs,
+                SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs,
+            } = target.constructor as typeof MeteringService;
+            const t0 = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                // The subscription cache expires and the resolver fails this
+                // time, so the actor falls back to a free-tier allowance it
+                // has already spent past.
+                dateNow.mockReturnValue(t0 + subMs + 1);
+                expect(await target.hasAnyUsageCached(actor)).toBe(true); // stale, refreshing behind it
+                await creditRefreshes().get(actor.user.uuid!);
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+
+                // Once the short fallback window passes, the store has
+                // recovered — the real, paid answer should apply well
+                // before the normal credit-cache window would have.
+                dateNow.mockReturnValue(t0 + subMs + 1 + fallbackMs + 1);
+                expect(await target.hasAnyUsageCached(actor)).toBe(false); // stale, refreshing behind it
+                await creditRefreshes().get(actor.user.uuid!);
+                expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            } finally {
+                dateNow.mockRestore();
+            }
+            expect(stub).toHaveBeenCalledTimes(3);
+        });
+
+        // The credit entry a provisional (failed-lookup) answer writes must
+        // not outlive the subscription answer it was computed from, and
+        // repeated writes during that same window — through either write
+        // path — must not push it out further: the cap is the subscription
+        // answer's own fixed expiry, not a per-write TTL.
+        it('caps the credit entry at the subscription fallback expiry and never extends it on repeated writes', async () => {
+            target.registerPolicy({
+                id: 'fallback-paid-incr',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockResolvedValueOnce('fallback-paid-incr')
+                .mockRejectedValue(new Error('store down'));
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+
+            const {
+                SUBSCRIPTION_CACHE_MS: subMs,
+                SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs,
+            } = target.constructor as typeof MeteringService;
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                const t1 = Date.now() + subMs + 1;
+                dateNow.mockReturnValue(t1);
+                // The subscription lookup fails during this call and falls
+                // back to the free tier.
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(2),
+                );
+                const firstExpiry = creditCache().get(
+                    actor.user.uuid!,
+                )!.expiresAt;
+                expect(firstExpiry).toBeLessThanOrEqual(t1 + fallbackMs);
+
+                // A second write via batchIncrementUsages, still inside the
+                // same fallback window, must not push it out.
+                dateNow.mockReturnValue(t1 + 1_000);
+                await target.batchIncrementUsages(actor, [
+                    { usageType: 'kv:read', usageAmount: 1, costOverride: 0 },
+                ]);
+                expect(creditCache().get(actor.user.uuid!)!.expiresAt).toBe(
+                    firstExpiry,
+                );
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
+        // Only a provisional answer needs the short cap: a plan change drops
+        // both caches outright (see `onServerStart`), so a clean cached
+        // answer's credit entry can safely run the full window even right
+        // before the subscription entry backing it expires.
+        it('gives a clean cached answer the full credit-cache window, even just before the subscription cache expires', async () => {
+            target.registerPolicy({
+                id: 'clean-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const { SUBSCRIPTION_CACHE_MS: subMs, CREDIT_CACHE_MS: creditMs } =
+                target.constructor as typeof MeteringService;
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                // Fix the clock for priming too, so the subscription entry's
+                // expiry is a known value rather than whatever real time
+                // happened to elapse by the next line.
+                const t0 = Date.now();
+                dateNow.mockReturnValue(t0);
+                await target.getActorSubscription(actor);
+
+                // One millisecond before that (clean) subscription entry
+                // expires — still a cache hit, not a re-resolve.
+                const t1 = t0 + subMs - 1;
+                dateNow.mockReturnValue(t1);
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(1),
+                );
+                expect(creditCache().get(actor.user.uuid!)!.expiresAt).toBe(
+                    t1 + creditMs,
+                );
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
+        // An actor too partial to cache is just as provisional as a failed
+        // lookup: its credit entry gets the short cap, and an overspend off
+        // of it must not raise an alert either.
+        it('caps a partial actor credit entry at the fallback window and emits no credit-state event', async () => {
+            target.registerPolicy({
+                id: 'partial-paid',
+                monthUsageAllowance: toMicroCents(0.1),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            target.registerDefaultSubscriptionResolver(
+                async () => 'partial-paid',
+            );
+            const { id: _id, ...partialUser } = actor.user;
+            const partial: Actor = { user: partialUser };
+
+            const seen = vi.fn();
+            server.clients.event.on('metering.credit-state', seen);
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                const t0 = Date.now();
+                dateNow.mockReturnValue(t0);
+                // Exceeds the tiny allowance, which would normally alert.
+                await target.incrementUsage(
+                    partial,
+                    'kv:read',
+                    1,
+                    toMicroCents(1),
+                );
+                expect(creditCache().get(actor.user.uuid!)!.expiresAt).toBe(
+                    t0 + fallbackMs,
+                );
+                expect(seen).not.toHaveBeenCalled();
+            } finally {
+                dateNow.mockRestore();
+                server.clients.event.off('metering.credit-state', seen);
+            }
+        });
+
+        // A plan guessed from a failed lookup isn't known to be real, so it
+        // must not drive a credit-state alert — a paid user must not see a
+        // false "exhausted" notice from one bad store read.
+        it('does not alert on the exhausted state from a failed lookup, but does on a real one', async () => {
+            target.registerPolicy({
+                id: 'fallback-paid-alert',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockResolvedValueOnce('fallback-paid-alert')
+                .mockRejectedValueOnce(new Error('store down'));
+            target.registerSubscriptionResolver(stub);
+
+            const seen = vi.fn();
+            server.clients.event.on('metering.credit-state', seen);
+            try {
+                await target.getActorSubscription(actor);
+
+                const { SUBSCRIPTION_CACHE_MS: subMs } =
+                    target.constructor as typeof MeteringService;
+                const dateNow = vi.spyOn(Date, 'now');
+                try {
+                    dateNow.mockReturnValue(Date.now() + subMs + 1);
+                    // Spends past the free-tier fallback, but the lookup
+                    // behind that fallback failed.
+                    await target.incrementUsage(
+                        actor,
+                        'kv:read',
+                        1,
+                        toMicroCents(2),
+                    );
+                } finally {
+                    dateNow.mockRestore();
+                }
+                expect(seen).not.toHaveBeenCalled();
+
+                // A genuinely exhausted actor still alerts, proving the hook
+                // above would have caught the emit were the guard not there.
+                target.invalidateActorSubscription(actor.user.uuid!);
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(20),
+                );
+                expect(seen).toHaveBeenCalledWith(
+                    'metering.credit-state',
+                    expect.objectContaining({ state: 'exhausted' }),
+                    expect.anything(),
+                );
+            } finally {
+                server.clients.event.off('metering.credit-state', seen);
+            }
+        });
+
+        // Otherwise every later call waits on the failing store.
+        it('fails open with a short fallback answer when refreshing a stale entry errors', async () => {
+            const sub = await target.getActorSubscription(actor);
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+            const entry = creditCache().get(actor.user.uuid!)!;
+            expect(entry.hasCredits).toBe(false);
+            entry.expiresAt = Date.now() - 1;
+
+            const failing = vi
+                .spyOn(server.stores.kv, 'get')
+                .mockRejectedValue(new Error('store down'));
+            try {
+                // Stale: answers with the old (broke) value while the
+                // refresh behind it fails.
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                await creditRefreshes().get(actor.user.uuid!);
+            } finally {
+                failing.mockRestore();
+            }
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const replaced = creditCache().get(actor.user.uuid!)!;
+            expect(replaced.hasCredits).toBe(true);
+            expect(replaced.expiresAt).toBeGreaterThan(Date.now());
+            expect(replaced.expiresAt).toBeLessThanOrEqual(
+                Date.now() + fallbackMs,
+            );
+            // Answers immediately now, without waiting on the store again.
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
         });
 
         it('treats a policy with no metered allowance as never out of budget', async () => {
