@@ -699,8 +699,9 @@ interface IConfigOptional {
      */
     origin: string;
     /**
-     * Public base URL for the API subdomain, e.g. `https://api.puter.com`. Used
-     * to build signed URLs.
+     * Public API base URL, normally the `api.<domain>` subdomain. It may
+     * instead be a same-origin path such as `https://puter.example/api` for
+     * deployments that expose only one hostname or IP address.
      */
     api_base_url: string;
     /** Static hosting domain for user sites (e.g., `puter.site`). */
