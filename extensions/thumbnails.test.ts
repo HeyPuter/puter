@@ -2,7 +2,7 @@ import {
     GetObjectCommand,
     HeadObjectCommand,
     PutObjectCommand,
-    type S3Client,
+    S3Client,
 } from '@aws-sdk/client-s3';
 import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
@@ -563,13 +563,42 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         await server?.shutdown();
     });
 
-    const copyNode = async (thumbnail: string | null, copyUuid: string) => {
+    const copyNode = async (
+        thumbnail: string | null,
+        copyUuid: string,
+        client: S3Client = s3,
+    ) => {
         const db = { write: vi.fn().mockResolvedValue(undefined) };
         await handleFsCopyNodeThumbnail(
             { copy: { thumbnail, uuid: copyUuid } },
-            { s3, bucketName: BUCKET, bucketEndpoint: BUCKET_ENDPOINT, db },
+            {
+                s3: client,
+                bucketName: BUCKET,
+                bucketEndpoint: BUCKET_ENDPOINT,
+                db,
+            },
         );
         return db;
+    };
+
+    // The key the copied row was repointed at, asserting it is bound to it.
+    const repointedKey = (
+        db: Awaited<ReturnType<typeof copyNode>>,
+        copyUuid: string,
+    ): string => {
+        expect(db.write).toHaveBeenCalledTimes(1);
+        const [sql, [pointer, uuid]] = db.write.mock.calls[0] as [
+            string,
+            [string, string],
+        ];
+        expect(sql).toBe(
+            'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
+        );
+        expect(uuid).toBe(copyUuid);
+        expect(pointer).toMatch(
+            new RegExp(`^s3://${BUCKET}/thumbnails/${copyUuid}/`),
+        );
+        return pointer.slice(`s3://${BUCKET}/`.length);
     };
 
     it.each([
@@ -603,12 +632,79 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
             const duplicated = await s3.send(
                 new GetObjectCommand({ Bucket: BUCKET, Key: newKey }),
             );
+            expect(duplicated.ContentType).toBe('image/png');
             expect(
                 (await streamToBuffer(duplicated.Body as never)).equals(body),
             ).toBe(true);
             expect(await objectExists(s3, sourceKey)).toBe(true);
         },
     );
+
+    // The SDK puts an endpoint's path in front of every Bucket/Key request but
+    // not in front of a CopyObject source, so on such a store HeadObject finds
+    // the source and CopyObject reports NoSuchKey.
+    it('duplicates through a client whose endpoint carries a path', async () => {
+        const endpoint = await s3.config.endpoint!();
+        const client = new S3Client({
+            region: await s3.config.region(),
+            endpoint: `${endpoint.protocol}//${endpoint.hostname}:${endpoint.port}/${BUCKET}`,
+            credentials: await s3.config.credentials(),
+            forcePathStyle: true,
+        });
+        const sourceKey = mintedKey();
+        const body = Buffer.from(TINY_PNG_BASE64, 'base64');
+        await putObject(client, sourceKey, body);
+
+        const copyUuid = crypto.randomUUID();
+        const db = await copyNode(
+            `s3://${BUCKET}/${sourceKey}`,
+            copyUuid,
+            client,
+        );
+
+        const duplicated = await client.send(
+            new GetObjectCommand({
+                Bucket: BUCKET,
+                Key: repointedKey(db, copyUuid),
+            }),
+        );
+        expect(duplicated.ContentType).toBe('image/png');
+        expect(
+            (await streamToBuffer(duplicated.Body as never)).equals(body),
+        ).toBe(true);
+    });
+
+    it("lets either entry's removal leave the other's thumbnail in place", async () => {
+        const sourceUuid = crypto.randomUUID();
+        const sourceKey = mintedKey(sourceUuid);
+        const sourcePointer = `s3://${BUCKET}/${sourceKey}`;
+        await putObject(s3, sourceKey, Buffer.from(TINY_PNG_BASE64, 'base64'));
+        const remove = (thumbnail: string, uuid: string) =>
+            handleFsRemoveNodeThumbnail(
+                { target: { thumbnail, uuid } },
+                { s3, bucketName: BUCKET, bucketEndpoint: BUCKET_ENDPOINT },
+            );
+
+        // Removing a copy leaves the source's object...
+        const firstUuid = crypto.randomUUID();
+        const firstKey = repointedKey(
+            await copyNode(sourcePointer, firstUuid),
+            firstUuid,
+        );
+        await remove(`s3://${BUCKET}/${firstKey}`, firstUuid);
+        expect(await objectExists(s3, firstKey)).toBe(false);
+        expect(await objectExists(s3, sourceKey)).toBe(true);
+
+        // ...and removing the source leaves a copy's.
+        const secondUuid = crypto.randomUUID();
+        const secondKey = repointedKey(
+            await copyNode(sourcePointer, secondUuid),
+            secondUuid,
+        );
+        await remove(sourcePointer, sourceUuid);
+        expect(await objectExists(s3, sourceKey)).toBe(false);
+        expect(await objectExists(s3, secondKey)).toBe(true);
+    });
 
     it('drops the pointer when the shared object is already gone', async () => {
         const copyUuid = crypto.randomUUID();
@@ -827,5 +923,63 @@ describe('thumbnails extension — signed batch upload through /fs', () => {
             () => 'https://example.com/thumb.png',
         );
         expect(entry.thumbnail).toBe('https://example.com/thumb.png');
+    });
+
+    it('gives a copy its own thumbnail that survives moves and the source being removed', async () => {
+        const { actor, username } = await makeActor();
+        const s3 = server.clients.s3.get();
+        const fs = server.services.fs;
+        const { entry: source } = await upload(
+            actor,
+            `/${username}/Documents/photo.png`,
+            (s) => s.thumbnailUrl,
+        );
+        const userId = source.userId;
+        const sourceKey = source.thumbnail!.slice(`s3://${BUCKET}/`.length);
+        const desktop = (await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Desktop`,
+        ))!;
+        // The listener writes the row directly, so read it the same way.
+        const storedThumbnail = async (uuid: string) => {
+            const [row] = (await server.clients.db.read(
+                'SELECT `thumbnail` FROM `fsentries` WHERE `uuid` = ?',
+                [uuid],
+            )) as Array<{ thumbnail: string | null }>;
+            return row?.thumbnail ?? null;
+        };
+
+        const copy = await runWithContext({ actor }, () =>
+            fs.copy(userId, { source, destinationParent: desktop }),
+        );
+        // `fs.copy.node` is fire-and-forget.
+        const copyPointer = await vi.waitFor(async () => {
+            const pointer = await storedThumbnail(copy.uuid);
+            expect(pointer).toMatch(
+                new RegExp(`^s3://${BUCKET}/thumbnails/${copy.uuid}/`),
+            );
+            return pointer!;
+        });
+        const copyKey = copyPointer.slice(`s3://${BUCKET}/`.length);
+
+        const documents = (await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Documents`,
+        ))!;
+        const moved = await runWithContext({ actor }, () =>
+            fs.move(userId, {
+                source: copy,
+                destinationParent: documents,
+                newName: 'moved.png',
+            }),
+        );
+        expect(moved.uuid).toBe(copy.uuid);
+        expect(await storedThumbnail(moved.uuid)).toBe(copyPointer);
+
+        await runWithContext({ actor }, () =>
+            fs.remove(userId, { entry: source }),
+        );
+        await vi.waitFor(async () => {
+            expect(await objectExists(s3, sourceKey)).toBe(false);
+        });
+        expect(await objectExists(s3, copyKey)).toBe(true);
     });
 });

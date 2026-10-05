@@ -1,5 +1,4 @@
 import {
-    CopyObjectCommand,
     DeleteObjectCommand,
     GetObjectCommand,
     HeadObjectCommand,
@@ -396,11 +395,19 @@ export const handleFsCopyNodeThumbnail = async (
         ) {
             throw new Error('thumbnail exceeds the size bound');
         }
+        // Read and rewrite rather than CopyObject: a copy source skips any path
+        // in the client's endpoint, so it can miss an object Bucket/Key reach.
+        const source = await deps.s3.send(
+            new GetObjectCommand({ Bucket: deps.bucketName, Key: sourceKey }),
+        );
+        const body = await source.Body?.transformToByteArray();
+        if (!body) throw new Error('thumbnail has no body');
         await deps.s3.send(
-            new CopyObjectCommand({
+            new PutObjectCommand({
                 Bucket: deps.bucketName,
-                CopySource: `${deps.bucketName}/${sourceKey}`,
                 Key: newKey,
+                Body: body,
+                ContentType: source.ContentType,
             }),
         );
     } catch (err) {
