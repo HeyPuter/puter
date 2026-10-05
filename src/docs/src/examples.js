@@ -957,6 +957,12 @@ const examples = [
                 slug: 'perms-ask-for-access-check',
                 source: '/playground/examples/perms-ask-for-access-check.html',
             },
+            {
+                title: 'Check several permissions at once',
+                description: 'Check several permissions in one call without prompting with Puter.js permissions API. Run and modify this example instantly in your browser.',
+                slug: 'perms-several-at-once-check',
+                source: '/playground/examples/perms-several-at-once-check.html',
+            },
         ],
     },
     {

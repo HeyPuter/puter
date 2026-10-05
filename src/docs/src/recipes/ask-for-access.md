@@ -93,3 +93,10 @@ toggle.addEventListener('change', async () => {
 When you only need the access itself, call
 [`puter.perms.request()`](/Perms/request/) directly. It skips the prompt for
 anything the user has already granted.
+
+## Notes
+
+- When your app needs several resources, such as a folder and the email
+  address, you can request all of them in one prompt.
+  [Ask for Access to Multiple Resources](/recipes/ask-for-access-to-multiple-resources/)
+  covers it.
