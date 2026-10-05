@@ -623,9 +623,9 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
             Object.assign(new Error('azure down'), { status: 503 }),
         );
         const openai = vi.spyOn(OpenAiChatProvider.prototype, 'complete');
-        vi.spyOn(server.services.metering, 'getRemainingUsage')
-            .mockResolvedValueOnce(1_000_000) // pre-flight
-            .mockResolvedValue(0); // drained by a parallel request
+        vi.spyOn(server.services.metering, 'getUsageHeadroom')
+            .mockResolvedValueOnce({ balance: 1_000_000, held: 0 }) // pre-flight
+            .mockResolvedValue({ balance: 0, held: 0 }); // drained by a parallel request
 
         await expect(completeShared()).rejects.toMatchObject({
             statusCode: 402,

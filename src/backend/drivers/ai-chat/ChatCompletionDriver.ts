@@ -1042,21 +1042,15 @@ export class ChatCompletionDriver extends PuterDriver {
         const minimumCredits = Number(model.minimumCredits || 1);
         const needed = Math.max(approximateInputCost, minimumCredits);
 
-        // One balance read serves the whole gate: the affordability check
-        // here and the output cap below. It is net of holds.
-        const remainingCredits = await metering.getRemainingUsage(actor);
-        // The balance with nothing held against it, read only when funds
-        // decide the outcome: it tells spent from committed to requests that
-        // are still running.
-        const balanceWithoutHolds = async (): Promise<number> => {
-            const held = await metering.getOutstandingHolds(actor);
-            if (!(held > 0)) return remainingCredits;
-            const { remaining } = await metering.getAllowedUsage(actor);
-            return remaining || 0;
-        };
+        // One read of the balance and its holds serves the whole gate: the
+        // affordability check here and the output cap below, net of holds,
+        // and the balance alone, which tells spent from committed to requests
+        // that are still running.
+        const { balance, held } = await metering.getUsageHeadroom(actor);
+        const remainingCredits = Math.max(0, balance - held);
 
         if (remainingCredits < needed) {
-            throw fundsRefusal((await balanceWithoutHolds()) >= needed);
+            throw fundsRefusal(balance >= needed);
         }
 
         if (model.subscriberOnly) {
@@ -1098,17 +1092,12 @@ export class ChatCompletionDriver extends PuterDriver {
                     affordableOutputTokens(remainingCredits) >= 1
                 );
                 throw fundsRefusal(
-                    fundsShort &&
-                        affordableOutputTokens(await balanceWithoutHolds()) >=
-                            1,
+                    fundsShort && affordableOutputTokens(balance) >= 1,
                 );
             }
             args.max_tokens = cap;
             // Holds alone shrinking the cap is a busy account, not a broke one.
-            if (
-                cap < limit &&
-                affordableOutputTokens(await balanceWithoutHolds()) < limit
-            ) {
+            if (cap < limit && affordableOutputTokens(balance) < limit) {
                 fundsCap = cap;
             }
         } else {

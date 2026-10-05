@@ -333,7 +333,7 @@ describe('ChatCompletionDriver credit gate across the fallback chain', () => {
         // real balance read of its own.
         const remaining = vi.spyOn(
             server.services.metering,
-            'getRemainingUsage',
+            'getUsageHeadroom',
         );
 
         const attempts = await attemptsFor('deepseek-v4-pro');

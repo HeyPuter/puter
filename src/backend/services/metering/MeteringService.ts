@@ -1541,11 +1541,23 @@ export class MeteringService extends PuterService {
      * balance; this one is for deciding on a spend.
      */
     async getRemainingUsage(actor: Actor): Promise<number> {
+        const { balance, held } = await this.getUsageHeadroom(actor);
+        return Math.max(0, balance - held);
+    }
+
+    /**
+     * The two halves of `getRemainingUsage`, from the same reads: the balance,
+     * and how much of it operations still running hold. For a decision that has
+     * to tell spent from merely committed.
+     */
+    async getUsageHeadroom(
+        actor: Actor,
+    ): Promise<{ balance: number; held: number }> {
         const [{ remaining }, held] = await Promise.all([
             this.getAllowedUsage(actor),
             this.getOutstandingHolds(actor),
         ]);
-        return Math.max(0, (remaining || 0) - held);
+        return { balance: remaining || 0, held };
     }
 
     /**

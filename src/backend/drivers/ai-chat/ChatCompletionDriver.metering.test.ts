@@ -634,9 +634,7 @@ describe('ChatCompletionDriver output ceiling', () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
             { ...PRICED_MODEL, ...model },
         ] as never);
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            Number.MAX_SAFE_INTEGER,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: Number.MAX_SAFE_INTEGER, held: 0 });
         const completeSpy = vi
             .spyOn(FakeChatProvider.prototype, 'complete')
             .mockResolvedValue({
