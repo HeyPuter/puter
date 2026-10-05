@@ -20,6 +20,7 @@
 import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetCardVerificationStatusCache } from '../../../util/cardFallback';
+import { isReservedUsername } from '../../../util/reservedUsernames';
 import { makeActor, type Actor } from '../../actor';
 import { HttpError, isHttpError } from '../HttpError';
 import {
@@ -503,6 +504,12 @@ describe('adminOnlyGate', () => {
                 actor: { user: { uuid: 'u-1', username: 'admin' } },
             }),
         ).toBeUndefined();
+    });
+
+    it('reserves every name it admits, so none can be claimed', () => {
+        expect(isReservedUsername('gate_extra')).toBe(false);
+        adminOnlyGate(['Gate_Extra']);
+        expect(isReservedUsername('gate_extra')).toBe(true);
     });
 
     it('rejects unknown usernames with 403 forbidden', () => {
