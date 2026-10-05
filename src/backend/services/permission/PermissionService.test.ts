@@ -23,6 +23,7 @@ import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { kv } from '../../util/kvSingleton.js';
 import { PermissionService } from './PermissionService.js';
 
@@ -905,6 +906,85 @@ describe('PermissionService (integration)', () => {
             expect([...new Set(written)]).toEqual([granted]);
             const [wider] = await store.getFlatUserPerms(holder.id, [resource]);
             expect(wider?.permission).toBeUndefined();
+        });
+    });
+
+    // The fs variant the ticket describes: `fs-access-levels` puts
+    // `manage:fs:<id>` in the higher set for `fs:<id>:read`, so a delegate who
+    // holds the manage terminates the issuer scan with it as the leaf.
+    describe('flat warm scope (fs delegate)', () => {
+        it('never warms the delegate manage under the holder', async () => {
+            const { user: owner, actor: ownerActor } = await makeUserActor();
+            const { user: delegate, actor: delegateActor } =
+                await makeUserActor();
+            const { user: holder, actor: holderActor } = await makeUserActor();
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                owner as never,
+            );
+
+            const dir = `/${owner.username}/shared-${uuidv4().slice(0, 8)}`;
+            await server.services.fs.mkdir(owner.id, {
+                path: dir,
+                createMissingParents: true,
+            });
+            const entry = await server.stores.fsEntry.getEntryByPath(dir);
+            const manage = `manage:fs:${entry!.uuid}`;
+            const read = `fs:${entry!.uuid}:read`;
+
+            // The owner delegates management; the delegate hands out a read.
+            await runWithContext({ actor: ownerActor }, () =>
+                permService.grantUserUserPermission(
+                    ownerActor,
+                    delegate.username,
+                    manage,
+                ),
+            );
+            await runWithContext({ actor: delegateActor }, () =>
+                permService.grantUserUserPermission(
+                    delegateActor,
+                    holder.username,
+                    read,
+                ),
+            );
+
+            const written: string[] = [];
+            const store = server.stores.permission;
+            const realSetFlat = store.setFlatUserPerm.bind(store);
+            const setFlat = vi
+                .spyOn(store, 'setFlatUserPerm')
+                .mockImplementation(async (userId, perm, value, opts) => {
+                    if (userId === holder.id) written.push(perm);
+                    return realSetFlat(userId, perm, value, opts);
+                });
+
+            // Force the miss the warm runs on.
+            await store.delFlatUserPerms([
+                { holderUserId: holder.id, permission: read },
+            ]);
+
+            await runWithContext({ actor: holderActor }, () =>
+                permService.validateUserPerms({
+                    actor: holderActor,
+                    permissions: [read],
+                }),
+            );
+            await vi.waitFor(() => expect(written.length).toBeGreaterThan(0));
+            setFlat.mockRestore();
+
+            expect(written).not.toContain(manage);
+            const [escalated] = await store.getFlatUserPerms(holder.id, [
+                manage,
+            ]);
+            expect(escalated?.permission).toBeUndefined();
+
+            // So a read holder still cannot re-share the entry.
+            await expect(
+                runWithContext({ actor: holderActor }, () =>
+                    permService.canManagePermission(holderActor, read),
+                ),
+            ).resolves.toBe(false);
         });
     });
 
