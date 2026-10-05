@@ -216,6 +216,20 @@ export type {
     PuterPeerEncoding,
     PuterPeerPublishOptions,
 } from './types/modules/Peer/tracks.js';
+export type {
+    PuterPeerConnectionCloseEvent,
+    PuterPeerConnectionErrorEvent,
+    PuterPeerConnectionEventMap,
+    PuterPeerConnectionMessageEvent,
+    PuterPeerConnectionOpenEvent,
+    PuterPeerLinkState,
+    PuterPeerLinkStateEvent,
+    PuterPeerMediaEndedEvent,
+    PuterPeerMediaEvent,
+    PuterPeerServerConnectionEvent,
+    PuterPeerServerEventMap,
+    PuterPeerServerReconnectEvent,
+} from './types/modules/Peer/events.js';
 
 // -- puter.perms --
 export type {
