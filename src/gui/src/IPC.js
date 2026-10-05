@@ -240,8 +240,8 @@ const ipc_listener = async (event, handled) => {
     // reauth_required
     //--------------------------------------------------------
     else if ( event.data.msg === 'reauth_required' ) {
-        // A godmode app's own token lapsed or was revoked; it waits for a new
-        // one. Other apps are left alone, so revoking them sticks.
+        // A godmode app's token stopped working; it waits for one that does.
+        // Other apps are left alone, so revoking them sticks.
         await renewGodmodeToken(event.data.appInstanceID, { origin: event.origin });
     }
     //--------------------------------------------------------

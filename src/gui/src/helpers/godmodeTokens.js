@@ -21,9 +21,9 @@ import { isAttestedOrigin } from './attestedOrigin.js';
 
 /**
  * Godmode apps that run on their own full-access token instead of the
- * desktop's session. The server gives that token 12 hours, so the desktop
- * re-mints it for every open window long before then, and again whenever an
- * app reports that its token lapsed or was revoked.
+ * desktop's session. The server lets that token lapse 12 hours after the
+ * desktop last asked for it, so the desktop asks again for every open window
+ * long before then, and whenever an app reports that its token stopped working.
  */
 
 // Renew once less than this much of the token's life is left.
@@ -53,6 +53,28 @@ let checkTimer = null;
  */
 export const shouldRenew = (expiresAt, nowMs) =>
     !Number.isFinite(expiresAt) || expiresAt * 1000 - nowMs < RENEW_WHEN_LEFT_MS;
+
+/** The token row a JWT belongs to; renewals of a live row keep it. */
+const tokenRowOf = (token) => {
+    try {
+        const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(atob(part))?.token_uid ?? null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Whether two tokens are the same row, so the app already holds a working one.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+export const sameTokenRow = (a, b) => {
+    const row = tokenRowOf(a);
+    return !!row && row === tokenRowOf(b);
+};
 
 /**
  * Ask the server for the token a godmode app launches with. Anything other
@@ -118,8 +140,10 @@ const postToken = (instanceId, token, origin) => {
  * window that isn't tracked, or has closed, is left alone.
  *
  * @param {string} instanceId
- * @param {{ origin?: string }} [from] Where the app asked from, once its
- *   message was matched to the window's frame; later renewals go there too.
+ * @param {{ origin?: string }} [from] Set when the app itself asked: where it
+ *   asked from, once its message was matched to the window's frame. An app that
+ *   asked is always answered; a scheduled renewal that kept the same token
+ *   sends nothing.
  * @returns {Promise<boolean>} Whether the app was sent a token
  */
 export const renewGodmodeToken = async (instanceId, from = {}) => {
@@ -136,9 +160,10 @@ export const renewGodmodeToken = async (instanceId, from = {}) => {
 
     const result = await mintGodmodeToken(entry.appUid);
     if ( ! result.ok ) return false;
-    entry.token = result.token;
     entry.expiresAt = result.expiresAt;
     entry.renewedAt = Date.now();
+    if ( !from.origin && sameTokenRow(entry.token, result.token) ) return false;
+    entry.token = result.token;
     return postToken(instanceId, result.token, entry.origin);
 };
 

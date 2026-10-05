@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mintGodmodeToken, shouldRenew } from './godmodeTokens.js';
+import { mintGodmodeToken, sameTokenRow, shouldRenew } from './godmodeTokens.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -87,5 +87,20 @@ describe('mintGodmodeToken', () => {
         });
         const result = await mintGodmodeToken('app-1', deps(failing));
         expect(result.ok).toBe(false);
+    });
+});
+
+describe('sameTokenRow', () => {
+    const jwt = (payload) =>
+        `h.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.s`;
+
+    it('matches two signings of one token row', () => {
+        expect(sameTokenRow(jwt({ token_uid: 't1', iat: 1 }), jwt({ token_uid: 't1', iat: 2 }))).toBe(true);
+    });
+
+    it('tells a replacement row apart, and never matches what it cannot read', () => {
+        expect(sameTokenRow(jwt({ token_uid: 't1' }), jwt({ token_uid: 't2' }))).toBe(false);
+        expect(sameTokenRow(jwt({}), jwt({}))).toBe(false);
+        expect(sameTokenRow('garbage', 'garbage')).toBe(false);
     });
 });

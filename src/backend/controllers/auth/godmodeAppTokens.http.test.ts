@@ -81,6 +81,31 @@ describe('godmode app tokens', () => {
     const decode = (token: string) =>
         env.server.services.token.verify<AccessTokenPayload>('auth', token);
 
+    const live = async (token: string) =>
+        (await env.server.services.auth.authenticate(token)).actor !== undefined;
+
+    /** A read token minted the way `getReadURL()` does, by `minter`. */
+    const mintScoped = async (minter: string) => {
+        const res = await call('POST', '/auth/create-access-token', minter, {
+            permissions: ['service:foo:ii:read'],
+            expiresIn: '7d',
+        });
+        expect(res.status).toBe(200);
+        return ((await res.json()) as { token: string }).token;
+    };
+
+    /** Rewrite a session row in place, as time passing would. */
+    const setRow = async (uuid: string, fields: Record<string, number>) => {
+        const cols = Object.keys(fields);
+        await env.server.clients.db.write(
+            `UPDATE \`sessions\` SET ${cols.map((c) => `\`${c}\` = ?`).join(', ')} WHERE \`uuid\` = ?`,
+            [...cols.map((c) => fields[c]), uuid],
+        );
+        await env.server.stores.session.publishCacheKeys({
+            keys: [`sessions:v2:uuid:${uuid}`],
+        });
+    };
+
     /** A desktop session of its own, so revoking it leaves the shared one up. */
     const newDesktopSession = async () => {
         const user = await env.server.stores.user.getById(userId);
@@ -114,6 +139,8 @@ describe('godmode app tokens', () => {
             godmode_app_uid: DEV_CENTER,
         });
         expect(claims.app_uid).toBeUndefined();
+        // The row's expiry is what lapses; the JWT itself never does.
+        expect(claims.exp).toBeUndefined();
 
         const { actor } = await env.server.services.auth.authenticate(
             body.token!,
@@ -144,20 +171,36 @@ describe('godmode app tokens', () => {
         expect(self.status).toBe(403);
     });
 
-    it('re-signs onto one row per desktop session, pushing its expiry out', async () => {
-        const first = decode((await mint(env.users.user.token)).token!);
-        const second = decode((await mint(env.users.user.token)).token!);
+    it('keeps one token per desktop session across renewals', async () => {
+        const desktop = await newDesktopSession();
+        const first = await mint(desktop.gui_token);
+        const second = await mint(desktop.gui_token);
 
-        expect(second.token_uid).toBe(first.token_uid);
-        expect(second.session_uid).toBe(first.session_uid);
+        expect(decode(second.token!).token_uid).toBe(
+            decode(first.token!).token_uid,
+        );
+        expect(second.expires_at).toBeGreaterThanOrEqual(first.expires_at!);
+        // A copy taken at launch keeps working after the desktop renews.
+        expect(await live(first.token!)).toBe(true);
 
         const row = await env.server.stores.session.getByUuidAny(
-            second.session_uid!,
+            decode(second.token!).session_uid!,
         );
         expect(row).toMatchObject({
             kind: 'access_token',
             app_uid: DEV_CENTER,
+            expires_at: second.expires_at,
         });
+    });
+
+    it('is never extended by being used', async () => {
+        const desktop = await newDesktopSession();
+        const { token, expires_at } = await mint(desktop.gui_token);
+        expect((await call('GET', '/whoami', token!)).status).toBe(200);
+        const row = await env.server.stores.session.getByUuidAny(
+            decode(token!).session_uid!,
+        );
+        expect(row?.expires_at).toBe(expires_at);
     });
 
     it('lists the token under its app for the account', async () => {
@@ -242,39 +285,39 @@ describe('godmode app tokens', () => {
         ).toBeUndefined();
     });
 
-    /** A read token minted the way `getReadURL()` does, by `minter`. */
-    const mintScoped = async (minter: string) => {
-        const res = await call('POST', '/auth/create-access-token', minter, {
-            permissions: ['service:foo:ii:read'],
-            expiresIn: '7d',
-        });
-        expect(res.status).toBe(200);
-        return ((await res.json()) as { token: string }).token;
-    };
-    const live = async (token: string) =>
-        (await env.server.services.auth.authenticate(token)).actor !== undefined;
-
-    it('lets the tokens it minted lapse when it does', async () => {
-        const { token } = await mint(env.users.user.token);
+    it('stays dead once it lapses; the desktop asking again gets a new one', async () => {
+        const desktop = await newDesktopSession();
+        const { token } = await mint(desktop.gui_token);
         const child = await mintScoped(token!);
         expect(await live(child)).toBe(true);
 
         // The desktop stopped renewing it: its row's expiry passes.
-        const row = await env.server.stores.session.getByUuidAny(
-            decode(token!).session_uid!,
-        );
-        await env.server.clients.db.write(
-            'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
-            [Math.floor(Date.now() / 1000) - 1, row!.uuid],
-        );
-        await env.server.stores.session.publishCacheKeys({
-            keys: [`sessions:v2:uuid:${row!.uuid}`],
+        await setRow(decode(token!).session_uid!, {
+            expires_at: Math.floor(Date.now() / 1000) - 1,
+        });
+        expect(await live(token!)).toBe(false);
+        expect(await live(child)).toBe(false);
+
+        const next = await mint(desktop.gui_token);
+        expect(decode(next.token!).token_uid).not.toBe(decode(token!).token_uid);
+        expect(await live(next.token!)).toBe(true);
+        expect(await live(token!)).toBe(false);
+        expect(await live(child)).toBe(false);
+    });
+
+    it('is replaced and revoked once past its max age, however often renewed', async () => {
+        const desktop = await newDesktopSession();
+        const { token } = await mint(desktop.gui_token);
+        const child = await mintScoped(token!);
+        await setRow(decode(token!).session_uid!, {
+            created_at: Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60,
         });
 
+        const next = await mint(desktop.gui_token);
+        expect(decode(next.token!).token_uid).not.toBe(decode(token!).token_uid);
+        expect(await live(next.token!)).toBe(true);
+        expect(await live(token!)).toBe(false);
         expect(await live(child)).toBe(false);
-        // The desktop asking again revives the row, and with it the child.
-        await mint(env.users.user.token);
-        expect(await live(child)).toBe(true);
     });
 
     it('lets the tokens it minted die with the desktop session', async () => {

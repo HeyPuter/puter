@@ -56,9 +56,11 @@ export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
-// A godmode app's token is re-minted by the desktop before this runs out, so a
-// closed desktop's tokens lapse on their own.
+// A godmode app's token lapses this long after the desktop last renewed it, so
+// a closed desktop's tokens die on their own. However often it is renewed, one
+// token never outlives the max age; it is replaced and the old one revoked.
 export const GODMODE_TOKEN_WINDOW_SECONDS = 12 * 60 * 60; // 12h
+export const GODMODE_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7d
 
 const sqlTimestamp = (ms) =>
     new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
@@ -472,23 +474,32 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * The token row a godmode app runs on under one web session, created on
-     * first launch and reused after: each mint moves its `expires_at` to
-     * `expiresAt`, so the sessions list keeps one row per (session, app).
-     * Reviving a lapsed row is safe because every JWT carries its own `exp`.
-     * Concurrent first launches can each insert a row; both stay valid.
+     * The token row a godmode app runs on under one web session. A live row is
+     * reused and its `expires_at` moved to `expiresAt`, so the token stays the
+     * same across renewals. A row that lapsed or is older than `maxAgeSeconds`
+     * is never extended: a fresh row is minted, and the old one comes back as
+     * `replaced` for the caller to revoke. Concurrent first launches can each
+     * insert a row; both stay valid.
      *
      * @param userId - User row id (numeric).
      * @param opts.parentSessionUid - The web session minting it; revoking that
      *   session cascades here.
      * @param opts.appUid - The godmode app.
-     * @param opts.expiresAt - Unix seconds; matches the minted JWT's `exp`.
+     * @param opts.expiresAt - Unix seconds the row lives to unless renewed.
+     * @param opts.maxAgeSeconds - Oldest a row may be and still be renewed.
      * @param opts.label - Shown in the sessions list.
      * @param opts.auth_id - Stable per-user identity.
      */
     async getOrCreateGodmodeToken(
         userId,
-        { parentSessionUid, appUid, expiresAt, label = null, auth_id = null },
+        {
+            parentSessionUid,
+            appUid,
+            expiresAt,
+            maxAgeSeconds,
+            label = null,
+            auth_id = null,
+        },
     ) {
         if (!userId || !parentSessionUid || !appUid) return null;
 
@@ -497,8 +508,13 @@ export class SessionStore extends PuterStore {
             [userId, parentSessionUid, appUid],
         );
         const existing = this.#normalizeRow(rows[0]);
-        if (!existing) {
-            return this.#insertSession(userId, {
+        const now = nowSeconds();
+        const renewable =
+            existing &&
+            !isExpired(existing, now) &&
+            Number(existing.created_at) > now - maxAgeSeconds;
+        if (!renewable) {
+            const row = await this.#insertSession(userId, {
                 kind: 'access_token',
                 label,
                 parent_session_id: parentSessionUid,
@@ -507,6 +523,7 @@ export class SessionStore extends PuterStore {
                 access_token_uid: uuidv4(),
                 auth_id,
             });
+            return { row, replaced: existing ?? null };
         }
 
         const keys = this.#allCacheKeysForRow(existing);
@@ -516,7 +533,7 @@ export class SessionStore extends PuterStore {
             [expiresAt, existing.uuid],
         );
         await this.publishCacheKeys({ keys, broadcast: true });
-        return { ...existing, expires_at: expiresAt };
+        return { row: { ...existing, expires_at: expiresAt }, replaced: null };
     }
 
     /**

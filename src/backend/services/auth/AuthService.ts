@@ -29,6 +29,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import {
     ASSET_WINDOW_SECONDS,
+    GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
@@ -1392,10 +1393,12 @@ export class AuthService extends PuterService {
 
     /**
      * Mint the full-access token a godmode app runs on. Only the desktop's own
-     * web session may ask; the token's row hangs off that session, so signing
-     * out or revoking it takes the token along. Each call re-signs onto the
-     * same row with a fresh 12h `exp`, which is how the desktop keeps an open
-     * app alive and why a copy taken earlier still dies on schedule.
+     * web session may ask, and only asking extends it: using the token never
+     * does. Its row hangs off that session, so signing out or revoking it takes
+     * the token along. The JWT has no `exp` and stays the same across renewals,
+     * so copies an app handed elsewhere keep working; the row's expiry is what
+     * lapses, 12h after the desktop stops asking. A lapsed row is never
+     * revived, and one past its max age is replaced and revoked.
      */
     async getGodmodeAppToken(
         actor: Actor,
@@ -1416,21 +1419,24 @@ export class AuthService extends PuterService {
 
         const authId = this.#authIdFor(actor.user as UserRow);
         const expiresAt = nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS;
-        const row = await this.stores.session.getOrCreateGodmodeToken(
+        const minted = await this.stores.session.getOrCreateGodmodeToken(
             actor.user.id,
             {
                 parentSessionUid: actor.session.uid,
                 appUid: app.uid,
                 expiresAt,
+                maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
                 label: app.title || app.name || null,
                 auth_id: authId,
             },
         );
+        const row = minted?.row;
         if (!row?.access_token_uid) {
             throw new HttpError(500, 'Could not issue the app token', {
                 legacyCode: 'internal_error',
             });
         }
+        if (minted.replaced) await this.#retireGodmodeToken(minted.replaced);
 
         const token = this.services.token.sign('auth', {
             type: 'access-token',
@@ -1441,9 +1447,32 @@ export class AuthService extends PuterService {
             auth_id: authId,
             full_access: true,
             godmode_app_uid: app.uid,
-            exp: expiresAt,
         });
         return { token, expiresAt };
+    }
+
+    /**
+     * Revoke a godmode token row the desktop has moved off: the tokens it
+     * minted go with it, and its sockets are dropped.
+     */
+    async #retireGodmodeToken(row: {
+        uuid: string;
+        access_token_uid?: string | null;
+    }): Promise<void> {
+        const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
+            row.uuid,
+        )) as string[];
+        await this.stores.session.revokeCascade(row.uuid);
+        for (const tokenUid of tokenUids) {
+            await this.#dropAccessTokenGrants(tokenUid);
+        }
+        if (row.access_token_uid) {
+            this.clients.event?.emit(
+                'auth.access-token.revoked',
+                { token_uid: row.access_token_uid },
+                {},
+            );
+        }
     }
 
     // -- Private / public hosted asset cookies -----------------------
