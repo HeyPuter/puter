@@ -137,6 +137,8 @@ export class AnthropicSseWriter {
     #signedReasoning = false;
     #safeguards: unknown[] | undefined;
     #sawToolUse = false;
+    /** Tool calls already opened by `tool_use_start`. */
+    #startedToolIds = new Set<unknown>();
     #ended = false;
 
     constructor(
@@ -294,6 +296,7 @@ export class AnthropicSseWriter {
                 );
                 break;
             case 'tool_use_start':
+                this.#startedToolIds.add(ev.id);
                 this.#close();
                 this.#openBlock(
                     'tool_use',
@@ -320,6 +323,9 @@ export class AnthropicSseWriter {
                     this.#open.id === ev.id
                 ) {
                     this.#close(); // already streamed incrementally
+                } else if (this.#startedToolIds.has(ev.id)) {
+                    // Streamed and closed already (a parallel call that ended
+                    // after the next one opened) — never emit it twice.
                 } else {
                     this.#close();
                     this.#openBlock(

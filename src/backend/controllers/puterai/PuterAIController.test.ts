@@ -928,14 +928,14 @@ describe('PuterAIController.openaiResponses', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    // F4: previous_response_id / conversation / prompt / background reference
+    // previous_response_id / conversation / prompt / background reference
     // OpenAI's own server-side state, which this route can't hold or honor.
     it.each([
         ['previous_response_id', 'resp_abc'],
         ['conversation', 'conv_1'],
         ['prompt', { id: 'p_1' }],
         ['background', true],
-    ] as const)('rejects `%s` with HttpError 400 (F4)', async (key, value) => {
+    ] as const)('rejects `%s` with HttpError 400', async (key, value) => {
         const { res } = makeRes();
         await expect(
             controller.openaiResponses(
@@ -948,7 +948,7 @@ describe('PuterAIController.openaiResponses', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('forces store:false regardless of what the caller requested (F4)', async () => {
+    it('forces store:false regardless of what the caller requested', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'ok' },
             finish_reason: 'stop',
@@ -1659,6 +1659,43 @@ describe('PuterAIController.openaiResponses streaming + edges', () => {
         expect(out).toContain('"name":"lookup"');
     });
 
+    it('keeps the upstream function_call item id on an incrementally streamed call', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                {
+                    type: 'tool_use_start',
+                    id: 'call_7',
+                    name: 'lookup',
+                    canonical_id: 'fc_upstream',
+                },
+                { type: 'tool_input_delta', id: 'call_7', partialJson: '{}' },
+                {
+                    type: 'tool_use',
+                    id: 'call_7',
+                    name: 'lookup',
+                    canonical_id: 'fc_upstream',
+                    input: {},
+                },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'tool me', stream: true },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const out = captured.written.join('');
+        expect(out).toContain('"item_id":"fc_upstream"');
+        expect(out).toContain('"id":"fc_upstream"');
+    });
+
     it('emits a `response.error`-shaped SSE frame when the source stream errors', async () => {
         const errStream = new Readable({
             read() {
@@ -2288,7 +2325,7 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
     });
 });
 
-// ── /anthropic/v1/messages/count_tokens ──────────────────────────────
+// -- /anthropic/v1/messages/count_tokens ------------------------------
 
 describe('PuterAIController.anthropicCountTokens', () => {
     const stubCountTokens = (result: { input_tokens: number }) =>
@@ -2345,7 +2382,7 @@ describe('PuterAIController.anthropicCountTokens', () => {
     });
 });
 
-// ── /anthropic/v1/models[/:id] ───────────────────────────────────────
+// -- /anthropic/v1/models[/:id] ---------------------------------------
 
 describe('PuterAIController anthropic model listing', () => {
     const captureGetHandler = (

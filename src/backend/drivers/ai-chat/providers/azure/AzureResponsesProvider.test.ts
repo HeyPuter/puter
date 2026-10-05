@@ -369,11 +369,15 @@ describe('AzureResponsesProvider.complete request shape', () => {
             provider.complete({
                 model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
                 tool_choice: { type: 'auto' },
                 parallel_tool_calls: false,
                 include: ['file_search_call.results'],
-                conversation: 'conv_1',
-                previous_response_id: 'resp_1',
                 instructions: 'be terse',
                 metadata: { trace: 'abc' },
                 prompt_cache_key: 'key-1',
@@ -381,7 +385,6 @@ describe('AzureResponsesProvider.complete request shape', () => {
                 store: true,
                 top_p: 0.9,
                 truncation: 'auto',
-                background: false,
                 service_tier: 'default',
             } as never),
         );
@@ -390,8 +393,6 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.tool_choice).toBe('auto');
         expect(args.parallel_tool_calls).toBe(false);
         expect(args.include).toEqual(['file_search_call.results']);
-        expect(args.conversation).toBe('conv_1');
-        expect(args.previous_response_id).toBe('resp_1');
         expect(args.instructions).toBe('be terse');
         expect(args.metadata).toEqual({ trace: 'abc' });
         expect(args.prompt_cache_key).toBe('key-1');
@@ -399,8 +400,42 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.store).toBe(true);
         expect(args.top_p).toBe(0.9);
         expect(args.truncation).toBe('auto');
-        expect(args.background).toBe(false);
         expect(args.service_tier).toBe('default');
+    });
+
+    it.each([
+        ['previous_response_id', 'resp_1'],
+        ['conversation', 'conv_1'],
+        ['prompt', { id: 'pmpt_1' }],
+        ['background', false],
+    ])('rejects %s (OpenAI-held state) without calling upstream', async (field, value) => {
+        const provider = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-5.3-codex',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    [field]: value,
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(responsesCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('omits tool_choice/parallel_tool_calls when no tool is sent', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(okResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'hi' }],
+                tool_choice: { type: 'auto' },
+                parallel_tool_calls: true,
+            } as never),
+        );
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect('tool_choice' in args).toBe(false);
+        expect('parallel_tool_calls' in args).toBe(false);
     });
 
     it('translates the neutral compaction opt-in into OpenAI context_management', async () => {
@@ -545,7 +580,7 @@ describe('AzureResponsesProvider usage accounting', () => {
         });
     });
 
-    it('requestPricing sizes a web_search hold and meters web_search_call items (F3)', async () => {
+    it('requestPricing sizes a web_search hold and meters web_search_call items', async () => {
         const provider = makeProvider();
         const model = AZURE_MODELS.find((m) => m.id === 'gpt-5.3-codex')!;
         expect(

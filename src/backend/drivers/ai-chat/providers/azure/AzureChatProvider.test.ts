@@ -473,7 +473,7 @@ describe('AzureChatProvider.complete request shape', () => {
         expect(args.model).toBe('grok-4-20-non-reasoning');
     });
 
-    it('forwards reasoning_effort/verbosity for gpt-5 models, drops them for a non-reasoning model (F5)', async () => {
+    it('forwards reasoning_effort/verbosity for gpt-5 models, drops them for a non-reasoning model', async () => {
         const provider = makeProvider();
 
         createMock.mockResolvedValueOnce(okCompletion);

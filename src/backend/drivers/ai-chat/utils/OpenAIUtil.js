@@ -498,12 +498,17 @@ export const extractMeteredUsage = (usage) => {
  */
 export const usageDetailsFromTrackedUsage = (trackedUsage) => {
     if (!trackedUsage || typeof trackedUsage !== 'object') return undefined;
+    // OpenRouter, Infron and Ollama track `{prompt, completion,
+    // input_cache_read}` instead; any other shape is left to the driver.
+    const input = trackedUsage.prompt_tokens ?? trackedUsage.prompt;
+    const output = trackedUsage.completion_tokens ?? trackedUsage.completion;
+    if (input === undefined && output === undefined) return undefined;
+    const cacheRead =
+        trackedUsage.cached_tokens ?? trackedUsage.input_cache_read;
     return {
-        inputTokens: trackedUsage.prompt_tokens ?? 0,
-        outputTokens: trackedUsage.completion_tokens ?? 0,
-        ...(trackedUsage.cached_tokens
-            ? { cacheReadTokens: trackedUsage.cached_tokens }
-            : {}),
+        inputTokens: input ?? 0,
+        outputTokens: output ?? 0,
+        ...(cacheRead ? { cacheReadTokens: cacheRead } : {}),
         ...(trackedUsage.cache_write_tokens
             ? { cacheWrite5mTokens: trackedUsage.cache_write_tokens }
             : {}),
@@ -564,6 +569,15 @@ export const create_chat_stream_handler =
         let toolblock = null;
         let mode = 'text';
         const tool_call_blocks = [];
+        // A parallel tool-call turn opens one block per call; each is ended
+        // exactly once, in open order, so every call reaches the stream.
+        const opened_tool_blocks = [];
+        const ended_tool_blocks = new Set();
+        const endToolBlock = (block) => {
+            if (!block || ended_tool_blocks.has(block)) return;
+            ended_tool_blocks.add(block);
+            block.end();
+        };
 
         let last_usage = null;
         let last_extra_content = null;
@@ -576,8 +590,11 @@ export const create_chat_stream_handler =
 
             const choice = chunk.choices[0];
             // Arrives on the final chunk; capture it before any `continue`
-            // below skips the rest of this iteration (F6).
-            if (choice.finish_reason) finish_reason = choice.finish_reason;
+            // below skips the rest of this iteration. Mistral's SDK
+            // spells it in camelCase.
+            const chunk_finish_reason =
+                choice.finish_reason ?? choice.finishReason;
+            if (chunk_finish_reason) finish_reason = chunk_finish_reason;
 
             // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
             if (choice.delta.reasoning_content || choice.delta.reasoning) {
@@ -590,7 +607,7 @@ export const create_chat_stream_handler =
 
             if (choice.delta.content) {
                 if (mode === 'tool') {
-                    toolblock.end();
+                    endToolBlock(toolblock);
                     mode = 'text';
                     textblock = message.contentBlock({ type: 'text' });
                 }
@@ -632,6 +649,7 @@ export const create_chat_stream_handler =
                                 : {}),
                         });
                         tool_call_blocks[tool_call.index] = toolblock;
+                        opened_tool_blocks.push(toolblock);
                     } else {
                         toolblock = tool_call_blocks[tool_call.index];
                     }
@@ -659,12 +677,14 @@ export const create_chat_stream_handler =
         chatStream.reportUsage(usage);
         if (finish_reason) {
             chatStream.setStop({ reason: fromFinishReason(finish_reason) });
+        } else if (opened_tool_blocks.length > 0) {
+            chatStream.setStop({ reason: 'tool_use' });
         }
         const usageDetails = usageDetailsFromTrackedUsage(usage);
         if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
-        if (mode === 'tool') toolblock.end();
+        for (const block of opened_tool_blocks) endToolBlock(block);
 
         message.end();
         chatStream.end(usage);
@@ -719,7 +739,12 @@ export const create_chat_stream_handler_responses_api =
                 continue;
             }
 
-            if (chunk.type === 'response.completed') {
+            // A truncated response ends with `response.incomplete`, which
+            // carries the same usage and status as `response.completed`.
+            if (
+                chunk.type === 'response.completed' ||
+                chunk.type === 'response.incomplete'
+            ) {
                 last_usage = chunk.response.usage;
                 if (
                     chunk.response.status === 'incomplete' &&

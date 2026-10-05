@@ -427,6 +427,49 @@ describe('anthropicUsage', () => {
             output_tokens: 2,
         });
     });
+
+    it('writes every iteration with all four token counts (what Claude Code trusts)', () => {
+        const usage = anthropicUsage({
+            inputTokens: 30,
+            outputTokens: 6,
+            iterations: [
+                { type: 'message', inputTokens: 10, outputTokens: 2 },
+                {
+                    type: 'advisor_message',
+                    model: 'claude-opus-4-8',
+                    inputTokens: 20,
+                    outputTokens: 4,
+                    cacheReadTokens: 1,
+                    cacheWrite1hTokens: 3,
+                },
+            ],
+        });
+        expect(usage.iterations).toEqual([
+            {
+                type: 'message',
+                input_tokens: 10,
+                output_tokens: 2,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_creation: {
+                    ephemeral_5m_input_tokens: 0,
+                    ephemeral_1h_input_tokens: 0,
+                },
+            },
+            {
+                type: 'advisor_message',
+                model: 'claude-opus-4-8',
+                input_tokens: 20,
+                output_tokens: 4,
+                cache_read_input_tokens: 1,
+                cache_creation_input_tokens: 3,
+                cache_creation: {
+                    ephemeral_5m_input_tokens: 0,
+                    ephemeral_1h_input_tokens: 3,
+                },
+            },
+        ]);
+    });
 });
 
 describe('toAnthropicMessage', () => {

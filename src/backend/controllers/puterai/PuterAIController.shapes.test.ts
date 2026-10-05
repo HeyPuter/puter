@@ -225,7 +225,7 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
             context_management: [{ type: 'compaction' }],
             prompt_cache_key: 'ck',
             prompt_cache_retention: '24h',
-            // F4: forced false regardless of the client's request.
+            // forced false regardless of the client's request.
             store: false,
             truncation: 'auto',
             service_tier: 'default',
@@ -312,7 +312,7 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
         expect(body.parallel_tool_calls).toBe(true);
         expect(body.tools).toEqual([]);
         expect('max_output_tokens' in body).toBe(false);
-        // F4: always present and false, regardless of the request.
+        // always present and false, regardless of the request.
         expect(body.store).toBe(false);
         expect(body.output).toEqual([]);
         expect(body.output_text).toBe('');

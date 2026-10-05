@@ -63,6 +63,10 @@ export class AIChatToolUseStream extends AIChatConstructStream {
                     type: 'tool_use_start',
                     id: params.id,
                     name: params.name,
+                    // The upstream's own item id (OpenAI Responses `fc_…`).
+                    ...(params.canonical_id
+                        ? { canonical_id: params.canonical_id }
+                        : {}),
                 },
                 { alreadyCounted: true },
             );

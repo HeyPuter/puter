@@ -25,6 +25,7 @@
  * `tool_choice`/`reasoning_effort`/etc. translate the same way everywhere.
  */
 
+import { HttpError } from '../../../core/http/HttpError.js';
 import type { ICompleteArguments, OutputFormat, ToolChoice } from '../types.js';
 
 export type OpenAIDialect = 'chat' | 'responses' | 'openrouter';
@@ -141,6 +142,10 @@ export const outputFormatFromResponsesText = (
  * provider's own SDK params object — every key is included only when the
  * corresponding normalized field was set, so it never clobbers a field the
  * caller builds itself.
+ *
+ * `args.tools` must be the tool list actually being sent: `tool_choice` and
+ * `parallel_tool_calls` are only emitted alongside tools, since Chat
+ * Completions rejects either one in a request without them.
  */
 export const openAICompatParams = (
     args: ICompleteArguments,
@@ -148,11 +153,12 @@ export const openAICompatParams = (
 ): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
 
-    if (args.tool_choice !== undefined) {
+    const hasTools = Array.isArray(args.tools) && args.tools.length > 0;
+    if (hasTools && args.tool_choice !== undefined) {
         const wire = toolChoiceToWire(args.tool_choice, dialect);
         if (wire !== undefined) out.tool_choice = wire;
     }
-    if (args.parallel_tool_calls !== undefined) {
+    if (hasTools && args.parallel_tool_calls !== undefined) {
         out.parallel_tool_calls = args.parallel_tool_calls;
     }
     // Responses has no `stop` equivalent — the design drops it there rather
@@ -184,4 +190,31 @@ export const openAICompatParams = (
     }
 
     return out;
+};
+
+// -- Responses server-side state ---------------------------------------------
+
+const STATEFUL_RESPONSES_FIELDS = [
+    'previous_response_id',
+    'conversation',
+    'prompt',
+    'background',
+] as const;
+
+/**
+ * Rejects the Responses fields that point at OpenAI-held, org-scoped state
+ * (stored responses, conversations, dashboard prompts, background runs).
+ * Enforced in the providers too, since `/drivers/call` reaches them directly.
+ */
+export const rejectStatefulResponsesFields = (
+    args: Record<string, unknown>,
+): void => {
+    const field = STATEFUL_RESPONSES_FIELDS.find(
+        (key) => args[key] !== undefined && args[key] !== null,
+    );
+    if (field) {
+        throw new HttpError(400, `\`${field}\` is not supported`, {
+            legacyCode: 'bad_request',
+        });
+    }
 };

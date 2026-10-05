@@ -33,7 +33,7 @@ import {
 const args = (partial: Partial<ICompleteArguments>): ICompleteArguments =>
     ({ messages: [], model: 'x', ...partial }) as ICompleteArguments;
 
-// ── tool_choice ──────────────────────────────────────────────────────
+// -- tool_choice ------------------------------------------------------
 
 describe('toolChoiceToWire', () => {
     it.each(['chat', 'openrouter'] as const)(
@@ -92,7 +92,7 @@ describe('toolChoiceFromWire', () => {
     });
 });
 
-// ── outputFormat / response_format / text.format ────────────────────
+// -- outputFormat / response_format / text.format --------------------
 
 describe('outputFormatToResponseFormat / outputFormatFromResponseFormat', () => {
     it('round-trips a json_schema OutputFormat through the chat response_format shape', () => {
@@ -155,12 +155,13 @@ describe('outputFormatToResponsesText / outputFormatFromResponsesText', () => {
     });
 });
 
-// ── openAICompatParams ───────────────────────────────────────────────
+// -- openAICompatParams -----------------------------------------------
 
 describe('openAICompatParams', () => {
     it('maps tool_choice, parallel_tool_calls, stop and response_format for the chat dialect', () => {
         const out = openAICompatParams(
             args({
+                tools: [{ type: 'function', function: { name: 'lookup' } }],
                 tool_choice: { type: 'tool', name: 'lookup' },
                 parallel_tool_calls: false,
                 stopSequences: ['STOP', 'END'],
@@ -218,6 +219,20 @@ describe('openAICompatParams', () => {
         expect(
             openAICompatParams(args({ topK: 40 }), 'openrouter').top_k,
         ).toBe(40);
+    });
+
+    it('omits tool_choice and parallel_tool_calls when no tool is sent', () => {
+        for (const tools of [undefined, []]) {
+            const out = openAICompatParams(
+                args({
+                    tools,
+                    tool_choice: { type: 'auto' },
+                    parallel_tool_calls: true,
+                }),
+                'chat',
+            );
+            expect(out).toEqual({});
+        }
     });
 
     it('returns an empty object when nothing in args needs mapping', () => {

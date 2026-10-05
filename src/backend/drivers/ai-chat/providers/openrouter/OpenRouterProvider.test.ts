@@ -383,6 +383,12 @@ describe('OpenRouterProvider.complete request shape', () => {
             provider.complete({
                 model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
                 tool_choice: { type: 'tool', name: 'lookup' },
                 parallel_tool_calls: false,
                 stopSequences: ['STOP'],

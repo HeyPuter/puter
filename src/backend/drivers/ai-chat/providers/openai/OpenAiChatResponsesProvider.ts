@@ -32,7 +32,10 @@ import type {
 import { toOpenAiContextManagement } from '../../utils/compaction.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
+import {
+    openAICompatParams,
+    rejectStatefulResponsesFields,
+} from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
@@ -133,7 +136,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     /**
      * Sizes the credit hold for a web-search tool: assumes up to
      * `AI_WEB_SEARCH_MAX_USES.default` calls at whichever rate the tool variant
-     * and model imply (F3 — this call was unmetered before).
+     * and model imply.
      */
     requestPricing(
         args: ICompleteArguments,
@@ -181,6 +184,12 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 legacyCode: 'bad_request',
             });
         }
+        rejectStatefulResponsesFields({
+            previous_response_id,
+            conversation,
+            prompt,
+            background,
+        });
         const actor = Context.get('actor');
 
         model = model ?? this.#defaultModel;
@@ -253,6 +262,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const mapped = openAICompatParams(
             {
+                tools: mappedTools,
                 tool_choice,
                 parallel_tool_calls,
                 outputFormat,
@@ -290,13 +300,8 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             ...(contextManagement !== undefined
                 ? { context_management: contextManagement }
                 : {}),
-            ...(conversation !== undefined ? { conversation } : {}),
-            ...(previous_response_id !== undefined
-                ? { previous_response_id }
-                : {}),
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
-            ...(prompt !== undefined ? { prompt } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             ...(prompt_cache_retention !== undefined
                 ? { prompt_cache_retention }
@@ -307,7 +312,6 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(truncation !== undefined ? { truncation } : {}),
-            ...(background !== undefined ? { background } : {}),
             ...(service_tier !== undefined ? { service_tier } : {}),
             ...(stream !== undefined ? { stream: !!stream } : {}),
             ...mapped,
@@ -347,7 +351,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                     trackedUsage,
                     modelUsed,
                 );
-                // Priced dynamically (F3): the rate depends on which
+                // Priced dynamically: the rate depends on which
                 // web-search tool variant was requested and whether the model
                 // is a reasoning model, not a static per-model cost-table
                 // entry — `buildCostsOverride`'s fallback would otherwise

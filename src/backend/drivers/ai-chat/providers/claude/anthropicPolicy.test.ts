@@ -34,6 +34,7 @@ import {
     partitionSystemMessages,
     priciestModel,
     rejectMcpServers,
+    rejectOrgScopedBlocks,
     resolveAdvisorModel,
     sanitizeCacheControl,
     sanitizeCacheControlsIn,
@@ -220,6 +221,47 @@ describe('rejectMcpServers', () => {
         expect(() => rejectMcpServers({})).not.toThrow();
         expect(() => rejectMcpServers({ mcp_servers: [] })).not.toThrow();
         expect(() => rejectMcpServers({ mcp_servers: undefined })).not.toThrow();
+    });
+});
+
+describe('rejectOrgScopedBlocks', () => {
+    it('throws 400 on a Files API source anywhere in content', () => {
+        expect(() =>
+            rejectOrgScopedBlocks([
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: 'hi' },
+                        {
+                            type: 'document',
+                            source: { type: 'file', file_id: 'file_x' },
+                        },
+                    ],
+                },
+            ]),
+        ).toThrowError(expect.objectContaining({ statusCode: 400 }));
+    });
+
+    it('passes inline media and plain string content', () => {
+        expect(() =>
+            rejectOrgScopedBlocks([
+                { role: 'user', content: 'hi' },
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'image',
+                            source: {
+                                type: 'base64',
+                                media_type: 'image/png',
+                                data: 'AA==',
+                            },
+                        },
+                    ],
+                },
+            ]),
+        ).not.toThrow();
+        expect(() => rejectOrgScopedBlocks(undefined)).not.toThrow();
     });
 });
 
@@ -532,7 +574,7 @@ describe('combineBetas', () => {
     });
 });
 
-// -- system messages (H1 / M5) --------------------------------------------
+// -- system messages --------------------------------------------
 
 describe('partitionSystemMessages', () => {
     it('pulls the leading system run into systemBlocks', () => {
@@ -647,7 +689,7 @@ describe('partitionSystemMessages', () => {
     });
 });
 
-// -- user-turn merging (H2) -----------------------------------------------
+// -- user-turn merging -----------------------------------------------
 
 describe('mergeConsecutiveUserTurns', () => {
     it('merges adjacent user messages in order', () => {

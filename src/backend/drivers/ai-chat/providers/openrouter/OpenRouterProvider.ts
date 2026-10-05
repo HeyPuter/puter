@@ -161,7 +161,10 @@ export class OpenRouterProvider implements IChatProvider {
                   }
                 : {}),
             usage: { include: true },
-            ...openAICompatParams(args, 'openrouter'),
+            ...openAICompatParams(
+                { ...args, tools: mappedTools },
+                'openrouter',
+            ),
         } as ChatCompletionCreateParams;
 
         let completion;

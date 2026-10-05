@@ -295,6 +295,91 @@ describe('ClaudeProvider.complete request shape', () => {
         usage: { input_tokens: 1, output_tokens: 1 },
     };
 
+    it.each([
+        [
+            'a Files API image',
+            { type: 'image', source: { type: 'file', file_id: 'file_x' } },
+        ],
+        [
+            'a file nested in a document content source',
+            {
+                type: 'document',
+                source: {
+                    type: 'content',
+                    content: [
+                        {
+                            type: 'image',
+                            source: { type: 'file', file_id: 'file_x' },
+                        },
+                    ],
+                },
+            },
+        ],
+        [
+            'a file inside tool_result content',
+            {
+                type: 'tool_result',
+                tool_use_id: 'toolu_1',
+                content: [
+                    {
+                        type: 'document',
+                        source: { type: 'file', file_id: 'file_x' },
+                    },
+                ],
+            },
+        ],
+        ['a container upload', { type: 'container_upload', file_id: 'file_x' }],
+    ])('rejects %s before calling upstream', async (_label, block) => {
+        const { provider } = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [{ role: 'user', content: [block] }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(messagesCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('leaves tool_use arguments that merely look like a file block alone', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'go' },
+                    {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'tool_use',
+                                id: 'toolu_1',
+                                name: 'attach',
+                                input: {
+                                    type: 'image',
+                                    source: { type: 'file', file_id: 'x' },
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'tool_result',
+                                tool_use_id: 'toolu_1',
+                                content: 'ok',
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+    });
+
     it('translates canonical image_url parts into url-source image blocks without touching the caller\'s parts', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -376,7 +461,7 @@ describe('ClaudeProvider.complete request shape', () => {
             content: [{ type: 'text', text: 'first' }],
         };
         // An assistant turn in between keeps the two user messages from
-        // merging (H2), so this test stays about media conversion only.
+        // merging, so this test stays about media conversion only.
         await withTestActor(() =>
             provider.complete({
                 model: 'claude-haiku-4-5-20251001',
@@ -457,7 +542,7 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(args.model).toBe('claude-haiku-4-5-20251001');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_tokens).toBe(256);
-        // No tools means no tool_choice at all (M3) — nothing to choose
+        // No tools means no tool_choice at all — nothing to choose
         // between.
         expect('tool_choice' in args).toBe(false);
     });
@@ -1311,6 +1396,14 @@ describe('ClaudeProvider.complete non-stream output', () => {
         // Totals are the SUM across iterations, not the top-level fields.
         expect(result.usage.input_tokens).toBe(203000); // 180000 + 23000
         expect(result.usage.output_tokens).toBe(4500); // 3500 + 1000
+        // The reported breakdown mirrors upstream: top-level plus the passes.
+        const details = (
+            result as unknown as {
+                usageDetails: { inputTokens: number; iterations: unknown[] };
+            }
+        ).usageDetails;
+        expect(details.inputTokens).toBe(23000);
+        expect(details.iterations).toHaveLength(2);
 
         const haiku = CLAUDE_MODELS.find(
             (m) => m.id === 'claude-haiku-4-5-20251001',
@@ -1641,6 +1734,67 @@ describe('ClaudeProvider.complete compaction', () => {
         });
     });
 
+    it('emits a compaction streamed through compaction_delta at its own position, before later text', async () => {
+        const { provider } = makeProvider();
+        messagesStreamMock.mockReturnValueOnce(
+            makeStreamLike([
+                { type: 'message_start' },
+                {
+                    type: 'content_block_start',
+                    index: 0,
+                    content_block: { type: 'compaction', content: null },
+                },
+                {
+                    type: 'content_block_delta',
+                    index: 0,
+                    delta: {
+                        type: 'compaction_delta',
+                        content: 'SUMMARY',
+                        encrypted_content: 'OPAQUE',
+                    },
+                },
+                { type: 'content_block_stop', index: 0 },
+                {
+                    type: 'content_block_start',
+                    index: 1,
+                    content_block: { type: 'text', text: '' },
+                },
+                {
+                    type: 'content_block_delta',
+                    index: 1,
+                    delta: { type: 'text_delta', text: 'after' },
+                },
+                { type: 'content_block_stop', index: 1 },
+                { type: 'message_stop' },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                compaction: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const types = harness
+            .events()
+            .map((e) => e.type)
+            .filter((t) => t === 'compaction' || t === 'text');
+        expect(types).toEqual(['compaction', 'text']);
+        expect(
+            harness.events().find((e) => e.type === 'compaction')
+                ?.encrypted_content,
+        ).toBe('SUMMARY');
+    });
+
     it('enables the compaction beta when a round-tripped compaction block is resent (no opt-in)', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
@@ -1786,10 +1940,10 @@ describe('ClaudeProvider.checkModeration', () => {
     });
 });
 
-// ── Metering (C5) ────────────────────────────────────────────────────
+// -- Metering ----------------------------------------------------
 
 describe('ClaudeProvider metering', () => {
-    it('does not double-bill thinking tokens (F1): output_tokens already includes them', async () => {
+    it('does not double-bill thinking tokens: output_tokens already includes them', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
             content: [{ type: 'text', text: 'hi' }],
@@ -1946,6 +2100,66 @@ describe('ClaudeProvider metering', () => {
         );
     });
 
+    it('reports the upstream top-level usage and every raw iteration in usageDetails', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: {
+                input_tokens: 2329,
+                output_tokens: 90,
+                iterations: [
+                    { type: 'message', input_tokens: 1102, output_tokens: 40 },
+                    {
+                        type: 'advisor_message',
+                        model: 'claude-opus-4-8',
+                        input_tokens: 2717,
+                        output_tokens: 202,
+                        cache_read_input_tokens: 5,
+                    },
+                    { type: 'message', input_tokens: 1227, output_tokens: 50 },
+                ],
+            },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [{ type: 'advisor_20260301', model: 'claude-opus-4-8' }],
+            }),
+        )) as { usageDetails: Record<string, unknown> };
+
+        expect(result.usageDetails.inputTokens).toBe(2329);
+        expect(result.usageDetails.outputTokens).toBe(90);
+        expect(result.usageDetails.iterations).toEqual([
+            {
+                type: 'message',
+                inputTokens: 1102,
+                outputTokens: 40,
+                cacheReadTokens: 0,
+                cacheWrite5mTokens: 0,
+                cacheWrite1hTokens: 0,
+            },
+            {
+                type: 'advisor_message',
+                model: 'claude-opus-4-8',
+                inputTokens: 2717,
+                outputTokens: 202,
+                cacheReadTokens: 5,
+                cacheWrite5mTokens: 0,
+                cacheWrite1hTokens: 0,
+            },
+            {
+                type: 'message',
+                inputTokens: 1227,
+                outputTokens: 50,
+                cacheReadTokens: 0,
+                cacheWrite5mTokens: 0,
+                cacheWrite1hTokens: 0,
+            },
+        ]);
+    });
+
     it('prices an advisor model outside the catalog at the priciest entry\'s rates', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
@@ -1984,7 +2198,7 @@ describe('ClaudeProvider metering', () => {
     });
 });
 
-// ── requestPricing (credit-hold sizing, §3.4) ───────────────────────
+// -- requestPricing (credit-hold sizing, §3.4) -----------------------
 
 describe('ClaudeProvider.requestPricing', () => {
     const haiku = CLAUDE_MODELS.find((m) => m.id === 'claude-haiku-4-5-20251001')!;
@@ -2015,6 +2229,17 @@ describe('ClaudeProvider.requestPricing', () => {
         expect(pricing.extraCost).toBe(expected);
     });
 
+    it('reserves for a web_search_2026 tool the same as the 2025 tool it is forwarded as', () => {
+        const { provider } = makeProvider();
+        const pricing = provider.requestPricing(
+            { tools: [{ type: 'web_search_20260209', max_uses: 2 }] } as never,
+            haiku,
+            { promptTokenEstimate: 10 },
+        );
+        const expected = 2 * (Number(haiku.costs.web_search_requests) + 10_000 * Number(haiku.costs.input_tokens));
+        expect(pricing.extraCost).toBe(expected);
+    });
+
     it('prices an advisor tool\'s reservation from the prompt estimate and its max_tokens', () => {
         const { provider } = makeProvider();
         const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!;
@@ -2038,7 +2263,7 @@ describe('ClaudeProvider.requestPricing', () => {
     });
 });
 
-// ── Streaming response fidelity (C6) ─────────────────────────────────
+// -- Streaming response fidelity ---------------------------------
 
 describe('ClaudeProvider.complete streaming response fidelity', () => {
     const streamOnce = async (
@@ -2293,7 +2518,7 @@ describe('ClaudeProvider.complete streaming response fidelity', () => {
     });
 });
 
-// ── countTokens (M8 provider side) ───────────────────────────────────
+// -- countTokens -----------------------------------
 
 describe('ClaudeProvider.countTokens', () => {
     it('forwards only the fields count_tokens accepts', async () => {
@@ -2321,7 +2546,7 @@ describe('ClaudeProvider.countTokens', () => {
     });
 });
 
-// ── Determinism (§8 risk: preserved thinking) ────────────────────────
+// -- Determinism (§8 risk: preserved thinking) ------------------------
 
 describe('ClaudeProvider request determinism', () => {
     it.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1'])(

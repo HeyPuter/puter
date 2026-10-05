@@ -180,7 +180,7 @@ export class MetaProvider implements IChatProvider {
             model: modelUsed.id,
             ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...openAICompatParams(
-                { ...params, reasoning_effort: undefined },
+                { ...params, tools: mappedTools, reasoning_effort: undefined },
                 'chat',
             ),
             // Reasoning tokens come out of this same budget, so a tight cap

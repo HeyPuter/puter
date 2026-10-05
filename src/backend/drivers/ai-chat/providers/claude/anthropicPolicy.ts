@@ -376,6 +376,54 @@ export const rejectMcpServers = (args: Record<string, unknown>): void => {
     }
 };
 
+// -- org-scoped content blocks ------------------------------------------------
+
+const isOrgScopedBlock = (
+    block: Record<string, unknown>,
+): string | undefined => {
+    if (block.type === 'container_upload') return 'container_upload';
+    const source = block.source as { type?: unknown } | undefined;
+    if (
+        (block.type === 'image' || block.type === 'document') &&
+        source?.type === 'file'
+    ) {
+        return `file-source ${block.type}`;
+    }
+    return undefined;
+};
+
+const walkContentBlocks = (value: unknown): void => {
+    if (Array.isArray(value)) {
+        for (const v of value) walkContentBlocks(v);
+        return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const block = value as Record<string, unknown>;
+    const rejected = isOrgScopedBlock(block);
+    if (rejected) {
+        throw new HttpError(400, `${rejected} blocks are not supported`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    // Tool arguments are data, not content blocks.
+    if (block.type === 'tool_use' || block.type === 'server_tool_use') return;
+    walkContentBlocks(block.content);
+    walkContentBlocks(block.source); // document `source: {type:'content'}`
+};
+
+/**
+ * Rejects caller blocks that reference org-scoped Anthropic state: Files API
+ * `file` sources (ours hold other users' uploads) and container uploads. Runs
+ * on the caller's messages, before our own `puter_path` uploads add file
+ * sources.
+ */
+export const rejectOrgScopedBlocks = (messages: unknown): void => {
+    if (!Array.isArray(messages)) return;
+    for (const m of messages) {
+        walkContentBlocks((m as { content?: unknown } | null)?.content);
+    }
+};
+
 // -- context_management ----------------------------------------------------
 
 const CONTEXT_MANAGEMENT_EDIT_TYPES = new Set([
@@ -596,7 +644,7 @@ export const combineBetas = (
     ...groups: Array<string[] | undefined>
 ): string[] => [...new Set(groups.flatMap((g) => g ?? []))];
 
-// -- system messages (H1 / M5) --------------------------------------------
+// -- system messages --------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyMessage = Record<string, any>;
@@ -632,7 +680,7 @@ export interface SystemPartition {
  * `system`) and everything after. A system message appearing later is kept in
  * place (`{role:'system', ...}`) when the model accepts mid-conversation system
  * messages, or folded into `system` when it doesn't — today's silent drop was a
- * bug (M5).
+ * bug.
  */
 export const partitionSystemMessages = (
     messages: AnyMessage[],
@@ -689,7 +737,7 @@ export const partitionSystemMessages = (
     };
 };
 
-// -- tool_result ordering (H2) --------------------------------------------
+// -- tool_result ordering --------------------------------------------
 
 /**
  * Concatenates the content of adjacent `role:'user'` messages, in order.

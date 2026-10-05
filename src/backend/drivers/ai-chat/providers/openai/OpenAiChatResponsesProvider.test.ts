@@ -387,13 +387,18 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
             provider.complete({
                 model: 'gpt-5.6-sol',
                 messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
                 tool_choice: { type: 'auto' },
                 parallel_tool_calls: false,
                 include: ['file_search_call.results'],
                 store: true,
                 top_p: 0.9,
                 truncation: 'auto',
-                background: false,
                 service_tier: 'default',
             } as never),
         );
@@ -405,15 +410,33 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(args.store).toBe(true);
         expect(args.top_p).toBe(0.9);
         expect(args.truncation).toBe('auto');
-        expect(args.background).toBe(false);
         expect(args.service_tier).toBe('default');
     });
 
-    it('maps reasoning_effort/verbosity to nested options for gpt-5, drops them for non-reasoning models (F5)', async () => {
+    it.each([
+        ['previous_response_id', 'resp_1'],
+        ['conversation', 'conv_1'],
+        ['prompt', { id: 'pmpt_1' }],
+        ['background', true],
+    ])('rejects %s (OpenAI-held state) without calling upstream', async (field, value) => {
+        const { provider } = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-5.6-sol',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    [field]: value,
+                } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(responsesCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('maps reasoning_effort/verbosity to nested options for gpt-5, drops them for non-reasoning models', async () => {
         const { provider } = makeProvider();
 
         // gpt-5.2-pro: a reasoning-capable model → gets the nested controls,
-        // same shape as gpt-6 (this was inverted before the F5 fix).
+        // same shape as gpt-6.
         responsesCreateMock.mockResolvedValueOnce(baseResponse);
         await withTestActor(() =>
             provider.complete({
@@ -945,9 +968,9 @@ describe('OpenAiResponsesChatProvider.checkModeration', () => {
     });
 });
 
-// ── Web search metering (F3) ─────────────────────────────────────────
+// -- Web search metering -----------------------------------------
 
-describe('OpenAiResponsesChatProvider web_search metering (F3)', () => {
+describe('OpenAiResponsesChatProvider web_search metering', () => {
     it('requestPricing sizes a hold for a web_search tool at $10/1k calls', () => {
         const { provider } = makeProvider();
         const model = OPEN_AI_MODELS.find((m) => m.id === 'gpt-5.6-sol')!;

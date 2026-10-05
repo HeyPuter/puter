@@ -105,7 +105,7 @@ describe('AIChatStream', () => {
     });
 });
 
-// ── Stop / usage-detail / context-management chunk writers ─────────
+// -- Stop / usage-detail / context-management chunk writers ---------
 
 describe('AIChatStream stop + usage-detail reporting', () => {
     it('merges a stored stop into the usage line, deriving finish_reason', () => {
@@ -383,6 +383,26 @@ describe('AIChatToolUseStream (via message().contentBlock)', () => {
                 text: '',
             },
         ]);
+    });
+
+    it('carries the upstream canonical_id on tool_use_start', () => {
+        const h = makeHarness();
+        const chatStream = new AIChatStream({
+            stream: h.sink,
+            streamToolInput: true,
+        });
+        chatStream.message().contentBlock({
+            type: 'tool_use',
+            id: 'call_7',
+            name: 'lookup',
+            canonical_id: 'fc_1',
+        });
+        expect(h.events()[0]).toEqual({
+            type: 'tool_use_start',
+            id: 'call_7',
+            name: 'lookup',
+            canonical_id: 'fc_1',
+        });
     });
 
     it('omits tool_use_start / tool_input_delta without streamToolInput', () => {

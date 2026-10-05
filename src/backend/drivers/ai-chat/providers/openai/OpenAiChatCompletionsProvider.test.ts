@@ -343,6 +343,42 @@ describe('OpenAiChatProvider.complete request shape', () => {
         },
     );
 
+    it('omits parallel_tool_calls/tool_choice when no tool is sent (Chat Completions rejects them alone)', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hello' }],
+                parallel_tool_calls: true,
+                tool_choice: { type: 'auto' },
+            }),
+        );
+        const [noTools] = createMock.mock.calls[0]!;
+        expect('parallel_tool_calls' in noTools).toBe(false);
+        expect('tool_choice' in noTools).toBe(false);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                parallel_tool_calls: true,
+                tool_choice: { type: 'auto' },
+            }),
+        );
+        const [withTools] = createMock.mock.calls[1]!;
+        expect(withTools.parallel_tool_calls).toBe(true);
+        expect(withTools.tool_choice).toBe('auto');
+    });
+
     it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
@@ -361,7 +397,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0);
     });
 
-    it('forwards reasoning_effort and verbosity for gpt-5-prefixed models (F5 — this gate was inverted)', async () => {
+    it('forwards reasoning_effort and verbosity for gpt-5-prefixed models', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -667,6 +703,101 @@ describe('OpenAiChatProvider.complete streaming', () => {
             completion_tokens: 2 * Number(gpt52.costs.completion_tokens),
             cached_tokens: 1 * Number(gpt52.costs.cached_tokens ?? 0),
         });
+    });
+});
+
+describe('OpenAiChatProvider.complete streaming parallel tool calls', () => {
+    it('emits a tool_use chunk for every parallel call, in order', async () => {
+        const { provider } = makeProvider();
+        const call = (index: number, extra: Record<string, unknown>) => ({
+            choices: [{ delta: { tool_calls: [{ index, ...extra }] } }],
+        });
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                call(0, { id: 'call_a', function: { name: 'lookup', arguments: '{"q":' } }),
+                call(0, { function: { arguments: '"a"}' } }),
+                call(1, { id: 'call_b', function: { name: 'lookup', arguments: '{"q":"b"}' } }),
+                {
+                    choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+                    usage: { prompt_tokens: 4, completion_tokens: 2 },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'look up a and b' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const toolUses = harness.events().filter((e) => e.type === 'tool_use');
+        expect(toolUses.map((e) => [e.id, e.input])).toEqual([
+            ['call_a', { q: 'a' }],
+            ['call_b', { q: 'b' }],
+        ]);
+    });
+
+    it('stops as tool_use when the stream carried tool calls but no finish_reason', async () => {
+        const { provider } = makeProvider();
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                {
+                    choices: [
+                        {
+                            delta: {
+                                tool_calls: [
+                                    {
+                                        index: 0,
+                                        id: 'call_a',
+                                        function: { name: 'lookup', arguments: '{}' },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                {
+                    choices: [{ delta: {} }],
+                    usage: { prompt_tokens: 4, completion_tokens: 2 },
+                },
+            ]),
+        );
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'look up a' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('tool_use');
+        expect(usage?.finish_reason).toBe('tool_calls');
     });
 });
 

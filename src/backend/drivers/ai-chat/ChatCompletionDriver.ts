@@ -308,7 +308,7 @@ const isOverloaded = (a: ProviderAttempt) =>
 const isModelUnavailable = (a: ProviderAttempt) => a.status === 404;
 
 /**
- * The HTTP status an in-band mid-stream error chunk reports (H3) — a stream
+ * The HTTP status an in-band mid-stream error chunk reports — a stream
  * populator failure never goes through `classifyAttempts` (there is no fallback
  * once bytes have already reached the client), so it gets its own, narrower
  * status pick from the same upstream signal.

@@ -32,7 +32,10 @@ import type {
 import { toOpenAiContextManagement } from '../../utils/compaction.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
+import {
+    openAICompatParams,
+    rejectStatefulResponsesFields,
+} from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
@@ -134,7 +137,7 @@ export class AzureResponsesProvider implements IChatProvider {
         return `azure-openai:${modelId}`;
     }
 
-    /** See the sibling OpenAI Responses provider's note on F3. */
+    /** See the sibling OpenAI Responses provider's note on web search metering. */
     requestPricing(
         args: ICompleteArguments,
         model: IChatModel,
@@ -181,6 +184,12 @@ export class AzureResponsesProvider implements IChatProvider {
                 legacyCode: 'bad_request',
             });
         }
+        rejectStatefulResponsesFields({
+            previous_response_id,
+            conversation,
+            prompt,
+            background,
+        });
         const actor = Context.get('actor');
 
         model = model ?? this.#defaultModel;
@@ -249,6 +258,7 @@ export class AzureResponsesProvider implements IChatProvider {
 
         const mapped = openAICompatParams(
             {
+                tools: mappedTools,
                 tool_choice,
                 parallel_tool_calls,
                 outputFormat,
@@ -281,13 +291,8 @@ export class AzureResponsesProvider implements IChatProvider {
             ...(contextManagement !== undefined
                 ? { context_management: contextManagement }
                 : {}),
-            ...(conversation !== undefined ? { conversation } : {}),
-            ...(previous_response_id !== undefined
-                ? { previous_response_id }
-                : {}),
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
-            ...(prompt !== undefined ? { prompt } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             ...(prompt_cache_retention !== undefined
                 ? { prompt_cache_retention }
@@ -298,7 +303,6 @@ export class AzureResponsesProvider implements IChatProvider {
                 : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(truncation !== undefined ? { truncation } : {}),
-            ...(background !== undefined ? { background } : {}),
             ...(service_tier !== undefined ? { service_tier } : {}),
             ...(stream !== undefined ? { stream: !!stream } : {}),
             ...mapped,

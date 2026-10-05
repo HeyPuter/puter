@@ -97,7 +97,7 @@ export class MiniMaxProvider implements IChatProvider {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-            ...openAICompatParams(args, 'chat'),
+            ...openAICompatParams({ ...args, tools: mappedTools }, 'chat'),
         } as unknown as ChatCompletionCreateParams);
 
         return OpenAIUtil.handle_completion_output({

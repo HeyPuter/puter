@@ -71,7 +71,7 @@ const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
     },
 });
 
-// ── toOpenAIChatMessages ─────────────────────────────────────────────
+// -- toOpenAIChatMessages ---------------------------------------------
 
 describe('toOpenAIChatMessages', () => {
     it('drops thinking, redacted_thinking and server_tool_use blocks', () => {
@@ -217,7 +217,7 @@ describe('toOpenAIChatMessages', () => {
     });
 });
 
-// ── usageDetailsFromTrackedUsage ─────────────────────────────────────
+// -- usageDetailsFromTrackedUsage -------------------------------------
 
 describe('usageDetailsFromTrackedUsage', () => {
     it('maps prompt/completion tokens to inputTokens/outputTokens', () => {
@@ -248,6 +248,23 @@ describe('usageDetailsFromTrackedUsage', () => {
     it('returns undefined for a missing/non-object usage', () => {
         expect(usageDetailsFromTrackedUsage(undefined)).toBeUndefined();
         expect(usageDetailsFromTrackedUsage(null)).toBeUndefined();
+    });
+
+    it('maps the {prompt, completion, input_cache_read} shape OpenRouter tracks', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt: 7,
+                completion: 3,
+                input_cache_read: 2,
+                request: 1,
+            }),
+        ).toEqual({ inputTokens: 7, outputTokens: 3, cacheReadTokens: 2 });
+    });
+
+    it('leaves an unrecognized usage shape to the driver', () => {
+        expect(
+            usageDetailsFromTrackedUsage({ input_tokens: 5, output_tokens: 1 }),
+        ).toBeUndefined();
     });
 });
 
@@ -916,7 +933,7 @@ describe('create_chat_stream_handler', () => {
         expect(toolEvent?.input).toEqual({ q: 'puter' });
     });
 
-    it('captures choice.finish_reason into the end chunk (F6)', async () => {
+    it('captures choice.finish_reason into the end chunk', async () => {
         const completion = asAsyncIterable([
             { choices: [{ delta: { content: 'hi' } }] },
             {
@@ -1194,11 +1211,11 @@ describe('create_chat_stream_handler_responses_api', () => {
         expect(usage?.finish_reason).toBe('tool_calls');
     });
 
-    it('sets stopReason to max_tokens when the response is incomplete for length', async () => {
+    it('meters and stops as max_tokens on a response.incomplete (truncated) stream', async () => {
         const completion = asAsyncIterable([
             { type: 'response.output_text.delta', delta: 'hi' },
             {
-                type: 'response.completed',
+                type: 'response.incomplete',
                 response: {
                     status: 'incomplete',
                     incomplete_details: { reason: 'max_output_tokens' },
@@ -1206,14 +1223,23 @@ describe('create_chat_stream_handler_responses_api', () => {
                 },
             },
         ]);
+        const usageCalculator = vi.fn(() => ({
+            prompt_tokens: 1,
+            completion_tokens: 2,
+        }));
         const init = create_chat_stream_handler_responses_api({
             deviations: undefined,
             completion,
-            usage_calculator: () => ({}),
+            usage_calculator: usageCalculator,
         });
         const harness = makeCapturingChatStream();
         await init({ chatStream: harness.chatStream });
 
+        expect(usageCalculator).toHaveBeenCalledWith(
+            expect.objectContaining({
+                usage: { input_tokens: 1, output_tokens: 2 },
+            }),
+        );
         const usage = harness.events().find((e) => e.type === 'usage');
         expect(usage?.stopReason).toBe('max_tokens');
         expect(usage?.finish_reason).toBe('length');

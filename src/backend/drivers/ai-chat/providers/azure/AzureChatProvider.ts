@@ -227,7 +227,7 @@ export class AzureChatProvider implements IChatProvider {
         const requestedVerbosity = verbosity ?? text?.verbosity;
         // gpt-5/gpt-6 are the reasoning-capable families; every other model
         // (gpt-4o, Grok, …) 400s on an unsupported `reasoning_effort`/
-        // `verbosity` param (F5 — this gate was inverted).
+        // `verbosity` param.
         const supportsReasoningControls = /^gpt-(5|6)([.-]|$)/.test(
             modelUsed.id,
         );
@@ -260,7 +260,7 @@ export class AzureChatProvider implements IChatProvider {
                   }
                 : {}),
             ...openAICompatParams(
-                { ...params, reasoning_effort: undefined },
+                { ...params, tools: mappedTools, reasoning_effort: undefined },
                 'chat',
             ),
             ...(supportsReasoningControls

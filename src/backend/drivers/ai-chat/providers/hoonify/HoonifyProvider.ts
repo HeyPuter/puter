@@ -126,7 +126,7 @@ export class HoonifyProvider implements IChatProvider {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-            ...openAICompatParams(params, 'chat'),
+            ...openAICompatParams({ ...params, tools: mappedTools }, 'chat'),
         } as unknown as ChatCompletionCreateParams;
 
         const completion =

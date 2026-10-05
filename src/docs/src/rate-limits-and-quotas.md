@@ -63,6 +63,8 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
+`/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
+
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
 
 | Tool | Limit |

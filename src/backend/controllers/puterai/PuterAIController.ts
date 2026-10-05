@@ -36,6 +36,7 @@ import type {
 } from '../../drivers/ai-chat/types.js';
 import {
     outputFormatFromResponseFormat,
+    rejectStatefulResponsesFields,
     toolChoiceFromWire,
 } from '../../drivers/ai-chat/utils/openaiParams.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
@@ -778,23 +779,9 @@ export class PuterAIController extends PuterController {
             );
         }
 
-        // F4: these fields let a client reference OpenAI's own server-side
-        // conversation/response state across requests — something this
-        // backend doesn't hold or support. Reject up front rather than
-        // silently forwarding them to a session they can't actually resume.
-        const statefulField = (
-            [
-                'previous_response_id',
-                'conversation',
-                'prompt',
-                'background',
-            ] as const
-        ).find((key) => body[key] !== undefined && body[key] !== null);
-        if (statefulField) {
-            throw new HttpError(400, `\`${statefulField}\` is not supported`, {
-                legacyCode: 'bad_request',
-            });
-        }
+        // These reference OpenAI-held state this backend doesn't hold;
+        // rejected up front rather than forwarded.
+        rejectStatefulResponsesFields(body);
 
         const messages: unknown[] = [
             ...(body.instructions
@@ -860,7 +847,7 @@ export class PuterAIController extends PuterController {
                           body.prompt_cache_retention as ICompleteArguments['prompt_cache_retention'],
                   }
                 : {}),
-            // F4: forced off regardless of what the caller sent — OpenAI
+            // forced off regardless of what the caller sent — OpenAI
             // defaults `store` to true, which would persist state server-side
             // on OpenAI's end that this route gives no way to retrieve.
             store: false,
@@ -978,7 +965,9 @@ export class PuterAIController extends PuterController {
                             delta: ev.text,
                         });
                     } else if (ev.type === 'tool_use_start') {
-                        const id = generateId('fc');
+                        const id =
+                            (ev.canonical_id as string | undefined) ||
+                            generateId('fc');
                         const outputIndex = output.length;
                         const entry = {
                             outputIndex,
@@ -1865,7 +1854,7 @@ const createResponseShell = ({
     ...(body.max_output_tokens !== undefined
         ? { max_output_tokens: body.max_output_tokens }
         : {}),
-    // F4: always false — this route never persists state upstream,
+    // always false — this route never persists state upstream,
     // whatever the caller asked for.
     store: false,
     ...(body.text ? { text: body.text } : {}),

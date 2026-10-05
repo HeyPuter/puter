@@ -110,7 +110,7 @@ const rejectThreads = (
     );
 };
 
-// -- system → messages (H1) -------------------------------------------------
+// -- system → messages -------------------------------------------------
 
 const sanitizeSystemBlock = (
     block: unknown,
@@ -143,7 +143,7 @@ const sanitizeSystemBlock = (
  * matters beyond fidelity: Claude Code's first system block is its own
  * attribution header, recognized by Anthropic only when it is the sole content
  * of an isolated block. Concatenating it with anything else silently discards
- * the rest of that block (verified live; see the C11 integration test).
+ * the rest of that block (verified live; see the integration test).
  */
 export const systemToMessages = (
     system: unknown,
@@ -157,7 +157,7 @@ export const systemToMessages = (
     return [{ role: 'system', content: system.map(sanitizeSystemBlock) }];
 };
 
-// -- messages (H2 / §4.3) ----------------------------------------------------
+// -- messages ----------------------------------------------------
 
 const ALLOWED_INPUT_BLOCK_TYPES = new Set([
     'text',
@@ -236,7 +236,7 @@ const validateTools = (tools: unknown): unknown[] => {
     return tools;
 };
 
-// -- tool_choice / parallel_tool_calls (M3) ----------------------------------
+// -- tool_choice / parallel_tool_calls ----------------------------------
 
 const toolChoiceFromAnthropic = (
     tc: unknown,
@@ -257,7 +257,7 @@ const toolChoiceFromAnthropic = (
     };
 };
 
-// -- thinking (M1) -----------------------------------------------------------
+// -- thinking -----------------------------------------------------------
 
 const THINKING_TYPES = new Set([
     'adaptive',
@@ -293,7 +293,7 @@ const thinkingFromAnthropic = (t: unknown): ThinkingConfig | null => {
     };
 };
 
-// -- output_config (M1) -------------------------------------------------------
+// -- output_config -------------------------------------------------------
 
 interface OutputConfigFields {
     reasoning_effort?: ReasoningEffort;
@@ -422,8 +422,10 @@ export const parseAnthropicRequest = (
     // fallbacks, diagnostics.
 };
 
-// -- usage (H5) ---------------------------------------------------------------
+// -- usage ---------------------------------------------------------------
 
+// Every count is always present: Claude Code only trusts an iteration that
+// carries all four token fields.
 const toAnthropicIteration = (
     it: NonNullable<UsageDetails['iterations']>[number],
 ): Record<string, unknown> => ({
@@ -431,17 +433,13 @@ const toAnthropicIteration = (
     ...(it.model ? { model: it.model } : {}),
     input_tokens: it.inputTokens,
     output_tokens: it.outputTokens,
-    ...(it.cacheReadTokens
-        ? { cache_read_input_tokens: it.cacheReadTokens }
-        : {}),
-    ...(it.cacheWrite5mTokens || it.cacheWrite1hTokens
-        ? {
-              cache_creation: {
-                  ephemeral_5m_input_tokens: it.cacheWrite5mTokens ?? 0,
-                  ephemeral_1h_input_tokens: it.cacheWrite1hTokens ?? 0,
-              },
-          }
-        : {}),
+    cache_read_input_tokens: it.cacheReadTokens ?? 0,
+    cache_creation_input_tokens:
+        (it.cacheWrite5mTokens ?? 0) + (it.cacheWrite1hTokens ?? 0),
+    cache_creation: {
+        ephemeral_5m_input_tokens: it.cacheWrite5mTokens ?? 0,
+        ephemeral_1h_input_tokens: it.cacheWrite1hTokens ?? 0,
+    },
 });
 
 export const anthropicUsage = (d: UsageDetails): Record<string, unknown> => ({
@@ -490,7 +488,7 @@ const usageDetailsFromRawUsage = (
     };
 };
 
-// -- non-stream response (M6) --------------------------------------------------
+// -- non-stream response --------------------------------------------------
 
 /** Server-executed tool result blocks — forwarded as-is, never field-filtered. */
 const SERVER_RESULT_BLOCKS = new Set([

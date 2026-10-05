@@ -1638,7 +1638,7 @@ describe('ChatCompletionDriver.complete streaming', () => {
     }, 10_000);
 });
 
-// ── countTokens ─────────────────────────────────────────────────────
+// -- countTokens -----------------------------------------------------
 
 describe('ChatCompletionDriver.countTokens', () => {
     it('estimates from messages + tools when the provider has no countTokens hook', async () => {

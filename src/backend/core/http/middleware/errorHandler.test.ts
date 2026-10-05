@@ -241,7 +241,7 @@ describe('createErrorHandler — when the response has already started streaming
     });
 });
 
-// ── Vendor error rendering (res.locals.errorRenderer) ────────────────
+// -- Vendor error rendering (res.locals.errorRenderer) ----------------
 
 describe('createErrorHandler — res.locals.errorRenderer', () => {
     it('uses the renderer instead of the default envelope when it is set', () => {

@@ -46,7 +46,7 @@ const makeRes = () => {
     };
 };
 
-// ── startSse ──────────────────────────────────────────────────────────
+// -- startSse ----------------------------------------------------------
 
 describe('startSse', () => {
     beforeEach(() => {
@@ -114,7 +114,7 @@ describe('startSse', () => {
     });
 });
 
-// ── AnthropicSseWriter ────────────────────────────────────────────────
+// -- AnthropicSseWriter ------------------------------------------------
 
 const events = (written: string[]): Array<{ event: string; data: unknown }> =>
     written.map((frame) => {
@@ -248,6 +248,27 @@ describe('AnthropicSseWriter', () => {
             '{"c',
             'md":1}',
         ]);
+    });
+
+    it('parallel calls whose tool_use chunks land after the next start are not emitted twice', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{}' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_a', name: 'Read', input: {} });
+        writer.onChunk({ type: 'tool_use', id: 'tu_b', name: 'Read', input: {} });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        const starts = events(written).filter(
+            (e) => e.event === 'content_block_start',
+        );
+        expect(
+            starts.map((e) => (e.data as { content_block: { id: string } }).content_block.id),
+        ).toEqual(['tu_a', 'tu_b']);
+        const stops = events(written).filter((e) => e.event === 'content_block_stop');
+        expect(stops.map((e) => (e.data as { index: number }).index)).toEqual([0, 1]);
     });
 
     it('tool_use single-shot (no prior start): one content_block_start/delta/stop', () => {

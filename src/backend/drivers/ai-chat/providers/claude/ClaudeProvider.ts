@@ -62,6 +62,7 @@ import {
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     rejectMcpServers,
+    rejectOrgScopedBlocks,
     resolveAdvisorModel,
     sanitizeCacheControl,
     sanitizeCacheControlsIn,
@@ -200,6 +201,21 @@ const mergeUsageMax = (acc: any, next: any): any => {
     return out;
 };
 
+/** One raw Anthropic `usage.iterations[]` entry → `UsageDetails` shape. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const iterationDetails = (it: any) => ({
+    type: String(it?.type ?? 'message'),
+    ...(typeof it?.model === 'string' ? { model: it.model } : {}),
+    inputTokens: it?.input_tokens ?? 0,
+    outputTokens: it?.output_tokens ?? 0,
+    cacheReadTokens: it?.cache_read_input_tokens ?? 0,
+    cacheWrite5mTokens:
+        it?.cache_creation?.ephemeral_5m_input_tokens ??
+        it?.cache_creation_input_tokens ??
+        0,
+    cacheWrite1hTokens: it?.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+});
+
 const COUNT_TOKENS_FIELDS = [
     'model',
     'messages',
@@ -293,7 +309,12 @@ export class ClaudeProvider implements IChatProvider {
         for (const raw of args.tools ?? []) {
             const tool = raw as Record<string, unknown>;
             const type = tool?.type;
-            if (type === 'web_search' || type === 'web_search_20250305') {
+            // Same set `claudeToolPolicy` forwards as a billed web search.
+            if (
+                type === 'web_search' ||
+                type === 'web_search_20250305' ||
+                (typeof type === 'string' && /^web_search_2026/.test(type))
+            ) {
                 const maxUses = clampWebSearchMaxUses(tool.max_uses);
                 const requestCost = Number(
                     model.costs?.web_search_requests ?? 0,
@@ -492,6 +513,7 @@ export class ClaudeProvider implements IChatProvider {
         opts: { forCountTokens?: boolean } = {},
     ) {
         rejectMcpServers(args as unknown as Record<string, unknown>);
+        rejectOrgScopedBlocks(args.messages);
         validateContextManagementEdits(args.context_management);
 
         const modelUsed =
@@ -721,8 +743,8 @@ export class ClaudeProvider implements IChatProvider {
      * cache_control shorthand, round-tripped reasoning artifacts, OpenAI
      * tool_calls/tool-role conversion, tool_use.input coercion, compaction
      * block mapping, media-part canonicalization — plus the new
-     * `mergeConsecutiveUserTurns` pass (H2). Copy-on-write throughout: the
-     * driver reuses `args.messages` across fallback attempts.
+     * `mergeConsecutiveUserTurns` pass. Copy-on-write throughout: the driver
+     * reuses `args.messages` across fallback attempts.
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     #transformMessages(messages: any[], forCountTokens?: boolean): any[] {
@@ -1218,7 +1240,13 @@ export class ClaudeProvider implements IChatProvider {
                     if (!st) continue;
                     const d = event.delta;
                     if (st.kind === 'compaction') {
-                        const chunk = d.partial_json ?? d.text ?? d.data ?? '';
+                        // `compaction_delta` carries the summary as `content`.
+                        const chunk =
+                            d.content ??
+                            d.partial_json ??
+                            d.text ??
+                            d.data ??
+                            '';
                         if (typeof chunk === 'string') st.buffer += chunk;
                         continue;
                     }
@@ -1381,6 +1409,9 @@ export class ClaudeProvider implements IChatProvider {
         advisorModel?: IChatModel;
     } {
         raw = raw ?? {};
+        // Reported as upstream sent it; the folded totals below are for billing.
+        const topInputTokens = raw.input_tokens ?? 0;
+        const topOutputTokens = raw.output_tokens ?? 0;
         const exec = {
             input_tokens: raw.input_tokens ?? 0,
             ephemeral_5m_input_tokens:
@@ -1470,8 +1501,8 @@ export class ClaudeProvider implements IChatProvider {
         }
 
         const details: UsageDetails = {
-            inputTokens: exec.input_tokens,
-            outputTokens: exec.output_tokens,
+            inputTokens: topInputTokens,
+            outputTokens: topOutputTokens,
             ...(exec.cache_read_input_tokens
                 ? { cacheReadTokens: exec.cache_read_input_tokens }
                 : {}),
@@ -1497,26 +1528,10 @@ export class ClaudeProvider implements IChatProvider {
                           raw.thinking_tokens,
                   }
                 : {}),
-            ...(advisorModelId !== undefined
-                ? {
-                      iterations: [
-                          {
-                              type: 'advisor',
-                              model: advisorModelId,
-                              inputTokens: advisorInput,
-                              outputTokens: advisorOutput,
-                              ...(advisorRead
-                                  ? { cacheReadTokens: advisorRead }
-                                  : {}),
-                              ...(advisorW5m
-                                  ? { cacheWrite5mTokens: advisorW5m }
-                                  : {}),
-                              ...(advisorW1h
-                                  ? { cacheWrite1hTokens: advisorW1h }
-                                  : {}),
-                          },
-                      ],
-                  }
+            // Every pass verbatim: Claude Code sizes its context off the last
+            // `message` iteration, not the summed top-level counts.
+            ...(Array.isArray(raw.iterations) && raw.iterations.length > 0
+                ? { iterations: raw.iterations.map(iterationDetails) }
                 : {}),
         };
 

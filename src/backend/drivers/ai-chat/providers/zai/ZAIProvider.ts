@@ -116,7 +116,7 @@ export class ZAIProvider implements IChatProvider {
             ...(max_tokens !== undefined ? { max_tokens } : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
-            ...openAICompatParams(params, 'chat'),
+            ...openAICompatParams({ ...params, tools: mappedTools }, 'chat'),
             ...(customParams.do_sample !== undefined
                 ? { do_sample: customParams.do_sample }
                 : {}),

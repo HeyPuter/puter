@@ -780,7 +780,7 @@ describe('ChatCompletionDriver streaming failure handling', () => {
         expect(result.chunked).toBe(true);
 
         const events = await collect(result.stream);
-        // H3: the in-band error chunk carries a status (and `code` when the
+        // the in-band error chunk carries a status (and `code` when the
         // upstream named its own error type) so the Anthropic/OpenAI route
         // writers can classify it without re-deriving anything.
         expect(events).toEqual([
