@@ -568,7 +568,7 @@ async function UIWindowLogin (options) {
                         }
                         h2fa += '</div>';
                         h2fa += '<div class="login-2fa-error"></div>';
-                        h2fa += `<div class="login-2fa-spinner"><div class="login-2fa-spinner-icon"></div><span>${i18n('verifying') || 'Verifying...'}</span></div>`;
+                        h2fa += `<div class="login-2fa-spinner"><div class="login-2fa-spinner-icon"></div><span>${i18n('verifying')}</span></div>`;
                         h2fa += `<button type="button" class="login-2fa-link-btn login-2fa-to-recovery">${i18n('login2fa_use_recovery_code')}</button>`;
                         h2fa += '</div>';
 
@@ -859,7 +859,7 @@ async function UIWindowLogin (options) {
 
             // Basic validation
             if ( ! email_username ) {
-                $(el_window).find('.login-error-msg').html(i18n('email_or_username_required') || 'Email or username is required');
+                $(el_window).find('.login-error-msg').html(i18n('login_email_username_required'));
                 $(el_window).find('.login-error-msg').fadeIn();
                 return false;
             }
