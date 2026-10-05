@@ -26,7 +26,7 @@ import { PuterService } from '../types.js';
  * Hardcoded list of recommended apps shown on the desktop launch grid. Resolved
  * at call time against the apps table.
  */
-const RECOMMENDED_APP_NAMES = [
+export const RECOMMENDED_APP_NAMES = [
     'builder',
     'contacts',
     'calendar',

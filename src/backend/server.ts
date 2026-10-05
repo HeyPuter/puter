@@ -85,7 +85,10 @@ import { createEgressMeteringMiddleware } from './core/http/middleware/egressMet
 import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
-import { createRouteLifecycleMiddleware } from './core/http/routeLifecycle';
+import {
+    createRouteLifecycleMiddleware,
+    routeEventKeyBase,
+} from './core/http/routeLifecycle';
 import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
@@ -1156,6 +1159,18 @@ export class PuterServer {
                     this.services.metering,
                     this.#config,
                     subscriptionRequirement!,
+                    {
+                        events: this.clients.event,
+                        surface: routeEventKeyBase(
+                            route.method,
+                            route.path !== undefined
+                                ? PuterServer.#joinPath(
+                                      routerPrefix,
+                                      route.path,
+                                  )
+                                : undefined,
+                        ),
+                    },
                 ),
             );
         }

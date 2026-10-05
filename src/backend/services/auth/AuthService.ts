@@ -29,11 +29,14 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import {
     ASSET_WINDOW_SECONDS,
+    GODMODE_TOKEN_MAX_AGE_SECONDS,
+    GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
@@ -1392,6 +1395,90 @@ export class AuthService extends PuterService {
         });
     }
 
+    /**
+     * Mint the full-access token a godmode app runs on. Only the desktop's own
+     * web session may ask, and only asking extends it: using the token never
+     * does. Its row hangs off that session, so signing out or revoking it takes
+     * the token along. The JWT has no `exp` and stays the same across renewals,
+     * so copies an app handed elsewhere keep working; the row's expiry is what
+     * lapses, 12h after the desktop stops asking. A lapsed row is never
+     * revived, and one past its max age is replaced and revoked.
+     */
+    async getGodmodeAppToken(
+        actor: Actor,
+        app: { uid: string; title?: string | null; name?: string | null },
+    ): Promise<{ token: string; expiresAt: number }> {
+        if (
+            !isPlainUserActor(actor) ||
+            !actor.user?.id ||
+            !actor.user.uuid ||
+            actor.session?.kind !== 'web'
+        ) {
+            throw new HttpError(
+                403,
+                'Only a signed-in desktop session can launch this app',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        const authId = this.#authIdFor(actor.user as UserRow);
+        const expiresAt = nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS;
+        const minted = await this.stores.session.getOrCreateGodmodeToken(
+            actor.user.id,
+            {
+                parentSessionUid: actor.session.uid,
+                appUid: app.uid,
+                expiresAt,
+                maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
+                label: app.title || app.name || null,
+                auth_id: authId,
+            },
+        );
+        const row = minted?.row;
+        if (!row?.access_token_uid) {
+            throw new HttpError(500, 'Could not issue the app token', {
+                legacyCode: 'internal_error',
+            });
+        }
+        if (minted.replaced) await this.#retireGodmodeToken(minted.replaced);
+
+        const token = this.services.token.sign('auth', {
+            type: 'access-token',
+            version: '2',
+            token_uid: row.access_token_uid,
+            user_uid: actor.user.uuid,
+            session_uid: row.uuid,
+            auth_id: authId,
+            full_access: true,
+            godmode_app_uid: app.uid,
+        });
+        return { token, expiresAt };
+    }
+
+    /**
+     * Revoke a godmode token row the desktop has moved off: the tokens it
+     * minted go with it, and its sockets are dropped.
+     */
+    async #retireGodmodeToken(row: {
+        uuid: string;
+        access_token_uid?: string | null;
+    }): Promise<void> {
+        const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
+            row.uuid,
+        )) as string[];
+        await this.stores.session.revokeCascade(row.uuid);
+        for (const tokenUid of tokenUids) {
+            await this.#dropAccessTokenGrants(tokenUid);
+        }
+        if (row.access_token_uid) {
+            this.clients.event?.emit(
+                'auth.access-token.revoked',
+                { token_uid: row.access_token_uid },
+                {},
+            );
+        }
+    }
+
     // -- Private / public hosted asset cookies -----------------------
     //
     // Ported from v1's `createPrivateAssetToken` / `createPublicHostedActor
@@ -1738,7 +1825,15 @@ export class AuthService extends PuterService {
             throw new HttpError(403, 'Actor must be a user', {
                 legacyCode: 'forbidden',
             });
-        if (actor.accessToken) {
+        // A full-access token may mint scoped tokens (a read URL, say); they
+        // hang off its own row below, so revoking it takes them along. No other
+        // token mints, and none mints full access.
+        const mintingToken = actor.accessToken
+            ? isAccountContext(actor) && actor.accessToken.fullAccess === true
+                ? actor.accessToken
+                : null
+            : undefined;
+        if (mintingToken === null) {
             throw new HttpError(
                 403,
                 'Access tokens may not create access tokens',
@@ -1772,6 +1867,13 @@ export class AuthService extends PuterService {
             throw new HttpError(403, 'Apps may not mint full-access tokens', {
                 legacyCode: 'forbidden',
             });
+        }
+        if (wantsFullAccess && mintingToken) {
+            throw new HttpError(
+                403,
+                'Access tokens may not mint full-access tokens',
+                { legacyCode: 'forbidden' },
+            );
         }
 
         // Permission-subset enforcement: an access token can only carry
@@ -1824,11 +1926,26 @@ export class AuthService extends PuterService {
         const expiresAt = this.#hardExpiryFromExpiresIn(options.expiresIn);
 
         // App-issued access tokens parent to the issuing app's session row
-        // so cascading the app authorization kills its scoped tokens. Tokens
-        // issued with no app in the chain stay top-level.
+        // so cascading the app authorization kills its scoped tokens; one a
+        // full-access token mints parents to that token's row. Tokens issued
+        // by the account itself stay top-level.
         const issuingApp = actor.effectiveApp;
-        const parent_session_id =
+        let parent_session_id =
             issuingApp && actor.session ? actor.session.uid : null;
+        if (mintingToken) {
+            const mintingRow =
+                await this.stores.session.findActiveByAccessTokenUid(
+                    mintingToken.uid,
+                );
+            if (!mintingRow) {
+                throw new HttpError(
+                    403,
+                    'Access tokens may not create access tokens',
+                    { legacyCode: 'forbidden' },
+                );
+            }
+            parent_session_id = mintingRow.uuid;
+        }
 
         const tokenSession = await this.stores.session.create(
             actor.user.id as number,
@@ -1930,6 +2047,8 @@ export class AuthService extends PuterService {
         let tokenUid: string;
         let issuerUuidFromJwt: string | undefined;
         let sessionUidFromJwt: string | undefined;
+        // A uuid says nothing about the token; assume full access.
+        let mayBeFullAccess = true;
         const isJwt = /^[\w-]+\.[\w-]+\.[\w-]+$/.test(tokenOrUuid.trim());
         if (isJwt) {
             const decoded = this.services.token.verify<AccessTokenPayload>(
@@ -1944,6 +2063,7 @@ export class AuthService extends PuterService {
             tokenUid = decoded.token_uid;
             issuerUuidFromJwt = decoded.user_uid;
             sessionUidFromJwt = decoded.session_uid;
+            mayBeFullAccess = !decoded.app_uid && decoded.full_access === true;
         } else {
             tokenUid = tokenOrUuid;
         }
@@ -1980,6 +2100,7 @@ export class AuthService extends PuterService {
             tokenUid,
             sessionUidFromJwt,
             sessionRow,
+            { mayBeFullAccess },
         );
     }
 
@@ -2048,10 +2169,12 @@ export class AuthService extends PuterService {
             );
         }
 
+        // Full access is refused above.
         await this.#revokeAccessTokenTail(
             decoded.token_uid,
             decoded.session_uid,
             null,
+            { mayBeFullAccess: false },
         );
     }
 
@@ -2091,26 +2214,52 @@ export class AuthService extends PuterService {
 
     /**
      * Shared tail of `revokeAccessToken` and `revokeOwnAccessToken`: drop the
-     * grant manifest and remove the session row backing the token.
+     * grant manifest and remove the session row backing the token. Only a
+     * full-access token can hold a socket or have minted tokens of its own, so
+     * only that kind evicts and cascades.
      */
     async #revokeAccessTokenTail(
         tokenUid: string,
         sessionUidFromJwt: string | undefined,
         sessionRow: SessionRow | null,
+        opts: { mayBeFullAccess?: boolean } = {},
     ): Promise<void> {
         await this.#dropAccessTokenGrants(tokenUid);
 
-        if (sessionUidFromJwt) {
-            await this.stores.session.removeByUuid(sessionUidFromJwt);
-        } else {
-            // A v1 JWT carries no `session_uid`, so the row still has to be
-            // found by token identity here.
-            const row =
+        // A v1 JWT carries no `session_uid`, so the row still has to be found
+        // by token identity here.
+        const rowUuid =
+            sessionUidFromJwt ??
+            (
                 sessionRow ??
-                (await this.stores.session.findActiveByAccessTokenUid(
-                    tokenUid,
-                ));
-            if (row) await this.stores.session.removeByUuid(row.uuid);
+                (await this.stores.session.findActiveByAccessTokenUid(tokenUid))
+            )?.uuid;
+        const mayBeFullAccess = opts.mayBeFullAccess !== false;
+        const childTokenUids =
+            rowUuid && mayBeFullAccess
+                ? (
+                      (await this.stores.session.accessTokenUidsForCascade(
+                          rowUuid,
+                      )) as string[]
+                  ).filter((uid) => uid !== tokenUid)
+                : [];
+        if (rowUuid) {
+            await this.stores.session.removeByUuid(rowUuid);
+            if (mayBeFullAccess) {
+                await this.stores.session.revokeCascade(rowUuid);
+            }
+        }
+        for (const childUid of childTokenUids) {
+            await this.#dropAccessTokenGrants(childUid);
+        }
+
+        // Only a token the handshake admits has a socket to drop.
+        if (mayBeFullAccess) {
+            this.clients.event?.emit(
+                'auth.access-token.revoked',
+                { token_uid: tokenUid },
+                {},
+            );
         }
     }
 
@@ -2294,6 +2443,22 @@ export class AuthService extends PuterService {
                 return { reauth: { reason: 'session_expired' } };
             }
             if (!rawRow) return { invalid: true };
+            // A token minted under another session (an app's, a godmode
+            // token's, the desktop's) lives no longer than that session does.
+            if (rawRow.parent_session_id) {
+                const parent = (await this.stores.session.getByUuidAny(
+                    rawRow.parent_session_id,
+                )) as SessionRow | null;
+                if (!parent || parent.revoked_at != null) {
+                    return { reauth: { reason: 'session_revoked' } };
+                }
+                if (
+                    parent.expires_at != null &&
+                    parent.expires_at <= nowSeconds()
+                ) {
+                    return { reauth: { reason: 'session_expired' } };
+                }
+            }
             session = rawRow;
         }
 
@@ -2306,6 +2471,17 @@ export class AuthService extends PuterService {
             authorizer = this.#buildAppUnderUserActor(user, app, null);
         } else {
             authorizer = this.#buildUserActor(user, null);
+        }
+
+        // A godmode token stops working once its app is gone or demoted.
+        let godmodeApp: { uid: string; id: number } | null = null;
+        if (decoded.godmode_app_uid !== undefined) {
+            if (decoded.app_uid || decoded.full_access !== true) {
+                return { invalid: true };
+            }
+            const app = await this.stores.app.getByUid(decoded.godmode_app_uid);
+            if (!app || !isGodmodeApp(app)) return { invalid: true };
+            godmodeApp = { uid: app.uid, id: app.id };
         }
 
         if (session) {
@@ -2330,6 +2506,7 @@ export class AuthService extends PuterService {
                 // full-access — mirrors the mint-time block — so even a
                 // claim on one is ignored here.
                 fullAccess: !decoded.app_uid && decoded.full_access === true,
+                ...(godmodeApp ? { godmodeApp } : {}),
             },
         });
         this.#applyHandlerDepth(actor, decoded);

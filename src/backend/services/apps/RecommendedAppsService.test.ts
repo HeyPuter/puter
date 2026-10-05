@@ -3,12 +3,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { extension, extensionStore } from '../../extensions.js';
 import type { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { RECOMMENDED_APP_NAMES } from './RecommendedAppsService.js';
 
 describe('RecommendedAppsService', () => {
     let server: PuterServer;
     let customApp: Record<string, unknown>;
     let defaults: Array<Record<string, unknown>>;
     const previousListeners = extensionStore.events['app.recommended'];
+    // From the list itself, so editing it cannot strand this test.
+    const [first, second] = RECOMMENDED_APP_NAMES;
 
     beforeAll(async () => {
         server = await setupTestServer();
@@ -20,7 +23,7 @@ describe('RecommendedAppsService', () => {
             free_storage: 1024,
             requires_email_confirmation: false,
         });
-        for (const name of ['builder', 'contacts', 'custom-recommendation']) {
+        for (const name of [first, second, 'custom-recommendation']) {
             if (!(await server.stores.app.getByName(name))) {
                 await server.stores.app.create(
                     {
@@ -52,10 +55,8 @@ describe('RecommendedAppsService', () => {
         const apps = await server.services.recommendedApps.getRecommendedApps();
         expect(apps).toEqual(defaults);
         const names = apps.map((app) => app.name);
-        expect(names).toContain('builder');
-        expect(names.indexOf('builder')).toBeLessThan(
-            names.indexOf('contacts'),
-        );
+        expect(names).toContain(first);
+        expect(names.indexOf(first)).toBeLessThan(names.indexOf(second));
         expect(names).not.toContain(customApp.name);
     });
 
@@ -63,18 +64,18 @@ describe('RecommendedAppsService', () => {
         extension.on('app.recommended', async (_key, data) => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             data.appNames = [
-                'contacts',
+                second,
                 'custom-recommendation',
                 'missing-recommendation',
-                'builder',
+                first,
             ];
         });
 
         const apps = await server.services.recommendedApps.getRecommendedApps();
         expect(apps.map((app) => app.name)).toEqual([
-            'contacts',
+            second,
             'custom-recommendation',
-            'builder',
+            first,
         ]);
         expect(apps[1]).toMatchObject({
             uuid: customApp.uid,

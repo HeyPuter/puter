@@ -83,6 +83,12 @@ export interface AccessTokenPayload extends TokenPayloadBase {
      * `ActorAccessToken.fullAccess`.
      */
     full_access?: boolean;
+    /**
+     * Set on a full-access token minted for a godmode app launch; drives
+     * `ActorAccessToken.godmodeApp`. Never `app_uid`, which would make the app
+     * the acting identity.
+     */
+    godmode_app_uid?: string;
     /** Minted by an events handler; see `Actor.handlerDepth`. */
     handler_depth?: number;
 }

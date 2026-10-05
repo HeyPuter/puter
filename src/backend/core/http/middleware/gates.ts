@@ -23,7 +23,12 @@ import {
     type CardFallbackDeps,
 } from '../../../util/cardFallback';
 import { reserveUsernames } from '../../../util/reservedUsernames';
-import { isAppActor, isPlainUserActor, type Actor } from '../../actor';
+import {
+    isAccountContext,
+    isAppActor,
+    isPlainUserActor,
+    type Actor,
+} from '../../actor';
 import { HttpError } from '../HttpError';
 import type { AccountGateUser, VerificationFactor } from '../types';
 import { assertVerifiedEmail } from '../verifiedEmail';
@@ -120,9 +125,11 @@ export const requireUserActorGate = (
             return;
         }
         const appBlocked = isAppActor(actor);
+        // `isAccountContext`, not the `fullAccess` flag: an app anywhere in the
+        // chain, or an actor that skipped `makeActor`, answers no.
         const tokenBlocked =
             !!actor.accessToken &&
-            !(opts.allowFullAccess && actor.accessToken.fullAccess);
+            !(opts.allowFullAccess && isAccountContext(actor));
         if (appBlocked || tokenBlocked) {
             next(
                 new HttpError(

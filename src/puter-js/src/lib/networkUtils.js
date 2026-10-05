@@ -88,6 +88,35 @@ function resolveBackgroundReauth(resp, sentToken) {
  *   reauth-recoverable 401 and the caller should handle it normally.
  */
 async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
+    // A godmode app's token expires on schedule and the desktop renews it.
+    // Asking shows no UI, so background requests ask too.
+    if (
+        (resp?.code === 'reauth_required' ||
+            resp?.code === 'token_auth_failed') &&
+        puter.env === 'app' &&
+        puter.isGodmodeToken_?.(sentToken ?? puter.authToken)
+    ) {
+        // Renewed while this request was in flight.
+        if (sentToken && puter.authToken && sentToken !== puter.authToken) {
+            return { action: 'replay' };
+        }
+        try {
+            await puter.triggerReauth({
+                reason: resp.reason ?? 'token_expired',
+            });
+            return { action: 'replay' };
+        } catch (e) {
+            return {
+                action: 'reject',
+                error: {
+                    status: 401,
+                    code: resp.code,
+                    reason: resp.reason,
+                    message: e?.message || 'Reauthentication required',
+                },
+            };
+        }
+    }
     if (resp?.code === 'reauth_required') {
         if (!interactive) return resolveBackgroundReauth(resp, sentToken);
         try {

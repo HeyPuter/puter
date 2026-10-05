@@ -24,6 +24,7 @@ import { starts_hidden } from './startsHidden.js';
 import { append_signed_item_params } from './appendSignedItemParams.js';
 import { expand_home_path } from './expandHomePath.js';
 import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
+import { mintGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -511,58 +512,67 @@ const launch_app = async (options) => {
             iframe_url.searchParams.append('puter.item.read_url', options.readURL);
         }
 
-        // In godmode, we add the super token to the iframe URL
-        // so that the app can access everything.
-        if ( app_info.godmode && (app_info.godmode === true || app_info.godmode === 1) ) {
-            iframe_url.searchParams.append('puter.auth.token', window.auth_token);
-            iframe_url.searchParams.append('puter.auth.username', window.user.username);
-        }
-        // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-        // that has access to everything.
-        else if ( options.token ) {
-            iframe_url.searchParams.append('puter.auth.token', options.token);
+        const is_godmode = app_info.godmode === true || app_info.godmode === 1;
+        const launch_app_uid = app_info.uid ?? app_info.uuid;
+
+        // A godmode app gets a full-access token of its own, renewed while its
+        // window is open; never the desktop's session.
+        let launch_token = null;
+        let tokenResult = null;
+        if ( is_godmode ) {
+            const godmode_token = await mintGodmodeToken(launch_app_uid);
+            if ( godmode_token.ok ) {
+                launch_token = godmode_token.token;
+                trackGodmodeToken(uuid, launch_app_uid, godmode_token.token, godmode_token.expiresAt);
+            } else {
+                tokenResult = { token: null, reason: 'godmode-token-request-failed', ...godmode_token };
+            }
+        } else if ( options.token ) {
+            launch_token = options.token;
         } else {
-            const tokenResult = await fetchUserAppTokenForLaunch({
-                appUid: app_info.uid ?? app_info.uuid,
+            tokenResult = await fetchUserAppTokenForLaunch({ appUid: launch_app_uid });
+            launch_token = tokenResult?.token ?? null;
+        }
+
+        if ( launch_token ) {
+            iframe_url.searchParams.append('puter.auth.token', launch_token);
+            if ( is_godmode ) {
+                iframe_url.searchParams.append('puter.auth.username', window.user.username);
+            }
+        } else {
+            console.error('App launch blocked because app token could not be acquired', {
+                appName: app_info?.name ?? options?.name,
+                appUid: app_info?.uid ?? app_info?.uuid,
+                tokenResult,
             });
 
-            if ( tokenResult?.token ) {
-                iframe_url.searchParams.append('puter.auth.token', tokenResult.token);
-            } else {
-                console.error('App launch blocked because app token could not be acquired', {
-                    appName: app_info?.name ?? options?.name,
-                    appUid: app_info?.uid ?? app_info?.uuid,
-                    tokenResult,
-                });
-
-                // `silent_on_failure` callers (e.g. best-effort auto-launches
-                // like the AI panel on desktop boot) skip the blocking alert.
-                if ( ! options?.silent_on_failure ) {
-                    const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
-                    const safeTokenErrorAppTitle = window.html_encode
-                        ? window.html_encode(tokenErrorAppTitle)
-                        : tokenErrorAppTitle;
-                    if ( typeof window.UIAlert === 'function' ) {
-                        await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
-                    } else {
-                        window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
-                    }
+            // `silent_on_failure` callers (e.g. best-effort auto-launches
+            // like the AI panel on desktop boot) skip the blocking alert.
+            if ( ! options?.silent_on_failure ) {
+                const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
+                const safeTokenErrorAppTitle = window.html_encode
+                    ? window.html_encode(tokenErrorAppTitle)
+                    : tokenErrorAppTitle;
+                if ( typeof window.UIAlert === 'function' ) {
+                    await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
+                } else {
+                    window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
                 }
-
-                const tokenFailureLaunchResult = {
-                    launched: false,
-                    requestedAppName,
-                    openedAppName: null,
-                    appInstanceID: null,
-                    appUid: app_info?.uid ?? app_info?.uuid ?? null,
-                    redirectedToFallback: privateLaunchRedirectDepth > 0,
-                    deniedPrivateAccess: false,
-                    privateAccess: privateAccessDecision ?? undefined,
-                    authTokenAcquired: false,
-                };
-                endLaunchTransaction(transaction, 'token-unavailable');
-                return { launchResult: tokenFailureLaunchResult };
             }
+
+            const tokenFailureLaunchResult = {
+                launched: false,
+                requestedAppName,
+                openedAppName: null,
+                appInstanceID: null,
+                appUid: app_info?.uid ?? app_info?.uuid ?? null,
+                redirectedToFallback: privateLaunchRedirectDepth > 0,
+                deniedPrivateAccess: false,
+                privateAccess: privateAccessDecision ?? undefined,
+                authTokenAcquired: false,
+            };
+            endLaunchTransaction(transaction, 'token-unavailable');
+            return { launchResult: tokenFailureLaunchResult };
         }
 
         iframe_url.searchParams.append('puter.domain', window.app_domain);

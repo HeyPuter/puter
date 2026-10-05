@@ -2811,6 +2811,7 @@ export class ShareService extends PuterService {
             actor,
             true,
             this.config,
+            { events: this.clients.event, surface: 'share.anyone' },
         );
 
         // Moving an existing link to another mode is not new reach.

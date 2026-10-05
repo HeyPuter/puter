@@ -7,7 +7,11 @@ import type { IConfig } from '@heyputer/backend/types.ts';
 import { loadPuterJsTestOptions } from '../harness/capabilities.ts';
 import { coverageEnabled, writeCoverageShard } from '../harness/coverage.ts';
 import { listTests, runTest, skipReason } from '../harness/executor.ts';
-import { collectNodeCoverage, loadNodePuter } from '../harness/nodeSdkLoader.ts';
+import {
+    closeNodePuter,
+    collectNodeCoverage,
+    loadNodePuter,
+} from '../harness/nodeSdkLoader.ts';
 import type { EnvManifest } from '../harness/types.ts';
 
 const options = loadPuterJsTestOptions();
@@ -48,7 +52,7 @@ describe('puter.js API suites (node)', () => {
                     platform: 'node',
                 },
                 puter,
-            );
+            ).finally(() => closeNodePuter(puter));
             expect(result.error ?? '').toBe('');
             expect(result.ok).toBe(true);
         });

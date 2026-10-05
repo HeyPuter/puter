@@ -39,6 +39,10 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
     'webmaster',
     'security',
     'noc',
+    // Inbound mail to these is feedback or bounces, never a person's.
+    'fbl',
+    'noreply',
+    'no-reply',
     'null',
     'undefined',
     'test',

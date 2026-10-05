@@ -19,6 +19,7 @@
 
 import type { Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
+import { EventClient } from '../../../clients/event/EventClient';
 import type { IConfig } from '../../../types';
 import { isHttpError } from '../HttpError';
 import { requireSubscriptionGate } from './subscription';
@@ -77,5 +78,67 @@ describe('requireSubscriptionGate', () => {
             'irrelevant',
         );
         expect(got).toBeInstanceOf(Error);
+    });
+});
+
+describe('subscription.gate hook', () => {
+    const surface = 'route.post.puterai.anthropic.v1.messages';
+
+    it('lets a listener on the surface waive the plan for that call', async () => {
+        const events = new EventClient({} as IConfig);
+        const seen: unknown[] = [];
+        events.on(`subscription.gate.${surface}`, (_key, event) => {
+            seen.push(event);
+            (event as { allow: boolean }).allow = true;
+        });
+
+        const got = await runGate(
+            requireSubscriptionGate(metering('user_free'), config, true, {
+                events,
+                surface,
+            }),
+            'user_free',
+        );
+
+        expect(got).toBeUndefined();
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({
+            surface,
+            requirement: true,
+            actor: { user: { uuid: 'u-1' } },
+        });
+    });
+
+    it('still refuses when nothing answers, or a listener throws', async () => {
+        const events = new EventClient({} as IConfig);
+        events.on('subscription.gate.*', () => {
+            throw new Error('listener bug');
+        });
+
+        const got = await runGate(
+            requireSubscriptionGate(metering('user_free'), config, true, {
+                events,
+                surface,
+            }),
+            'user_free',
+        );
+
+        expect(got).toMatchObject({ statusCode: 402 });
+    });
+
+    it('is not asked about a caller the plan already covers', async () => {
+        const events = new EventClient({} as IConfig);
+        const listener = vi.fn();
+        events.on('subscription.gate.*', listener);
+
+        await runGate(
+            requireSubscriptionGate(metering('business'), config, true, {
+                events,
+                surface,
+            }),
+            'business',
+        );
+
+        expect(listener).not.toHaveBeenCalled();
     });
 });

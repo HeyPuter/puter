@@ -390,6 +390,11 @@ export class DriverController extends PuterController {
                 req.actor,
                 subscriptionRequirement,
                 this.config,
+                {
+                    events: this.clients.event,
+                    surface: `driver.${ifaceName}.${method}`,
+                    req,
+                },
             );
         }
 

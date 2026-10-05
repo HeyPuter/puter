@@ -78,6 +78,7 @@ import {
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
 import { isReservedUsername } from '../../util/reservedUsernames.js';
@@ -245,38 +246,6 @@ const CHANGE_USERNAME_ATTEMPT_LIMIT = {
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
-
-export const RESERVED_USERNAMES = new Set([
-    'admin',
-    'administrator',
-    'root',
-    'system',
-    'puter',
-    'www',
-    'api',
-    'support',
-    'help',
-    'info',
-    'contact',
-    'mail',
-    'email',
-    // Role mailboxes: a Puter address names its account, so these must never
-    // be ownable.
-    'abuse',
-    'postmaster',
-    'hostmaster',
-    'fbl',
-    'security',
-    'noreply',
-    'no-reply',
-    'null',
-    'undefined',
-    'test',
-    'guest',
-    'anonymous',
-    'user',
-    'users',
-]);
 
 /**
  * Auth controller — login/logout, permission grants/revokes, session
@@ -3988,9 +3957,11 @@ export class AuthController extends PuterController {
 
     // -- Permission listing ------------------------------------------
 
+    // A read of what was granted, not a grant; the mutations stay session-only.
     @Get('/auth/list-permissions', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleListPermissions(req: Request, res: Response): Promise<void> {
@@ -4137,6 +4108,21 @@ export class AuthController extends PuterController {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
                 legacyCode: 'not_found',
             });
+        }
+
+        // A desktop launch of a godmode app gets a full-access token tied to
+        // this session. Origin lookups (sign-in popups for pages outside the
+        // desktop) keep getting an ordinary app token.
+        if (!resolvedFromOrigin && isGodmodeApp(app)) {
+            const { token, expiresAt } =
+                await this.services.auth.getGodmodeAppToken(req.actor!, app);
+            res.json({
+                token,
+                app_uid,
+                godmode: true,
+                expires_at: expiresAt,
+            });
+            return;
         }
 
         const userPermGrantPromise =
@@ -4554,6 +4540,7 @@ export class AuthController extends PuterController {
     @Get('/get-dev-profile', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {
@@ -4565,21 +4552,32 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
+        // The columns are `dev_`-prefixed; unprefixed is the fallback.
         const u = user as unknown as {
+            dev_first_name?: string | null;
+            dev_last_name?: string | null;
+            dev_approved_for_incentive_program?: number | boolean;
+            dev_joined_incentive_program?: number | boolean;
+            dev_paypal?: string | null;
             first_name?: string | null;
             last_name?: string | null;
             approved_for_incentive_program?: number | boolean;
             joined_incentive_program?: number | boolean;
             paypal?: string | null;
         };
+        const paypal = u.dev_paypal ?? u.paypal ?? null;
         res.json({
-            first_name: u.first_name ?? null,
-            last_name: u.last_name ?? null,
+            first_name: u.dev_first_name ?? u.first_name ?? null,
+            last_name: u.dev_last_name ?? u.last_name ?? null,
             approved_for_incentive_program: Boolean(
+                u.dev_approved_for_incentive_program ??
                 u.approved_for_incentive_program,
             ),
-            joined_incentive_program: Boolean(u.joined_incentive_program),
-            paypal: u.paypal ?? null,
+            joined_incentive_program: Boolean(
+                u.dev_joined_incentive_program ?? u.joined_incentive_program,
+            ),
+            // The payout address stays behind a session.
+            paypal: isPlainUserActor(req.actor) ? paypal : null,
         });
     }
 

@@ -361,6 +361,64 @@ describe('fetchUrl', () => {
                 expect(resp.ok).toBe(false);
             });
 
+            it('asks the desktop to renew a godmode token, even in the background', async () => {
+                const triggerReauth = vi.fn(async () => {
+                    globalThis.puter.authToken = 'fresh';
+                });
+                globalThis.puter = {
+                    ...makePuter(),
+                    env: 'app',
+                    isGodmodeToken_: (token) => token === 'stale',
+                    triggerReauth,
+                };
+                let call = 0;
+                installFakeXHR((xhr) => {
+                    call++;
+                    if (call === 1) {
+                        return respond({
+                            status: 401,
+                            body: { code: 'token_auth_failed' },
+                        })(xhr);
+                    }
+                    expect(xhr._reqHeaders['authorization']).toBe(
+                        'Bearer fresh',
+                    );
+                    return respond({ status: 200, body: { ok: true } })(xhr);
+                });
+
+                const resp = await fetchUrl('https://api.example/whoami', {
+                    includePuterAuth: true,
+                    interactiveReauth: false,
+                });
+
+                expect(triggerReauth).toHaveBeenCalledTimes(1);
+                expect(
+                    globalThis.puter.dropStaleAuthToken,
+                ).not.toHaveBeenCalled();
+                expect(resp.ok).toBe(true);
+            });
+
+            it('leaves an app token on token_auth_failed to the caller', async () => {
+                globalThis.puter = {
+                    ...makePuter(),
+                    env: 'app',
+                    isGodmodeToken_: () => false,
+                };
+                installFakeXHR(
+                    respond({
+                        status: 401,
+                        body: { code: 'token_auth_failed' },
+                    }),
+                );
+
+                const resp = await fetchUrl('https://api.example/x', {
+                    includePuterAuth: true,
+                });
+
+                expect(globalThis.puter.triggerReauth).not.toHaveBeenCalled();
+                expect(resp.ok).toBe(false);
+            });
+
             it('leaves a successful background request alone', async () => {
                 // The flag only governs the prompt: a 200 is unaffected.
                 globalThis.puter = makePuter();

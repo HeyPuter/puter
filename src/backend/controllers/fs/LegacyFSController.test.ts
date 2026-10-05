@@ -1057,8 +1057,7 @@ describe('LegacyFSController.batch (per-op mutation budget)', () => {
         const freeLimit =
             (
                 FS_MUTATE_LIMIT[0]!.bySubscription as
-                    | Record<string, number>
-                    | undefined
+                    Record<string, number> | undefined
             )?.[DEFAULT_FREE_SUBSCRIPTION] ?? FS_MUTATE_LIMIT[0]!.limit;
         const chargeReq = makeReq({ body: {}, actor });
         for (let i = 0; i < freeLimit; i++) {
@@ -1808,7 +1807,8 @@ describe('LegacyFSController.move', () => {
                 makeRes().res,
             ),
         );
-        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        const shared =
+            (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
         await server.services.acl.setUserUser(
             owner.actor,
             holder.actor,
@@ -1868,7 +1868,8 @@ describe('LegacyFSController.move', () => {
                 makeRes().res,
             ),
         );
-        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        const shared =
+            (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
         await server.services.acl.setUserUser(
             owner.actor,
             holder.actor,
@@ -2544,10 +2545,58 @@ describe('LegacyFSController.openItem (grant scope)', () => {
         const route = router.routes.find(
             (r) => r.method === 'post' && r.path === '/open_item',
         );
-        expect(route?.options).toMatchObject({
-            requireUserActor: true,
-            allowFullAccessToken: true,
+        expect(route?.options).toMatchObject({ requireUserActor: true });
+        expect(route?.options).not.toHaveProperty('allowFullAccessToken');
+    });
+
+    it('rejects a full-access token, leaving no grant behind', async () => {
+        const { actor: userActor, userId } = await makeUser();
+        const target = `/${userActor.user!.username}/Documents/token-opened.txt`;
+        await withActor(userActor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: userActor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        const app = await makeApp(userId);
+        const tokenActor = makeActor({
+            user: userActor.user,
+            accessToken: {
+                uid: `tok-${uuidv4()}`,
+                issuer: userActor,
+                fullAccess: true,
+            },
         });
+
+        const spy = vi
+            .spyOn(server.services.suggestedApps, 'getSuggestedApps')
+            .mockResolvedValue([{ uuid: app.uid }] as never);
+        try {
+            await expect(
+                withActor(tokenActor, () =>
+                    controller.openItem(
+                        makeReq({
+                            body: { uid: entry!.uuid },
+                            actor: tokenActor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        } finally {
+            spy.mockRestore();
+        }
+
+        for (const mode of ['read', 'write']) {
+            expect(
+                await server.stores.permission.hasUserAppPerm(
+                    userId,
+                    app.id,
+                    `fs:${entry!.uuid}:${mode}`,
+                ),
+            ).toBe(false);
+        }
     });
 
     it('rejects an app actor, leaving no grant behind', async () => {

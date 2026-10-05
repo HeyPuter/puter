@@ -699,6 +699,9 @@ export type EventMap = {
      */
     'auth.sessions.revoked': { user_id: number; session_uids: string[] };
 
+    /** One access token was revoked; only its own connections should drop. */
+    'auth.access-token.revoked': { token_uid: string };
+
     /**
      * A grant was withdrawn, so whatever was standing on it has to be settled
      * rather than left to fail its next check.
@@ -765,6 +768,12 @@ export type EventMap = {
     // per batch; the last listener to set `factor` wins.
     [K in `ai.cost.factor.${string}`]: AiCostFactorEvent;
 } & {
+    // A plan gate is about to refuse a caller. Keyed per surface the way the
+    // lifecycles above are: `subscription.gate.route.<method>.<path>`,
+    // `subscription.gate.driver.<iface>.<method>`. Emitted via `emitAndWait`;
+    // a listener that sets `allow` waives the plan requirement for that call.
+    [K in `subscription.gate.${string}`]: SubscriptionGateEvent;
+} & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
@@ -783,6 +792,18 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** Payload for `subscription.gate.<surface>` events. */
+export type SubscriptionGateEvent = {
+    actor: Actor;
+    /** The key after `subscription.gate.`, e.g. `driver.puter-kvstore.get`. */
+    surface: string;
+    /** What the gate asked for: any paid plan (`true`) or these policy ids. */
+    requirement: boolean | readonly string[];
+    /** The request being gated, when there is one. */
+    req?: ExpressRequest;
+    allow: boolean;
+};
 
 /** Payload for `ai.cost.factor.<driver>.<model>` events. */
 export type AiCostFactorEvent = {

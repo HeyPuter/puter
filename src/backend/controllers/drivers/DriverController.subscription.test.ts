@@ -21,6 +21,7 @@
 import { EventEmitter } from 'node:events';
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventClient } from '../../clients/event/EventClient.js';
 import { runWithContext } from '../../core/context.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { configureRateLimit } from '../../core/http/middleware/rateLimit.js';
@@ -97,8 +98,8 @@ const syntheticDriver = {
     premium: async () => 'premium-ok',
 };
 
-const buildController = (plan: string | null) => {
-    const clients = { alarm: { create: () => {} } };
+const buildController = (plan: string | null, events?: EventClient) => {
+    const clients = { alarm: { create: () => {} }, ...(events ? { event: events } : {}) };
     const services = plan
         ? {
               metering: {
@@ -115,8 +116,13 @@ const buildController = (plan: string | null) => {
     );
 };
 
-const call = (plan: string | null, method: string, tag: string) => {
-    const handler = captureCallHandler(buildController(plan));
+const call = (
+    plan: string | null,
+    method: string,
+    tag: string,
+    events?: EventClient,
+) => {
+    const handler = captureCallHandler(buildController(plan, events));
     const res = new StubRes();
     return runWithContext({}, () =>
         handler(makeReq(method, tag), res as unknown as Response, () => {}),
@@ -155,6 +161,17 @@ describe('DriverController — per-method subscription requirement', () => {
         await expect402(call('basic', 'premium', 'premium-basic'));
         const res = await call('pro', 'premium', 'premium-pro');
         expect(res.body).toMatchObject({ success: true, result: 'premium-ok' });
+    });
+
+    it('lets a subscription.gate listener waive one method for a free account', async () => {
+        const events = new EventClient({} as any);
+        events.on('subscription.gate.driver.test-iface.paid', (_key, event) => {
+            (event as { allow: boolean }).allow = true;
+        });
+
+        const res = await call('user_free', 'paid', 'waived', events);
+        expect(res.body).toMatchObject({ success: true, result: 'paid-ok' });
+        await expect402(call('user_free', 'premium', 'not-waived', events));
     });
 
     it('enforces nothing on a deployment with no metering service', async () => {

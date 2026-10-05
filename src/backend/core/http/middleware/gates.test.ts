@@ -309,6 +309,20 @@ describe('requireUserActorGate', () => {
         expect(got).toBeUndefined();
     });
 
+    it('still rejects a full-access claim on an app-issued token', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
     it('still rejects a SCOPED access token even when allowFullAccess is set', () => {
         const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
             actor: {

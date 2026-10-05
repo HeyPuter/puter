@@ -866,8 +866,7 @@ const handleNotDelegated = (): HttpError =>
 
 /**
  * A delegation is the app's to hold, not to pass on: a token it minted may
- * carry the `manage:` permission and still not mint through it, the same way an
- * access token is refused a socket of its own (`SocketService`). The user's own
+ * carry the `manage:` permission and still not mint through it. The user's own
  * token is not this case — it acts for the user, who needs no delegation.
  */
 const handleAccessTokenForbidden = (): HttpError =>
@@ -2456,8 +2455,7 @@ export class EventsService extends PuterService {
         permission: string,
     ): Promise<void> {
         // Consequential enough to require the app's own session, whatever a
-        // token it minted happens to carry — the same posture already taken
-        // for an access token wanting a socket of its own (SocketService).
+        // token it minted happens to carry.
         if (isAccessTokenActor(actor)) throw handleAccessTokenForbidden();
         // The consent surface refuses a namespace-root delegation because no
         // prompt can describe it; refused here too, so a row written any other
