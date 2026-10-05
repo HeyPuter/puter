@@ -827,6 +827,9 @@ export class PuterServer {
                         ['upstream_auth_failed', 'warning'],
                         // A vendor account is dry — everything through it fails until someone tops up.
                         ['upstream_credits_exhausted', 'warning'],
+                        // Every route for a requested model 404'd — worth a
+                        // quiet signal even though it's exposed as a 4xx.
+                        ['upstream_model_unavailable', 'info'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
@@ -985,6 +988,19 @@ export class PuterServer {
                     next('route');
                     return;
                 }
+                next();
+            });
+        }
+
+        // A route that wants its errors in a vendor-compatible envelope
+        // (the Anthropic/OpenAI-compatible wire surface) stashes its
+        // renderer on `res.locals`, early — before any gate below can
+        // reject the request — so the terminal `errorHandler` picks it up
+        // for every error this route produces, gate failures included.
+        if (opts.errorRenderer) {
+            const { errorRenderer } = opts;
+            mwChain.push((_req, res, next) => {
+                res.locals.errorRenderer = errorRenderer;
                 next();
             });
         }

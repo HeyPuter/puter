@@ -270,15 +270,15 @@ describe('ZAIProvider.complete request shape', () => {
                 temperature: 0.4,
                 top_p: 0.9,
                 tools,
-                tool_choice: 'auto',
-            }),
+                tool_choice: { type: 'auto' },
+            } as never),
         );
 
         const [args] = createMock.mock.calls[0]!;
         expect(args.max_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
         expect(args.top_p).toBe(0.9);
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
         expect(args.tool_choice).toBe('auto');
     });
 

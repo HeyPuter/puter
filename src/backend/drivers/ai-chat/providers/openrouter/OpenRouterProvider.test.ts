@@ -375,6 +375,91 @@ describe('OpenRouterProvider.complete request shape', () => {
         expect(args.usage).toEqual({ include: true });
     });
 
+    it('maps tool_choice/parallel_tool_calls/stop/reasoning_effort to the wire shape', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'openrouter:openai/gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+                tool_choice: { type: 'tool', name: 'lookup' },
+                parallel_tool_calls: false,
+                stopSequences: ['STOP'],
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toEqual({
+            type: 'function',
+            function: { name: 'lookup' },
+        });
+        expect(args.parallel_tool_calls).toBe(false);
+        expect(args.stop).toEqual(['STOP']);
+        expect(args.reasoning).toEqual({ effort: 'high' });
+    });
+
+    it('keeps cache_control on messages (the one dialect that forwards Anthropic caching)', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'openrouter:anthropic/claude-sonnet',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'hi',
+                                cache_control: { type: 'ephemeral' },
+                            },
+                        ],
+                    },
+                ],
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.messages[0].content[0].cache_control).toEqual({
+            type: 'ephemeral',
+        });
+    });
+
+    it('drops Anthropic-only typed tools and server-tool-use blocks', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'openrouter:openai/gpt-6-luna',
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'server_tool_use',
+                                id: 'srvtoolu_1',
+                                name: 'web_search',
+                                input: {},
+                            },
+                            { type: 'text', text: 'kept' },
+                        ],
+                    },
+                ],
+                tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.messages[0].content).toEqual([
+            { type: 'text', text: 'kept' },
+        ]);
+        expect(args.tools).toBeUndefined();
+    });
+
     it('only sets stream_options.include_usage when streaming', async () => {
         const { provider } = makeProvider();
 

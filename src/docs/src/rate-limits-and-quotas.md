@@ -63,6 +63,16 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
+Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
+
+| Tool | Limit |
+| ---- | ----- |
+| Web search / web fetch `max_uses` | Defaults to 10 when omitted; capped at 20. |
+| Advisor `max_uses` | Defaults to 3; capped at 10. |
+| Advisor `max_tokens` | Defaults to 16,384; capped at 32,768. |
+
+A web search is metered at a flat per-request rate in addition to the tokens it reads back; an advisor call is metered under the named advisor model's own rates (an advisor model outside the catalog is priced at the most expensive entry, never left unpriced).
+
 ### Image generation
 
 `puter.ai.txt2img()` returns one image per call. These limits apply on top of the AI limits above:

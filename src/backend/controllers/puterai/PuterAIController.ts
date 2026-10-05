@@ -29,11 +29,25 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type {
     IChatCompleteResult,
+    IChatMessageResult,
+    IChatModel,
     ICompleteArguments,
+    UsageDetails,
 } from '../../drivers/ai-chat/types.js';
+import {
+    outputFormatFromResponseFormat,
+    toolChoiceFromWire,
+} from '../../drivers/ai-chat/utils/openaiParams.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterController } from '../types.js';
+import { parseAnthropicRequest, toAnthropicMessage } from './anthropicWire.js';
+import { AnthropicSseWriter, startSse } from './sse.js';
+import {
+    anthropicRequestId,
+    renderAnthropicError,
+    renderOpenAIError,
+} from './wireErrors.js';
 
 const GEMINI_DOWNLOAD_BASE =
     'https://generativelanguage.googleapis.com/download/v1beta/files';
@@ -103,6 +117,38 @@ export class PuterAIController extends PuterController {
                 key: aiPolicyKey,
             },
         } as RouteOptions;
+        // The vendor-compatible routes render every error — including the
+        // gate failures above (auth, plan, rate limit) — in their vendor's
+        // own envelope, so a client built against the real Anthropic/OpenAI
+        // SDK parses ours the same way. `fields` (and so `attempts`) never
+        // reaches these bodies; the alarm gate still sees them.
+        const anthropicAuthOpts = {
+            ...apiAuthOpts,
+            errorRenderer: renderAnthropicError,
+        } as RouteOptions;
+        const openaiAuthOpts = {
+            ...apiAuthOpts,
+            errorRenderer: renderOpenAIError,
+        } as RouteOptions;
+        // `count_tokens` is free upstream (Anthropic doesn't charge for it)
+        // and reachable far more often than a real completion in an editor
+        // loop that re-counts on every keystroke — its own, more generous
+        // rate limit, and no concurrency gate (nothing to bound: there is no
+        // long-lived upstream call to hold a slot open for).
+        const {
+            concurrent: _countTokensConcurrent,
+            ...apiAuthOptsNoConcurrent
+        } = apiAuthOpts;
+        const countTokensOpts = {
+            ...apiAuthOptsNoConcurrent,
+            rateLimit: {
+                scope: 'puterai-count-tokens',
+                limit: 120,
+                window: 60_000,
+                key: aiPolicyKey,
+            },
+            errorRenderer: renderAnthropicError,
+        } as RouteOptions;
         // Model listings are unauthenticated, so the only key available is
         // the address — which is an aggregate, not a user: a NAT, a school,
         // a mobile carrier gateway or a server-side renderer all arrive as
@@ -125,23 +171,44 @@ export class PuterAIController extends PuterController {
         // compatibility with puter-js and existing API tests.
         router.post(
             '/puterai/openai/v1/chat/completions',
-            apiAuthOpts,
+            openaiAuthOpts,
             this.openaiChatCompletions,
         );
         router.post(
             '/puterai/openai/v1/completions',
-            apiAuthOpts,
+            openaiAuthOpts,
             this.openaiCompletions,
         );
         router.post(
             '/puterai/openai/v1/responses',
-            apiAuthOpts,
+            openaiAuthOpts,
             this.openaiResponses,
         );
         router.post(
             '/puterai/anthropic/v1/messages',
-            apiAuthOpts,
+            anthropicAuthOpts,
             this.anthropicMessages,
+        );
+        router.post(
+            '/puterai/anthropic/v1/messages/count_tokens',
+            countTokensOpts,
+            this.anthropicCountTokens,
+        );
+
+        // Anthropic model listing — Claude Code's `gatewayDiscovery` probes
+        // `GET {base}/v1/models?limit=1000` against any non-first-party base
+        // URL and filters ids by `/(claude|anthropic)/i`. Unauthenticated,
+        // like the other model listings, and rendered in the Anthropic
+        // envelope so an unknown id 404s the way the real API does.
+        router.get(
+            '/puterai/anthropic/v1/models',
+            { ...publicOpts, errorRenderer: renderAnthropicError },
+            this.#anthropicModels,
+        );
+        router.get(
+            '/puterai/anthropic/v1/models/:id',
+            { ...publicOpts, errorRenderer: renderAnthropicError },
+            this.#anthropicModelById,
         );
 
         // Model listing — enumerate available models per AI service
@@ -327,20 +394,39 @@ export class PuterAIController extends PuterController {
 
         const completionId = `chatcmpl-${randomId()}`;
         const created = Math.floor(Date.now() / 1000);
+        const outputFormat = outputFormatFromResponseFormat(
+            body.response_format,
+        );
 
         const completeArgs: ICompleteArguments = {
-            messages: body.messages,
+            messages: mapDeveloperRoleToSystem(body.messages),
             model: toStringOrEmpty(body.model),
             stream,
             // This route does its own wire translation; pin the driver to the
             // provider-native shape so the release-date cutoff can't change
             // what the translators below receive.
             normalize: false,
+            streamToolInput: true,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(finiteMaxTokens(body.max_tokens) ?? {}),
+            ...(finiteMaxTokens(
+                body.max_tokens ?? body.max_completion_tokens,
+            ) ?? {}),
+            ...toolChoiceFromBody(body, 'chat'),
+            parallel_tool_calls:
+                body.parallel_tool_calls === undefined
+                    ? true
+                    : !!body.parallel_tool_calls,
+            ...stopSequencesFromBody(body),
+            ...(outputFormat ? { outputFormat } : {}),
+            ...(typeof body.reasoning_effort === 'string'
+                ? {
+                      reasoning_effort:
+                          body.reasoning_effort as ICompleteArguments['reasoning_effort'],
+                  }
+                : {}),
             ...openaiCompatProvider(body),
         };
 
@@ -352,13 +438,16 @@ export class PuterAIController extends PuterController {
             setSseHeaders(res);
 
             let buffer = '';
-            let usage: Record<string, unknown> | null = null;
+            let usageDetails: UsageDetails | undefined;
+            let finishReason: string | undefined;
             let toolCallIndex = 0;
             let sawToolCalls = false;
+            let errored = false;
+            const toolCallIndexById = new Map<string, number>();
 
             const sendChunk = (
                 delta: Record<string, unknown>,
-                finishReason: string | null = null,
+                reason: string | null = null,
                 extra: Record<string, unknown> = {},
             ): void => {
                 res.write(
@@ -372,7 +461,7 @@ export class PuterAIController extends PuterController {
                                 index: 0,
                                 delta,
                                 logprobs: null,
-                                finish_reason: finishReason,
+                                finish_reason: reason,
                             },
                         ],
                         ...extra,
@@ -385,39 +474,86 @@ export class PuterAIController extends PuterController {
                 (ev) => {
                     if (ev.type === 'text' && typeof ev.text === 'string') {
                         sendChunk({ content: ev.text });
-                    } else if (ev.type === 'tool_use') {
+                    } else if (ev.type === 'tool_use_start') {
                         sawToolCalls = true;
+                        const index = toolCallIndex++;
+                        toolCallIndexById.set(ev.id as string, index);
                         sendChunk({
                             tool_calls: [
                                 {
-                                    index: toolCallIndex++,
+                                    index,
                                     id: ev.id,
                                     type: 'function',
-                                    function: {
-                                        name: ev.name,
-                                        arguments:
-                                            typeof ev.input === 'string'
-                                                ? ev.input
-                                                : JSON.stringify(
-                                                      ev.input ?? {},
-                                                  ),
-                                    },
+                                    function: { name: ev.name, arguments: '' },
                                 },
                             ],
                         });
+                    } else if (ev.type === 'tool_input_delta') {
+                        const index = toolCallIndexById.get(ev.id as string);
+                        if (index !== undefined) {
+                            sendChunk({
+                                tool_calls: [
+                                    {
+                                        index,
+                                        function: { arguments: ev.partialJson },
+                                    },
+                                ],
+                            });
+                        }
+                    } else if (ev.type === 'tool_use') {
+                        // Incremental deltas already streamed this call via
+                        // tool_use_start/tool_input_delta above — nothing left
+                        // to send. Otherwise, this is the only chunk for it.
+                        if (!toolCallIndexById.has(ev.id as string)) {
+                            sawToolCalls = true;
+                            sendChunk({
+                                tool_calls: [
+                                    {
+                                        index: toolCallIndex++,
+                                        id: ev.id,
+                                        type: 'function',
+                                        function: {
+                                            name: ev.name,
+                                            arguments:
+                                                typeof ev.input === 'string'
+                                                    ? ev.input
+                                                    : JSON.stringify(
+                                                          ev.input ?? {},
+                                                      ),
+                                        },
+                                    },
+                                ],
+                            });
+                        }
                     } else if (ev.type === 'usage') {
-                        usage = ev.usage as Record<string, unknown>;
+                        usageDetails = ev.usageDetails as
+                            UsageDetails | undefined;
+                        finishReason = ev.finish_reason as string | undefined;
+                    } else if (ev.type === 'error') {
+                        errored = true;
+                        res.write(
+                            `data: ${JSON.stringify({
+                                error: {
+                                    message: ev.message ?? 'upstream error',
+                                    type: 'upstream_error',
+                                    code: ev.code ?? null,
+                                },
+                            })}\n\n`,
+                        );
+                        res.write('data: [DONE]\n\n');
+                        res.end();
                     }
                 },
                 {
                     onEnd: () => {
-                        const finishReason = sawToolCalls
-                            ? 'tool_calls'
-                            : 'stop';
+                        if (errored) return;
                         sendChunk(
                             {},
-                            finishReason,
-                            usage ? { usage: buildOpenAIUsage(usage) } : {},
+                            finishReason ??
+                                (sawToolCalls ? 'tool_calls' : 'stop'),
+                            usageDetails
+                                ? { usage: openaiUsage(usageDetails) }
+                                : {},
                         );
                         res.write('data: [DONE]\n\n');
                         res.end();
@@ -470,8 +606,9 @@ export class PuterAIController extends PuterController {
                         'stop',
                 },
             ],
-            usage: buildOpenAIUsage(
-                messageResult.usage as Record<string, unknown> | undefined,
+            usage: openaiUsage(
+                (messageResult as unknown as { usageDetails?: UsageDetails })
+                    .usageDetails,
             ),
         });
     };
@@ -510,11 +647,13 @@ export class PuterAIController extends PuterController {
             setSseHeaders(res);
 
             let buffer = '';
-            let usage: Record<string, unknown> | null = null;
+            let usageDetails: UsageDetails | undefined;
+            let finishReason: string | undefined;
+            let errored = false;
 
             const sendChunk = (
                 text: string,
-                finishReason: string | null = null,
+                reason: string | null = null,
                 extra: Record<string, unknown> = {},
             ): void => {
                 res.write(
@@ -528,7 +667,7 @@ export class PuterAIController extends PuterController {
                                 text,
                                 index: 0,
                                 logprobs: null,
-                                finish_reason: finishReason,
+                                finish_reason: reason,
                             },
                         ],
                         ...extra,
@@ -542,15 +681,33 @@ export class PuterAIController extends PuterController {
                     if (ev.type === 'text' && typeof ev.text === 'string') {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
-                        usage = ev.usage as Record<string, unknown>;
+                        usageDetails = ev.usageDetails as
+                            UsageDetails | undefined;
+                        finishReason = ev.finish_reason as string | undefined;
+                    } else if (ev.type === 'error') {
+                        errored = true;
+                        res.write(
+                            `data: ${JSON.stringify({
+                                error: {
+                                    message: ev.message ?? 'upstream error',
+                                    type: 'upstream_error',
+                                    code: ev.code ?? null,
+                                },
+                            })}\n\n`,
+                        );
+                        res.write('data: [DONE]\n\n');
+                        res.end();
                     }
                 },
                 {
                     onEnd: () => {
+                        if (errored) return;
                         sendChunk(
                             '',
-                            'stop',
-                            usage ? { usage: buildOpenAIUsage(usage) } : {},
+                            finishReason ?? 'stop',
+                            usageDetails
+                                ? { usage: openaiUsage(usageDetails) }
+                                : {},
                         );
                         res.write('data: [DONE]\n\n');
                         res.end();
@@ -585,8 +742,7 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                | Record<string, unknown>
-                                | undefined
+                                Record<string, unknown> | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -596,8 +752,9 @@ export class PuterAIController extends PuterController {
                         'stop',
                 },
             ],
-            usage: buildOpenAIUsage(
-                messageResult.usage as Record<string, unknown> | undefined,
+            usage: openaiUsage(
+                (messageResult as unknown as { usageDetails?: UsageDetails })
+                    .usageDetails,
             ),
         });
     };
@@ -621,6 +778,24 @@ export class PuterAIController extends PuterController {
             );
         }
 
+        // F4: these fields let a client reference OpenAI's own server-side
+        // conversation/response state across requests — something this
+        // backend doesn't hold or support. Reject up front rather than
+        // silently forwarding them to a session they can't actually resume.
+        const statefulField = (
+            [
+                'previous_response_id',
+                'conversation',
+                'prompt',
+                'background',
+            ] as const
+        ).find((key) => body[key] !== undefined && body[key] !== null);
+        if (statefulField) {
+            throw new HttpError(400, `\`${statefulField}\` is not supported`, {
+                legacyCode: 'bad_request',
+            });
+        }
+
         const messages: unknown[] = [
             ...(body.instructions
                 ? [{ role: 'system', content: body.instructions }]
@@ -634,11 +809,13 @@ export class PuterAIController extends PuterController {
             stream,
             // Pinned provider-native — this route translates the shape itself.
             normalize: false,
+            streamToolInput: true,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
-            ...(body.tool_choice ? { tool_choice: body.tool_choice } : {}),
-            ...(body.parallel_tool_calls !== undefined
-                ? { parallel_tool_calls: !!body.parallel_tool_calls }
-                : {}),
+            ...toolChoiceFromBody(body, 'responses'),
+            parallel_tool_calls:
+                body.parallel_tool_calls === undefined
+                    ? true
+                    : !!body.parallel_tool_calls,
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
@@ -665,7 +842,6 @@ export class PuterAIController extends PuterController {
             ...(body.metadata
                 ? { metadata: body.metadata as Record<string, string> }
                 : {}),
-            ...(body.conversation ? { conversation: body.conversation } : {}),
             ...(body.context_management !== undefined
                 ? { context_management: body.context_management }
                 : {}),
@@ -675,10 +851,6 @@ export class PuterAIController extends PuterController {
                           body.compaction as ICompleteArguments['compaction'],
                   }
                 : {}),
-            ...(body.previous_response_id
-                ? { previous_response_id: String(body.previous_response_id) }
-                : {}),
-            ...(body.prompt ? { prompt: body.prompt } : {}),
             ...(body.prompt_cache_key
                 ? { prompt_cache_key: String(body.prompt_cache_key) }
                 : {}),
@@ -688,15 +860,15 @@ export class PuterAIController extends PuterController {
                           body.prompt_cache_retention as ICompleteArguments['prompt_cache_retention'],
                   }
                 : {}),
-            ...(body.store !== undefined ? { store: !!body.store } : {}),
+            // F4: forced off regardless of what the caller sent — OpenAI
+            // defaults `store` to true, which would persist state server-side
+            // on OpenAI's end that this route gives no way to retrieve.
+            store: false,
             ...(body.truncation
                 ? {
                       truncation:
                           body.truncation as ICompleteArguments['truncation'],
                   }
-                : {}),
-            ...(body.background !== undefined
-                ? { background: !!body.background }
                 : {}),
             ...(body.service_tier
                 ? {
@@ -733,6 +905,16 @@ export class PuterAIController extends PuterController {
             let messageOutputIndex: number | null = null;
             const output: unknown[] = [];
             let textContent = '';
+            let errored = false;
+            const toolItemsById = new Map<
+                string,
+                {
+                    outputIndex: number;
+                    id: string;
+                    name: unknown;
+                    arguments: string;
+                }
+            >();
 
             const sendEvent = (event: Record<string, unknown>): void => {
                 res.write(`event: ${event.type}\n`);
@@ -795,49 +977,106 @@ export class PuterAIController extends PuterController {
                             content_index: 0,
                             delta: ev.text,
                         });
-                    } else if (ev.type === 'tool_use') {
-                        const item = {
-                            id:
-                                (ev.canonical_id as string | undefined) ||
-                                generateId('fc'),
+                    } else if (ev.type === 'tool_use_start') {
+                        const id = generateId('fc');
+                        const outputIndex = output.length;
+                        const entry = {
+                            outputIndex,
+                            id,
+                            name: ev.name,
+                            arguments: '',
+                        };
+                        toolItemsById.set(ev.id as string, entry);
+                        output.push({
+                            id,
                             type: 'function_call',
                             call_id: ev.id,
                             name: ev.name,
-                            arguments:
-                                typeof ev.input === 'string'
-                                    ? ev.input
-                                    : JSON.stringify(ev.input ?? {}),
-                            status: 'completed',
-                        };
-                        output.push(item);
-                        const outputIndex = output.length - 1;
+                            arguments: '',
+                            status: 'in_progress',
+                        });
                         sendEvent({
                             type: 'response.output_item.added',
                             output_index: outputIndex,
-                            item: {
-                                ...item,
-                                status: 'in_progress',
-                                arguments: '',
-                            },
+                            item: output[outputIndex],
                         });
-                        sendEvent({
-                            type: 'response.function_call_arguments.delta',
-                            output_index: outputIndex,
-                            item_id: item.id,
-                            delta: item.arguments,
-                        });
-                        sendEvent({
-                            type: 'response.function_call_arguments.done',
-                            output_index: outputIndex,
-                            item_id: item.id,
-                            name: item.name,
-                            arguments: item.arguments,
-                        });
-                        sendEvent({
-                            type: 'response.output_item.done',
-                            output_index: outputIndex,
-                            item,
-                        });
+                    } else if (ev.type === 'tool_input_delta') {
+                        const entry = toolItemsById.get(ev.id as string);
+                        if (entry) {
+                            entry.arguments += ev.partialJson as string;
+                            sendEvent({
+                                type: 'response.function_call_arguments.delta',
+                                output_index: entry.outputIndex,
+                                item_id: entry.id,
+                                delta: ev.partialJson,
+                            });
+                        }
+                    } else if (ev.type === 'tool_use') {
+                        const started = toolItemsById.get(ev.id as string);
+                        if (started) {
+                            // Already streamed incrementally above — finalize.
+                            const item = output[started.outputIndex] as Record<
+                                string,
+                                unknown
+                            >;
+                            item.status = 'completed';
+                            sendEvent({
+                                type: 'response.function_call_arguments.done',
+                                output_index: started.outputIndex,
+                                item_id: started.id,
+                                name: started.name,
+                                arguments: started.arguments,
+                            });
+                            sendEvent({
+                                type: 'response.output_item.done',
+                                output_index: started.outputIndex,
+                                item,
+                            });
+                        } else {
+                            // No prior start — the whole call in one chunk.
+                            const item = {
+                                id:
+                                    (ev.canonical_id as string | undefined) ||
+                                    generateId('fc'),
+                                type: 'function_call',
+                                call_id: ev.id,
+                                name: ev.name,
+                                arguments:
+                                    typeof ev.input === 'string'
+                                        ? ev.input
+                                        : JSON.stringify(ev.input ?? {}),
+                                status: 'completed',
+                            };
+                            output.push(item);
+                            const outputIndex = output.length - 1;
+                            sendEvent({
+                                type: 'response.output_item.added',
+                                output_index: outputIndex,
+                                item: {
+                                    ...item,
+                                    status: 'in_progress',
+                                    arguments: '',
+                                },
+                            });
+                            sendEvent({
+                                type: 'response.function_call_arguments.delta',
+                                output_index: outputIndex,
+                                item_id: item.id,
+                                delta: item.arguments,
+                            });
+                            sendEvent({
+                                type: 'response.function_call_arguments.done',
+                                output_index: outputIndex,
+                                item_id: item.id,
+                                name: item.name,
+                                arguments: item.arguments,
+                            });
+                            sendEvent({
+                                type: 'response.output_item.done',
+                                output_index: outputIndex,
+                                item,
+                            });
+                        }
                     } else if (ev.type === 'compaction') {
                         // Native shape in the final `output[]`, plus the
                         // canonical SSE event shared with the Anthropic surface.
@@ -863,13 +1102,26 @@ export class PuterAIController extends PuterController {
                             encrypted_content: ev.encrypted_content,
                         });
                     } else if (ev.type === 'usage') {
-                        usage = buildResponsesUsage(
-                            ev.usage as Record<string, unknown>,
+                        usage = responsesUsage(
+                            ev.usageDetails as UsageDetails | undefined,
                         );
+                    } else if (ev.type === 'error') {
+                        errored = true;
+                        sendEvent({
+                            type: 'error',
+                            error: {
+                                message: ev.message ?? 'upstream error',
+                                type: 'upstream_error',
+                                code: ev.code ?? null,
+                            },
+                        });
+                        res.write('data: [DONE]\n\n');
+                        res.end();
                     }
                 },
                 {
                     onEnd: () => {
+                        if (errored) return;
                         if (messageItem) {
                             messageItem.status = 'completed';
                             sendEvent({
@@ -932,8 +1184,9 @@ export class PuterAIController extends PuterController {
             IChatCompleteResult,
             { message?: unknown }
         >;
-        const usage = buildResponsesUsage(
-            messageResult.usage as Record<string, unknown> | undefined,
+        const usage = responsesUsage(
+            (messageResult as unknown as { usageDetails?: UsageDetails })
+                .usageDetails,
         );
         const outputItems = responseOutputFromResult(messageResult);
 
@@ -954,237 +1207,116 @@ export class PuterAIController extends PuterController {
 
     anthropicMessages = async (req: Request, res: Response): Promise<void> => {
         const body = asRecord(req.body);
-        const stream = !!body.stream;
-
-        if (!Array.isArray(body.messages)) {
-            throw new HttpError(
-                400,
-                '`messages` must be an array of chat messages',
-                { legacyCode: 'bad_request' },
-            );
-        }
-
-        const normalizedMessages = normalizeAnthropicMessages(
-            body.messages as unknown[],
-            body.system,
-        );
-        const tools = normalizeAnthropicTools(body.tools);
-
-        const completeArgs: ICompleteArguments = {
-            messages: normalizedMessages,
-            model: toStringOrEmpty(body.model),
-            stream,
-            // Pinned provider-native — this route translates the shape itself.
-            normalize: false,
-            ...(tools ? { tools } : {}),
-            ...(body.temperature !== undefined
-                ? { temperature: Number(body.temperature) }
-                : {}),
-            ...(finiteMaxTokens(body.max_tokens) ?? {}),
-            ...(body.context_management !== undefined
-                ? { context_management: body.context_management }
-                : {}),
-            ...(body.compaction !== undefined
-                ? {
-                      compaction:
-                          body.compaction as ICompleteArguments['compaction'],
-                  }
-                : {}),
-            // Pinned for the same reason as /openai/v1/responses: this route
-            // translates Anthropic's native shape and cannot take whatever
-            // the preferred healthy route happens to return.
-            ...(body.provider
-                ? { provider: toStringOrEmpty(body.provider) }
-                : { provider: DEFAULTS.anthropic }),
-        };
+        const args = parseAnthropicRequest(body, req.headers);
+        const requestId = anthropicRequestId();
+        res.setHeader('request-id', requestId);
 
         const messageId = `msg_${randomId()}`;
-        const result = await this.#complete(res, completeArgs);
-        const effectiveModel = completeArgs.model || '';
+        const result = await this.#complete(res, args);
+        const effectiveModel = args.model || '';
 
-        if (stream) {
+        if (args.stream) {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            const sendEvent = (
-                eventType: string,
-                data: Record<string, unknown>,
-            ): void => {
-                res.write(
-                    `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`,
-                );
-            };
-
-            // message_start
-            sendEvent('message_start', {
-                type: 'message_start',
-                message: {
-                    id: messageId,
-                    type: 'message',
-                    role: 'assistant',
-                    content: [],
-                    model: effectiveModel,
-                    stop_reason: null,
-                    stop_sequence: null,
-                    usage: { input_tokens: 0, output_tokens: 0 },
-                },
+            const sse = startSse(res, { ping: true });
+            const writer = new AnthropicSseWriter(sse, {
+                id: messageId,
+                model: effectiveModel,
+                requestId,
             });
+            writer.start();
 
             let buffer = '';
-            let usage: Record<string, unknown> | null = null;
-            let contentIndex = 0;
-            let blockOpen = false;
-            let sawToolCalls = false;
-
-            const openTextBlock = (): void => {
-                if (blockOpen) return;
-                sendEvent('content_block_start', {
-                    type: 'content_block_start',
-                    index: contentIndex,
-                    content_block: { type: 'text', text: '' },
-                });
-                blockOpen = true;
-            };
-            const closeBlock = (): void => {
-                if (!blockOpen) return;
-                sendEvent('content_block_stop', {
-                    type: 'content_block_stop',
-                    index: contentIndex,
-                });
-                blockOpen = false;
-                contentIndex++;
-            };
-
-            pipeNdjsonStream(
-                streamResult.stream,
-                (ev) => {
-                    if (ev.type === 'text' && typeof ev.text === 'string') {
-                        openTextBlock();
-                        sendEvent('content_block_delta', {
-                            type: 'content_block_delta',
-                            index: contentIndex,
-                            delta: { type: 'text_delta', text: ev.text },
+            pipeNdjsonStream(streamResult.stream, (ev) => writer.onChunk(ev), {
+                onEnd: () => {
+                    // A stream that ended with no usage chunk (shouldn't
+                    // happen from a real provider) still closes the
+                    // message instead of leaving the response hanging.
+                    if (!writer.ended)
+                        writer.onChunk({ type: 'usage', usage: {} });
+                },
+                onError: (err) => {
+                    if (!writer.ended) {
+                        writer.onChunk({
+                            type: 'error',
+                            message: err?.message ?? 'stream error',
                         });
-                    } else if (ev.type === 'tool_use') {
-                        sawToolCalls = true;
-                        closeBlock();
-                        sendEvent('content_block_start', {
-                            type: 'content_block_start',
-                            index: contentIndex,
-                            content_block: {
-                                type: 'tool_use',
-                                id: ev.id,
-                                name: ev.name,
-                                input: {},
-                            },
-                        });
-                        blockOpen = true;
-                        const inputStr =
-                            typeof ev.input === 'string'
-                                ? ev.input
-                                : JSON.stringify(ev.input ?? {});
-                        sendEvent('content_block_delta', {
-                            type: 'content_block_delta',
-                            index: contentIndex,
-                            delta: {
-                                type: 'input_json_delta',
-                                partial_json: inputStr,
-                            },
-                        });
-                        closeBlock();
-                    } else if (ev.type === 'compaction') {
-                        // Close any open content block, then emit the canonical
-                        // compaction SSE event — byte-identical to /responses.
-                        closeBlock();
-                        writeCompactionEvent(res, {
-                            id: ev.id,
-                            encrypted_content: ev.encrypted_content,
-                        });
-                    } else if (ev.type === 'usage') {
-                        usage = ev.usage as Record<string, unknown>;
                     }
                 },
-                {
-                    onEnd: () => {
-                        closeBlock();
-                        const stopReason = sawToolCalls
-                            ? 'tool_use'
-                            : 'end_turn';
-                        const resolvedUsage = buildAnthropicUsage(usage ?? {});
-                        sendEvent('message_delta', {
-                            type: 'message_delta',
-                            delta: {
-                                stop_reason: stopReason,
-                                stop_sequence: null,
-                            },
-                            usage: {
-                                output_tokens: resolvedUsage.output_tokens,
-                            },
-                        });
-                        sendEvent('message_stop', { type: 'message_stop' });
-                        res.end();
-                    },
-                    onError: (err) => {
-                        sendEvent('error', {
-                            type: 'error',
-                            error: {
-                                type: 'api_error',
-                                message: err?.message ?? 'stream error',
-                            },
-                        });
-                        res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
-                    },
+                getBuffer: () => buffer,
+                setBuffer: (v) => {
+                    buffer = v;
                 },
-            );
+            });
             return;
         }
 
-        const messageResult = result as Extract<
-            IChatCompleteResult,
-            { message?: unknown }
-        >;
-        const message = (messageResult.message ?? {}) as Record<
-            string,
-            unknown
-        >;
-        const toolUseBlocks = extractToolUseBlocks(message);
-        const textContent = extractTextContent(message.content);
+        const messageResult = result as unknown as IChatMessageResult;
+        res.json(
+            toAnthropicMessage(messageResult, {
+                id: messageId,
+                model: effectiveModel,
+            }),
+        );
+    };
 
-        const contentBlocks: Array<Record<string, unknown>> = [];
-        if (textContent)
-            contentBlocks.push({ type: 'text', text: textContent });
-        contentBlocks.push(...toolUseBlocks);
-        // Native Anthropic-shaped compaction block (non-streaming bodies stay
-        // provider-native, unlike the unified streaming event).
-        const compaction = (
-            messageResult as { compaction?: Record<string, unknown> }
-        ).compaction;
-        if (compaction) {
-            contentBlocks.push({
-                type: 'compaction',
-                ...(compaction.id !== undefined ? { id: compaction.id } : {}),
-                encrypted_content: compaction.encrypted_content,
+    // -- /anthropic/v1/messages/count_tokens --------------------------
+
+    anthropicCountTokens = async (
+        req: Request,
+        res: Response,
+    ): Promise<void> => {
+        const body = asRecord(req.body);
+        const args = parseAnthropicRequest(body, req.headers, {
+            countTokens: true,
+        });
+        const result = await this.#driver().countTokens(args);
+        res.setHeader('request-id', anthropicRequestId());
+        res.json(result);
+    };
+
+    // -- /anthropic/v1/models[/:id] ------------------------------------
+
+    async #claudeModels(): Promise<IChatModel[]> {
+        const driver = this.drivers.aiChat;
+        if (!driver?.models) return [];
+        const models = await driver.models();
+        return models.filter((m) => m.provider === 'claude');
+    }
+
+    #anthropicModels = async (req: Request, res: Response): Promise<void> => {
+        res.setHeader('request-id', anthropicRequestId());
+        const models = await this.#claudeModels();
+        const limit = Number(req.query.limit);
+        const sliced =
+            Number.isFinite(limit) && limit > 0
+                ? models.slice(0, limit)
+                : models;
+        res.json({
+            data: sliced.map(anthropicModelEntry),
+            has_more: sliced.length < models.length,
+            first_id: sliced[0]?.id ?? null,
+            last_id: sliced[sliced.length - 1]?.id ?? null,
+        });
+    };
+
+    #anthropicModelById = async (
+        req: Request,
+        res: Response,
+    ): Promise<void> => {
+        res.setHeader('request-id', anthropicRequestId());
+        const id = String(req.params.id ?? '');
+        const models = await this.#claudeModels();
+        const model = models.find(
+            (m) => m.id === id || (m.aliases ?? []).includes(id),
+        );
+        if (!model) {
+            throw new HttpError(404, `model: ${id}`, {
+                legacyCode: 'not_found',
             });
         }
-        if (contentBlocks.length === 0)
-            contentBlocks.push({ type: 'text', text: '' });
-
-        res.json({
-            id: messageId,
-            type: 'message',
-            role: 'assistant',
-            content: contentBlocks,
-            model: effectiveModel,
-            stop_reason: toolUseBlocks.length > 0 ? 'tool_use' : 'end_turn',
-            stop_sequence: null,
-            usage: buildAnthropicUsage(
-                messageResult.usage as Record<string, unknown> | undefined,
-            ),
-        });
+        res.json(anthropicModelEntry(model));
     };
 
     // -- Internals ---------------------------------------------------
@@ -1213,7 +1345,6 @@ export class PuterAIController extends PuterController {
 const DEFAULTS = {
     openaiChat: 'openai-completion',
     openaiResponses: 'openai-responses',
-    anthropic: 'claude',
 } as const;
 
 /** Test-only chat models, kept out of the public listings. */
@@ -1255,6 +1386,38 @@ const finiteMaxTokens = (v: unknown): { max_tokens: number } | undefined => {
     if (v === undefined) return undefined;
     const n = Number(v);
     return Number.isFinite(n) ? { max_tokens: n } : undefined;
+};
+
+/**
+ * `role: 'developer'` is OpenAI's newer spelling of a system message (reasoning
+ * models); our driver vocabulary only knows `system`.
+ */
+const mapDeveloperRoleToSystem = (messages: unknown[]): unknown[] =>
+    messages.map((m) => {
+        if (!m || typeof m !== 'object') return m;
+        const msg = m as Record<string, unknown>;
+        return msg.role === 'developer' ? { ...msg, role: 'system' } : msg;
+    });
+
+/** `body.tool_choice` (OpenAI wire) → the normalized `ToolChoice`, if set. */
+const toolChoiceFromBody = (
+    body: Record<string, unknown>,
+    dialect: 'chat' | 'responses',
+): { tool_choice?: ICompleteArguments['tool_choice'] } => {
+    if (body.tool_choice === undefined) return {};
+    const tc = toolChoiceFromWire(body.tool_choice, dialect);
+    return tc ? { tool_choice: tc } : {};
+};
+
+/** `body.stop` (string or string[]) → the normalized `stopSequences`. */
+const stopSequencesFromBody = (
+    body: Record<string, unknown>,
+): { stopSequences?: string[] } => {
+    if (Array.isArray(body.stop)) {
+        return body.stop.length ? { stopSequences: body.stop.map(String) } : {};
+    }
+    if (typeof body.stop === 'string') return { stopSequences: [body.stop] };
+    return {};
 };
 
 const setSseHeaders = (res: Response): void => {
@@ -1392,53 +1555,56 @@ const normalizeToolCallsFromContent = (
     return toolCalls.length ? toolCalls : undefined;
 };
 
-const buildOpenAIUsage = (
-    usage: Record<string, unknown> | undefined,
-): Record<string, number> => {
-    const u = usage ?? {};
-    const promptTokens = Number(u.prompt_tokens ?? u.input_tokens ?? 0);
-    const completionTokens = Number(
-        u.completion_tokens ?? u.output_tokens ?? 0,
-    );
+/**
+ * `UsageDetails` → the OpenAI Chat Completions `usage` shape. Cache reads and
+ * cache writes count toward `prompt_tokens` (OpenAI reports them as a _subset_
+ * of it, unlike Anthropic's separate counters), with the cached slice broken
+ * back out under `prompt_tokens_details`.
+ */
+const openaiUsage = (d: UsageDetails | undefined): Record<string, unknown> => {
+    if (!d) return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    const cacheRead = d.cacheReadTokens ?? 0;
+    const cacheWrite =
+        (d.cacheWrite5mTokens ?? 0) + (d.cacheWrite1hTokens ?? 0);
+    const promptTokens = d.inputTokens + cacheRead + cacheWrite;
     return {
         prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        total_tokens: promptTokens + completionTokens,
+        completion_tokens: d.outputTokens,
+        total_tokens: promptTokens + d.outputTokens,
+        prompt_tokens_details: { cached_tokens: cacheRead },
+        ...(d.reasoningTokens !== undefined
+            ? {
+                  completion_tokens_details: {
+                      reasoning_tokens: d.reasoningTokens,
+                  },
+              }
+            : {}),
     };
 };
 
-const buildAnthropicUsage = (
-    usage: Record<string, unknown> | undefined,
-): { input_tokens: number; output_tokens: number } => {
-    const u = usage ?? {};
-    return {
-        input_tokens: Number(u.input_tokens ?? u.prompt_tokens ?? 0),
-        output_tokens: Number(u.output_tokens ?? u.completion_tokens ?? 0),
-    };
-};
-
-const buildResponsesUsage = (
-    usage: Record<string, unknown> | undefined,
+/** `UsageDetails` → the OpenAI Responses `usage` shape. */
+const responsesUsage = (
+    d: UsageDetails | undefined,
 ): Record<string, unknown> => {
-    const u = usage ?? {};
-    const inputTokens = Number(u.prompt_tokens ?? u.input_tokens ?? 0);
-    const outputTokens = Number(u.completion_tokens ?? u.output_tokens ?? 0);
-    const inputDetails =
-        (u.input_tokens_details as Record<string, unknown> | undefined) ?? {};
-    const outputDetails =
-        (u.output_tokens_details as Record<string, unknown> | undefined) ?? {};
+    if (!d) {
+        return {
+            input_tokens: 0,
+            input_tokens_details: { cached_tokens: 0 },
+            output_tokens: 0,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 0,
+        };
+    }
+    const cacheRead = d.cacheReadTokens ?? 0;
+    const cacheWrite =
+        (d.cacheWrite5mTokens ?? 0) + (d.cacheWrite1hTokens ?? 0);
+    const inputTokens = d.inputTokens + cacheRead + cacheWrite;
     return {
         input_tokens: inputTokens,
-        input_tokens_details: {
-            cached_tokens: Number(
-                u.cached_tokens ?? inputDetails.cached_tokens ?? 0,
-            ),
-        },
-        output_tokens: outputTokens,
-        output_tokens_details: {
-            reasoning_tokens: Number(outputDetails.reasoning_tokens ?? 0),
-        },
-        total_tokens: inputTokens + outputTokens,
+        input_tokens_details: { cached_tokens: cacheRead },
+        output_tokens: d.outputTokens,
+        output_tokens_details: { reasoning_tokens: d.reasoningTokens ?? 0 },
+        total_tokens: inputTokens + d.outputTokens,
     };
 };
 
@@ -1686,7 +1852,10 @@ const createResponseShell = ({
         )
         .map((part) => String(part.text ?? ''))
         .join(''),
-    parallel_tool_calls: body.parallel_tool_calls ?? false,
+    // The OpenAI routes default parallel tool use ON (unlike the legacy
+    // puter.js/Claude default), so the echoed shell matches what the driver
+    // actually ran with.
+    parallel_tool_calls: body.parallel_tool_calls ?? true,
     temperature: body.temperature ?? null,
     tool_choice: body.tool_choice ?? 'auto',
     tools: Array.isArray(body.tools)
@@ -1696,10 +1865,9 @@ const createResponseShell = ({
     ...(body.max_output_tokens !== undefined
         ? { max_output_tokens: body.max_output_tokens }
         : {}),
-    ...(body.previous_response_id
-        ? { previous_response_id: body.previous_response_id }
-        : {}),
-    ...(body.store !== undefined ? { store: body.store } : {}),
+    // F4: always false — this route never persists state upstream,
+    // whatever the caller asked for.
+    store: false,
     ...(body.text ? { text: body.text } : {}),
     ...(body.truncation ? { truncation: body.truncation } : {}),
     ...(usage ? { usage } : {}),
@@ -1712,160 +1880,12 @@ const normalizeResponsesTool = (tool: unknown): unknown => {
     return { ...(t.function as Record<string, unknown>), type: 'function' };
 };
 
-// -- Anthropic → internal messages -----------------------------------
+// -- Anthropic model listing -------------------------------------------
 
-const normalizeAnthropicTools = (tools: unknown): unknown[] | undefined => {
-    if (!Array.isArray(tools) || tools.length === 0) return undefined;
-    return tools.map((t) => {
-        if (!t || typeof t !== 'object') return t;
-        const tt = t as Record<string, unknown>;
-        if (tt.type === 'function' && tt.function) return tt;
-        return {
-            type: 'function',
-            function: {
-                name: tt.name,
-                description: tt.description || '',
-                parameters: tt.input_schema || {
-                    type: 'object',
-                    properties: {},
-                },
-            },
-        };
-    });
-};
-
-const normalizeAnthropicMessages = (
-    messages: unknown[],
-    system: unknown,
-): unknown[] => {
-    const result: unknown[] = [];
-
-    if (system) {
-        if (typeof system === 'string') {
-            result.push({ role: 'system', content: system });
-        } else if (Array.isArray(system)) {
-            const text = system
-                .map((s) => {
-                    if (typeof s === 'string') return s;
-                    if (
-                        s &&
-                        typeof s === 'object' &&
-                        typeof (s as Record<string, unknown>).text === 'string'
-                    ) {
-                        return String((s as Record<string, unknown>).text);
-                    }
-                    return '';
-                })
-                .join('\n');
-            if (text) result.push({ role: 'system', content: text });
-        }
-    }
-
-    for (const msg of messages) {
-        if (!msg || typeof msg !== 'object') continue;
-        const m = msg as Record<string, unknown>;
-        if (m.role === 'user' && Array.isArray(m.content)) {
-            const toolResults: Array<Record<string, unknown>> = [];
-            const otherParts: unknown[] = [];
-            for (const part of m.content) {
-                if (
-                    part &&
-                    typeof part === 'object' &&
-                    (part as Record<string, unknown>).type === 'tool_result'
-                ) {
-                    toolResults.push(part as Record<string, unknown>);
-                } else {
-                    otherParts.push(part);
-                }
-            }
-            if (otherParts.length > 0) {
-                result.push({ role: 'user', content: otherParts });
-            }
-            for (const tr of toolResults) {
-                let contentStr = '';
-                if (typeof tr.content === 'string') {
-                    contentStr = tr.content;
-                } else if (Array.isArray(tr.content)) {
-                    contentStr = tr.content
-                        .map((p) => {
-                            if (typeof p === 'string') return p;
-                            if (
-                                p &&
-                                typeof p === 'object' &&
-                                typeof (p as Record<string, unknown>).text ===
-                                    'string'
-                            ) {
-                                return String(
-                                    (p as Record<string, unknown>).text,
-                                );
-                            }
-                            return '';
-                        })
-                        .join('');
-                }
-                result.push({
-                    role: 'tool',
-                    tool_call_id: tr.tool_use_id,
-                    content: contentStr,
-                });
-            }
-            if (otherParts.length === 0 && toolResults.length > 0) continue;
-            if (toolResults.length > 0) continue;
-        }
-        result.push(m);
-    }
-
-    return result;
-};
-
-const extractToolUseBlocks = (
-    message: Record<string, unknown>,
-): Array<Record<string, unknown>> => {
-    const blocks: Array<Record<string, unknown>> = [];
-
-    const toolCalls = message.tool_calls;
-    if (Array.isArray(toolCalls)) {
-        for (const tc of toolCalls) {
-            if (!tc || typeof tc !== 'object') continue;
-            const t = tc as Record<string, unknown>;
-            const fn =
-                (t.function as Record<string, unknown> | undefined) ?? {};
-            blocks.push({
-                type: 'tool_use',
-                id: t.id,
-                name: fn.name ?? '',
-                input:
-                    typeof fn.arguments === 'string'
-                        ? safeParseJson(fn.arguments)
-                        : (fn.arguments ?? {}),
-            });
-        }
-    }
-
-    if (Array.isArray(message.content)) {
-        for (const part of message.content) {
-            if (!part || typeof part !== 'object') continue;
-            const p = part as Record<string, unknown>;
-            if (p.type !== 'tool_use') continue;
-            blocks.push({
-                type: 'tool_use',
-                id: p.id,
-                name: p.name,
-                input:
-                    typeof p.input === 'string'
-                        ? safeParseJson(p.input)
-                        : (p.input ?? {}),
-            });
-        }
-    }
-
-    return blocks;
-};
-
-const safeParseJson = (s: string): unknown => {
-    try {
-        return JSON.parse(s);
-    } catch {
-        return {};
-    }
-};
+/** A Claude catalog entry → the Anthropic `/v1/models` wire shape. */
+const anthropicModelEntry = (model: IChatModel): Record<string, unknown> => ({
+    type: 'model',
+    id: model.id,
+    display_name: typeof model.name === 'string' ? model.name : model.id,
+    created_at: model.release_date ? `${model.release_date}T00:00:00Z` : null,
+});

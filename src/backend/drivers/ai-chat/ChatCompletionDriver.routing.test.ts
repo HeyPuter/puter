@@ -559,7 +559,7 @@ describe('ChatCompletionDriver timeout classification across the chain', () => {
         const err = await completeShared();
 
         expect(err).toMatchObject({
-            statusCode: 400,
+            statusCode: 502,
             legacyCode: 'upstream_failed',
         });
     });

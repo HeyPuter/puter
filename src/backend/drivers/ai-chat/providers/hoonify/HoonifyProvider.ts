@@ -22,7 +22,9 @@ import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { openAICompatParams } from '../../utils/openaiParams.js';
 import { HOONIFY_MODELS } from './models.js';
 
 type HoonifyConfig = {
@@ -85,15 +87,8 @@ export class HoonifyProvider implements IChatProvider {
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
-        const {
-            custom,
-            max_tokens,
-            stream,
-            temperature,
-            tools,
-            tool_choice,
-            top_p,
-        } = params;
+        const { custom, max_tokens, stream, temperature, tools, top_p } =
+            params;
         let { messages } = params;
         const { model } = params;
         const actor = Context.get('actor');
@@ -103,21 +98,21 @@ export class HoonifyProvider implements IChatProvider {
                 [m.id, ...(m.aliases || [])].includes(model),
             ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
 
+        // Anthropic-style shape (cache_control, thinking/server-tool blocks)
+        // is not part of Hoonify's OpenAI-compatible surface — drop it rather
+        // than risk a 400.
+        messages = OpenAIUtil.toOpenAIChatMessages(messages);
         messages = await OpenAIUtil.process_input_messages(messages);
-        // Anthropic-style cache_control is not part of Hoonify's
-        // OpenAI-compatible surface — drop it rather than risk a 400.
-        messages = messages.map((message) => {
-            delete message.cache_control;
-            return message;
-        });
 
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
         const customParams = asRecord(custom) as HoonifyCustomParams;
 
         const completionParams: ChatCompletionCreateParams = {
             messages,
             model: modelUsed.wireId,
-            ...(tools ? { tools } : {}),
-            ...(tool_choice !== undefined ? { tool_choice } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined ? { max_tokens } : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
@@ -131,7 +126,8 @@ export class HoonifyProvider implements IChatProvider {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-        } as ChatCompletionCreateParams;
+            ...openAICompatParams(params, 'chat'),
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openai.chat.completions.create(completionParams);

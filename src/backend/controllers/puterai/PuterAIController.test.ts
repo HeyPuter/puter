@@ -88,12 +88,15 @@ interface CapturedResponse {
 const makeReq = (init: {
     body?: unknown;
     query?: Record<string, unknown>;
+    params?: Record<string, string>;
+    headers?: Record<string, string>;
     actor?: Actor;
 }): Request =>
     ({
         body: init.body ?? {},
         query: init.query ?? {},
-        headers: {},
+        params: init.params ?? {},
+        headers: init.headers ?? {},
         actor: init.actor,
     }) as unknown as Request;
 
@@ -183,6 +186,9 @@ describe('PuterAIController.registerRoutes', () => {
                 'post /puterai/openai/v1/completions',
                 'post /puterai/openai/v1/responses',
                 'post /puterai/anthropic/v1/messages',
+                'post /puterai/anthropic/v1/messages/count_tokens',
+                'get /puterai/anthropic/v1/models',
+                'get /puterai/anthropic/v1/models/:id',
                 'get /puterai/chat/models',
                 'get /puterai/chat/models/details',
                 'get /puterai/image/models',
@@ -230,8 +236,57 @@ describe('PuterAIController.registerRoutes', () => {
                     scope: 'driver:puter-chat-completion:complete',
                     key: expect.any(Function),
                 },
+                // Every error on these routes — including the gate
+                // failures above — is rendered in the vendor's own
+                // envelope, so a client built against the real SDK
+                // parses ours the same way.
+                errorRenderer: expect.any(Function),
             });
         }
+        // count_tokens: the shared user-credential gates, its own (more
+        // generous) rate limit, and no concurrency gate — there is no
+        // long-lived upstream call to bound a slot for.
+        const countTokensRoute = calls.find(
+            (c) => c.path === '/puterai/anthropic/v1/messages/count_tokens',
+        );
+        expect(countTokensRoute?.opts).toEqual({
+            subdomain: 'api',
+            requireUserActor: true,
+            allowFullAccessToken: true,
+            noUserSession: true,
+            requireVerified: true,
+            requireSubscription: true,
+            rateLimit: {
+                scope: 'puterai-count-tokens',
+                limit: 120,
+                window: 60_000,
+                key: expect.any(Function),
+            },
+            errorRenderer: expect.any(Function),
+        });
+        expect(countTokensRoute?.opts).not.toHaveProperty('concurrent');
+
+        // The Anthropic model listings are unauthenticated like the other
+        // catalogues, but rendered in the Anthropic envelope so an unknown
+        // id 404s the way the real API does.
+        for (const path of [
+            '/puterai/anthropic/v1/models',
+            '/puterai/anthropic/v1/models/:id',
+        ]) {
+            const route = calls.find((c) => c.path === path);
+            expect(route?.opts).toEqual({
+                subdomain: 'api',
+                requireAuth: false,
+                rateLimit: {
+                    scope: 'puterai-models',
+                    limit: 3_000,
+                    window: 60_000,
+                    key: 'ip',
+                },
+                errorRenderer: expect.any(Function),
+            });
+        }
+
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
         );
@@ -274,6 +329,8 @@ describe('PuterAIController.registerRoutes', () => {
             '/puterai/video/models',
             '/puterai/video/models/details',
             '/puterai/video/proxy',
+            '/puterai/anthropic/v1/models',
+            '/puterai/anthropic/v1/models/:id',
         ];
         for (const path of openPaths) {
             const route = calls.find((c) => c.path === path);
@@ -349,6 +406,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
             message: { role: 'assistant', content: 'hi there' },
             finish_reason: 'stop',
             usage: { prompt_tokens: 4, completion_tokens: 2 },
+            usageDetails: { inputTokens: 4, outputTokens: 2 },
         });
 
         const { res, captured } = makeRes();
@@ -393,6 +451,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
             prompt_tokens: 4,
             completion_tokens: 2,
             total_tokens: 6,
+            prompt_tokens_details: { cached_tokens: 0 },
         });
         // id is generated as `chatcmpl-<hex>`; just sanity-check the prefix.
         expect(typeof body.id).toBe('string');
@@ -487,6 +546,198 @@ describe('PuterAIController.openaiChatCompletions', () => {
         expect(out).toContain('"content":"he"');
         expect(out).toContain('"content":"llo"');
         expect(out).toContain('"finish_reason":"stop"');
+        expect(out.endsWith('data: [DONE]\n\n')).toBe(true);
+        expect(captured.ended).toBe(true);
+    });
+
+    it('maps role:developer to role:system and max_completion_tokens to max_tokens', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [
+                        { role: 'developer', content: 'be terse' },
+                        { role: 'user', content: 'hi' },
+                    ],
+                    max_completion_tokens: 128,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        const completeArgs = completeSpy.mock.calls[0]![0];
+        expect(completeArgs.messages[0]).toEqual({
+            role: 'system',
+            content: 'be terse',
+        });
+        expect(completeArgs.max_tokens).toBe(128);
+    });
+
+    it('maps tool_choice/stop/response_format/reasoning_effort to the normalized shape', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    tool_choice: { type: 'function', function: { name: 'lookup' } },
+                    stop: ['STOP'],
+                    response_format: {
+                        type: 'json_schema',
+                        json_schema: {
+                            name: 'answer',
+                            schema: { type: 'object' },
+                        },
+                    },
+                    reasoning_effort: 'high',
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        const completeArgs = completeSpy.mock.calls[0]![0];
+        expect(completeArgs.tool_choice).toEqual({ type: 'tool', name: 'lookup' });
+        expect(completeArgs.stopSequences).toEqual(['STOP']);
+        expect(completeArgs.outputFormat).toEqual({
+            type: 'json_schema',
+            name: 'answer',
+            schema: { type: 'object' },
+        });
+        expect(completeArgs.reasoning_effort).toBe('high');
+    });
+
+    it('defaults parallel_tool_calls to true when the caller omits it', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        expect(completeSpy.mock.calls[0]![0].parallel_tool_calls).toBe(true);
+    });
+
+    it('streams incremental tool_call deltas via tool_use_start/tool_input_delta', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'tool_use_start', id: 'call_1', name: 'lookup' },
+                { type: 'tool_input_delta', id: 'call_1', partialJson: '{"q":' },
+                { type: 'tool_input_delta', id: 'call_1', partialJson: '"hi"}' },
+                {
+                    type: 'tool_use',
+                    id: 'call_1',
+                    name: 'lookup',
+                    input: { q: 'hi' },
+                },
+                {
+                    type: 'usage',
+                    usage: { prompt_tokens: 1, completion_tokens: 1 },
+                    finish_reason: 'tool_calls',
+                },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const frames = captured.written
+            .join('')
+            .split('\n\n')
+            .filter((f) => f.startsWith('data: ') && !f.includes('[DONE]'))
+            .map((f) => JSON.parse(f.slice(6)));
+        const toolCallFrames = frames.filter(
+            (f) => f.choices[0].delta.tool_calls !== undefined,
+        );
+        // start: id+name, no arguments yet; two deltas; the final `tool_use`
+        // chunk emits nothing more since it was already streamed.
+        expect(toolCallFrames).toHaveLength(3);
+        expect(toolCallFrames[0].choices[0].delta.tool_calls[0]).toEqual({
+            index: 0,
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'lookup', arguments: '' },
+        });
+        expect(toolCallFrames[1].choices[0].delta.tool_calls[0]).toEqual({
+            index: 0,
+            function: { arguments: '{"q":' },
+        });
+        expect(toolCallFrames[2].choices[0].delta.tool_calls[0]).toEqual({
+            index: 0,
+            function: { arguments: '"hi"}' },
+        });
+        expect(frames[frames.length - 1].choices[0].finish_reason).toBe(
+            'tool_calls',
+        );
+    });
+
+    it('emits an OpenAI error event (no finish chunk) on a mid-stream error chunk', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'text', text: 'partial' },
+                {
+                    type: 'error',
+                    message: 'upstream overloaded',
+                    code: 'upstream_overloaded',
+                    status: 529,
+                },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const out = captured.written.join('');
+        expect(out).toContain('"message":"upstream overloaded"');
+        expect(out).toContain('"type":"upstream_error"');
+        // No finish chunk was ever sent for this run — the stream ended on
+        // the error, not a `stop`/`tool_calls` completion.
+        expect(out).not.toContain('"finish_reason":"stop"');
+        expect(out).not.toContain('"finish_reason":"tool_calls"');
         expect(out.endsWith('data: [DONE]\n\n')).toBe(true);
         expect(captured.ended).toBe(true);
     });
@@ -677,11 +928,48 @@ describe('PuterAIController.openaiResponses', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    // F4: previous_response_id / conversation / prompt / background reference
+    // OpenAI's own server-side state, which this route can't hold or honor.
+    it.each([
+        ['previous_response_id', 'resp_abc'],
+        ['conversation', 'conv_1'],
+        ['prompt', { id: 'p_1' }],
+        ['background', true],
+    ] as const)('rejects `%s` with HttpError 400 (F4)', async (key, value) => {
+        const { res } = makeRes();
+        await expect(
+            controller.openaiResponses(
+                makeReq({
+                    body: { model: 'gpt-test', input: 'hi', [key]: value },
+                    actor: makeUserActor(),
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('forces store:false regardless of what the caller requested (F4)', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'hi', store: true },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        expect(completeSpy.mock.calls[0]![0].store).toBe(false);
+    });
+
     it('shapes a non-stream completion as an OpenAI Responses object with output_text', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'final answer' },
             finish_reason: 'stop',
             usage: { prompt_tokens: 5, completion_tokens: 3 },
+            usageDetails: { inputTokens: 5, outputTokens: 3 },
         });
 
         const { res, captured } = makeRes();
@@ -748,7 +1036,7 @@ describe('PuterAIController.anthropicMessages', () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'hi there' },
             finish_reason: 'stop',
-            usage: { prompt_tokens: 4, completion_tokens: 2 },
+            usageDetails: { inputTokens: 4, outputTokens: 2 },
         });
 
         const { res, captured } = makeRes();
@@ -765,10 +1053,11 @@ describe('PuterAIController.anthropicMessages', () => {
         );
 
         const completeArgs = completeSpy.mock.calls[0]![0];
-        // Anthropic-style `system` is hoisted into a system-role message.
+        // A string `system` becomes a single text block, as its own
+        // leading system-role message — never a bare string.
         expect(completeArgs.messages[0]).toEqual({
             role: 'system',
-            content: 'be helpful',
+            content: [{ type: 'text', text: 'be helpful' }],
         });
         expect(completeArgs.provider).toBe('claude');
         expect(completeArgs.normalize).toBe(false);
@@ -780,11 +1069,112 @@ describe('PuterAIController.anthropicMessages', () => {
         // Anthropic content is an array of typed blocks.
         expect(body.content).toEqual([{ type: 'text', text: 'hi there' }]);
         // Anthropic usage: input_tokens / output_tokens (not prompt/completion).
-        expect(body.usage).toEqual({
+        expect(body.usage).toMatchObject({
             input_tokens: 4,
             output_tokens: 2,
         });
         expect((body.id as string).startsWith('msg_')).toBe(true);
+        expect(captured.headers['request-id']).toMatch(/^req_/);
+    });
+
+    it('rejects a request carrying `thread` with the exact Unexpected-value(s) message', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.anthropicMessages(
+                makeReq({
+                    body: {
+                        model: 'claude-test',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        thread: { type: 'create' },
+                    },
+                    actor: makeUserActor(),
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining(
+                'Unexpected value(s) `message-threads-2026-08-12` for the `anthropic-beta` header',
+            ),
+        });
+    });
+
+    it('rejects a message-threads anthropic-beta header, naming the header value', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.anthropicMessages(
+                makeReq({
+                    body: {
+                        model: 'claude-test',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    },
+                    headers: { 'anthropic-beta': 'message-threads-2026-08-12' },
+                    actor: makeUserActor(),
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining(
+                'Unexpected value(s) `message-threads-2026-08-12`',
+            ),
+        });
+    });
+
+    it('rejects `mcp_servers` with 400 "mcp_servers: not supported"', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.anthropicMessages(
+                makeReq({
+                    body: {
+                        model: 'claude-test',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        mcp_servers: [{ type: 'url', url: 'https://evil.example' }],
+                    },
+                    actor: makeUserActor(),
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'mcp_servers: not supported',
+        });
+    });
+
+    it('keeps a Claude-Code-style attribution header as its own, unmerged first system block', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+        });
+        const header =
+            'x-anthropic-billing-header: cc_version=2.1.289; cc_entrypoint=cli;';
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    system: [
+                        { type: 'text', text: header },
+                        { type: 'text', text: 'You are a coding agent.' },
+                    ],
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+        const msgs = completeSpy.mock.calls[0]![0].messages as Array<{
+            role: string;
+            content: unknown;
+        }>;
+        // Exactly the two blocks, in order, untouched — never merged into one
+        // string and never reordered.
+        expect(msgs[0]).toEqual({
+            role: 'system',
+            content: [
+                { type: 'text', text: header },
+                { type: 'text', text: 'You are a coding agent.' },
+            ],
+        });
     });
 
     it('translates assistant tool_calls into Anthropic tool_use blocks and stop_reason=tool_use', async () => {
@@ -1478,6 +1868,206 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
         expect(out).toContain('"stop_reason":"tool_use"');
     });
 
+    it('drives the full event sequence: text → signed thinking → incremental tool_use → server_tool → message_delta with stop/usage/safeguard_results', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'text', text: 'checking' },
+                { type: 'reasoning_start', format: 'anthropic' },
+                { type: 'reasoning', reasoning: 'thinking it over' },
+                {
+                    type: 'reasoning_detail',
+                    detail: {
+                        type: 'thinking',
+                        thinking: 'thinking it over',
+                        signature: 'sig123',
+                    },
+                },
+                { type: 'tool_use_start', id: 'tu_1', name: 'Bash' },
+                { type: 'tool_input_delta', id: 'tu_1', partialJson: '{"cmd":' },
+                { type: 'tool_input_delta', id: 'tu_1', partialJson: '"ls"}' },
+                { type: 'tool_use', id: 'tu_1', name: 'Bash', input: { cmd: 'ls' } },
+                {
+                    type: 'server_tool',
+                    block: {
+                        type: 'server_tool_use',
+                        id: 'srvtoolu_1',
+                        name: 'web_search',
+                        input: { query: 'puter' },
+                    },
+                },
+                { type: 'safeguard_results', results: [{ type: 'dangerous_tool_use' }] },
+                {
+                    type: 'usage',
+                    stopReason: 'tool_use',
+                    usageDetails: { inputTokens: 10, outputTokens: 5 },
+                },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'run ls' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const frames = captured.written.join('').split('\n\n').filter(Boolean);
+        const eventTypes = frames.map((f) => f.split('\n')[0]!.replace('event: ', ''));
+        expect(eventTypes).toEqual([
+            'message_start',
+            'content_block_start', // text
+            'content_block_delta', // text_delta
+            'content_block_stop',
+            'content_block_start', // thinking
+            'content_block_delta', // thinking_delta
+            'content_block_delta', // signature_delta
+            'content_block_stop',
+            'content_block_start', // tool_use
+            'content_block_delta', // input_json_delta
+            'content_block_delta', // input_json_delta
+            'content_block_stop',
+            'content_block_start', // server_tool_use
+            'content_block_delta', // input_json_delta
+            'content_block_stop',
+            'message_delta',
+            'message_stop',
+        ]);
+
+        const out = captured.written.join('');
+        expect(out).toContain('"type":"thinking"');
+        expect(out).toContain('"signature":"sig123"');
+        expect(out).toContain('"type":"server_tool_use"');
+        const deltaFrame = frames.find((f) => f.startsWith('event: message_delta'))!;
+        const deltaData = JSON.parse(deltaFrame.split('\ndata: ')[1]!);
+        expect(deltaData.delta.stop_reason).toBe('tool_use');
+        expect(deltaData.delta.safeguard_results).toEqual([
+            { type: 'dangerous_tool_use' },
+        ]);
+        expect(deltaData.usage.input_tokens).toBe(10);
+        expect(deltaData.usage.output_tokens).toBe(5);
+    });
+
+    it('drops unsigned reasoning deltas (no preceding reasoning_start) — never opens a thinking block', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'reasoning', reasoning: 'stray, from a fallback provider' },
+                { type: 'text', text: 'hi' },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const out = captured.written.join('');
+        expect(out).not.toContain('"type":"thinking"');
+        expect(out).not.toContain('thinking_delta');
+    });
+
+    it('an in-band error chunk writes event: error with no message_delta/message_stop', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'text', text: 'partial' },
+                { type: 'error', message: 'upstream overloaded', status: 529 },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const out = captured.written.join('');
+        expect(out).not.toContain('event: message_delta');
+        expect(out).not.toContain('event: message_stop');
+        expect(out).toContain('event: error');
+        expect(out).toContain('"type":"overloaded_error"');
+        expect(captured.ended).toBe(true);
+    });
+
+    it('sends an Anthropic keepalive ping after 15s of stream idle', async () => {
+        vi.useFakeTimers();
+        try {
+            let push: ((line: string) => void) | undefined;
+            let endStream: (() => void) | undefined;
+            const slowStream = new Readable({
+                read() {},
+            });
+            push = (line: string) => slowStream.push(`${line}\n`);
+            endStream = () => slowStream.push(null);
+
+            stubChatComplete({
+                dataType: 'stream',
+                content_type: 'application/x-ndjson',
+                stream: slowStream as unknown as NodeJS.ReadableStream,
+            });
+
+            const { res, captured } = makeRes();
+            const done = controller.anthropicMessages(
+                makeReq({
+                    body: {
+                        model: 'claude-test',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        stream: true,
+                    },
+                    actor: makeUserActor(),
+                }),
+                res,
+            );
+            await done;
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(
+                captured.written.some((w) => w.includes('event: ping')),
+            ).toBe(false);
+            await vi.advanceTimersByTimeAsync(16_000);
+            expect(
+                captured.written.some((w) => w.includes('event: ping')),
+            ).toBe(true);
+
+            push(JSON.stringify({ type: 'text', text: 'hi' }));
+            push(
+                JSON.stringify({ type: 'usage', usageDetails: { inputTokens: 1, outputTokens: 1 } }),
+            );
+            endStream();
+            await vi.advanceTimersByTimeAsync(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('emits an Anthropic-shaped error event when the upstream stream errors', async () => {
         const errStream = new Readable({
             read() {
@@ -1511,7 +2101,7 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
         expect(captured.ended).toBe(true);
     });
 
-    it('joins an array `system` into a single system-role message', async () => {
+    it('keeps an array `system` as an ordered block array on one leading system message', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'ok' },
             finish_reason: 'stop',
@@ -1534,101 +2124,80 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             role: string;
             content: unknown;
         }>;
+        // Never merged into one string — each block stays separate, in order.
         expect(msgs[0]).toEqual({
             role: 'system',
-            content: 'first\nsecond',
+            content: [
+                { type: 'text', text: 'first' },
+                { type: 'text', text: 'second' },
+            ],
         });
     });
 
-    it('hoists Anthropic tool_result content parts into a role=tool message', async () => {
-        // normalizeAnthropicMessages should split `user` messages whose
-        // content has tool_result parts into a separate role=tool entry
-        // with the joined content text.
+    it('passes a tool_result content part through unchanged — no hoisting to role=tool', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'thanks' },
             finish_reason: 'stop',
         });
+        const userMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'tool_result',
+                    tool_use_id: 'tu_42',
+                    content: [{ type: 'text', text: 'result-text' }],
+                },
+            ],
+        };
         await controller.anthropicMessages(
             makeReq({
                 body: {
                     model: 'claude-test',
-                    messages: [
-                        {
-                            role: 'user',
-                            content: [
-                                {
-                                    type: 'tool_result',
-                                    tool_use_id: 'tu_42',
-                                    content: [
-                                        { type: 'text', text: 'result-text' },
-                                    ],
-                                },
-                            ],
-                        },
-                    ],
+                    messages: [userMessage],
                 },
                 actor: makeUserActor(),
             }),
             makeRes().res,
         );
-        const msgs = completeSpy.mock.calls[0]![0].messages as Array<{
-            role: string;
-            tool_call_id?: string;
-            content: unknown;
-        }>;
-        const toolMsg = msgs.find((m) => m.role === 'tool');
-        expect(toolMsg).toBeTruthy();
-        expect(toolMsg!.tool_call_id).toBe('tu_42');
-        expect(toolMsg!.content).toBe('result-text');
+        const msgs = completeSpy.mock.calls[0]![0].messages as unknown[];
+        expect(msgs).toEqual([userMessage]);
+        expect(msgs.some((m) => (m as { role?: string }).role === 'tool')).toBe(
+            false,
+        );
     });
 
-    it('normalizes shorthand Anthropic tools (name + input_schema) into the openai function shape', async () => {
-        // normalizeAnthropicTools should wrap a tool spec lacking
-        // `type: 'function'` into the canonical shape the chat driver
-        // expects.
+    it('forwards a shorthand Anthropic tool (name + input_schema) unchanged — shape only', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'ok' },
             finish_reason: 'stop',
         });
+        const tool = {
+            name: 'lookup',
+            description: 'find things',
+            input_schema: {
+                type: 'object',
+                properties: { q: { type: 'string' } },
+            },
+        };
         await controller.anthropicMessages(
             makeReq({
                 body: {
                     model: 'claude-test',
                     messages: [{ role: 'user', content: 'hi' }],
-                    tools: [
-                        {
-                            name: 'lookup',
-                            description: 'find things',
-                            input_schema: {
-                                type: 'object',
-                                properties: { q: { type: 'string' } },
-                            },
-                        },
-                    ],
+                    tools: [tool],
                 },
                 actor: makeUserActor(),
             }),
             makeRes().res,
         );
-        const tools = completeSpy.mock.calls[0]![0].tools as Array<{
-            type: string;
-            function: {
-                name: string;
-                description: string;
-                parameters: unknown;
-            };
-        }>;
-        expect(tools[0]?.type).toBe('function');
-        expect(tools[0]?.function.name).toBe('lookup');
-        expect(tools[0]?.function.description).toBe('find things');
-        expect(tools[0]?.function.parameters).toMatchObject({
-            type: 'object',
-        });
+        // Shape-only at the controller: policy (wrapping into the function
+        // shape) is ClaudeProvider's job via `normalize_tools_object`.
+        expect(completeSpy.mock.calls[0]![0].tools).toEqual([tool]);
     });
 
-    it('returns an empty-text content block when the assistant produced no content', async () => {
-        // Non-stream branch: contentBlocks fallback when no text and no
-        // tool_calls — driver returns an empty message.
+    it('returns an empty content array when the assistant produced no content', async () => {
+        // A replayed `{type:'text', text:''}` 400s on Anthropic's own API, so
+        // empty content must be `[]`, never a single empty text block.
         stubChatComplete({
             message: { role: 'assistant', content: null },
             finish_reason: 'stop',
@@ -1644,14 +2213,11 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             }),
             res,
         );
-        const body = captured.body as { content: Array<{ text: string }> };
-        expect(body.content).toEqual([{ type: 'text', text: '' }]);
+        const body = captured.body as { content: unknown[] };
+        expect(body.content).toEqual([]);
     });
 
-    it('extracts text from an array-shaped `content` (extractTextContent array path)', async () => {
-        // When the driver returns content as an array of parts, the
-        // Anthropic shim joins the .text fields back into a single
-        // plain-text content block.
+    it('keeps native block-array content as separate blocks, in order (no joining)', async () => {
         stubChatComplete({
             message: {
                 role: 'assistant',
@@ -1674,7 +2240,10 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             res,
         );
         const body = captured.body as { content: Array<{ text: string }> };
-        expect(body.content).toEqual([{ type: 'text', text: 'hello world' }]);
+        expect(body.content).toEqual([
+            { type: 'text', text: 'hello ' },
+            { type: 'text', text: 'world' },
+        ]);
     });
 
     it('reads tool_use blocks from message.content (not just message.tool_calls)', async () => {
@@ -1715,6 +2284,164 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             id: 'tu_99',
             name: 'lookup',
             input: { q: 'x' },
+        });
+    });
+});
+
+// ── /anthropic/v1/messages/count_tokens ──────────────────────────────
+
+describe('PuterAIController.anthropicCountTokens', () => {
+    const stubCountTokens = (result: { input_tokens: number }) =>
+        vi
+            .spyOn(
+                server.drivers.aiChat as unknown as ChatCompletionDriver,
+                'countTokens',
+            )
+            .mockResolvedValueOnce(result as never);
+
+    it('parses the request and returns {input_tokens} with a request-id header', async () => {
+        const spy = stubCountTokens({ input_tokens: 17 });
+        const { res, captured } = makeRes();
+        await controller.anthropicCountTokens(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+            }),
+            res,
+        );
+        expect(spy.mock.calls[0]![0]).toMatchObject({
+            model: 'claude-test',
+            stream: false,
+        });
+        expect(captured.body).toEqual({ input_tokens: 17 });
+        expect(captured.headers['request-id']).toMatch(/^req_/);
+    });
+
+    it('never streams, even if the body asks for it', async () => {
+        const spy = stubCountTokens({ input_tokens: 1 });
+        await controller.anthropicCountTokens(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+            }),
+            makeRes().res,
+        );
+        expect(spy.mock.calls[0]![0].stream).toBe(false);
+    });
+
+    it('still rejects malformed bodies (same parser as /messages)', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.anthropicCountTokens(
+                makeReq({ body: { model: 'claude-test' } }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+// ── /anthropic/v1/models[/:id] ───────────────────────────────────────
+
+describe('PuterAIController anthropic model listing', () => {
+    const captureGetHandler = (
+        path: string,
+    ): ((req: Request, res: Response) => Promise<void>) => {
+        let handler: ((req: Request, res: Response) => Promise<void>) | null =
+            null;
+        const router = {
+            post: vi.fn(),
+            get: vi.fn((p: string, _opts: unknown, h: never) => {
+                if (p === path) handler = h;
+            }),
+        };
+        controller.registerRoutes(router as never);
+        if (!handler) throw new Error(`did not capture ${path} handler`);
+        return handler;
+    };
+
+    it('lists only claude-provider models in the Anthropic wire shape', async () => {
+        const handler = captureGetHandler('/puterai/anthropic/v1/models');
+        vi.spyOn(server.drivers.aiChat, 'models').mockResolvedValueOnce([
+            {
+                id: 'claude-haiku-4-5',
+                provider: 'claude',
+                name: 'Claude Haiku 4.5',
+                release_date: '2025-10-01',
+            },
+            { id: 'gpt-test', provider: 'openai-completion' },
+        ] as never);
+
+        const { res, captured } = makeRes();
+        await handler(makeReq({}), res);
+        const body = captured.body as {
+            data: unknown[];
+            has_more: boolean;
+            first_id: string;
+            last_id: string;
+        };
+        expect(body.data).toEqual([
+            {
+                type: 'model',
+                id: 'claude-haiku-4-5',
+                display_name: 'Claude Haiku 4.5',
+                created_at: '2025-10-01T00:00:00Z',
+            },
+        ]);
+        expect(body.has_more).toBe(false);
+        expect(body.first_id).toBe('claude-haiku-4-5');
+        expect(body.last_id).toBe('claude-haiku-4-5');
+        expect(captured.headers['request-id']).toMatch(/^req_/);
+    });
+
+    it('honors a `limit` query param', async () => {
+        const handler = captureGetHandler('/puterai/anthropic/v1/models');
+        vi.spyOn(server.drivers.aiChat, 'models').mockResolvedValueOnce([
+            { id: 'claude-a', provider: 'claude' },
+            { id: 'claude-b', provider: 'claude' },
+        ] as never);
+
+        const { res, captured } = makeRes();
+        await handler(makeReq({ query: { limit: '1' } }), res);
+        const body = captured.body as { data: unknown[]; has_more: boolean };
+        expect(body.data).toHaveLength(1);
+        expect(body.has_more).toBe(true);
+    });
+
+    it('404s an unknown model id in the Anthropic envelope shape', async () => {
+        const handler = captureGetHandler('/puterai/anthropic/v1/models/:id');
+        vi.spyOn(server.drivers.aiChat, 'models').mockResolvedValueOnce([
+            { id: 'claude-haiku-4-5', provider: 'claude' },
+        ] as never);
+
+        const { res } = makeRes();
+        await expect(
+            handler(makeReq({ params: { id: 'nope' } }), res),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('resolves a model by alias', async () => {
+        const handler = captureGetHandler('/puterai/anthropic/v1/models/:id');
+        vi.spyOn(server.drivers.aiChat, 'models').mockResolvedValueOnce([
+            {
+                id: 'claude-haiku-4-5',
+                provider: 'claude',
+                aliases: ['claude-haiku-latest'],
+                name: 'Claude Haiku 4.5',
+            },
+        ] as never);
+
+        const { res, captured } = makeRes();
+        await handler(makeReq({ params: { id: 'claude-haiku-latest' } }), res);
+        expect(captured.body).toEqual({
+            type: 'model',
+            id: 'claude-haiku-4-5',
+            display_name: 'Claude Haiku 4.5',
+            created_at: null,
         });
     });
 });

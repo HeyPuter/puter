@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { toFinishReason } from './stopReason.js';
+
 export class AIChatConstructStream {
     constructor(chatStream, params) {
         this.chatStream = chatStream;
@@ -53,23 +55,54 @@ export class AIChatToolUseStream extends AIChatConstructStream {
     _start(params) {
         this.contentBlock = params;
         this.buffer = '';
+        // Incremental tool-call deltas are opt-in (`streamToolInput`): most
+        // callers still want only the final `tool_use` chunk `end()` writes.
+        if (this.chatStream.streamToolInput) {
+            this.chatStream.writeChunk(
+                {
+                    type: 'tool_use_start',
+                    id: params.id,
+                    name: params.name,
+                },
+                { alreadyCounted: true },
+            );
+        }
     }
     addPartialJSON(partial_json) {
         // Counted as it accumulates, not when the block is written out: a
         // stream that dies mid-tool-call still produced these characters.
         this.chatStream.countOutput(partial_json);
         this.buffer += partial_json;
+        if (this.chatStream.streamToolInput) {
+            this.chatStream.writeChunk(
+                {
+                    type: 'tool_input_delta',
+                    id: this.contentBlock.id,
+                    partialJson: partial_json,
+                },
+                { alreadyCounted: true },
+            );
+        }
     }
     end() {
         if (this.buffer.trim() === '') {
             this.buffer = '{}';
         }
         if (process.env.DEBUG) console.log('BUFFER BEING PARSED', this.buffer);
+        // Truncated `eager_input_streaming` input is still a tool call that
+        // happened — surface it as empty args instead of killing the whole
+        // stream over one malformed block.
+        let input;
+        try {
+            input = JSON.parse(this.buffer);
+        } catch {
+            input = {};
+        }
         this.chatStream.writeChunk(
             {
                 type: 'tool_use',
                 ...this.contentBlock,
-                input: JSON.parse(this.buffer),
+                input,
                 ...(!this.contentBlock.text ? { text: '' } : {}),
             },
             { alreadyCounted: true },
@@ -135,8 +168,29 @@ export class AIChatStream {
     /** Set once the caller has gone away; see `abort`. */
     aborted = false;
 
-    constructor({ stream }) {
+    /**
+     * Stop/usage/context-management state for the end-of-stream `usage` line,
+     * set by `setStop` / `setUsageDetails` / `setUsageCosts` /
+     * `setContextManagement`. Stored only — `end()` reads them, and
+     * `usageCosts` is never written to the wire.
+     *
+     * @type {{
+     *     reason?: string;
+     *     sequence?: string | null;
+     *     details?: Record<string, unknown> | null;
+     * } | null}
+     */
+    stop = null;
+    /** @type {import('../types.js').UsageDetails | null} */
+    usageDetails = null;
+    /** @type {Record<string, number> | null} */
+    usageCosts = null;
+    /** @type {Record<string, unknown> | null} */
+    contextManagement = null;
+
+    constructor({ stream, streamToolInput } = {}) {
         this.stream = stream;
+        this.streamToolInput = !!streamToolInput;
     }
 
     /**
@@ -192,17 +246,129 @@ export class AIChatStream {
     }
 
     /**
+     * Store the real stop reason for the end-of-stream `usage` line.
+     * `sequence`/`details` default to `null` (the wire's "none" spelling);
+     * `reason` left unset is still a no-op stop.
+     *
+     * @param {{
+     *     reason?: string;
+     *     sequence?: string | null;
+     *     details?: Record<string, unknown> | null;
+     * }} [stop]
+     */
+    setStop({ reason, sequence, details } = {}) {
+        this.stop = {
+            reason,
+            sequence: sequence ?? null,
+            details: details ?? null,
+        };
+    }
+
+    /** @param {import('../types.js').UsageDetails} details */
+    setUsageDetails(details) {
+        this.usageDetails = details;
+    }
+
+    /**
+     * Per-usage-key cost (µ¢) the provider already metered with. Read by the
+     * driver for `usd_cents`/cost-calculated events; never serialized here.
+     *
+     * @param {Record<string, number>} costs
+     */
+    setUsageCosts(costs) {
+        this.usageCosts = costs;
+    }
+
+    /** @param {Record<string, unknown>} contextManagement */
+    setContextManagement(contextManagement) {
+        this.contextManagement = contextManagement;
+    }
+
+    /**
+     * A replayable reasoning block opened. Claude only, for now — other
+     * providers' reasoning is plain `{type:'reasoning'}` deltas with no
+     * replayable artifact.
+     *
+     * @param {string} format
+     */
+    reasoningStart(format) {
+        this.writeChunk({ type: 'reasoning_start', format });
+    }
+
+    /**
+     * A verbatim reasoning artifact for replay (`message.reasoning_details`): a
+     * signed `thinking` block, a `redacted_thinking` block, or an OpenAI
+     * Responses `reasoning` item. Counted as already-produced output — the
+     * underlying text already went through `countOutput`/`addReasoning`.
+     *
+     * @param {Record<string, unknown>} detail
+     */
+    reasoningDetail(detail) {
+        this.writeChunk(
+            { type: 'reasoning_detail', detail },
+            { alreadyCounted: true },
+        );
+    }
+
+    /**
+     * A server-executed tool block: the call (`server_tool_use`) or one of its
+     * result types. Results are input the model read back, not output it
+     * generated, so both are written already-counted — the call's JSON streamed
+     * through `countOutput` as it arrived.
+     *
+     * @param {Record<string, unknown>} block
+     */
+    serverTool(block) {
+        this.writeChunk(
+            { type: 'server_tool', block },
+            { alreadyCounted: true },
+        );
+    }
+
+    /**
+     * Dangerous-tool-use classifier verdicts, only ever written when the
+     * upstream actually sent them.
+     *
+     * @param {unknown[]} results
+     */
+    safeguardResults(results) {
+        this.writeChunk(
+            { type: 'safeguard_results', results },
+            { alreadyCounted: true },
+        );
+    }
+
+    /**
      * @param {Record<string, number>} usage
-     * @param {Record<string, unknown>} [extra] Fields for the `usage` line.
+     * @param {Record<string, unknown>} [extra] Fields for the `usage` line;
+     *   override the stored state.
      */
     end(usage, extra) {
         this.reportUsage(usage);
         // Usage still counts after an abort; only the line has no reader.
         if (!this.aborted) {
+            const stop = this.stop;
+            const finish_reason = stop?.reason
+                ? toFinishReason(stop.reason)
+                : undefined;
             this.stream.write(
                 `${JSON.stringify({
                     type: 'usage',
                     usage,
+                    ...(stop?.reason !== undefined
+                        ? {
+                              stopReason: stop.reason,
+                              stopSequence: stop.sequence ?? null,
+                              stopDetails: stop.details ?? null,
+                          }
+                        : {}),
+                    ...(finish_reason !== undefined ? { finish_reason } : {}),
+                    ...(this.usageDetails
+                        ? { usageDetails: this.usageDetails }
+                        : {}),
+                    ...(this.contextManagement
+                        ? { contextManagement: this.contextManagement }
+                        : {}),
                     ...extra,
                 })}\n`,
             );

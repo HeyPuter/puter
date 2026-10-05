@@ -18,6 +18,13 @@
  */
 
 import { HttpError } from '@heyputer/backend/src/core/http';
+import { claudeToolPolicy } from '../providers/claude/anthropicPolicy.js';
+
+// Anthropic server/typed tool ids (`web_search_20250305`,
+// `advisor_20260301`, …) and the OpenAI Responses `web_search` tool pass
+// through this normalizer untouched — they carry their own wire shape, not
+// an OpenAI function definition.
+const SERVER_TOOL_TYPE = /^[a-z_]+_\d{8}$/;
 
 export const normalize_json_schema = (schema) => {
     if (!schema) return schema;
@@ -77,6 +84,12 @@ export const normalize_tools_object = (tools) => {
             // OpenAI Responses specific
             continue;
         }
+        // Anthropic server/typed tool — stays in its own wire shape; policy
+        // (clamps, allowlist, rejects) is applied per-provider downstream
+        // (`claudeToolPolicy`), not here.
+        if (typeof tool.type === 'string' && SERVER_TOOL_TYPE.test(tool.type)) {
+            continue;
+        }
         let normalized_tool = {};
 
         const normalize_function = (fn) => {
@@ -103,23 +116,52 @@ export const normalize_tools_object = (tools) => {
                 normal_fn.description = fn.description;
             }
 
+            if (fn.strict !== undefined) {
+                normal_fn.strict = fn.strict;
+            }
+
+            return normal_fn;
+        };
+
+        // Claude-only extras, carried on the `{type:'function', ...}`
+        // wrapper so `make_claude_tools` can forward them; a top-level
+        // `strict` (Claude's own convention) moves onto `function.strict`.
+        const extras = {};
+        if (tool.cache_control !== undefined)
+            extras.cache_control = tool.cache_control;
+        if (tool.defer_loading !== undefined)
+            extras.defer_loading = tool.defer_loading;
+        if (tool.eager_input_streaming !== undefined) {
+            extras.eager_input_streaming = tool.eager_input_streaming;
+        }
+        if (tool.input_examples !== undefined)
+            extras.input_examples = tool.input_examples;
+
+        const buildFunction = (fn) => {
+            const normal_fn = normalize_function(fn);
+            if (tool.strict !== undefined && normal_fn.strict === undefined) {
+                normal_fn.strict = tool.strict;
+            }
             return normal_fn;
         };
 
         if (tool.input_schema) {
             normalized_tool = {
                 type: 'function',
-                function: normalize_function(tool),
+                function: buildFunction(tool),
+                ...extras,
             };
         } else if (tool.type === 'function') {
             normalized_tool = {
                 type: 'function',
-                function: normalize_function(tool.function || tool),
+                function: buildFunction(tool.function || tool),
+                ...extras,
             };
         } else {
             normalized_tool = {
                 type: 'function',
-                function: normalize_function(tool),
+                function: buildFunction(tool),
+                ...extras,
             };
         }
 
@@ -128,41 +170,75 @@ export const normalize_tools_object = (tools) => {
     return tools;
 };
 
+// OpenAI's own tool conventions pass through untouched.
+const OPENAI_NATIVE_WEB_SEARCH = new Set(['web_search', 'web_search_preview']);
+const ANTHROPIC_WEB_SEARCH_TYPE = (type) =>
+    type === 'web_search_20250305' || /^web_search_2026/.test(type ?? '');
+
 /**
- * This function will convert a normalized tools object to the format expected
- * by OpenAI.
+ * Converts a normalized tools object to the format expected by an OpenAI-family
+ * dialect: function tools drop their Anthropic-only extras (`cache_control`,
+ * `defer_loading`, `eager_input_streaming`, `input_examples`); every other
+ * Anthropic typed/server tool (`web_search_20250305`, `advisor_20260301`,
+ * `bash_*`, …) is dropped, since none of it is a wire shape OpenAI recognizes.
+ * The one exception: an Anthropic web-search tool is translated to OpenAI's own
+ * `web_search` tool for the Responses dialect, which supports it natively.
  *
  * @param {any} tools
- * @returns
+ * @param {{ dialect?: 'chat' | 'responses' }} [opts]
+ * @returns {any[] | undefined}
  */
-export const make_openai_tools = (tools) => {
-    return tools;
+export const make_openai_tools = (tools, opts = {}) => {
+    if (!tools) return tools;
+    const dialect = opts.dialect ?? 'chat';
+    const out = [];
+    for (const tool of tools) {
+        if (!tool || typeof tool !== 'object') continue;
+        if (tool.type === 'function') {
+            const stripped = { ...tool };
+            delete stripped.cache_control;
+            delete stripped.defer_loading;
+            delete stripped.eager_input_streaming;
+            delete stripped.input_examples;
+            out.push(stripped);
+            continue;
+        }
+        if (OPENAI_NATIVE_WEB_SEARCH.has(tool.type)) {
+            out.push(tool);
+            continue;
+        }
+        if (dialect === 'responses' && ANTHROPIC_WEB_SEARCH_TYPE(tool.type)) {
+            out.push({
+                type: 'web_search',
+                ...(tool.allowed_domains
+                    ? { filters: { allowed_domains: tool.allowed_domains } }
+                    : {}),
+                ...(tool.user_location
+                    ? { user_location: tool.user_location }
+                    : {}),
+            });
+            continue;
+        }
+        // Any other Anthropic typed/server tool (web_search_* on the chat
+        // dialect, advisor, bash, memory, web_fetch, tool_search, …) has no
+        // OpenAI equivalent — drop it rather than forward an unrecognized type.
+    }
+    return out;
 };
 
 /**
  * This function will convert a normalized tools object to the format expected
- * by Claude.
+ * by Claude: function tools become `{name, description, input_schema, ...}`,
+ * and typed/server tools (`web_search`, `web_search_20250305`,
+ * `advisor_20260301`, …) go through the allowlist/clamp/reject policy in
+ * `claudeToolPolicy` instead of being treated as malformed function
+ * definitions.
  *
  * @param {any} tools
- * @returns
+ * @param {{ models?: import('../types.js').IChatModel[] }} [opts]
+ * @returns {any[] | undefined}
  */
-export const make_claude_tools = (tools) => {
+export const make_claude_tools = (tools, opts = {}) => {
     if (!tools) return undefined;
-    return tools.map((tool) => {
-        // A TypeError here carries no status, so it is read as a provider
-        // failure and marks the route unhealthy for everyone.
-        if (!tool?.function) {
-            throw new HttpError(
-                400,
-                "each tool must have a 'function' property",
-                { legacyCode: 'bad_request' },
-            );
-        }
-        const { name, description, parameters } = tool.function;
-        return {
-            name,
-            description,
-            input_schema: parameters,
-        };
-    });
+    return claudeToolPolicy(tools, opts.models ?? []).tools;
 };

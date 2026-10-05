@@ -97,20 +97,37 @@ export const createErrorHandler = (
             });
         }
 
-        if (isHttpError(err)) {
-            opts.onError?.(err, req);
-            if (err.statusCode === 402 || err.statusCode === 413) {
+        const httpErr = isHttpError(err) ? err : undefined;
+        opts.onError?.(err, req);
+        if (!httpErr) onUnhandled(err, req);
+
+        // A route declaring `errorRenderer` (the Anthropic/OpenAI-compatible
+        // wire surface) wants every error — including gate failures this
+        // middleware never threw itself — in its vendor's envelope instead
+        // of the default Puter shape.
+        const renderer = res.locals?.errorRenderer;
+        const rendered = renderer?.(err, req);
+        if (rendered) {
+            for (const [name, value] of Object.entries(
+                rendered.headers ?? {},
+            )) {
+                res.setHeader(name, value);
+            }
+            res.status(rendered.status).json(rendered.body);
+            return;
+        }
+
+        if (httpErr) {
+            if (httpErr.statusCode === 402 || httpErr.statusCode === 413) {
                 res.setHeader('X-Needs-Upgrade', true); // Instruct clients to retry after 1 hour for payment/storage limit issues
             }
-            res.status(err.statusCode).json(serializeHttpError(err));
+            res.status(httpErr.statusCode).json(serializeHttpError(httpErr));
             return;
         }
 
         // Anything else is treated as an unexpected 500. We never serialize
         // it back to the client to avoid leaking stack traces, internal
         // error messages, etc.
-        opts.onError?.(err, req);
-        onUnhandled(err, req);
         res.status(500).json({
             error: 'Internal Server Error',
             message: 'Internal Server Error',

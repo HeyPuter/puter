@@ -473,7 +473,7 @@ describe('AzureChatProvider.complete request shape', () => {
         expect(args.model).toBe('grok-4-20-non-reasoning');
     });
 
-    it('drops reasoning_effort/verbosity for gpt-5 models and forwards them otherwise', async () => {
+    it('forwards reasoning_effort/verbosity for gpt-5 models, drops them for a non-reasoning model (F5)', async () => {
         const provider = makeProvider();
 
         createMock.mockResolvedValueOnce(okCompletion);
@@ -486,21 +486,21 @@ describe('AzureChatProvider.complete request shape', () => {
             } as never),
         );
         const [gpt5Args] = createMock.mock.calls[0]!;
-        expect('reasoning_effort' in gpt5Args).toBe(false);
-        expect('verbosity' in gpt5Args).toBe(false);
+        expect(gpt5Args.reasoning_effort).toBe('high');
+        expect(gpt5Args.verbosity).toBe('high');
 
         createMock.mockResolvedValueOnce(okCompletion);
         await withTestActor(() =>
             provider.complete({
                 model: 'grok-4-20-non-reasoning',
                 messages: [{ role: 'user', content: 'hi' }],
-                reasoning: { effort: 'medium' },
-                text: { verbosity: 'low' },
+                reasoning_effort: 'medium',
+                verbosity: 'low',
             } as never),
         );
         const [grokArgs] = createMock.mock.calls[1]!;
-        expect(grokArgs.reasoning_effort).toBe('medium');
-        expect(grokArgs.verbosity).toBe('low');
+        expect('reasoning_effort' in grokArgs).toBe(false);
+        expect('verbosity' in grokArgs).toBe(false);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

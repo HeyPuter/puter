@@ -180,6 +180,12 @@ describe('sanitizeUpstreamMessage', () => {
         expect(out.endsWith('...')).toBe(true);
     });
 
+    it('accepts a longer bound for callers that never serialize the result to a client', () => {
+        const out = sanitizeUpstreamMessage('x'.repeat(2000), 1000);
+        expect(out.length).toBe(1000);
+        expect(out.endsWith('...')).toBe(true);
+    });
+
     it('redacts URLs and request identifiers', () => {
         expect(
             sanitizeUpstreamMessage(

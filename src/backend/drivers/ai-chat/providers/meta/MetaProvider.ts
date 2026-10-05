@@ -26,7 +26,9 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { openAICompatParams } from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
@@ -116,7 +118,6 @@ export class MetaProvider implements IChatProvider {
             reasoning_effort,
             stream,
             temperature,
-            tool_choice,
             tools,
             top_p,
         } = params;
@@ -143,14 +144,14 @@ export class MetaProvider implements IChatProvider {
             actor,
         );
 
+        // Anthropic-shaped cache hints don't belong on this wire; Meta caches
+        // via `prompt_cache_key` / `prompt_cache_retention`.
+        messages = OpenAIUtil.toOpenAIChatMessages(messages);
         messages = await OpenAIUtil.process_input_messages(messages);
-        messages = messages.map((message) => {
-            // Anthropic-shaped cache hints don't belong on this wire; Meta
-            // caches via `prompt_cache_key` / `prompt_cache_retention`.
-            delete message.cache_control;
-            return message;
-        });
 
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
         const customParams = asRecord(custom) as MetaCustomParams;
 
         // Reasoning is always on for Muse Spark — `reasoning_effort: 'none'`
@@ -177,8 +178,11 @@ export class MetaProvider implements IChatProvider {
         const completionParams = {
             messages,
             model: modelUsed.id,
-            ...(tools ? { tools } : {}),
-            ...(tool_choice !== undefined ? { tool_choice } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
+            ...openAICompatParams(
+                { ...params, reasoning_effort: undefined },
+                'chat',
+            ),
             // Reasoning tokens come out of this same budget, so a tight cap
             // returns `content: null` with `finish_reason: 'length'`.
             ...(max_tokens !== undefined
@@ -206,7 +210,7 @@ export class MetaProvider implements IChatProvider {
                 : {}),
             stream: !!stream,
             ...(stream ? { stream_options: { include_usage: true } } : {}),
-        } as ChatCompletionCreateParams;
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openai.chat.completions.create(completionParams);

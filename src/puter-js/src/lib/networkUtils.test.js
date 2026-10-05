@@ -3,6 +3,7 @@ import {
     dedupe,
     driverCall,
     driverCallEnvelope,
+    driverLineStream,
     fetchUrl,
     sendWithRetry,
 } from './networkUtils.js';
@@ -1125,5 +1126,40 @@ describe('driverCallEnvelope', () => {
         await expect(driverCallEnvelope(call)).rejects.toThrow(
             'unrecognized content type: text/html',
         );
+    });
+});
+
+describe('driverLineStream', () => {
+    const fakePuter = { env: 'node' };
+
+    const collect = async (lines) => {
+        const out = [];
+        for await (const line of driverLineStream(lines, fakePuter, {})) {
+            out.push(line);
+        }
+        return out;
+    };
+
+    it('gives a text chunk a toString() that returns its text', async () => {
+        const [line] = await collect([{ type: 'text', text: 'hello' }]);
+        expect(String(line)).toBe('hello');
+        expect(Object.keys(line)).toEqual(['type', 'text']); // toString stays non-enumerable
+    });
+
+    it.each([
+        'reasoning_start',
+        'reasoning_detail',
+        'tool_use_start',
+        'tool_input_delta',
+        'server_tool',
+        'safeguard_results',
+    ])('gives a %s chunk a toString() that returns empty string', async (type) => {
+        const [line] = await collect([{ type, extra: 'payload' }]);
+        expect(String(line)).toBe('');
+    });
+
+    it('leaves an unrecognized chunk type with the default Object toString', async () => {
+        const [line] = await collect([{ type: 'usage', usage: {} }]);
+        expect(String(line)).toBe('[object Object]');
     });
 });

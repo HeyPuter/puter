@@ -361,13 +361,31 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0);
     });
 
-    it('drops reasoning_effort and verbosity for gpt-5-prefixed models (they manage these themselves)', async () => {
+    it('forwards reasoning_effort and verbosity for gpt-5-prefixed models (F5 — this gate was inverted)', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
         await withTestActor(() =>
             provider.complete({
                 model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+                verbosity: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.reasoning_effort).toBe('high');
+        expect(args.verbosity).toBe('high');
+    });
+
+    it('drops reasoning_effort and verbosity for a non-reasoning model (e.g. gpt-4o)', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4o',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning_effort: 'high',
                 verbosity: 'high',

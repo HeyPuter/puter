@@ -1,5 +1,6 @@
 import { HttpError } from '@heyputer/backend/src/core/http';
 import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
+import { fromFinishReason } from './stopReason.js';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
@@ -20,6 +21,131 @@ import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
  * along with this program. If not, see
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
+
+// Anthropic-only content block types an OpenAI-family provider can never
+// carry — dropped rather than forwarded unrecognized. A reasoning/server-tool
+// turn survives a fallback with no such content left if nothing else was on
+// the message (the caller's next turn simply isn't told the dropped part
+// happened, same as any other lossy-dialect fallback).
+const ANTHROPIC_ONLY_BLOCK_TYPES = new Set([
+    'thinking',
+    'redacted_thinking',
+    'server_tool_use',
+]);
+
+const isServerResultBlockType = (type) =>
+    typeof type === 'string' && type.endsWith('_tool_result');
+
+const flattenToolResultContentItem = (item) => {
+    if (typeof item === 'string') return item;
+    if (!item || typeof item !== 'object') return '';
+    switch (item.type) {
+        case 'text':
+            return typeof item.text === 'string' ? item.text : '';
+        case 'tool_reference':
+            return `[tool reference: ${item.name ?? ''}]`;
+        case 'image':
+        case 'document':
+        case 'search_result':
+            return unsupportedMediaTextPart(
+                `${item.type} content is not supported by this model`,
+            ).text;
+        default:
+            return '';
+    }
+};
+
+/** A `tool_result.content` array (or string) flattened to plain text. */
+const flattenToolResultContent = (content) => {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.map(flattenToolResultContentItem).join('');
+};
+
+const transformBlockForOpenAI = (block, { keepCacheControl }) => {
+    if (!block || typeof block !== 'object') return block;
+    const type = block.type;
+    if (ANTHROPIC_ONLY_BLOCK_TYPES.has(type) || isServerResultBlockType(type)) {
+        return undefined;
+    }
+    if (type === 'tool_result') {
+        const flattened = flattenToolResultContent(block.content);
+        const {
+            citations: _citations,
+            cache_control,
+            is_error,
+            ...rest
+        } = block;
+        return {
+            ...rest,
+            content: is_error ? `Error: ${flattened}` : flattened,
+            ...(keepCacheControl && cache_control ? { cache_control } : {}),
+        };
+    }
+    const { citations: _citations, cache_control, ...rest } = block;
+    return {
+        ...rest,
+        ...(keepCacheControl && cache_control ? { cache_control } : {}),
+    };
+};
+
+const BILLING_HEADER_PREFIX = 'x-anthropic-billing-header:';
+
+/**
+ * Copy-on-write pre-pass that strips the Anthropic-only shape an OpenAI-family
+ * provider can receive on fallback — a prior turn's native Claude content
+ * (`thinking`/`redacted_thinking`/`server_tool_use`/`*_tool_result` blocks,
+ * `cache_control`, `citations`, `clear_at`) replayed into a request this
+ * dialect can't carry. Runs before `process_input_messages(_responses_api)`,
+ * which still mutates in place — operating on this pass's copy keeps the
+ * caller's own message objects untouched across a fallback retry.
+ *
+ * @param {Message[]} messages
+ * @param {{ keepCacheControl?: boolean }} [opts] `keepCacheControl`: OpenRouter
+ *   passes Anthropic prompt caching through, so it keeps the field.
+ * @returns {Message[]}
+ */
+export const toOpenAIChatMessages = (
+    messages,
+    { keepCacheControl = false } = {},
+) => {
+    const out = [];
+    for (const msg of messages) {
+        if (!msg || typeof msg !== 'object') {
+            out.push(msg);
+            continue;
+        }
+        const { clear_at: _clearAt, cache_control, ...rest } = msg;
+        if (keepCacheControl && cache_control !== undefined) {
+            rest.cache_control = cache_control;
+        }
+        if (!Array.isArray(msg.content)) {
+            out.push(rest);
+            continue;
+        }
+        const content = [];
+        for (const block of msg.content) {
+            if (
+                block &&
+                typeof block === 'object' &&
+                block.type === 'text' &&
+                typeof block.text === 'string' &&
+                block.text.startsWith(BILLING_HEADER_PREFIX)
+            ) {
+                continue;
+            }
+            const transformed = transformBlockForOpenAI(block, {
+                keepCacheControl,
+            });
+            if (transformed !== undefined) content.push(transformed);
+        }
+        // Nothing left to send from this message (its only block(s) were
+        // Anthropic-only content) — drop it rather than send empty content.
+        if (content.length === 0) continue;
+        out.push({ ...rest, content });
+    }
+    return out;
+};
 
 /**
  * Process input messages from Puter's normalized format to OpenAI's format May
@@ -176,6 +302,7 @@ export const process_input_messages_responses_api = async (messages) => {
         };
     });
 
+    const flattened = [];
     for (const msg of messages) {
         const content_as_string = (content) => {
             if (content === undefined || content === null) return '';
@@ -208,11 +335,14 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.tool_call_id;
             delete msg.tool_use_id;
             delete msg.tool_calls;
+            flattened.push(msg);
             continue;
         }
 
-        if (!msg.content) continue;
-        if (typeof msg.content !== 'object') continue;
+        if (!msg.content || typeof msg.content !== 'object') {
+            flattened.push(msg);
+            continue;
+        }
 
         const content = msg.content;
 
@@ -285,20 +415,27 @@ export const process_input_messages_responses_api = async (messages) => {
             }
         }
 
-        // Right now this does NOT support parallel tool calls!
-        // We only allow sequential toolcalling right now so this shouldn't be an issue right now
-        // but this probably needs to be changed in the future to split "one completions message"
-        // into multiple responses inputs.
         if (is_tool_call) {
-            msg.call_id = msg.tool_calls[0].id;
-            msg.id = msg.tool_calls[0].canonical_id;
-            msg.name = msg.tool_calls[0].function.name;
-            msg.arguments = msg.tool_calls[0].function.arguments;
-            msg.type = 'function_call';
-
-            delete msg.role;
-            delete msg.content;
-            delete msg.tool_calls;
+            // One Responses `function_call` item per tool_use block. A
+            // parallel tool-call turn used to keep only the first, which
+            // silently dropped every other call the model made — the
+            // caller's next request then carries no `function_call_output`
+            // for them and the Responses API 400s on the mismatch.
+            // `tool_calls` was built walking `content` back to front, so
+            // restore the original left-to-right order here.
+            for (const toolCall of msg.tool_calls.slice().reverse()) {
+                flattened.push({
+                    type: 'function_call',
+                    call_id: toolCall.id,
+                    id: toolCall.canonical_id,
+                    name: toolCall.function.name,
+                    arguments: toolCall.function.arguments,
+                    ...(toolCall.extra_content
+                        ? { extra_content: toolCall.extra_content }
+                        : {}),
+                });
+            }
+            continue;
         }
 
         // coerce tool results
@@ -312,9 +449,11 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.role;
             delete msg.content;
         }
+
+        flattened.push(msg);
     }
 
-    return messages;
+    return flattened;
 };
 
 export const create_usage_calculator = ({ model_details }) => {
@@ -344,6 +483,30 @@ export const extractMeteredUsage = (usage) => {
         prompt_tokens: usage.prompt_tokens ?? 0,
         completion_tokens: usage.completion_tokens ?? 0,
         cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    };
+};
+
+/**
+ * The `{prompt_tokens, completion_tokens, cached_tokens, cache_write_tokens}`
+ * shape every OpenAI-family `usage_calculator` already returns for billing,
+ * mapped to the provider-neutral `UsageDetails` the end-of-stream/non-stream
+ * result carries. `inputTokens`/`outputTokens` are the same numbers already
+ * billed — this never introduces a new figure, only exposes the breakdown.
+ *
+ * @param {Record<string, number> | undefined | null} trackedUsage
+ * @returns {import('../types.js').UsageDetails | undefined}
+ */
+export const usageDetailsFromTrackedUsage = (trackedUsage) => {
+    if (!trackedUsage || typeof trackedUsage !== 'object') return undefined;
+    return {
+        inputTokens: trackedUsage.prompt_tokens ?? 0,
+        outputTokens: trackedUsage.completion_tokens ?? 0,
+        ...(trackedUsage.cached_tokens
+            ? { cacheReadTokens: trackedUsage.cached_tokens }
+            : {}),
+        ...(trackedUsage.cache_write_tokens
+            ? { cacheWrite5mTokens: trackedUsage.cache_write_tokens }
+            : {}),
     };
 };
 
@@ -404,6 +567,7 @@ export const create_chat_stream_handler =
 
         let last_usage = null;
         let last_extra_content = null;
+        let finish_reason = null;
         for await (let chunk of completion) {
             chunk = deviations.chunk_but_like_actually(chunk);
             const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
@@ -411,6 +575,9 @@ export const create_chat_stream_handler =
             if (chunk.choices.length < 1) continue;
 
             const choice = chunk.choices[0];
+            // Arrives on the final chunk; capture it before any `continue`
+            // below skips the rest of this iteration (F6).
+            if (choice.finish_reason) finish_reason = choice.finish_reason;
 
             // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
             if (choice.delta.reasoning_content || choice.delta.reasoning) {
@@ -490,6 +657,11 @@ export const create_chat_stream_handler =
         // say) must not leave a metered stream looking unmetered — the driver
         // would charge its estimate on top.
         chatStream.reportUsage(usage);
+        if (finish_reason) {
+            chatStream.setStop({ reason: fromFinishReason(finish_reason) });
+        }
+        const usageDetails = usageDetailsFromTrackedUsage(usage);
+        if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();
@@ -519,6 +691,9 @@ export const create_chat_stream_handler_responses_api =
         const mode = 'text';
 
         let last_usage = null;
+        let sawFunctionCall = false;
+        let incompleteReason = null;
+        let webSearchCalls = 0;
         for await (const chunk of completion) {
             if (chunk.type === 'response.output_text.delta') {
                 textblock.addText(chunk.delta);
@@ -546,6 +721,36 @@ export const create_chat_stream_handler_responses_api =
 
             if (chunk.type === 'response.completed') {
                 last_usage = chunk.response.usage;
+                if (
+                    chunk.response.status === 'incomplete' &&
+                    chunk.response.incomplete_details?.reason ===
+                        'max_output_tokens'
+                ) {
+                    incompleteReason = 'max_tokens';
+                }
+            }
+
+            if (
+                chunk.type === 'response.output_item.done' &&
+                chunk.item?.type === 'reasoning'
+            ) {
+                const item = chunk.item;
+                if (
+                    item.id !== undefined ||
+                    item.encrypted_content !== undefined
+                ) {
+                    chatStream.reasoningDetail({
+                        type: 'reasoning',
+                        ...(item.id !== undefined ? { id: item.id } : {}),
+                        ...(item.encrypted_content !== undefined
+                            ? { encrypted_content: item.encrypted_content }
+                            : {}),
+                        ...(Array.isArray(item.summary)
+                            ? { summary: item.summary }
+                            : {}),
+                    });
+                }
+                continue;
             }
 
             if (
@@ -563,8 +768,17 @@ export const create_chat_stream_handler_responses_api =
 
             if (
                 chunk.type === 'response.output_item.done' &&
+                chunk.item?.type === 'web_search_call'
+            ) {
+                webSearchCalls++;
+                continue;
+            }
+
+            if (
+                chunk.type === 'response.output_item.done' &&
                 chunk.item?.type === 'function_call'
             ) {
+                sawFunctionCall = true;
                 const tool_call = chunk.item;
                 toolblock = message.contentBlock({
                     type: 'tool_use',
@@ -585,9 +799,15 @@ export const create_chat_stream_handler_responses_api =
         // see the sibling handler above, including why usage is reported
         // before the block flushes.
         const usage = last_usage
-            ? usage_calculator({ usage: last_usage })
+            ? usage_calculator({ usage: last_usage, webSearchCalls })
             : undefined;
         chatStream.reportUsage(usage);
+        chatStream.setStop({
+            reason:
+                incompleteReason ?? (sawFunctionCall ? 'tool_use' : 'end_turn'),
+        });
+        const usageDetails = usageDetailsFromTrackedUsage(usage);
+        if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();
@@ -645,6 +865,10 @@ export const handle_completion_output = async (
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
+    if (usage_calculator) {
+        const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
+        if (usageDetails) ret.usageDetails = usageDetails;
+    }
 
     // Providers following the DeepSeek wire convention return
     // `reasoning_content`; expose it as Puter's `reasoning` key here so every
@@ -677,7 +901,8 @@ export const handle_completion_output = async (
  * @param {any} params.completion
  * @param {((text: string) => Promise<{ flagged: boolean }>) | undefined} [params.moderate]
  * @param {(args: {
- *     usage: import('openai/resources/completions.mjs').CompletionUsage;
+ *     usage: import('openai/resources/responses/responses.mjs').ResponseUsage;
+ *     webSearchCalls?: number;
  * }) => unknown} params.usage_calculator
  * @param {() => Promise<void>} [params.finally_fn]
  * @returns {ReturnType<import('../types').IChatProvider['complete']>}
@@ -769,8 +994,16 @@ export const handle_completion_output_responses_api = async ({
             ...(Array.isArray(item.summary) ? { summary: item.summary } : {}),
         }));
 
+    const isIncompleteForLength =
+        completion.status === 'incomplete' &&
+        completion.incomplete_details?.reason === 'max_output_tokens';
+
     const ret = {
-        finish_reason: responseToolCalls.length ? 'tool_calls' : 'stop',
+        finish_reason: isIncompleteForLength
+            ? 'length'
+            : responseToolCalls.length
+              ? 'tool_calls'
+              : 'stop',
         index: 0,
         message: {
             content: completion.output_text,
@@ -802,6 +1035,10 @@ export const handle_completion_output_responses_api = async ({
 
     delete ret.type;
 
+    const webSearchCalls = output.filter(
+        (item) => item?.type === 'web_search_call',
+    ).length;
+
     // Metered before moderation, same as the sibling handler above: the
     // completion exists and the upstream has billed us for it whether or not
     // we go on to withhold it.
@@ -809,11 +1046,16 @@ export const handle_completion_output_responses_api = async ({
         ? usage_calculator({
               ...completion,
               usage: completion.usage,
+              webSearchCalls,
           })
         : {
               input_tokens: completion.usage.input_tokens,
               output_tokens: completion.usage.output_tokens,
           };
+    if (usage_calculator) {
+        const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
+        if (usageDetails) ret.usageDetails = usageDetails;
+    }
 
     const mod_text = completion.output_text;
     if (moderate && mod_text !== null) {

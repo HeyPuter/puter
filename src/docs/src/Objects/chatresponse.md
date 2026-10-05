@@ -44,9 +44,29 @@ Anthropic models are the main source of both cases. Their stop reasons map as fo
 
 Because unmapped values pass through, treat `finish_reason` as an open set: branch on the four OpenAI values you care about and handle anything else as vendor-specific rather than assuming it means `stop`.
 
+`finish_reason` is now the real mapped value for a native (non-normalized) Claude result too — it used to be hardcoded to `"stop"`.
+
 #### `normalized` (Boolean)
 
 Present and `true` when the response was normalized to the OpenAI format (see [Response Normalization](/AI/chat#response-normalization)).
+
+#### `stopReason` (String)
+
+The native stop reason, in Anthropic vocabulary (`end_turn`, `max_tokens`, `tool_use`, `pause_turn`, `refusal`, …) — the same value `finish_reason` is mapped from. Present alongside `finish_reason` on every result.
+
+#### `stopSequence` (String | null)
+
+The stop sequence that ended generation, when one did.
+
+#### `stopDetails` (Object | null)
+
+Extra detail on why generation stopped (e.g. a refusal classification). Provider-specific; present only when the upstream sent it.
+
+#### `usageDetails` (Object)
+
+A provider-neutral usage breakdown, present alongside `usage` on every result. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens. Fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWrite5mTokens`, `cacheWrite1hTokens`, `reasoningTokens`, `webSearchRequests`, `webFetchRequests`, `speed` (`"fast"` or `"standard"`), `serviceTier`, and `iterations` (a per-pass breakdown when the upstream ran several passes, e.g. compaction or an advisor sub-call).
+
+Prefer `usageDetails` over `usage` for anything beyond the raw billing totals — in particular, Claude's `usage` no longer carries a `thinking_tokens` key (it was double-counted on top of `output_tokens`, which already includes it); the informational count is `usageDetails.reasoningTokens` instead.
 
 #### `usage` (Object)
 

@@ -22,7 +22,9 @@ import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { openAICompatParams } from '../../utils/openaiParams.js';
 import { MINIMAX_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 
@@ -63,16 +65,11 @@ export class MiniMaxProvider implements IChatProvider {
         return `minimax:${modelId}`;
     }
 
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        tool_choice,
-        max_tokens,
-        temperature,
-        top_p,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+    async complete(
+        args: ICompleteArguments,
+    ): ReturnType<IChatProvider['complete']> {
+        const { stream, model, tools, max_tokens, temperature, top_p } = args;
+        let { messages } = args;
         const actor = Context.get('actor');
         const availableModels = this.models();
         const modelUsed =
@@ -80,14 +77,17 @@ export class MiniMaxProvider implements IChatProvider {
                 [m.id, ...(m.aliases || [])].includes(model),
             ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
 
+        messages = OpenAIUtil.toOpenAIChatMessages(messages);
         messages = await OpenAIUtil.process_input_messages(messages);
         const requestedMaxTokens = max_tokens ?? 1000;
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
 
         const completion = await this.#openai.chat.completions.create({
             messages,
             model: modelUsed.apiModel,
-            ...(tools ? { tools } : {}),
-            ...(tool_choice !== undefined ? { tool_choice } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             max_tokens: Math.min(requestedMaxTokens, modelUsed.max_tokens),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
@@ -97,7 +97,8 @@ export class MiniMaxProvider implements IChatProvider {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-        } as ChatCompletionCreateParams);
+            ...openAICompatParams(args, 'chat'),
+        } as unknown as ChatCompletionCreateParams);
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {

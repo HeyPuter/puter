@@ -19,7 +19,7 @@
 
 import type { Actor } from '../actor';
 import type { StorageOpCounts } from '../storageOps';
-import type { TokenSource } from './types';
+import type { ErrorRenderer, TokenSource } from './types';
 
 /**
  * Global Express.Request augmentation for v2.
@@ -118,6 +118,16 @@ declare global {
              * ends.
              */
             storageOps?: StorageOpCounts;
+        }
+
+        interface Locals {
+            /**
+             * Set by the route materializer when `RouteOptions.errorRenderer`
+             * is declared; the terminal `errorHandler` reads it to render
+             * errors in a vendor-compatible wire envelope instead of the
+             * default Puter JSON shape.
+             */
+            errorRenderer?: ErrorRenderer;
         }
     }
 }

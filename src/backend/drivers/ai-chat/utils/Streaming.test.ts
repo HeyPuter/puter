@@ -105,6 +105,90 @@ describe('AIChatStream', () => {
     });
 });
 
+// ── Stop / usage-detail / context-management chunk writers ─────────
+
+describe('AIChatStream stop + usage-detail reporting', () => {
+    it('merges a stored stop into the usage line, deriving finish_reason', () => {
+        const h = makeHarness();
+        h.chatStream.setStop({ reason: 'tool_use', sequence: null });
+        h.chatStream.end({ tokens: 1 });
+
+        expect(h.events()).toEqual([
+            {
+                type: 'usage',
+                usage: { tokens: 1 },
+                stopReason: 'tool_use',
+                stopSequence: null,
+                stopDetails: null,
+                finish_reason: 'tool_calls',
+            },
+        ]);
+    });
+
+    it('carries usageDetails and contextManagement on the usage line', () => {
+        const h = makeHarness();
+        h.chatStream.setUsageDetails({ inputTokens: 3, outputTokens: 4 });
+        h.chatStream.setContextManagement({ applied_edits: ['x'] });
+        h.chatStream.end({ tokens: 7 });
+
+        const [event] = h.events();
+        expect(event.usageDetails).toEqual({ inputTokens: 3, outputTokens: 4 });
+        expect(event.contextManagement).toEqual({ applied_edits: ['x'] });
+    });
+
+    it('never writes usageCosts to the wire, though it reads back off the stream', () => {
+        const h = makeHarness();
+        h.chatStream.setUsageCosts({ input_tokens: 123 });
+        h.chatStream.end({ tokens: 1 });
+
+        expect(h.chatStream.usageCosts).toEqual({ input_tokens: 123 });
+        const [event] = h.events();
+        expect(event).not.toHaveProperty('usageCosts');
+    });
+
+    it('lets `extra` override the stored stop fields', () => {
+        const h = makeHarness();
+        h.chatStream.setStop({ reason: 'end_turn' });
+        h.chatStream.end({ tokens: 1 }, { metadata: { usage_limited: true } });
+
+        expect(h.events()).toEqual([
+            {
+                type: 'usage',
+                usage: { tokens: 1 },
+                stopReason: 'end_turn',
+                stopSequence: null,
+                stopDetails: null,
+                finish_reason: 'stop',
+                metadata: { usage_limited: true },
+            },
+        ]);
+    });
+
+    it('writes reasoningStart, reasoningDetail, serverTool and safeguardResults chunks verbatim', () => {
+        const h = makeHarness();
+        h.chatStream.reasoningStart('anthropic');
+        h.chatStream.reasoningDetail({ type: 'thinking', thinking: 't', signature: 's' });
+        h.chatStream.serverTool({ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search' });
+        h.chatStream.safeguardResults([{ type: 'dangerous_tool_use', status: {} }]);
+
+        expect(h.events()).toEqual([
+            { type: 'reasoning_start', format: 'anthropic' },
+            {
+                type: 'reasoning_detail',
+                detail: { type: 'thinking', thinking: 't', signature: 's' },
+            },
+            {
+                type: 'server_tool',
+                block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search' },
+            },
+            {
+                type: 'safeguard_results',
+                results: [{ type: 'dangerous_tool_use', status: {} }],
+            },
+        ]);
+    });
+});
+
 // ── Abort ──────────────────────────────────────────────────────────
 
 describe('AIChatStream.abort', () => {
@@ -254,16 +338,64 @@ describe('AIChatToolUseStream (via message().contentBlock)', () => {
         expect(event.text).toBe('preserved');
     });
 
-    it('throws when the buffered partial JSON is malformed', () => {
+    it('falls back to {} instead of throwing when the buffered partial JSON is malformed', () => {
+        // Truncated eager_input_streaming input must not kill the whole
+        // stream over one malformed tool-call block.
         const h = makeHarness();
         const block = h.chatStream.message().contentBlock({
             type: 'tool_use',
             id: 'call_5',
             name: 'lookup',
         });
-        block.addPartialJSON('not-json');
-        // .end() runs JSON.parse on the buffer — bad JSON surfaces here.
-        expect(() => block.end()).toThrow(SyntaxError);
+        block.addPartialJSON('{"q": "unterminat');
+        expect(() => block.end()).not.toThrow();
+
+        const [event] = h.events();
+        expect(event.input).toEqual({});
+    });
+
+    it('emits tool_use_start and tool_input_delta only when streamToolInput is set', () => {
+        const h = makeHarness();
+        const withDeltas = new AIChatStream({
+            stream: h.sink,
+            streamToolInput: true,
+        });
+        const block = withDeltas
+            .message()
+            .contentBlock({ type: 'tool_use', id: 'call_6', name: 'lookup' });
+        block.addPartialJSON('{"q":');
+        block.addPartialJSON('"puter"}');
+        block.end();
+
+        expect(h.events()).toEqual([
+            { type: 'tool_use_start', id: 'call_6', name: 'lookup' },
+            { type: 'tool_input_delta', id: 'call_6', partialJson: '{"q":' },
+            {
+                type: 'tool_input_delta',
+                id: 'call_6',
+                partialJson: '"puter"}',
+            },
+            {
+                type: 'tool_use',
+                id: 'call_6',
+                name: 'lookup',
+                input: { q: 'puter' },
+                text: '',
+            },
+        ]);
+    });
+
+    it('omits tool_use_start / tool_input_delta without streamToolInput', () => {
+        const h = makeHarness();
+        const block = h.chatStream
+            .message()
+            .contentBlock({ type: 'tool_use', id: 'call_7', name: 'lookup' });
+        block.addPartialJSON('{}');
+        block.end();
+
+        expect(h.events().map((e) => (e as { type: string }).type)).toEqual([
+            'tool_use',
+        ]);
     });
 });
 

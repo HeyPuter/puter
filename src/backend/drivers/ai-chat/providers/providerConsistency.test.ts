@@ -607,6 +607,15 @@ const expectEqualized = (res: IChatMessageResult) => {
         res.finish_reason,
     );
 
+    // Not every provider fills `stopReason` itself (the driver derives it
+    // generically from `finish_reason` for the ones that don't, which this
+    // direct `provider.complete()` matrix bypasses) — but whichever ones do
+    // (Claude) must report a real, non-empty value, never a dialect leftover.
+    if (res.stopReason !== undefined) {
+        expect(typeof res.stopReason).toBe('string');
+        expect((res.stopReason as string).length).toBeGreaterThan(0);
+    }
+
     if (message.reasoning !== undefined) {
         expect(typeof message.reasoning).toBe('string');
     }

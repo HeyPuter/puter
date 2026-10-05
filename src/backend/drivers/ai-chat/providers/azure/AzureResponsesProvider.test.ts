@@ -369,7 +369,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
             provider.complete({
                 model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
-                tool_choice: 'auto',
+                tool_choice: { type: 'auto' },
                 parallel_tool_calls: false,
                 include: ['file_search_call.results'],
                 conversation: 'conv_1',
@@ -439,7 +439,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         );
     });
 
-    it('forwards the reasoning object for gpt-5 models and the flat knobs otherwise', async () => {
+    it('forwards the reasoning object for gpt-5 models, drops it for a non-reasoning model', async () => {
         const provider = makeProvider();
 
         responsesCreateMock.mockResolvedValueOnce(okResponse);
@@ -453,6 +453,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         );
         const [gpt5Args] = responsesCreateMock.mock.calls[0]!;
         expect(gpt5Args.reasoning).toEqual({ effort: 'high' });
+        expect(gpt5Args.text).toEqual({ verbosity: 'high' });
         expect('reasoning_effort' in gpt5Args).toBe(false);
         expect('verbosity' in gpt5Args).toBe(false);
 
@@ -466,9 +467,10 @@ describe('AzureResponsesProvider.complete request shape', () => {
             } as never),
         );
         const [grokArgs] = responsesCreateMock.mock.calls[1]!;
-        expect(grokArgs.reasoning_effort).toBe('low');
-        expect(grokArgs.verbosity).toBe('low');
+        expect('reasoning_effort' in grokArgs).toBe(false);
+        expect('verbosity' in grokArgs).toBe(false);
         expect('reasoning' in grokArgs).toBe(false);
+        expect('text' in grokArgs).toBe(false);
     });
 });
 
@@ -541,6 +543,41 @@ describe('AzureResponsesProvider usage accounting', () => {
             completion_tokens: 0,
             cached_tokens: 0,
         });
+    });
+
+    it('requestPricing sizes a web_search hold and meters web_search_call items (F3)', async () => {
+        const provider = makeProvider();
+        const model = AZURE_MODELS.find((m) => m.id === 'gpt-5.3-codex')!;
+        expect(
+            provider.requestPricing!(
+                {
+                    model: model.id,
+                    messages: [],
+                    tools: [{ type: 'web_search' }],
+                } as never,
+                model,
+                { promptTokenEstimate: 0 },
+            ).extraCost,
+        ).toBe(10 * 1_000_000);
+
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [
+                { type: 'web_search_call', id: 'ws_1' },
+                { role: 'assistant' },
+            ],
+            output_text: 'found it',
+            usage: { input_tokens: 10, output_tokens: 5 },
+        });
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'search' }],
+                tools: [{ type: 'web_search' }],
+            }),
+        );
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.web_search_calls).toBe(1);
+        expect(overrides.web_search_calls).toBe(1_000_000);
     });
 });
 
