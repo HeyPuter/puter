@@ -48,7 +48,7 @@ import type { RouteOptions } from '../../core/http/index.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterServer } from '../../server.js';
-import { setupTestServer } from '../../testUtil.js';
+import { inRequestScope, setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -58,7 +58,9 @@ let controller: PuterAIController;
 
 beforeAll(async () => {
     server = await setupTestServer();
-    controller = server.controllers.puterAi as unknown as PuterAIController;
+    controller = inRequestScope(
+        server.controllers.puterAi as unknown as PuterAIController,
+    );
 });
 
 afterAll(async () => {
@@ -130,6 +132,7 @@ const makeRes = () => {
             captured.ended = true;
             return res;
         }),
+        once: vi.fn(() => res),
     };
     return { res: res as unknown as Response, captured };
 };

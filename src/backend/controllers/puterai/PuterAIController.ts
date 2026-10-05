@@ -20,6 +20,8 @@
 import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
+import { Context } from '../../core/context.js';
+import { abortOnDisconnect } from '../../core/http/abortOnDisconnect.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
 import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.js';
@@ -342,7 +344,7 @@ export class PuterAIController extends PuterController {
             ...openaiCompatProvider(body),
         };
 
-        const result = await this.#driver().complete(completeArgs);
+        const result = await this.#complete(res, completeArgs);
         const effectiveModel = completeArgs.model || '';
 
         if (stream) {
@@ -500,7 +502,7 @@ export class PuterAIController extends PuterController {
 
         const completionId = `cmpl-${randomId()}`;
         const created = Math.floor(Date.now() / 1000);
-        const result = await this.#driver().complete(completeArgs);
+        const result = await this.#complete(res, completeArgs);
         const effectiveModel = completeArgs.model || '';
 
         if (stream) {
@@ -583,7 +585,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -706,7 +709,7 @@ export class PuterAIController extends PuterController {
 
         const responseId = generateId('resp');
         const createdAt = Math.floor(Date.now() / 1000);
-        const result = await this.#driver().complete(completeArgs);
+        const result = await this.#complete(res, completeArgs);
         const effectiveModel = completeArgs.model || '';
 
         if (stream) {
@@ -996,7 +999,7 @@ export class PuterAIController extends PuterController {
         };
 
         const messageId = `msg_${randomId()}`;
-        const result = await this.#driver().complete(completeArgs);
+        const result = await this.#complete(res, completeArgs);
         const effectiveModel = completeArgs.model || '';
 
         if (stream) {
@@ -1193,6 +1196,15 @@ export class PuterAIController extends PuterController {
                 legacyCode: 'internal_error',
             });
         return driver;
+    }
+
+    /** A completion that stops, and stops billing, when the caller hangs up. */
+    #complete(
+        res: Response,
+        args: ICompleteArguments,
+    ): Promise<IChatCompleteResult> {
+        Context.set('abortSignal', abortOnDisconnect(res));
+        return this.#driver().complete(args);
     }
 }
 

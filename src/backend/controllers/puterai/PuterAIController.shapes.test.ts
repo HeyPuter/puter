@@ -45,7 +45,7 @@ import {
 import type { Actor } from '../../core/actor.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import { PuterServer } from '../../server.js';
-import { setupTestServer } from '../../testUtil.js';
+import { inRequestScope, setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';
 
 let server: PuterServer;
@@ -53,7 +53,9 @@ let controller: PuterAIController;
 
 beforeAll(async () => {
     server = await setupTestServer();
-    controller = server.controllers.puterAi as unknown as PuterAIController;
+    controller = inRequestScope(
+        server.controllers.puterAi as unknown as PuterAIController,
+    );
 });
 
 afterAll(async () => {

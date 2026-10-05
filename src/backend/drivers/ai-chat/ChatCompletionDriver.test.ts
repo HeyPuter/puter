@@ -181,7 +181,7 @@ describe('ChatCompletionDriver model catalog', () => {
 
 describe('ChatCompletionDriver.complete auth and model resolution', () => {
     it('uses a free fake completion in test mode without taking a credit hold', async () => {
-        const creditGate = vi.spyOn(server.services.metering, 'getRemainingUsage');
+        const creditGate = vi.spyOn(server.services.metering, 'getUsageHeadroom');
         const complete = vi.spyOn(FakeChatProvider.prototype, 'complete');
 
         const result = await withTestActor(() =>
@@ -675,9 +675,7 @@ describe('ChatCompletionDriver.complete validation event routing', () => {
 
 describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
     it('throws 402 `insufficient_funds` when the actor has no remaining credits', async () => {
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            0,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 0, held: 0 });
 
         await expect(
             withTestActor(() =>
@@ -712,9 +710,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         // Approx input cost is tiny (very short prompt), so allowed
         // output ≈ 100_000 / 2000 = 50 tokens, comfortably below the
         // caller's 10_000 ceiling.
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            100_000,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 100_000, held: 0 });
 
         const completeSpy = vi
             .spyOn(FakeChatProvider.prototype, 'complete')
@@ -761,9 +757,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         // A ~100-token prompt is past the threshold. 1_000_000 microcents at
         // 2000 * 1.5 per output token leaves at most 333 output tokens before
         // the prompt is paid for; the standard rate would allow ~450 after it.
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            1_000_000,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
 
         const completeSpy = vi
             .spyOn(FakeChatProvider.prototype, 'complete')
@@ -806,9 +800,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
 
         // Pass the cheap pre-flight check but leave a balance too small to
         // afford a single 2000-microcent output token.
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            100,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 100, held: 0 });
 
         const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
 
@@ -851,8 +843,8 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
 
             vi.spyOn(
                 server.services.metering,
-                'getRemainingUsage',
-            ).mockResolvedValue(100_000);
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 100_000, held: 0 });
 
             const completeSpy = vi
                 .spyOn(FakeChatProvider.prototype, 'complete')
@@ -894,9 +886,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             },
         ]);
         const d = await makeDriver();
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            1_000_000,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
         vi.spyOn(
             server.services.metering,
             'getActorSubscription',
@@ -927,9 +917,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             },
         ]);
         const d = await makeDriver();
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            1_000_000,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
         vi.spyOn(
             server.services.metering,
             'getActorSubscription',
@@ -968,9 +956,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         ]);
         const d = await makeDriver();
         // Plenty of credits so the credit gate doesn't intercept first.
-        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
-            1_000_000,
-        );
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
 
         await expect(
             withTestActor(() =>
@@ -1485,9 +1471,9 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
             new Error('boom'),
         );
         const remaining = vi
-            .spyOn(server.services.metering, 'getRemainingUsage')
-            .mockResolvedValueOnce(1_000_000) // pre-flight
-            .mockResolvedValueOnce(0); // drained mid-fallback
+            .spyOn(server.services.metering, 'getUsageHeadroom')
+            .mockResolvedValueOnce({ balance: 1_000_000, held: 0 }) // pre-flight
+            .mockResolvedValueOnce({ balance: 0, held: 0 }); // drained mid-fallback
 
         // No second provider serves `fake`, so `#findFallback` returns
         // null and the loop exits before reaching the credit re-check.

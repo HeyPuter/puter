@@ -47,6 +47,8 @@ Before opening a PR, scan the diff for:
 
 When in doubt, return less. Auth-, permission-, or data-export-related changes deserve an explicit callout in the PR description.
 
+Commit messages and PR descriptions never credit anyone or mention a bug report. For security fixes, state what the change does mechanically ("scoped tokens do xyz now"), not the vulnerability or how it could be abused.
+
 ### Working rules of thumb
 
 - **Run it, don't just compile it.** "It type-checks" is not "it works." Exercise the code path end-to-end at least once.
@@ -65,10 +67,10 @@ root (or merge into the existing file):
 
 ```yaml
 services:
-  puter:
-    pull_policy: never
-    build:
-      context: .
+    puter:
+        pull_policy: never
+        build:
+            context: .
 ```
 
 Compose merges it automatically. Run `docker compose up -d --build` to build and
