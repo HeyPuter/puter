@@ -13,11 +13,12 @@
 
             try {
                 // Reaches anyone added to the team later, unlike a per-person loop.
-                const shares = await puter.fs.share(
+                const [share] = await puter.fs.share(
                     'drafts/proposal.md', { team: team.uid }, 'write',
                 );
-                puter.print(`Shared with ${team.name} (${shares.length} grant)<br>`);
-                puter.print(`holder is ${shares[0].holder} — there is no one person`);
+                puter.print(`Shared with ${team.name} — one grant, not one per member<br>`);
+                // `holder_team` is what names a team share; `holder` is a username.
+                puter.print(`holder_team: ${share.holder_team?.name ?? team.name}`);
             } catch (e) {
                 puter.print(`Could not share: ${e.code ?? e.message}`);
             }

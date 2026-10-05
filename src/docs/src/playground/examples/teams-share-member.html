@@ -1,0 +1,54 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <label>Share with: <select id="colleague"><option>Loading…</option></select></label>
+    <button id="share">Share draft</button>
+    <script>
+        const select = document.getElementById('colleague');
+
+        (async () => {
+            const [team] = await puter.teams.list().catch(() => []);
+            if (!team) {
+                select.innerHTML = '<option>No team</option>';
+                return;
+            }
+
+            try {
+                const colleagues = await puter.teams.listDirectory(team.uid);
+                select.innerHTML = '';
+                for (const { username, uuid } of colleagues) {
+                    const option = document.createElement('option');
+                    // Share by username; keep the uuid for anything you store.
+                    option.textContent = username;
+                    option.value = username;
+                    option.dataset.uuid = uuid;
+                    select.append(option);
+                }
+            } catch (e) {
+                // The owner has not opened the directory to apps.
+                select.innerHTML = '<option>Directory closed</option>';
+                puter.print(`Cannot list colleagues: ${e.code ?? e.message}<br>`);
+            }
+        })();
+
+        document.getElementById('share').addEventListener('click', async () => {
+            const option = select.selectedOptions[0];
+            if (!option || !option.dataset.uuid) return;
+
+            await puter.fs.write('drafts/proposal.md', '# Proposal', {
+                createMissingParents: true,
+            });
+
+            try {
+                const [share] = await puter.fs.share(
+                    'drafts/proposal.md', { username: option.value }, 'write',
+                );
+                puter.print(`Shared with ${share.holder}<br>`);
+                puter.print(`stored as ${option.dataset.uuid} — survives a rename`);
+            } catch (e) {
+                puter.print(`Could not share: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>
