@@ -52,6 +52,7 @@ const rawRequest = (
     path: string,
     headers: Record<string, string> = {},
     method = 'GET',
+    body?: string,
 ): Promise<RawResponse> =>
     new Promise((resolve, reject) => {
         const req = http.request(
@@ -70,7 +71,7 @@ const rawRequest = (
             },
         );
         req.on('error', reject);
-        req.end();
+        req.end(body);
     });
 
 /**
@@ -520,6 +521,14 @@ describe('PuterServer HTTP alarm gate', () => {
                 }) as unknown as RequestHandler,
             },
             {
+                method: 'post',
+                path: '/explode-with-secrets',
+                options: {},
+                handler: (() => {
+                    throw new Error('kaboom');
+                }) as unknown as RequestHandler,
+            },
+            {
                 method: 'get',
                 path: '/plain',
                 options: {},
@@ -605,6 +614,37 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.status).toBe(500);
         expect(fields.error).toBeInstanceOf(Error);
         expect(fields).not.toHaveProperty('details');
+    });
+
+    it('keeps request body values, query values and the user row out of the alarm', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(
+            port,
+            '/explode-with-secrets?auth_token=query-secret',
+            { host: 'puter.localhost', 'content-type': 'application/json' },
+            'POST',
+            JSON.stringify({ username: 'u', password: 'body-secret' }),
+        );
+        expect(res.status).toBe(500);
+        const raised = alarm.mock.calls.find((c) =>
+            String(c[0]).startsWith('http_500:POST:/explode-with-secrets:'),
+        );
+        expect(raised).toBeTruthy();
+        const [, message, fields] = raised! as unknown as [
+            string,
+            string,
+            Record<string, unknown>,
+        ];
+        const { error: _error, ...rest } = fields;
+        const serialized = `${message} ${JSON.stringify(rest)}`;
+        expect(serialized).not.toContain('body-secret');
+        expect(serialized).not.toContain('query-secret');
+        expect(fields).not.toHaveProperty('body');
+        expect(fields.path).toBe('/explode-with-secrets');
+        expect(fields.bodyKeys).toEqual(['username', 'password']);
+        expect(fields.queryKeys).toEqual(['auth_token']);
     });
 
     it('raises a warning when an upstream account is out of credits', async () => {

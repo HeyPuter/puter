@@ -35,7 +35,7 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
-import type { Actor } from './core/actor';
+import { actorUid, type Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
@@ -846,9 +846,14 @@ export class PuterServer {
                         (req as unknown as { route?: { path?: string } }).route
                             ?.path ?? req.path;
                     const alarmId = `http_${status}:${req.method}:${routePath}:${signature}`;
+                    // Alarms leave the process, so carry identifiers only:
+                    // bodies and query strings hold passwords, codes and
+                    // tokens, and the actor carries the whole user row.
+                    const urlPath = req.originalUrl.split('?')[0];
+                    const body = req.body as unknown;
                     this.clients.alarm.create(
                         alarmId,
-                        `HTTP ${status} on ${req.method} ${req.originalUrl}: ${signature}`,
+                        `HTTP ${status} on ${req.method} ${urlPath}: ${signature}`,
                         {
                             // What the thrower attached (an AI chain's
                             // per-provider attempts, say) rides under one key
@@ -861,10 +866,14 @@ export class PuterServer {
                             error: err instanceof Error ? err : undefined,
                             status,
                             method: req.method,
-                            path: req.originalUrl,
-                            body: req.body,
+                            path: urlPath,
+                            queryKeys: Object.keys(req.query ?? {}),
+                            bodyKeys:
+                                body && typeof body === 'object'
+                                    ? Object.keys(body)
+                                    : [],
                             route: routePath,
-                            actor: req.actor,
+                            actor: req.actor ? actorUid(req.actor) : undefined,
                         },
                         // An unhandled server error is the one thing that
                         // still pages on-call.
