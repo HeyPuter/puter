@@ -186,6 +186,45 @@ describe('UserAccountService', () => {
             expect(Number(sessions[0].n)).toBe(0);
         });
 
+        it('clears the flat entries for grants the account issued', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                },
+            );
+            expect(
+                (
+                    await server.stores.permission.getFlatUserPerms(holder.id, [
+                        permission,
+                    ])
+                )[0]?.permission,
+            ).toBe(permission);
+
+            await server.services.userAccount.cascadeDelete(issuer.id);
+
+            // The SQL row cascades; without the purge the flat entry would
+            // keep answering for an issuer nobody can ask about any more.
+            const [flat] = await server.stores.permission.getFlatUserPerms(
+                holder.id,
+                [permission],
+            );
+            expect(flat?.permission).toBeUndefined();
+        });
+
         it('frees the address for a new account', async () => {
             const user = await seedUser();
             const email = user.email as string;

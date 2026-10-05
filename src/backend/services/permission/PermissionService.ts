@@ -65,6 +65,18 @@ export interface ScanState {
     antiCycleActors: Actor[];
 }
 
+/** One flat-view warm: the holder's own grant, never a leaf beneath it. */
+interface FlatWarmEntry {
+    permission: string;
+    extra: unknown;
+    issuerUserId: number;
+}
+
+interface LinkedUserPerms {
+    reading: ReadingNode[];
+    warm: FlatWarmEntry[];
+}
+
 export interface GrantMeta {
     reason?: string;
     /**
@@ -730,12 +742,12 @@ export class PermissionService extends PuterService {
         }
 
         // Only on a miss: started beside the flat read, nothing awaits its rejection.
-        const linkedReading = await this.#linkedValidateUserPerms(
-            actor,
-            permissions,
-            state ?? { antiCycleActors: [actor] },
-        );
-        const flatOptions = PermissionUtil.readingToOptions(linkedReading);
+        const { reading: linkedReading, warm } =
+            await this.#linkedValidateUserPerms(
+                actor,
+                permissions,
+                state ?? { antiCycleActors: [actor] },
+            );
 
         // Warm flat KV cache for future hits (fire-and-forget, don't block
         // result). Warms expire: they are derived from the SQL traversal
@@ -747,19 +759,18 @@ export class PermissionService extends PuterService {
         // carry no expiry.)
         const warmExpireAt =
             Math.floor(Date.now() / 1000) + FLAT_PERM_WARM_TTL_SECONDS;
-        for (const opt of flatOptions) {
-            if (!opt.permission) continue;
-            const data = Array.isArray(opt.data) ? opt.data : [opt.data];
-            const issuerUserId = (data[0] as { issuer_user_id?: number })
-                ?.issuer_user_id;
+        for (const entry of warm) {
             this.stores.permission
                 .setFlatUserPerm(
                     actor.user.id,
-                    opt.permission,
+                    entry.permission,
                     {
-                        permission: opt.permission,
-                        issuer_user_id: issuerUserId,
-                        data,
+                        ...(entry.extra && typeof entry.extra === 'object'
+                            ? (entry.extra as Record<string, unknown>)
+                            : {}),
+                        permission: entry.permission,
+                        issuer_user_id: entry.issuerUserId,
+                        deleted: false,
                     },
                     { expireAt: warmExpireAt },
                 )
@@ -818,14 +829,15 @@ export class PermissionService extends PuterService {
         actor: Actor,
         permissions: string[],
         state: ScanState,
-    ): Promise<ReadingNode[]> {
-        if (!actor.user?.id) return [];
+    ): Promise<LinkedUserPerms> {
+        if (!actor.user?.id) return { reading: [], warm: [] };
         const rows = await this.stores.permission.readLinkedUserUserPerms(
             actor.user.id,
             permissions,
         );
 
         const out: ReadingNode[] = [];
+        const warm: FlatWarmEntry[] = [];
         for (const row of rows) {
             const issuerUser = await this.stores.user.getById(
                 row.issuer_user_id,
@@ -847,10 +859,11 @@ export class PermissionService extends PuterService {
                 antiCycleActors: [...state.antiCycleActors, issuerActor],
             });
 
+            const hasTerminal = readingHasTerminal(issuerReading);
             out.push({
                 $: 'path',
                 via: 'user',
-                has_terminal: readingHasTerminal(issuerReading),
+                has_terminal: hasTerminal,
                 permission: row.permission,
                 data: row.extra,
                 holder_username: actor.user.username,
@@ -858,8 +871,16 @@ export class PermissionService extends PuterService {
                 issuer_user_id: issuerUser.uuid,
                 reading: issuerReading,
             });
+            // The holder's own row; the leaves beneath it are the issuer's.
+            if (hasTerminal) {
+                warm.push({
+                    permission: row.permission,
+                    extra: row.extra,
+                    issuerUserId: issuerUser.id,
+                });
+            }
         }
-        return out;
+        return { reading: out, warm };
     }
 
     // -- Grant / revoke orchestration ---------------------------------

@@ -847,6 +847,67 @@ describe('PermissionService (integration)', () => {
         });
     });
 
+    // The flat view must hold the holder's own grant and nothing broader that
+    // the issuer happens to hold above it.
+    describe('flat warm scope', () => {
+        it('warms the granted row, not the wider permission the issuer holds', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: holder, actor: holderActor } = await makeUserActor();
+
+            const resource = `zztest:warm-${uuidv4()}`;
+            const granted = `${resource}:ii:read`;
+
+            // The issuer holds the whole resource and may hand out pieces of it.
+            for (const held of [resource, `manage:${granted}`]) {
+                await server.stores.permission.setFlatUserPerm(
+                    issuer.id,
+                    held,
+                    {
+                        permission: held,
+                        deleted: false,
+                        issuer_user_id: issuer.id,
+                    } as never,
+                );
+            }
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    holder.username,
+                    granted,
+                ),
+            );
+
+            const written: string[] = [];
+            const store = server.stores.permission;
+            const realSetFlat = store.setFlatUserPerm.bind(store);
+            const setFlat = vi
+                .spyOn(store, 'setFlatUserPerm')
+                .mockImplementation(async (userId, perm, value, opts) => {
+                    if (userId === holder.id) written.push(perm);
+                    return realSetFlat(userId, perm, value, opts);
+                });
+
+            // Force the miss the warm runs on.
+            await store.delFlatUserPerms([
+                { holderUserId: holder.id, permission: granted },
+            ]);
+
+            await runWithContext({ actor: holderActor }, () =>
+                permService.validateUserPerms({
+                    actor: holderActor,
+                    permissions: [granted],
+                }),
+            );
+            await vi.waitFor(() => expect(written.length).toBeGreaterThan(0));
+            setFlat.mockRestore();
+
+            // The issuer's wider `resource` must not land under the holder.
+            expect([...new Set(written)]).toEqual([granted]);
+            const [wider] = await store.getFlatUserPerms(holder.id, [resource]);
+            expect(wider?.permission).toBeUndefined();
+        });
+    });
+
     describe('revoke durability (flat/linked consistency)', () => {
         const grantManage = async (
             issuer: { id: number },
