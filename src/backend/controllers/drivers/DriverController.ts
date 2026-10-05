@@ -21,6 +21,7 @@ import { metrics } from '@opentelemetry/api';
 import type { Request, Response } from 'express';
 import { actorUid } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
+import { abortOnDisconnect } from '../../core/http/abortOnDisconnect.js';
 import { Controller } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { assertNotUserSession } from '../../core/http/middleware/gates.js';
@@ -325,7 +326,8 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                PermissionService | undefined;
+                | PermissionService
+                | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -459,12 +461,7 @@ export class DriverController extends PuterController {
 
         // A caller that hangs up mid-call gets nothing back, so long-running
         // drivers watch this to stop working (and metering) as soon as it does.
-        // `close` after `finish` is the normal end of a response, not an abort.
-        const abort = new AbortController();
-        res.once('close', () => {
-            if (!res.writableFinished) abort.abort();
-        });
-        Context.set('abortSignal', abort.signal);
+        Context.set('abortSignal', abortOnDisconnect(res));
 
         // Per-method lifecycle events, scoped to `driver.<iface>.<method>`.
         // Subscribers can listen on `driver.*`, `driver.<iface>.*`, or the

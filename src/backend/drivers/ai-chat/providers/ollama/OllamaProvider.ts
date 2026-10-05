@@ -108,6 +108,11 @@ export class OllamaChatProvider implements IChatProvider {
         }
         return model_names;
     }
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return modelId;
+    }
+
     async complete({
         messages,
         stream,

@@ -112,6 +112,11 @@ export class AzureChatProvider implements IChatProvider {
         return this.#defaultModel;
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string | undefined): string {
+        return `azure-openai:${modelId}`;
+    }
+
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
@@ -275,7 +280,7 @@ export class AzureChatProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `azure-openai:${modelUsed?.id}`,
+                    this.meteringModelKey(modelUsed?.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

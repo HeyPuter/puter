@@ -46,10 +46,11 @@ interface CapturedRes {
     contentType?: string;
     redirected?: { status?: number; url: string };
     headers: Record<string, string>;
+    cookies: Record<string, string>;
 }
 
 const makeRes = () => {
-    const out: CapturedRes = { headers: {} };
+    const out: CapturedRes = { headers: {}, cookies: {} };
     // The file-serving branch ends with `download.body.pipe(res)`, so
     // `res` has to satisfy the WritableStream contract Node's `pipe()`
     // expects — write/end/on/emit/etc. Use a real Writable so Node's
@@ -73,7 +74,7 @@ const makeRes = () => {
         type: (ct: string) => Response;
         send: (payload: unknown) => Response;
         redirect: (...args: unknown[]) => Response;
-        cookie: () => Response;
+        cookie: (name: string, value: string) => Response;
         set: (name: string, value: string) => Response;
         setHeader: (name: string, value: string) => Response;
     };
@@ -100,7 +101,10 @@ const makeRes = () => {
         }
         return res;
     };
-    res.cookie = () => res;
+    res.cookie = (name: string, value: string) => {
+        out.cookies[name] = value;
+        return res;
+    };
     res.set = (name: string, value: string) => {
         out.headers[name] = value;
         return res;
@@ -114,13 +118,16 @@ const makeRes = () => {
 
 const makeReq = (init: {
     hostname: string;
+    method?: string;
     path?: string;
     originalUrl?: string;
     protocol?: string;
     headers?: Record<string, string>;
     cookies?: Record<string, string>;
+    query?: Record<string, string>;
 }): Request =>
     ({
+        method: init.method ?? 'GET',
         hostname: init.hostname,
         path: init.path ?? '/',
         // Redirect helpers use originalUrl (preserves query string).
@@ -129,7 +136,7 @@ const makeReq = (init: {
         protocol: init.protocol ?? 'http',
         headers: init.headers ?? {},
         cookies: init.cookies ?? {},
-        query: {},
+        query: init.query ?? {},
         // The file-serve branch wires `req.on('close', ...)` to destroy
         // the stream on client disconnect — a no-op event surface is
         // enough for the offline tests.
@@ -533,6 +540,34 @@ describe('createPuterSiteMiddleware — file serving', () => {
         const piped = out.body as Buffer | undefined;
         expect(Buffer.isBuffer(piped)).toBe(true);
         expect(piped!.equals(body)).toBe(true);
+    });
+
+    // Metering resolves the billed account's plan from this actor, and some
+    // plans are keyed on the account's email.
+    it('bills an anonymous visit to the owner, email included', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `bill-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(owner.id, `${homePath}/index.html`, Buffer.from('hi'));
+
+        const req = makeReq({
+            hostname: `${sub}.site.puter.localhost`,
+            path: '/index.html',
+        });
+        const { res } = makeRes();
+        await buildMiddleware()(req, res, vi.fn());
+
+        expect(req.egressActor?.user).toMatchObject({
+            uuid: owner.uuid,
+            id: owner.id,
+            email: owner.email,
+        });
     });
 
     it('emits site.htmlServed with the original URL target including query string', async () => {
@@ -1654,6 +1689,134 @@ describe('createPuterSiteMiddleware — delegated site roots', () => {
             expect(aclCheck).not.toHaveBeenCalled();
         } finally {
             aclCheck.mockRestore();
+        }
+    });
+});
+
+// ── Private app sign-in token in a top-level URL ────────────────────
+
+describe('createPuterSiteMiddleware — private app sign-in token', () => {
+    let owner: Awaited<ReturnType<typeof makeUserWithHome>>;
+    let visitor: Awaited<ReturnType<typeof makeUser>>;
+    let sub: string;
+    let host: string;
+    let appUid: string;
+    let token: string;
+    const allow = (
+        _key: string,
+        data: { appUid: string; result: { allowed: boolean } },
+    ) => {
+        if (data.appUid === appUid) data.result.allowed = true;
+    };
+
+    beforeAll(async () => {
+        owner = await makeUserWithHome();
+        visitor = await makeUser();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        sub = `priv-${Math.random().toString(36).slice(2, 8)}`;
+        host = `${sub}.app.puter.localhost`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('<html>app</html>'),
+            'text/html',
+        );
+        appUid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+            [appUid, sub, sub, `http://${host}/`, owner.id, 1],
+        );
+        ({ token } = await server.services.auth.createSessionToken(
+            visitor as never,
+        ));
+        server.clients.event.on('app.privateAccess.check', allow as never);
+    });
+
+    afterAll(() => {
+        server.clients.event.off('app.privateAccess.check', allow as never);
+    });
+
+    const visit = async (init: {
+        dest?: string;
+        method?: string;
+        cookies?: Record<string, string>;
+    }) => {
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: host,
+                method: init.method,
+                path: '/',
+                originalUrl: `/?a=1&puter.auth.token=${token}&b=x%20y`,
+                query: { a: '1', 'puter.auth.token': token, b: 'x y' },
+                headers: init.dest ? { 'sec-fetch-dest': init.dest } : {},
+                cookies: init.cookies,
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    const cookieName = () => server.services.auth.getPrivateAssetCookieNameV2();
+
+    it('sets the cookie and redirects a top-level page to the same URL without the token', async () => {
+        const out = await visit({ dest: 'document' });
+        expect(out.redirected).toEqual({ status: 302, url: '/?a=1&b=x%20y' });
+        expect(out.cookies[cookieName()]).toBeTruthy();
+        expect(out.headers['Cache-Control']).toBe('no-store');
+    });
+
+    it('serves a framed launch with the token left in place for the SDK', async () => {
+        const out = await visit({ dest: 'iframe' });
+        expect(out.redirected).toBeUndefined();
+        expect(out.statusCode).toBe(200);
+    });
+
+    it('serves as before when the browser does not say what the request is for', async () => {
+        const out = await visit({});
+        expect(out.redirected).toBeUndefined();
+        expect(out.statusCode).toBe(200);
+    });
+
+    it('does not redirect a non-GET navigation', async () => {
+        const out = await visit({ dest: 'document', method: 'POST' });
+        expect(out.redirected).toBeUndefined();
+    });
+
+    it('still strips the token when the visitor already holds the cookie', async () => {
+        const cookie = await server.services.auth.createPrivateAssetToken({
+            appUid,
+            userUid: visitor.uuid,
+            subdomain: sub,
+            privateHost: host,
+        });
+        const out = await visit({
+            dest: 'document',
+            cookies: { [cookieName()]: cookie },
+        });
+        expect(out.redirected).toEqual({ status: 302, url: '/?a=1&b=x%20y' });
+    });
+
+    it('serves without redirecting when the cookie could not be minted', async () => {
+        // Without the cookie, the clean URL would bounce back to sign-in.
+        const spy = vi
+            .spyOn(server.services.auth, 'createPrivateAssetToken')
+            .mockRejectedValueOnce(new Error('mint failed'));
+        try {
+            const out = await visit({ dest: 'document' });
+            expect(out.redirected).toBeUndefined();
+            expect(out.statusCode).toBe(200);
+        } finally {
+            spy.mockRestore();
         }
     });
 });

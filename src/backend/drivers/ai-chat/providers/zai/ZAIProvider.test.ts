@@ -194,6 +194,18 @@ describe('ZAIProvider model catalog', () => {
         expect(names).toContain('z-ai/glm-4.6');
         expect(names).toContain('zai/glm-4.6');
     });
+
+    it('prices glm-5.3-flashx at its list rates', () => {
+        const { provider } = makeProvider();
+        const flashx = provider
+            .models()
+            .find((m) => m.id === 'glm-5.3-flashx');
+        expect(flashx?.costs).toMatchObject({
+            prompt_tokens: 37,
+            completion_tokens: 125,
+            cached_tokens: 7.5,
+        });
+    });
 });
 
 // ── Request shape (OpenAI-compat quirks specific to GLM) ────────────

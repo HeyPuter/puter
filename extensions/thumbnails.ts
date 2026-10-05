@@ -1,13 +1,15 @@
 import {
-    CopyObjectCommand,
     DeleteObjectCommand,
     GetObjectCommand,
+    HeadObjectCommand,
     PutObjectCommand,
     S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extension } from '@heyputer/backend/src/extensions';
+import { isMissingObjectError } from '@heyputer/backend/src/stores/fs/S3ObjectStore';
 import crypto from 'node:crypto';
+import type { Readable } from 'node:stream';
 import sharp from 'sharp';
 const clients = extension.import('client');
 
@@ -22,8 +24,13 @@ const THUMBNAIL_KEY_PREFIX = 'thumbnails/';
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const mintThumbnailKey = (): string =>
-    `${THUMBNAIL_KEY_PREFIX}${crypto.randomUUID()}`;
+const isUuid = (value: unknown): value is string =>
+    typeof value === 'string' && UUID_PATTERN.test(value);
+
+// `thumbnails/<entry uuid>/<random uuid>`: the entry segment binds the object
+// to the entry it was minted for, which is what writes and deletes check.
+const mintThumbnailKey = (entryUuid: string): string =>
+    `${THUMBNAIL_KEY_PREFIX}${entryUuid}/${crypto.randomUUID()}`;
 
 /**
  * Extract the object key from a stored thumbnail pointer, or null when the
@@ -31,12 +38,13 @@ const mintThumbnailKey = (): string =>
  *
  * `fsentries.thumbnail` is writable through the FS API, so neither half of the
  * stored string is trusted: the bucket is discarded (callers always pass their
- * own) and the key must sit under {@link THUMBNAIL_KEY_PREFIX} with a random
- * uuid. Honouring an arbitrary key would lend this extension's storage
- * credentials to whatever object the caller named — in the shared-bucket layout
- * that is every user's file, since an fs object's key is its fsentry uuid.
- * Legacy bare-uuid thumbnails fail the check and are treated as absent; they
- * are indistinguishable from a planted pointer, so there is nothing safer to do
+ * own) and the key must sit under {@link THUMBNAIL_KEY_PREFIX} as either
+ * `<uuid>` (minted before keys were bound to entries) or `<entry uuid>/<uuid>`.
+ * Honouring an arbitrary key would lend this extension's storage credentials to
+ * whatever object the caller named — in the shared-bucket layout that is every
+ * user's file, since an fs object's key is its fsentry uuid. Bare-uuid keys
+ * from before the prefix fail the check and are treated as absent; they are
+ * indistinguishable from a planted pointer, so there is nothing safer to do
  * with them than stop signing them.
  */
 const resolveThumbnailKey = (pointer: string): string | null => {
@@ -58,9 +66,25 @@ const resolveThumbnailKey = (pointer: string): string | null => {
         key = segments.join('/');
     }
     if (!key.startsWith(THUMBNAIL_KEY_PREFIX)) return null;
-    const id = key.slice(THUMBNAIL_KEY_PREFIX.length);
-    return UUID_PATTERN.test(id) ? key : null;
+    const segments = key.slice(THUMBNAIL_KEY_PREFIX.length).split('/');
+    return segments.length <= 2 && segments.every(isUuid) ? key : null;
 };
+
+// The entry a resolved key was minted for. Null for an unbound key, whose
+// holder can't be told apart from a row that copied or planted the pointer.
+const thumbnailKeyOwner = (key: string): string | null => {
+    const segments = key.slice(THUMBNAIL_KEY_PREFIX.length).split('/');
+    return segments.length === 2 ? segments[0] : null;
+};
+
+// Whether a stored thumbnail names an object in our storage. Anything else is
+// an external image URL the client supplied: shown as given, never copied or
+// deleted.
+const isStoragePointer = (pointer: string, bucketEndpoint: string): boolean =>
+    pointer.startsWith('s3://') ||
+    // Legacy format — remove after full migration
+    (pointer.startsWith('https') &&
+        pointer.includes(new URL(bucketEndpoint).hostname));
 
 // S3 client + bucket config — lazily resolved after boot from config.
 let s3Client: S3Client | null = null;
@@ -144,16 +168,73 @@ async function decodeAndValidateThumbnail(
     return { mimeType, data };
 }
 
+// A storage pointer a client hands back after a presigned upload is kept only
+// if it names a key minted for this entry and an object within the size bound.
+async function vetUploadedThumbnail(
+    pointer: string,
+    entryUuid: unknown,
+    deps: { s3: S3Client; bucketName: string },
+): Promise<string | null> {
+    const key = resolveThumbnailKey(pointer);
+    if (!key || thumbnailKeyOwner(key) !== entryUuid) return null;
+
+    let size: number | undefined;
+    try {
+        const head = await deps.s3.send(
+            new HeadObjectCommand({ Bucket: deps.bucketName, Key: key }),
+        );
+        size = head.ContentLength;
+    } catch (err) {
+        if (!isMissingObjectError(err)) {
+            console.warn(
+                '[thumbnails] failed to check uploaded thumbnail',
+                err,
+            );
+        }
+        return null;
+    }
+    if (typeof size !== 'number') return null;
+    if (size > MAX_THUMBNAIL_BYTES) {
+        // Only reachable on a store that doesn't enforce the signed length.
+        // The key is this entry's own, so removing it is safe.
+        try {
+            await deps.s3.send(
+                new DeleteObjectCommand({ Bucket: deps.bucketName, Key: key }),
+            );
+        } catch (err) {
+            console.warn(
+                '[thumbnails] failed to remove oversized thumbnail',
+                err,
+            );
+        }
+        return null;
+    }
+    return `s3://${deps.bucketName}/${key}`;
+}
+
 // -- thumbnail.created -----------------------------------------------
 // Intercept data-URL thumbnails before they hit the DB: upload to S3
-// and replace the URL with an s3:// pointer.
+// and replace the URL with an s3:// pointer bound to the entry.
 
 export async function handleThumbnailCreated(
     event: Record<string, unknown>,
-    deps: { s3: S3Client; bucketName: string },
+    deps: { s3: S3Client; bucketName: string; bucketEndpoint: string },
 ): Promise<void> {
     const url = event.url;
-    if (typeof url !== 'string' || !url.startsWith('data:')) return;
+    if (typeof url !== 'string') return;
+
+    if (!url.startsWith('data:')) {
+        if (isStoragePointer(url, deps.bucketEndpoint)) {
+            event.url = await vetUploadedThumbnail(url, event.uuid, deps);
+        }
+        return;
+    }
+
+    const entryUuid = event.uuid;
+    if (!isUuid(entryUuid)) {
+        event.url = null;
+        return;
+    }
 
     const decoded = await decodeAndValidateThumbnail(url);
     if (!decoded) {
@@ -161,7 +242,7 @@ export async function handleThumbnailCreated(
         return;
     }
 
-    const key = mintThumbnailKey();
+    const key = mintThumbnailKey(entryUuid);
     event.url = `s3://${deps.bucketName}/${key}`;
 
     await deps.s3.send(
@@ -190,21 +271,24 @@ export const handleThumbnailUploadPrepare = async (
             typeof item.contentType === 'string' ? item.contentType.trim() : '';
         if (!contentType) continue;
 
-        if (item.size !== undefined) {
-            const size = Number(item.size);
-            if (
-                !Number.isFinite(size) ||
-                size < 0 ||
-                size > MAX_THUMBNAIL_BYTES
-            )
-                continue;
-        }
+        const size = item.size;
+        if (
+            typeof size !== 'number' ||
+            !Number.isInteger(size) ||
+            size < 0 ||
+            size > MAX_THUMBNAIL_BYTES
+        )
+            continue;
+        if (!isUuid(item.item_uid)) continue;
 
-        const key = mintThumbnailKey();
+        const key = mintThumbnailKey(item.item_uid);
         const command = new PutObjectCommand({
             Bucket: deps.bucketName,
             Key: key,
             ContentType: contentType,
+            // Signing covers `content-length`, so a body of any other size
+            // fails the signature instead of landing.
+            ContentLength: size,
         });
         item.uploadUrl = await getSignedUrl(presignClient, command, {
             expiresIn: 900,
@@ -227,12 +311,7 @@ export const handleThumbnailRead = async (
     if (typeof thumb !== 'string' || !thumb) return;
     const presignClient = deps.s3Presign;
 
-    if (
-        thumb.startsWith('s3://') ||
-        // Legacy format — remove after full migration
-        (thumb.startsWith('https') &&
-            thumb.includes(new URL(deps.bucketEndpoint).hostname))
-    ) {
+    if (isStoragePointer(thumb, deps.bucketEndpoint)) {
         const key = resolveThumbnailKey(thumb);
         if (!key) {
             // Not a pointer we minted — refuse to sign it rather than hand
@@ -247,7 +326,9 @@ export const handleThumbnailRead = async (
         );
     } else if (thumb.startsWith('data')) {
         // Inline data-URL migration: upload to S3 and update the DB entry.
-        const key = mintThumbnailKey();
+        const uuid = entry.uuid ?? entry.uid;
+        if (!isUuid(uuid)) return;
+        const key = mintThumbnailKey(uuid);
         const { mimeType, data } = base64ParseDataUrl(thumb);
         const newUrl = `s3://${deps.bucketName}/${key}`;
 
@@ -261,7 +342,6 @@ export const handleThumbnailRead = async (
         );
 
         // Best-effort async DB update
-        const uuid = entry.uuid ?? entry.uid;
         if (uuid) {
             deps.db
                 .write(
@@ -286,36 +366,59 @@ export const handleFsCopyNodeThumbnail = async (
     deps: {
         s3: S3Client;
         bucketName: string;
+        bucketEndpoint: string;
         db: { write: (sql: string, params: unknown[]) => Promise<unknown> };
     },
 ): Promise<void> => {
     const copy = payload.copy;
     const thumbnailUrl = copy?.thumbnail;
-    if (!copy || !copy.uuid || typeof thumbnailUrl !== 'string') return;
+    if (!copy || !isUuid(copy.uuid) || typeof thumbnailUrl !== 'string') return;
+    if (!isStoragePointer(thumbnailUrl, deps.bucketEndpoint)) return;
 
     // Same trust rule as the read and remove paths: only touch objects this
     // extension minted.
     const sourceKey = resolveThumbnailKey(thumbnailUrl);
     if (!sourceKey) return;
 
-    // The copied row points at the SAME S3 object as its source, and
-    // fs.remove.node deletes the pointed-to object — so the first removal
-    // among the sharers (an overwrite, a trash purge) would break every
-    // other sharer's thumbnail. Give the copy an object of its own.
-    const newKey = mintThumbnailKey();
+    // The copied row points at the SAME object as its source. Give the copy
+    // an object of its own, bound to it, so removing either entry leaves the
+    // other's thumbnail alone.
+    const newKey = mintThumbnailKey(copy.uuid);
     try {
+        // Nothing larger than an upload may produce gets duplicated; such an
+        // object came in through an unbounded upload URL.
+        const head = await deps.s3.send(
+            new HeadObjectCommand({ Bucket: deps.bucketName, Key: sourceKey }),
+        );
+        if (
+            typeof head.ContentLength !== 'number' ||
+            head.ContentLength > MAX_THUMBNAIL_BYTES
+        ) {
+            throw new Error('thumbnail exceeds the size bound');
+        }
+        // Read and rewrite rather than CopyObject: a copy source skips any path
+        // in the client's endpoint, so it can miss an object Bucket/Key reach.
+        const source = await deps.s3.send(
+            new GetObjectCommand({ Bucket: deps.bucketName, Key: sourceKey }),
+        );
+        // The object can be replaced after the HEAD; bound what gets buffered.
+        if ((source.ContentLength ?? 0) > MAX_THUMBNAIL_BYTES) {
+            (source.Body as Readable | undefined)?.destroy();
+            throw new Error('thumbnail exceeds the size bound');
+        }
+        const body = await source.Body?.transformToByteArray();
+        if (!body) throw new Error('thumbnail has no body');
         await deps.s3.send(
-            new CopyObjectCommand({
+            new PutObjectCommand({
                 Bucket: deps.bucketName,
-                CopySource: `${deps.bucketName}/${sourceKey}`,
                 Key: newKey,
+                Body: body,
+                ContentType: source.ContentType,
             }),
         );
     } catch (err) {
-        // The shared object is already gone (e.g. a sharer was removed
-        // before this fix existed) — the pointer is dead either way, so
-        // drop it rather than leave the row advertising a thumbnail it
-        // doesn't have.
+        // The shared object is gone or oversized — drop the pointer rather
+        // than leave the row advertising a thumbnail it doesn't have.
         await deps.db.write(
             'UPDATE `fsentries` SET `thumbnail` = NULL WHERE `uuid` = ?',
             [copy.uuid],
@@ -331,18 +434,18 @@ export const handleFsCopyNodeThumbnail = async (
 };
 
 export const handleFsRemoveNodeThumbnail = async (
-    payload: { target: { thumbnail?: string | null } },
-    deps: { s3: S3Client; bucketName: string },
+    payload: { target: { thumbnail?: string | null; uuid?: string } },
+    deps: { s3: S3Client; bucketName: string; bucketEndpoint: string },
 ): Promise<void> => {
-    const thumbnailUrl = payload.target.thumbnail;
-    if (!thumbnailUrl) return;
+    const { thumbnail: thumbnailUrl, uuid } = payload.target;
+    if (!thumbnailUrl || !isStoragePointer(thumbnailUrl, deps.bucketEndpoint))
+        return;
 
-    // Same trust rule as the read path, and load-bearing for the same reason:
-    // the pointer decides which object gets deleted, so a key we didn't mint
-    // would let the owner of one file destroy an object belonging to someone
-    // else just by naming it here.
+    // The pointer decides which object gets deleted, and a key is visible to
+    // anyone who can list the entry holding it. Only a key minted for this
+    // entry is deleted; an unbound one may be shared or planted, so it stays.
     const key = resolveThumbnailKey(thumbnailUrl);
-    if (!key) return;
+    if (!key || thumbnailKeyOwner(key) !== uuid) return;
 
     await deps.s3.send(
         new DeleteObjectCommand({ Bucket: deps.bucketName, Key: key }),
@@ -355,6 +458,7 @@ extension.on(
         await handleThumbnailCreated(event, {
             s3: getClient(),
             bucketName: thumbnailBucketName,
+            bucketEndpoint: extensionBucketEndpoint,
         });
     },
 );
@@ -397,6 +501,7 @@ extension.on('fs.copy.node', async (_key, payload) => {
         {
             s3: getClient(),
             bucketName: thumbnailBucketName,
+            bucketEndpoint: extensionBucketEndpoint,
             db: clients.db,
         },
     );
@@ -409,5 +514,6 @@ extension.on('fs.remove.node', async (_key, payload) => {
     await handleFsRemoveNodeThumbnail(payload, {
         s3: getClient(),
         bucketName: thumbnailBucketName,
+        bucketEndpoint: extensionBucketEndpoint,
     });
 });

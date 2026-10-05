@@ -42,6 +42,7 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
@@ -86,8 +87,12 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as `TTSDriver` hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(server.services.metering, server.clients.event, 'ai-tts');
+
 const makeProvider = (region?: string) =>
-    new AWSPollyTTSProvider(server.services.metering, {
+    new AWSPollyTTSProvider(aiMetering(), {
         access_key: 'AKIA-TEST',
         secret_key: 'secret',
         region,
@@ -232,6 +237,19 @@ describe('AWSPollyTTSProvider catalog', () => {
                 AWS_POLLY_COSTS[engine.id] / 100,
             );
         }
+    });
+
+    it.each([
+        ['standard', 4],
+        ['neural', 16],
+        ['long-form', 100],
+        ['generative', 30],
+    ])('prices %s at AWS list price ($%d per 1M chars)', async (id, usd) => {
+        const provider = makeProvider();
+        const engines = await provider.listEngines();
+        expect(
+            engines.find((e) => e.id === id)?.pricing_per_million_chars,
+        ).toBe(usd);
     });
 });
 

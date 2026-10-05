@@ -132,12 +132,31 @@ export class AIChatStream {
      */
     reportedUsage = null;
 
+    /** Set once the caller has gone away; see `abort`. */
+    aborted = false;
+
     constructor({ stream }) {
         this.stream = stream;
     }
 
+    /**
+     * Stop accepting output because nobody is reading it. The next write
+     * throws, which unwinds the provider's read loop — and leaving an SDK's
+     * stream iterator early is what cancels the upstream request.
+     */
+    abort() {
+        this.aborted = true;
+    }
+
+    #assertOpen() {
+        if (this.aborted) throw new ChatStreamAbortedError();
+    }
+
     /** @param {string} text */
     countOutput(text) {
+        // Tool-call input arrives through here and is only written when the
+        // block ends, so a long tool call has to notice the abort here too.
+        this.#assertOpen();
         if (typeof text === 'string') this.outputChars += text.length;
     }
 
@@ -167,18 +186,27 @@ export class AIChatStream {
      * @param {{ alreadyCounted?: boolean }} [opts]
      */
     writeChunk(chunk, { alreadyCounted = false } = {}) {
+        this.#assertOpen();
         if (!alreadyCounted) this.outputChars += payloadChars(chunk);
         this.stream.write(`${JSON.stringify(chunk)}\n`);
     }
 
-    end(/** @type {Record<string, number>} */ usage) {
+    /**
+     * @param {Record<string, number>} usage
+     * @param {Record<string, unknown>} [extra] Fields for the `usage` line.
+     */
+    end(usage, extra) {
         this.reportUsage(usage);
-        this.stream.write(
-            `${JSON.stringify({
-                type: 'usage',
-                usage,
-            })}\n`,
-        );
+        // Usage still counts after an abort; only the line has no reader.
+        if (!this.aborted) {
+            this.stream.write(
+                `${JSON.stringify({
+                    type: 'usage',
+                    usage,
+                    ...extra,
+                })}\n`,
+            );
+        }
         this.stream.end();
     }
 
@@ -203,7 +231,16 @@ export class AIChatStream {
         return new AIChatMessageStream(this);
     }
     write(...args) {
+        this.#assertOpen();
         return this.stream.write(...args);
+    }
+}
+
+/** Thrown into a provider's read loop once its caller has gone away. */
+export class ChatStreamAbortedError extends Error {
+    constructor() {
+        super('Chat stream aborted: the caller disconnected');
+        this.name = 'ChatStreamAbortedError';
     }
 }
 

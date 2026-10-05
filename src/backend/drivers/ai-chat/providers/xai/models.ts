@@ -19,8 +19,38 @@
 
 import type { IChatModel } from '../../types.js';
 
+// Prompts over 200K tokens are billed at 2x every rate for the full request.
+const XAI_LONG_CONTEXT_PRICING = {
+    threshold: 200_000,
+    input_multiplier: 2,
+    output_multiplier: 2,
+};
+
 // Hardcoded from https://models.dev/api.json and live xAI /models
 export const XAI_MODELS: IChatModel[] = [
+    {
+        puterId: 'x-ai:x-ai/grok-4.7',
+        id: 'grok-4.7',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-05',
+        release_date: '2026-09-21',
+        name: 'Grok 4.7',
+        aliases: ['x-ai/grok-4.7', 'grok-4.7-latest'],
+        context: 500_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 600,
+            cached_tokens: 50,
+        },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
+        max_tokens: 500_000,
+    },
     {
         puterId: 'x-ai:x-ai/grok-4.6',
         id: 'grok-4.6',
@@ -41,6 +71,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 600,
             cached_tokens: 50,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 500_000,
     },
     {
@@ -62,6 +93,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 600,
             cached_tokens: 30,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 500_000,
     },
     {
@@ -83,6 +115,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 250,
             cached_tokens: 20,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 30_000,
     },
     {
@@ -102,6 +135,17 @@ export const XAI_MODELS: IChatModel[] = [
             'grok-4.20-0309',
             'grok-4.20-reasoning-latest',
             'x-ai/grok-4.20-reasoning',
+            'grok-4.20-beta-0309-reasoning',
+            'grok-4.20-beta',
+            'grok-4.20-beta-0309',
+            'grok-4.20-beta-latest',
+            'grok-4.20-beta-latest-reasoning',
+            'grok-4.20-beta-reasoning',
+            'grok-4.20-experimental-beta-0304-reasoning',
+            'grok-4.20-experimental-beta-0304',
+            'grok-4.20-experimental-beta-reasoning-latest',
+            'grok-4.20-experimental-beta-latest',
+            'grok-4.20-reasoning-gv2',
         ],
         context: 1_000_000,
         costs_currency: 'usd-cents',
@@ -113,6 +157,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 250,
             cached_tokens: 20,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 30_000,
     },
     {
@@ -130,6 +175,12 @@ export const XAI_MODELS: IChatModel[] = [
             'grok-4.20-non-reasoning',
             'grok-4.20-non-reasoning-latest',
             'x-ai/grok-4.20-non-reasoning',
+            'grok-4.20-beta-non-reasoning',
+            'grok-4.20-beta-latest-non-reasoning',
+            'grok-4.20-experimental-beta-0304-non-reasoning',
+            'grok-4.20-experimental-beta-non-reasoning-latest',
+            'grok-4.20-beta-0309-non-reasoning',
+            'grok-4.20-non-reasoning-gv2',
         ],
         context: 1_000_000,
         costs_currency: 'usd-cents',
@@ -141,6 +192,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 250,
             cached_tokens: 20,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 30_000,
     },
     {
@@ -156,6 +208,10 @@ export const XAI_MODELS: IChatModel[] = [
             'x-ai/grok-4.20-multi-agent-0309',
             'grok-4.20-multi-agent',
             'grok-4.20-multi-agent-latest',
+            'grok-4.20-multi-agent-beta-latest',
+            'grok-4.20-multi-agent-experimental-beta-0304',
+            'grok-4.20-multi-agent-experimental-beta-latest',
+            'grok-4.20-multi-agent-beta-0309',
         ],
         context: 1_000_000,
         costs_currency: 'usd-cents',
@@ -167,6 +223,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 250,
             cached_tokens: 20,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 30_000,
     },
     {
@@ -195,6 +252,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 200,
             cached_tokens: 20,
         },
+        long_context_pricing: XAI_LONG_CONTEXT_PRICING,
         max_tokens: 256_000,
     },
 ];

@@ -54,7 +54,8 @@ export interface SubdomainRow {
 //   - system timestamps: `ts`
 //   - name / identity: `subdomain` — v1 marks this `immutable: true`; rename
 //     would orphan DNS + ACL wiring tied to the old name.
-//   - ownership: `user_id`, `app_owner` — set via `create`, never via patch.
+//   - ownership: `user_id`, `app_owner` — set via `create` (or reclaimed in
+//     place by `reclaimByUuid`), never via patch.
 //     Flipping either hands the site to another user / app.
 //   - access gate: `protected` — clearing this lets a future caller delete
 //     or rename a protected site (e.g. `puter-app-icons`). The driver itself
@@ -674,6 +675,54 @@ export class SubdomainStore extends PuterStore {
             }
             await this.#invalidateRootDirEntry(row.root_dir_id);
         }
+    }
+
+    /**
+     * Move a row to a new owner and root in place, keeping its id and uuid and
+     * dropping the previous holder's bindings. `protect` only turns `protected`
+     * on.
+     */
+    async reclaimByUuid(
+        uuid: string,
+        {
+            userId,
+            rootDirId,
+            protect = false,
+        }: {
+            userId: number;
+            rootDirId: number | null;
+            protect?: boolean;
+        },
+    ): Promise<SubdomainRow | null> {
+        const before = await this.getByUuid(uuid, { primary: true });
+        if (!before) return null;
+
+        // No `database_id` here: the MySQL schema has no such column.
+        await this.clients.db.write(
+            `UPDATE \`subdomains\`
+                SET \`user_id\` = ?, \`root_dir_id\` = ?, \`protected\` = \`protected\` OR ?,
+                    \`app_owner\` = NULL, \`associated_app_id\` = NULL,
+                    \`domain\` = NULL
+              WHERE \`uuid\` = ?`,
+            [userId, rootDirId, this.clients.db.booleanValue(protect), uuid],
+        );
+
+        const after = await this.getByUuid(uuid, { primary: true });
+        if (after) await this.#refreshCache(after);
+
+        const affectedUsers = new Set(
+            [before.user_id, after?.user_id].filter((v) => v != null),
+        );
+        for (const uid of affectedUsers) {
+            await this.#invalidatePrefixListsForUser(Number(uid));
+        }
+        const affectedRootDirIds = new Set(
+            [before.root_dir_id, after?.root_dir_id].filter((v) => v != null),
+        );
+        for (const id of affectedRootDirIds) {
+            await this.#invalidateRootDirEntry(id as number);
+        }
+        return after;
     }
 
     /**

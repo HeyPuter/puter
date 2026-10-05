@@ -142,9 +142,9 @@ describe('GroqAIProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('GroqAIProvider model catalog', () => {
-    it('returns llama-3.1-8b-instant as the default', () => {
+    it('returns openai/gpt-oss-20b as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('llama-3.1-8b-instant');
+        expect(provider.getDefaultModel()).toBe('openai/gpt-oss-20b');
     });
 
     it('exposes the static GROQ_MODELS list verbatim from models()', () => {
@@ -161,7 +161,32 @@ describe('GroqAIProvider model catalog', () => {
                 expect(ids).toContain(a);
             }
         }
-        expect(ids).toContain('llama-3.1-8b-instant');
+        expect(ids).toContain('openai/gpt-oss-20b');
+    });
+
+    it('exposes qwen/qwen3.8-27b with current pricing and limits', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.models().find((m) => m.id === 'qwen/qwen3.8-27b'),
+        ).toMatchObject({
+            puterId: 'groq:qwen/qwen3.8-27b',
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            context: 131072,
+            max_tokens: 16384,
+            costs: { prompt_tokens: 80, completion_tokens: 400 },
+        });
+    });
+
+    it.each([
+        'llama-3.1-8b-instant',
+        'llama-3.3-70b-versatile',
+        'groq/compound',
+        'groq/compound-mini',
+        'qwen/qwen3.6-27b',
+        'meta-llama/llama-guard-4-12b',
+    ])('drops the deprecated %s', async (id) => {
+        const { provider } = makeProvider();
+        expect(await provider.list()).not.toContain(id);
     });
 });
 
@@ -184,7 +209,7 @@ describe('GroqAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'hello' }],
                 max_tokens: 256,
                 temperature: 0.4,
@@ -192,7 +217,7 @@ describe('GroqAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('llama-3.1-8b-instant');
+        expect(args.model).toBe('openai/gpt-oss-20b');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         // Groq's SDK uses max_completion_tokens; the provider passes through
         // verbatim with no implicit cap.
@@ -215,7 +240,7 @@ describe('GroqAIProvider.complete request shape', () => {
         ];
         await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools,
             }),
@@ -230,7 +255,7 @@ describe('GroqAIProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -240,7 +265,7 @@ describe('GroqAIProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -254,7 +279,7 @@ describe('GroqAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [
                     {
                         role: 'assistant',
@@ -305,16 +330,16 @@ describe('GroqAIProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.3-70b-versatile',
+                model: 'openai/gpt-oss-120b',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('llama-3.3-70b-versatile');
+        expect(createMock.mock.calls[0]![0].model).toBe('openai/gpt-oss-120b');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'groq:llama-3.3-70b-versatile',
+            'groq:openai/gpt-oss-120b',
             expect.any(Object),
         );
     });
@@ -330,11 +355,11 @@ describe('GroqAIProvider model resolution', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('llama-3.1-8b-instant');
+        expect(createMock.mock.calls[0]![0].model).toBe('openai/gpt-oss-20b');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'groq:llama-3.1-8b-instant',
+            'groq:openai/gpt-oss-20b',
             expect.any(Object),
         );
     });
@@ -357,7 +382,7 @@ describe('GroqAIProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -372,20 +397,19 @@ describe('GroqAIProvider.complete non-stream output', () => {
             cached_tokens: 0,
         });
 
-        // llama-3.1-8b-instant costs: prompt=5, completion=8.
-        const llama = GROQ_MODELS.find((m) => m.id === 'llama-3.1-8b-instant')!;
+        const gptOss = GROQ_MODELS.find((m) => m.id === 'openai/gpt-oss-20b')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('groq:llama-3.1-8b-instant');
+        expect(prefix).toBe('groq:openai/gpt-oss-20b');
         expect(usage).toEqual({
             prompt_tokens: 100,
             completion_tokens: 50,
             cached_tokens: 0,
         });
         expect(overrides).toMatchObject({
-            prompt_tokens: 100 * Number(llama.costs.prompt_tokens),
-            completion_tokens: 50 * Number(llama.costs.completion_tokens),
+            prompt_tokens: 100 * Number(gptOss.costs.prompt_tokens),
+            completion_tokens: 50 * Number(gptOss.costs.completion_tokens),
         });
     });
 
@@ -416,7 +440,7 @@ describe('GroqAIProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'do a tool call' }],
                 tools: [
                     {
@@ -461,7 +485,7 @@ describe('GroqAIProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -486,13 +510,13 @@ describe('GroqAIProvider.complete streaming', () => {
             cached_tokens: 0,
         });
 
-        // llama-3.1-8b-instant: prompt=5, completion=8.
+        // openai/gpt-oss-20b: prompt=7.5, completion=30.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('groq:llama-3.1-8b-instant');
+        expect(prefix).toBe('groq:openai/gpt-oss-20b');
         expect(overrides).toMatchObject({
-            prompt_tokens: 4 * 5,
-            completion_tokens: 2 * 8,
+            prompt_tokens: 4 * 7.5,
+            completion_tokens: 2 * 30,
         });
     });
 
@@ -543,7 +567,7 @@ describe('GroqAIProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'do tool call' }],
                 tools: [
                     {
@@ -582,7 +606,7 @@ describe('GroqAIProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'llama-3.1-8b-instant',
+                    model: 'openai/gpt-oss-20b',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

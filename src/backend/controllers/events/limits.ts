@@ -21,7 +21,7 @@ import type { RouteRateLimit } from '../../core/http/types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
-    FREE_SUBSCRIPTION_IDS,
+    subscriptionOverride,
 } from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
@@ -45,7 +45,7 @@ const userWindow = (
 
 /**
  * A plan-varying cap in route-gate shape: `limit` is what a subscribed account
- * gets, `bySubscription` carves out the free tiers, unlisted plans get the
+ * gets, `bySubscription` carves out the free tiers, unlisted paid plans get the
  * base.
  */
 export interface TieredLimit {
@@ -67,11 +67,9 @@ export const limitFor = (
     subscriptionId: string | null,
 ): number => {
     if (subscriptionId === null) return tier.limit;
-    const own = tier.bySubscription[subscriptionId];
-    if (typeof own === 'number') return own;
-    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
-        ? (tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION] ?? tier.limit)
-        : tier.limit;
+    return (
+        subscriptionOverride(tier.bySubscription, subscriptionId) ?? tier.limit
+    );
 };
 
 /**

@@ -510,27 +510,15 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it.each(['gpt-image-1', 'gpt-image-1-mini', 'GPT-Image-1.5'])(
-        'keeps the deprecated OpenAI id %s routable until its shutdown date',
+    it.each(['gpt-image-1', 'gpt-image-1-mini', 'GPT-Image-1.5', 'openai/gpt-image-1.5'])(
+        'refuses the deprecated OpenAI id %s on every provider',
         async (model) => {
-            openaiImagesGenerateMock.mockResolvedValueOnce({ data: [{ url: 'https://oai/img.png' }] });
-            await withActor(() => driver.generate({ model, prompt: 'hi' }));
-            expect(openaiImagesGenerateMock).toHaveBeenCalledOnce();
-            expect(openaiImagesGenerateMock.mock.calls[0]![0].model).toBe(model.toLowerCase());
+            await expect(withActor(() => driver.generate({
+                model, prompt: 'hi', test_mode: true,
+            }))).rejects.toThrow('Model not found');
+            expect(openaiImagesGenerateMock).not.toHaveBeenCalled();
         },
     );
-
-    it('hides delisted models from discovery but still reports their costs', async () => {
-        const listed = await driver.list();
-        const ids = (await driver.models()).map((m) => m.id);
-        for (const id of ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5']) {
-            expect(ids).not.toContain(id);
-            expect(listed).not.toContain(`openai:openai/${id}`);
-        }
-        expect(driver.getReportedCosts().some((cost) =>
-            String(cost.usageType).startsWith('openai-image-generation:gpt-image-1-mini:'),
-        )).toBe(true);
-    });
 
     it('reports an id Puter never offered as not found', async () => {
         await expect(withActor(() => driver.generate({
@@ -538,7 +526,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         }))).rejects.toThrow('Model not found: chatgpt-image-latest');
     });
 
-    it.each(['openai/gpt-image-2', 'openai/gpt-image-1.5'])(
+    it.each(['openai/gpt-image-2'])(
         'routes the vendor-prefixed id %s to OpenAI unless Replicate is asked for',
         async (model) => {
             eventEmitSpy.mockClear();

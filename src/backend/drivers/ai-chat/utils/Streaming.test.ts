@@ -25,6 +25,7 @@ import Streaming, {
     AIChatStream,
     AIChatTextStream,
     AIChatToolUseStream,
+    ChatStreamAbortedError,
 } from './Streaming.js';
 
 // AIChatStream + friends emit newline-delimited JSON to an underlying
@@ -89,6 +90,45 @@ describe('AIChatStream', () => {
         const h = makeHarness();
         const m = h.chatStream.message();
         expect(m).toBeInstanceOf(AIChatMessageStream);
+    });
+
+    it('carries extra fields on the `usage` event', () => {
+        const h = makeHarness();
+        h.chatStream.end({ tokens: 1 }, { metadata: { usage_limited: true } });
+        expect(h.events()).toEqual([
+            {
+                type: 'usage',
+                usage: { tokens: 1 },
+                metadata: { usage_limited: true },
+            },
+        ]);
+    });
+});
+
+// ── Abort ──────────────────────────────────────────────────────────
+
+describe('AIChatStream.abort', () => {
+    it('throws into the next text, reasoning or tool-call write', () => {
+        const h = makeHarness();
+        const text = h.chatStream.message().contentBlock({ type: 'text' });
+        const tool = h.chatStream
+            .message()
+            .contentBlock({ type: 'tool_use', id: 't', name: 'f' });
+        h.chatStream.abort();
+        expect(() => text.addText('x')).toThrow(ChatStreamAbortedError);
+        expect(() => text.addReasoning('x')).toThrow(ChatStreamAbortedError);
+        expect(() => tool.addPartialJSON('{')).toThrow(ChatStreamAbortedError);
+        expect(() => h.chatStream.write('raw')).toThrow(ChatStreamAbortedError);
+        expect(h.rawChunks()).toEqual([]);
+    });
+
+    it('still records usage and ends the stream, writing nothing', () => {
+        const h = makeHarness();
+        h.chatStream.abort();
+        h.chatStream.end({ output_tokens: 3 });
+        expect(h.chatStream.reportedUsage).toEqual({ output_tokens: 3 });
+        expect(h.rawChunks()).toEqual([]);
+        expect(h.isEnded()).toBe(true);
     });
 });
 

@@ -49,6 +49,9 @@ import type {
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 // Successor uids an origin can derive after its earlier apps were repointed.
 const MAX_ORIGIN_UID_GENERATIONS = 8;
+// Allowed gap between a session's creation time (server clock) and its app's
+// (database clock) before the session counts as older than the app.
+const APP_SESSION_CLOCK_SKEW_SECONDS = 60;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
@@ -339,6 +342,9 @@ export class AuthService extends PuterService {
      *
      * `handlerDepth` stamps the writes made with the token as that many events
      * handler runs deep; `expiresInSeconds` bounds a token that carries one.
+     * Refuses an actor that is itself running behind a handler — the minted
+     * token would outlive any one run, so stamping it with the caller's depth
+     * would only delay the escape, not close it.
      */
     async createWorkerAppToken(
         actor: Actor,
@@ -351,6 +357,16 @@ export class AuthService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
+        // A handler's own writes already carry its depth; minting a fresh
+        // worker token here would start that worker's whole lifetime at
+        // depth 0 and escape the cap for good, not just for this run.
+        if (actor.handlerDepth) {
+            throw new HttpError(
+                403,
+                'An events handler cannot create a worker',
+                { legacyCode: 'events_handler_worker_forbidden' },
+            );
+        }
         if (!workerName) {
             throw new HttpError(400, 'Missing `workerName`', {
                 legacyCode: 'bad_request',
@@ -358,9 +374,15 @@ export class AuthService extends PuterService {
         }
         await this.#assertWorkerAppDelegationAllowed(actor, appUid);
         const auth_id = this.#authIdFor(actor.user as UserRow);
+        const app = await this.stores.app.getByUid(appUid);
         const session = await this.stores.session.getOrCreateWorker(
             actor.user.id,
-            { appUid, workerName, auth_id },
+            {
+                appUid,
+                workerName,
+                auth_id,
+                notBefore: this.#appSessionsNotBefore(app),
+            },
         );
         if (!session) {
             throw new HttpError(500, 'Worker session create failed', {
@@ -1336,12 +1358,18 @@ export class AuthService extends PuterService {
         // the app row's `last_ip` / `last_user_agent` start NULL and get
         // populated later via `SessionStore.touch` on the first verified
         // request that carries those headers.
+        const app = await this.stores.app.getByUid(appUid);
         const appSession = await this.stores.session.getOrCreateApp(
             actor.user.id,
             appUid,
-            { auth_id: this.#authIdFor(actor.user as UserRow) },
+            {
+                auth_id: this.#authIdFor(actor.user as UserRow),
+                notBefore: this.#appSessionsNotBefore(app),
+            },
         );
 
+        // An events handler minting for its own app gets a token as deep as
+        // its own and no longer-lived, so minting can't restart its chain.
         return this.services.token.sign('auth', {
             type: 'app-under-user',
             version: '2',
@@ -1349,6 +1377,14 @@ export class AuthService extends PuterService {
             app_uid: appUid,
             session_uid: appSession?.uuid,
             auth_id: this.#authIdFor(actor.user as UserRow),
+            ...(actor.handlerDepth
+                ? {
+                      handler_depth: actor.handlerDepth,
+                      ...(actor.handlerExpiresAt
+                          ? { exp: actor.handlerExpiresAt }
+                          : {}),
+                  }
+                : {}),
         });
     }
 
@@ -1826,6 +1862,11 @@ export class AuthService extends PuterService {
         if (wantsFullAccess) {
             jwtPayload.full_access = true;
         }
+        // Writes made with a token an events handler mints stay in its chain.
+        // The requested lifetime stands: read URLs routinely outlive a run.
+        if (actor.handlerDepth) {
+            jwtPayload.handler_depth = actor.handlerDepth;
+        }
 
         // jsonwebtoken's SignOptions.expiresIn is typed as `number |
         // ${number}${unit}` (template literal), so a plain string can't
@@ -2113,7 +2154,6 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        const auth_id = this.#authIdFor(user as UserRow);
 
         // v2 tokens prefer `session_uid`; v1 only carries `uuid`. Both
         // store the web-session uuid.
@@ -2124,6 +2164,13 @@ export class AuthService extends PuterService {
                   sessionUuid,
               )) as SessionRow | null)
             : null;
+
+        // Only a browser session gets a reauth token back. A worker credential
+        // rides the same token type, so check both the claim and the row.
+        const auth_id =
+            decoded.worker || (rawRow?.kind ?? 'web') !== 'web'
+                ? undefined
+                : this.#authIdFor(user as UserRow);
 
         if (rawRow?.revoked_at != null) {
             return { reauth: { reason: 'session_revoked', auth_id } };
@@ -2154,7 +2201,6 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        const auth_id = this.#authIdFor(user as UserRow);
 
         const app = await this.stores.app.getByUid(decoded.app_uid);
         if (!app) return { invalid: true };
@@ -2181,16 +2227,28 @@ export class AuthService extends PuterService {
             )) as SessionRow | null;
         }
 
+        // An app token never carries `auth_id` on its reauth result: only a
+        // user's own session/GUI token can be reattached via a reauth token.
         if (rawRow?.revoked_at != null) {
-            return { reauth: { reason: 'session_revoked', auth_id } };
+            return { reauth: { reason: 'session_revoked' } };
         }
         if (rawRow?.expires_at != null && rawRow.expires_at <= nowSeconds()) {
-            return { reauth: { reason: 'session_expired', auth_id } };
+            return { reauth: { reason: 'session_expired' } };
         }
 
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+
+        // An origin app's uid is derived from the origin, so a deleted app's
+        // uid returns with the next app on that origin. A session older than
+        // the app was made for the earlier one. Checked before `touch()` so a
+        // rejected token doesn't slide the old session's expiry.
+        const notBefore = this.#appSessionsNotBefore(app);
+        const createdAt = Number(session.created_at);
+        if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
+            return { reauth: { reason: 'session_revoked' } };
+        }
 
         this.stores.session
             .touch({
@@ -2202,10 +2260,21 @@ export class AuthService extends PuterService {
             .catch(() => {});
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
-        const { handler_depth: handlerDepth } = decoded;
-        if (Number.isSafeInteger(handlerDepth) && handlerDepth! > 0)
-            actor.handlerDepth = handlerDepth;
+        this.#applyHandlerDepth(actor, decoded);
         return { actor };
+    }
+
+    /**
+     * Unix seconds before which an app or worker session for `app` belongs to
+     * an earlier app with the same uid; null when the creation time is
+     * unknown.
+     */
+    #appSessionsNotBefore(
+        app: { created_epoch?: unknown } | null | undefined,
+    ): number | null {
+        const created = Number(app?.created_epoch);
+        if (!Number.isFinite(created) || created <= 0) return null;
+        return created - APP_SESSION_CLOCK_SKEW_SECONDS;
     }
 
     async #actorFromAccessTokenToken(
@@ -2216,21 +2285,22 @@ export class AuthService extends PuterService {
 
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
-        const auth_id = this.#authIdFor(user as UserRow);
 
         let session: SessionRow | null = null;
         if (decoded.session_uid) {
             const rawRow = (await this.stores.session.getByUuidAny(
                 decoded.session_uid,
             )) as SessionRow | null;
+            // No `auth_id` on an access token's reauth result: a reauth token
+            // is only ever minted for the user's own session/GUI token.
             if (rawRow?.revoked_at != null) {
-                return { reauth: { reason: 'session_revoked', auth_id } };
+                return { reauth: { reason: 'session_revoked' } };
             }
             if (
                 rawRow?.expires_at != null &&
                 rawRow.expires_at <= nowSeconds()
             ) {
-                return { reauth: { reason: 'session_expired', auth_id } };
+                return { reauth: { reason: 'session_expired' } };
             }
             if (!rawRow) return { invalid: true };
             session = rawRow;
@@ -2256,22 +2326,32 @@ export class AuthService extends PuterService {
                 .catch(() => {});
         }
 
-        return {
-            actor: makeActor({
-                user: this.#actorUserFromRow(user),
-                accessToken: {
-                    uid: decoded.token_uid,
-                    issuer: authorizer,
-                    authorized: null,
-                    // Honor the signed full-access claim only for user-issued
-                    // tokens. App-issued tokens (`app_uid` present) can never be
-                    // full-access — mirrors the mint-time block — so even a
-                    // claim on one is ignored here.
-                    fullAccess:
-                        !decoded.app_uid && decoded.full_access === true,
-                },
-            }),
-        };
+        const actor = makeActor({
+            user: this.#actorUserFromRow(user),
+            accessToken: {
+                uid: decoded.token_uid,
+                issuer: authorizer,
+                authorized: null,
+                // Honor the signed full-access claim only for user-issued
+                // tokens. App-issued tokens (`app_uid` present) can never be
+                // full-access — mirrors the mint-time block — so even a
+                // claim on one is ignored here.
+                fullAccess: !decoded.app_uid && decoded.full_access === true,
+            },
+        });
+        this.#applyHandlerDepth(actor, decoded);
+        return { actor };
+    }
+
+    /** An events handler token's depth and expiry; see `Actor.handlerDepth`. */
+    #applyHandlerDepth(
+        actor: Actor,
+        decoded: AppUnderUserTokenPayload | AccessTokenPayload,
+    ): void {
+        const { handler_depth: handlerDepth, exp } = decoded;
+        if (!Number.isSafeInteger(handlerDepth) || handlerDepth! <= 0) return;
+        actor.handlerDepth = handlerDepth;
+        if (Number.isSafeInteger(exp)) actor.handlerExpiresAt = exp;
     }
 
     // -- Actor builders ----------------------------------------------

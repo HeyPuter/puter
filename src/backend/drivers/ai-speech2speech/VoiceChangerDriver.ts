@@ -20,9 +20,12 @@
 import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
@@ -71,8 +74,12 @@ export class VoiceChangerDriver extends PuterDriver {
     readonly concurrent = AI_CONCURRENT;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override getReportedCosts(): Record<string, unknown>[] {
@@ -195,124 +202,136 @@ export class VoiceChangerDriver extends PuterDriver {
         const ucentsPerSecond = VOICE_CHANGER_COSTS[usageKey] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
 
-        const hasCredits = await this.services.metering.hasEnoughCredits(
+        const hold = await this.#aiMetering.reserveAiCredits(
             actor,
+            usageKey,
             estimatedCost,
         );
-        if (!hasCredits) {
+        if (!hold) {
             throw new HttpError(402, 'Insufficient credits', {
                 legacyCode: 'insufficient_funds',
             });
         }
 
-        const formData = new FormData();
-        const blob = new Blob([loaded.buffer as BlobPart], {
-            type: loaded.mimeType ?? 'application/octet-stream',
-        });
-        formData.append('audio', blob, loaded.filename);
-        formData.append('model_id', modelId);
-
-        const settings = args.voice_settings ?? args.voiceSettings;
-        if (settings !== undefined && settings !== null) {
-            formData.append(
-                'voice_settings',
-                typeof settings === 'string'
-                    ? settings
-                    : JSON.stringify(settings),
-            );
-        }
-        if (args.seed !== undefined && args.seed !== null) {
-            formData.append('seed', String(args.seed));
-        }
-        if (typeof args.remove_background_noise === 'boolean') {
-            formData.append(
-                'remove_background_noise',
-                String(args.remove_background_noise),
-            );
-        }
-        if (args.file_format) {
-            formData.append('file_format', args.file_format);
-        }
-
-        const searchParams = new URLSearchParams();
-        const outputFormat = args.output_format || DEFAULT_OUTPUT_FORMAT;
-        if (outputFormat) searchParams.set('output_format', outputFormat);
-        if (
-            args.optimize_streaming_latency !== undefined &&
-            args.optimize_streaming_latency !== null
-        ) {
-            searchParams.set(
-                'optimize_streaming_latency',
-                String(args.optimize_streaming_latency),
-            );
-        }
-        if (args.enable_logging !== undefined && args.enable_logging !== null) {
-            searchParams.set('enable_logging', String(args.enable_logging));
-        }
-
-        const url = new URL(`/v1/speech-to-speech/${voiceId}`, this.#baseUrl);
-        const search = searchParams.toString();
-        if (search) url.search = search;
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'xi-api-key': this.#apiKey },
-            body: formData,
-        });
-
-        if (!response.ok) {
-            let detail: unknown = null;
-            try {
-                detail = await response.json();
-            } catch {
-                // Non-JSON body — ignore.
-            }
-            const message =
-                detail && typeof detail === 'object' && 'detail' in detail
-                    ? String((detail as { detail: unknown }).detail)
-                    : `ElevenLabs returned ${response.status}`;
-            // Tag upstream status as `upstream_*` so the alarm gate
-            // skips paging on ElevenLabs 5xx outages (we expose them
-            // as 400 like the TTS provider does — user can't act on
-            // them, but it's not our bug either).
-            const legacyCode =
-                response.status >= 500
-                    ? 'upstream_provider_unavailable'
-                    : response.status === 401 || response.status === 403
-                      ? 'upstream_auth_failed'
-                      : response.status === 429
-                        ? 'upstream_rate_limited'
-                        : 'upstream_bad_request';
-            const exposedStatus =
-                legacyCode === 'upstream_rate_limited'
-                    ? 429
-                    : legacyCode === 'upstream_auth_failed'
-                      ? 500
-                      : legacyCode === 'upstream_provider_unavailable'
-                        ? 400
-                        : response.status;
-            throw new HttpError(exposedStatus, message, {
-                legacyCode,
-                fields: {
-                    provider: 'elevenlabs',
-                    upstreamStatus: response.status,
-                },
+        try {
+            const formData = new FormData();
+            const blob = new Blob([loaded.buffer as BlobPart], {
+                type: loaded.mimeType ?? 'application/octet-stream',
             });
+            formData.append('audio', blob, loaded.filename);
+            formData.append('model_id', modelId);
+
+            const settings = args.voice_settings ?? args.voiceSettings;
+            if (settings !== undefined && settings !== null) {
+                formData.append(
+                    'voice_settings',
+                    typeof settings === 'string'
+                        ? settings
+                        : JSON.stringify(settings),
+                );
+            }
+            if (args.seed !== undefined && args.seed !== null) {
+                formData.append('seed', String(args.seed));
+            }
+            if (typeof args.remove_background_noise === 'boolean') {
+                formData.append(
+                    'remove_background_noise',
+                    String(args.remove_background_noise),
+                );
+            }
+            if (args.file_format) {
+                formData.append('file_format', args.file_format);
+            }
+
+            const searchParams = new URLSearchParams();
+            const outputFormat = args.output_format || DEFAULT_OUTPUT_FORMAT;
+            if (outputFormat) searchParams.set('output_format', outputFormat);
+            if (
+                args.optimize_streaming_latency !== undefined &&
+                args.optimize_streaming_latency !== null
+            ) {
+                searchParams.set(
+                    'optimize_streaming_latency',
+                    String(args.optimize_streaming_latency),
+                );
+            }
+            if (
+                args.enable_logging !== undefined &&
+                args.enable_logging !== null
+            ) {
+                searchParams.set('enable_logging', String(args.enable_logging));
+            }
+
+            const url = new URL(
+                `/v1/speech-to-speech/${voiceId}`,
+                this.#baseUrl,
+            );
+            const search = searchParams.toString();
+            if (search) url.search = search;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'xi-api-key': this.#apiKey },
+                body: formData,
+            });
+
+            if (!response.ok) {
+                let detail: unknown = null;
+                try {
+                    detail = await response.json();
+                } catch {
+                    // Non-JSON body — ignore.
+                }
+                const message =
+                    detail && typeof detail === 'object' && 'detail' in detail
+                        ? String((detail as { detail: unknown }).detail)
+                        : `ElevenLabs returned ${response.status}`;
+                // Tag upstream status as `upstream_*` so the alarm gate
+                // skips paging on ElevenLabs 5xx outages (we expose them
+                // as 400 like the TTS provider does — user can't act on
+                // them, but it's not our bug either).
+                const legacyCode =
+                    response.status >= 500
+                        ? 'upstream_provider_unavailable'
+                        : response.status === 401 || response.status === 403
+                          ? 'upstream_auth_failed'
+                          : response.status === 429
+                            ? 'upstream_rate_limited'
+                            : 'upstream_bad_request';
+                const exposedStatus =
+                    legacyCode === 'upstream_rate_limited'
+                        ? 429
+                        : legacyCode === 'upstream_auth_failed'
+                          ? 500
+                          : legacyCode === 'upstream_provider_unavailable'
+                            ? 400
+                            : response.status;
+                throw new HttpError(exposedStatus, message, {
+                    legacyCode,
+                    fields: {
+                        provider: 'elevenlabs',
+                        upstreamStatus: response.status,
+                    },
+                });
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const stream = Readable.from(Buffer.from(arrayBuffer));
+            this.#aiMetering.incrementUsage(
+                actor,
+                usageKey,
+                estimatedSeconds,
+                ucentsPerSecond * estimatedSeconds,
+            );
+
+            return {
+                dataType: 'stream',
+                content_type:
+                    response.headers.get('content-type') ?? 'audio/mpeg',
+                stream,
+            };
+        } finally {
+            await hold.release();
         }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const stream = Readable.from(Buffer.from(arrayBuffer));
-        this.#aiMetering.incrementUsage(
-            actor,
-            usageKey,
-            estimatedSeconds,
-            ucentsPerSecond * estimatedSeconds,
-        );
-
-        return {
-            dataType: 'stream',
-            content_type: response.headers.get('content-type') ?? 'audio/mpeg',
-            stream,
-        };
     }
 }

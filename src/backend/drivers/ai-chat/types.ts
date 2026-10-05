@@ -173,4 +173,10 @@ export interface IChatProvider {
      * attempt.
      */
     readonly resolvesPuterPaths?: boolean;
+    /**
+     * The model key usage is recorded under, which is also what the AI cost
+     * factor is looked up by. The driver assumes `<provider>:<model id>` when
+     * absent.
+     */
+    meteringModelKey?(modelId: string): string;
 }

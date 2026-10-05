@@ -178,6 +178,34 @@ describe('AlibabaProvider model catalog', () => {
         expect(ids).toContain('qwen-max');
         expect(ids).toContain('qwen/qwen-max');
     });
+
+    it.each([
+        ['qwen3.8-flash', 15, 47, 1.6],
+        ['qwen3.8-omni-flash', 15, 47, 1.6],
+        ['qwen3.8-max-0902', 200, 600, 25],
+        ['qwen3.7-max-2026-05-17', 250, 750, 0],
+        ['deepseek-v4.1-flash', 30, 120, 0],
+    ])('exposes %s at its list price', (id, input, output, cached) => {
+        const model = ALIBABA_MODELS.find((m) => m.id === id);
+        expect(model?.costs).toMatchObject({
+            prompt_tokens: input,
+            completion_tokens: output,
+            cached_tokens: cached,
+        });
+    });
+
+    it.each([
+        'qwen3-max',
+        'qwen3.6-max-preview',
+        'qwen-turbo',
+        'qwen3-vl-flash',
+        'qwen3-coder-plus',
+        'qwen-omni-turbo',
+        'deepseek-v4-flash',
+    ])('drops %s, which Model Studio is retiring', async (id) => {
+        const { provider } = makeProvider();
+        expect(await provider.list()).not.toContain(id);
+    });
 });
 
 // ── Request shape ───────────────────────────────────────────────────
@@ -552,13 +580,13 @@ describe('AlibabaProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'qwen3.6-max-preview',
+                model: 'qwen3.8-max',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
         const model = ALIBABA_MODELS.find(
-            (m) => m.id === 'qwen3.6-max-preview',
+            (m) => m.id === 'qwen3.8-max',
         )!;
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
@@ -566,7 +594,7 @@ describe('AlibabaProvider.complete non-stream output', () => {
             completion_tokens: 20,
             cached_tokens: 15,
         });
-        expect(prefix).toBe('alibaba:qwen3.6-max-preview');
+        expect(prefix).toBe('alibaba:qwen3.8-max');
         expect(overrides).toEqual({
             prompt_tokens: 50 * Number(model.costs.prompt_tokens),
             completion_tokens: 20 * Number(model.costs.completion_tokens),

@@ -105,6 +105,25 @@ export const trackedInputTokens = (
 };
 
 /**
+ * The output tokens a tracked-usage object carries: every key billed at the
+ * output rate, reasoning included — the same tokens a `max_tokens` cap counts.
+ */
+export const trackedOutputTokens = (
+    trackedUsage: Record<string, unknown>,
+    model: IChatModel,
+): number => {
+    const { outputKey } = costKeys(model);
+    let total = 0;
+    for (const [key, amount] of Object.entries(trackedUsage)) {
+        if (!isOutputCostKey(key, outputKey)) continue;
+        if (typeof amount === 'number' && Number.isFinite(amount)) {
+            total += amount;
+        }
+    }
+    return total;
+};
+
+/**
  * Whether a model costs the user nothing to run.
  *
  * Every rate in the cost table has to be zero — a model priced on one axis and

@@ -38,6 +38,7 @@ import {
     setupTestServer,
     type TestUserCredentials,
 } from '../../testUtil.js';
+import { ORG_SEAT_FREE } from '../../data/subPolicies/orgSeatFreePolicy.js';
 import type { AuthResult } from '../auth/AuthService.js';
 import type { UploadProgressTrackerLike } from '../fs/types.js';
 import {
@@ -612,6 +613,27 @@ describe('SocketService (live socket.io)', () => {
             expect(await wasDropped(second)).toBe(true);
 
             first.disconnect();
+        });
+    });
+
+    it('holds an org_seat_free actor to the free cap, not the paid base', async () => {
+        // org_seat_free is unlisted; it takes the user_free entry.
+        await withLimits({ perOrigin: 100, perUser: 100 }, async () => {
+            SocketService.MAX_SOCKETS_BY_SUBSCRIPTION = { user_free: 1 };
+            const spy = vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockResolvedValue(ORG_SEAT_FREE);
+            try {
+                const first = await connectFrom('https://org-seat.example');
+                expect(await wasDropped(first)).toBe(false);
+
+                const second = await connectFrom('https://org-seat.example');
+                expect(await wasDropped(second)).toBe(true);
+
+                first.disconnect();
+            } finally {
+                spy.mockRestore();
+            }
         });
     });
 

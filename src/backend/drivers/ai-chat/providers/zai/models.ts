@@ -64,6 +64,13 @@ export const ZAI_MODELS: IChatModel[] = [
         usdPerMToken(0.15, 0.5, 0.03),
     ),
     textModel(
+        'glm-5.3-flashx',
+        'GLM-5.3-FlashX',
+        1_000 * K,
+        128 * K,
+        usdPerMToken(0.37, 1.25, 0.075),
+    ),
+    textModel(
         'glm-5.2',
         'GLM-5.2',
         1_000 * K,

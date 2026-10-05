@@ -21,24 +21,21 @@ import { Writable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { SYSTEM_ACTOR_UUID } from '../../core/actor.js';
 import { createPuterSiteMiddleware } from '../../core/http/middleware/puterSite.js';
 import type { PuterServer } from '../../server.js';
 import type { IConfig } from '../../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import {
-    createTestUser,
-    setupTestServer,
-    TEST_ADMIN_CREDENTIALS,
-} from '../../testUtil.js';
+import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import {
     PROFILE_BIO_MAX_LENGTH,
     PROFILE_DISPLAY_NAME_MAX_LENGTH,
     PROFILE_PICTURE_MAX_BYTES,
     PROFILES_PATH_PREFIX,
-    PROFILES_SUBDOMAIN,
     type ProfileService,
 } from './ProfileService.js';
+import { PROFILES_SUBDOMAIN } from '../../util/systemSite.js';
 
 const PICTURE =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
@@ -53,6 +50,8 @@ describe('ProfileService', () => {
      * out of the next one's.
      */
     const plans = new Map<string, string>();
+    /** Plans granted by address rather than bought, keyed by email. */
+    const plansByEmail = new Map<string, string>();
 
     const makeUser = async (): Promise<UserRow> => {
         const username = `pr-${Math.random().toString(36).slice(2, 10)}`;
@@ -89,14 +88,7 @@ describe('ProfileService', () => {
 
     beforeAll(async () => {
         server = await setupTestServer();
-        // `no_default_user` leaves no admin, so the bootstrap deferred; create
-        // one the way the client env does and run it again.
-        await createTestUser(server, {
-            ...TEST_ADMIN_CREDENTIALS,
-            admin: true,
-        });
         service = server.services.profile;
-        await service.ensureProfilesDirectory();
 
         server.services.metering.registerPolicy({
             id: 'business',
@@ -106,22 +98,26 @@ describe('ProfileService', () => {
         server.services.metering.registerSubscriptionResolver(
             (actor) => plans.get(actor.user?.uuid ?? '') ?? null,
         );
+        server.services.metering.registerDefaultSubscriptionResolver(
+            (actor) => plansByEmail.get(actor.user?.email ?? '') ?? null,
+        );
     }, 120_000);
 
     afterAll(async () => {
         await server?.shutdown();
     });
 
-    it('bootstraps an admin-owned directory served by a protected system subdomain', async () => {
+    it('bootstraps a system-owned directory served by a protected system subdomain', async () => {
         const dir =
             await server.stores.fsEntry.getEntryByPath(PROFILES_PATH_PREFIX);
-        const admin = await server.stores.user.getByUsername('admin');
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
         expect(dir?.isDir).toBe(true);
-        expect(dir?.userId).toBe(admin!.id);
+        expect(dir?.userId).toBe(systemUser!.id);
 
         const site =
             await server.stores.subdomain.getBySubdomain(PROFILES_SUBDOMAIN);
-        expect(site?.user_id).toBe(admin!.id);
+        expect(site?.user_id).toBe(systemUser!.id);
         expect(site?.root_dir_id).toBe(dir!.id);
         expect(Boolean(site?.protected)).toBe(true);
 
@@ -154,9 +150,10 @@ describe('ProfileService', () => {
         const entry = await server.stores.fsEntry.getEntryByPath(
             `${PROFILES_PATH_PREFIX}/${user.uuid}.profile`,
         );
-        const admin = await server.stores.user.getByUsername('admin');
+        const systemUser =
+            await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
         expect(entry).not.toBeNull();
-        expect(entry!.userId).toBe(admin!.id);
+        expect(entry!.userId).toBe(systemUser!.id);
 
         // A second patch leaves untouched fields alone, and `null` clears.
         expect(
@@ -250,6 +247,21 @@ describe('ProfileService', () => {
             ).toBe(false);
         });
         expect(await service.isPubliclyVisible(user)).toBe(false);
+    });
+
+    it('resolves the owner plan the way the owner would, email-keyed plans included', async () => {
+        const user = await makeUser();
+        plansByEmail.set(user.email!, 'business');
+        try {
+            expect(await service.isPubliclyVisible(user)).toBe(true);
+            const own = await server.services.metering.getActorSubscription({
+                user,
+            });
+            expect(own.id).toBe('business');
+        } finally {
+            plansByEmail.delete(user.email!);
+            server.services.metering.invalidateActorSubscription(user.uuid);
+        }
     });
 
     it('withholds the hosted <uuid>.profile file for a free owner on site.access.check', async () => {
@@ -346,10 +358,6 @@ describe('ProfileService', () => {
             profileGate: { enabled: false },
         } as never);
         try {
-            await createTestUser(gated, {
-                ...TEST_ADMIN_CREDENTIALS,
-                admin: true,
-            });
             const created = await gated.stores.user.create({
                 username: 'free-user',
                 uuid: uuidv4(),
@@ -363,6 +371,32 @@ describe('ProfileService', () => {
             );
         } finally {
             await gated.shutdown();
+        }
+    });
+
+    it('saves a profile past the system user’s storage allowance', async () => {
+        const limited = await setupTestServer({
+            is_storage_limited: true,
+            storage_capacity: 50,
+        } as never);
+        try {
+            const created = await limited.stores.user.create({
+                username: 'limited-user',
+                uuid: uuidv4(),
+                password: null,
+                email: 'limited@test.local',
+                requires_email_confirmation: false,
+            } as Parameters<typeof limited.stores.user.create>[0]);
+            const user = (await limited.stores.user.getById(created.id))!;
+            const bio = 'x'.repeat(200);
+
+            await limited.services.profile.updateProfile(user, { bio });
+
+            expect((await limited.services.profile.getProfile(user)).bio).toBe(
+                bio,
+            );
+        } finally {
+            await limited.shutdown();
         }
     });
 

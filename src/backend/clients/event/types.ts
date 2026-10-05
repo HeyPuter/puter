@@ -267,6 +267,17 @@ export type EventMap = {
         message: string | null;
         [key: string]: unknown;
     };
+    // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
+    // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
+    // mailbox; otherwise it is routed like any other message.
+    'email.ingress.feedback': {
+        /** The envelope recipient, as the relay presented it. */
+        to: string;
+        from: string | null;
+        /** The whole message, exactly as received. */
+        raw: Buffer;
+        handled: boolean;
+    };
     'user.save_account': {
         user_id: number;
         old_username?: string;
@@ -669,7 +680,8 @@ export type EventMap = {
         uid?: string;
         thumbnail?: string | null;
     };
-    'thumbnail.created': { url: string };
+    /** `uuid` is the entry the thumbnail belongs to. */
+    'thumbnail.created': { url: string; uuid: string };
     'thumbnail.upload.prepare': {
         items: { index: number; item_uid: string }[];
         uploadUrl?: string;
@@ -720,6 +732,7 @@ export type EventMap = {
             email?: string;
             app_name?: string;
         };
+        /** False for an app actor: add only `subscribed` / `paid_storage` then. */
         isUser: boolean;
     };
     'wisp.get-policy': {
@@ -864,10 +877,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

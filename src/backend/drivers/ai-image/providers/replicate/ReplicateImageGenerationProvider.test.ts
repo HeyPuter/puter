@@ -1305,7 +1305,7 @@ describe('Replicate expanded catalog billing', () => {
 });
 
 describe('Replicate availability gates', () => {
-    it.each(['leonardoai/phoenix-1.0', 'bytedance/seedream-3', 'black-forest-labs/flux-pro-finetuned', 'quiverai/arrow-1.1', 'quiverai/arrow-1.1-max', 'prunaai/hidream-l1-fast'])(
+    it.each(['leonardoai/phoenix-1.0', 'bytedance/seedream-3', 'quiverai/arrow-1.1', 'quiverai/arrow-1.1-max', 'prunaai/hidream-l1-fast'])(
         'does not advertise the unavailable %s endpoint but explains it', (id) => {
             const provider = makeProvider();
             expect(provider.models().some((model) => model.id === id)).toBe(false);

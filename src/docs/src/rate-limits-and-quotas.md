@@ -46,7 +46,7 @@ The main costs:
 For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
-- In-flight requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`.
+- In-flight chat, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`.
 
 ## Rate limits
 
@@ -88,6 +88,8 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 | Mistral | 50 MB per input. PDFs up to 1,000 pages. |
 
 `File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
+
+Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. An image, and any Textract input, counts as one page. Other documents, and PDFs whose pages can't be read, count 20 pages per MB, up to 1,000. That amount is reserved while the call runs; the charge is for the pages actually processed.
 
 ### Key-value store
 
@@ -291,7 +293,7 @@ Available only where the deployment has teams turned on; elsewhere `puter.teams`
 The mutation and read budgets are per user, per app, not per team: administering several teams spends one budget.
 
 - **Seats.** A seat is a Puter account the team creates and its owner pays for. Over the seat limit, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both errors include the limit in `fields.limit`.
-- **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and half the free rate limits. A seat on a paid team tier gets that tier.
+- **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier.
 - **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it never disables anyone; a team over the new limit just can't add seats until it's back under.
 - **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; `max_seats_per_team` sets one flat limit that overrides both. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
 - **Password resets.** A reset returns a temporary password once, valid for 24 hours. Until the member sets their own password, every request except signing in fails with `password_change_required`.
@@ -391,7 +393,7 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 | ----------------------------- | ------------------------------ | ---- | ---- |
 | Handler runs in one chain     | Per account holding the subscription | 12 | 4 |
 
-- A write made through a handler's `user` in the events worker is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain.
+- A write made through a handler's `user` in the events worker, or through a token `user` creates, is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain. `user.workers.create` is refused rather than counted — a handler cannot start an untracked chain through a worker of its own.
 - When an event reaches the limit, the events worker runs no handler for it. A `broadcast` one still reaches connected clients without running the persistent handler; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
 - If the holder's plan can't be looked up, the free number applies. A server with no metering uses the paid number.
 
@@ -444,6 +446,14 @@ When the holder's balance runs out, deliveries stop and persistent subscriptions
 | Relay credentials for guests | 60/min | Shared by all guests of one host account |
 
 Relay traffic a guest sends is billed to the account that issued the grant. Issue a grant for the session you mean to host and let it expire rather than reusing it.
+
+### Live connections
+
+| Limit                                  | Paid | Free | Anonymous |
+| -------------------------------------- | ---- | ---- | --------- |
+| Open realtime connections per account  | 400  | 200  | 100       |
+
+An account can also hold at most **150** open connections from one origin, so a single page can't use up the whole allowance. Over either limit, the new connection is closed as soon as it opens; connections already open stay up.
 
 ### All driver calls
 

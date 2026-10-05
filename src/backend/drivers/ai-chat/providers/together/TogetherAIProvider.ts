@@ -52,7 +52,7 @@ export class TogetherAIProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
+        return 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo';
     }
 
     async models() {
@@ -91,10 +91,11 @@ export class TogetherAIProvider implements IChatProvider {
                             ),
                         ),
                     },
-                    // Together only reports a context length. The driver caps
-                    // output at max_tokens minus an estimated input count, which
-                    // runs low on whitespace-poor prompts — reserve headroom so
-                    // the cap doesn't overshoot the context as often.
+                    // Together only reports a context length, so most of it
+                    // stands in for an output limit. The driver also caps
+                    // output at what the window leaves after an estimated
+                    // prompt, which runs low on whitespace-poor prompts — the
+                    // headroom keeps short prompts from overshooting it.
                     max_tokens: model.context_length
                         ? Math.floor(model.context_length * 0.95)
                         : 8000,
@@ -108,6 +109,11 @@ export class TogetherAIProvider implements IChatProvider {
 
     async list() {
         return modelLookupNames(await this.models());
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `togetherai:${modelId.replace(/^togetherai:/, '')}`;
     }
 
     async complete({
@@ -174,7 +180,7 @@ export class TogetherAIProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,
-                    `togetherai:${modelIdForParams}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

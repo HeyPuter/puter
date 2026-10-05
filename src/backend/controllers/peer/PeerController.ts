@@ -456,6 +456,7 @@ export class PeerController extends PuterController {
                         uuid: user.uuid,
                         id: user.id,
                         username: user.username,
+                        email: user.email ?? null,
                     },
                 });
                 await this.services.metering.incrementUsage(

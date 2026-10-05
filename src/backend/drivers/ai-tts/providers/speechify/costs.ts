@@ -24,6 +24,4 @@
 // Per character: 1_000_000_000 / 1_000_000 = 1000 microcents per character
 export const SPEECHIFY_TTS_COSTS: Record<string, number> = {
     'simba-3.2': 1000,
-    'simba-english': 1000,
-    'simba-multilingual': 1000,
 };

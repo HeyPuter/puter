@@ -20,17 +20,21 @@
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
 import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
-import { isUniqueViolation } from '../../util/dbError.js';
+import {
+    APP_ICONS_SUBDOMAIN,
+    ensureSystemSite,
+} from '../../util/systemSite.js';
+import { UNLIMITED_STORAGE_ALLOWANCE } from '../fs/FSService.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types.js';
 
-const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const APP_ICONS_PATH_PREFIX = '/system/app_icons';
 
 // Minimum gap between read-triggered runs for one uid, so an icon that fails
 // to process isn't retried on every GET.
 const ICON_RETRY_COOLDOWN_MS = 10 * 60_000;
 const ICON_ATTEMPTS_MAX_KEYS = 10_000;
+const SHUTDOWN_WAIT_MS = 5_000;
 
 const ORIGINAL_ICON_FILENAME = (uid: string) => `${uid}.png`;
 const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
@@ -38,7 +42,7 @@ const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
 /**
  * App icon generation service.
  *
- * 1. On boot: ensures `/system/app_icons/` exists (owned by admin/system user) and
+ * 1. On boot: ensures `/system/app_icons/` exists, owned by the system user, and
  *    that the `puter-app-icons` subdomain points at it. Icons are then served
  *    through Puter's regular hosting path
  *    (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`) — no custom
@@ -77,7 +81,10 @@ export class AppIconService extends PuterService {
             );
         }
 
-        this.#dirReady = this.ensureIconsDirectory();
+        // Retried from the icon pipeline if this fails at boot.
+        this.#dirReady = this.ensureIconsDirectory().catch((e) => {
+            console.warn('[app-icon] icons directory setup failed', e);
+        });
 
         this.clients.event.on(
             'app.new-icon',
@@ -109,6 +116,29 @@ export class AppIconService extends PuterService {
                 }
             },
         );
+    }
+
+    // Let in-flight icon runs finish while the layers they write through are up,
+    // but not past a few seconds: a stalled run retries on the next read, and
+    // the rest of shutdown (metering flush included) must not wait on it.
+    override async onServerShutdown(): Promise<void> {
+        let timer: NodeJS.Timeout | undefined;
+        const limit = new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, SHUTDOWN_WAIT_MS);
+        });
+        try {
+            await Promise.race([
+                (async () => {
+                    await this.#dirReady;
+                    await Promise.all(
+                        [...this.#inFlight.values()].map((s) => s.done),
+                    );
+                })(),
+                limit,
+            ]);
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /**
@@ -164,70 +194,18 @@ export class AppIconService extends PuterService {
 
     // -- Bootstrap ---------------------------------------------------
 
-    /**
-     * Public so `DefaultUserService` can call it immediately after it creates
-     * the admin user on first boot — otherwise we'd lose the race
-     * (AppIconService is registered BEFORE DefaultUserService and its own
-     * `onServerStart` runs when no admin exists yet). Idempotent: safe to call
-     * repeatedly.
-     */
+    /** Set up the system-owned icons directory and its subdomain. Idempotent. */
     async ensureIconsDirectory(): Promise<void> {
-        // The admin user owns the icons directory. DefaultUserService
-        // creates the admin on first boot; if it doesn't exist yet we
-        // bail and try again the next time an icon is processed.
-        const adminUser = await this.stores.user.getByUsername('admin');
-        if (!adminUser) {
-            console.warn(
-                '[app-icon] admin user not found; deferring icons directory setup',
-            );
+        const ownerUserId = await ensureSystemSite(this.stores, {
+            subdomain: APP_ICONS_SUBDOMAIN,
+            dirPath: APP_ICONS_PATH_PREFIX,
+            isProtected: true,
+        });
+        if (ownerUserId === null) {
+            console.warn('[app-icon] system user not found; icons disabled');
             return;
         }
-        this.#ownerUserId = adminUser.id;
-
-        // Ensure /system/app_icons/ exists.
-        const existing = await this.stores.fsEntry.getEntryByPath(
-            APP_ICONS_PATH_PREFIX,
-        );
-        let dirEntry = existing;
-        if (!dirEntry) {
-            // Write an empty dir by writing a dummy file and removing it
-            // isn't great — instead rely on `createMissingParents` when we
-            // write the first icon. We still need a directory entry for
-            // the subdomain `root_dir_id` though, so create it explicitly
-            // via the store's directory helper.
-            dirEntry = await this.stores.fsEntry.resolveParentDirectory(
-                adminUser.id,
-                APP_ICONS_PATH_PREFIX,
-                true,
-            );
-        }
-
-        if (!dirEntry) {
-            console.warn('[app-icon] failed to ensure icons directory');
-            return;
-        }
-
-        // Register the `puter-app-icons` subdomain pointing at that dir.
-        // Idempotent, and must stay so under a concurrent boot: this method
-        // runs twice on first boot — once un-awaited from our own
-        // `onServerStart`, then again (awaited) from `DefaultUserService`
-        // right after it creates the admin — and `existsBySubdomain` reads a
-        // cache that can still hold a stale negative entry. So the existence
-        // check can pass in both calls; let the unique constraint be the real
-        // arbiter and swallow the loser's duplicate. The end state (subdomain
-        // exists) is identical either way.
-        const already =
-            await this.stores.subdomain.existsBySubdomain(APP_ICONS_SUBDOMAIN);
-        if (already) return;
-        try {
-            await this.stores.subdomain.create({
-                userId: adminUser.id,
-                subdomain: APP_ICONS_SUBDOMAIN,
-                rootDirId: dirEntry.id ?? null,
-            });
-        } catch (e) {
-            if (!isUniqueViolation(e)) throw e;
-        }
+        this.#ownerUserId = ownerUserId;
     }
 
     // -- Icon pipeline -----------------------------------------------
@@ -302,8 +280,7 @@ export class AppIconService extends PuterService {
     async #processIcon(data: Record<string, unknown>): Promise<void> {
         if (this.#dirReady) await this.#dirReady;
         if (!this.#ownerUserId) {
-            // Retry the bootstrap — admin may have been created in the
-            // meantime (e.g. first-boot race).
+            // The boot-time setup failed; retry it.
             await this.ensureIconsDirectory();
             if (!this.#ownerUserId) return;
         }
@@ -367,15 +344,21 @@ export class AppIconService extends PuterService {
 
     async #writeIcon(filename: string, buffer: Buffer): Promise<void> {
         if (!this.#ownerUserId) return;
-        await this.services.fs.write(this.#ownerUserId, {
-            fileMetadata: {
-                path: `${APP_ICONS_PATH_PREFIX}/${filename}`,
-                size: buffer.length,
-                contentType: 'image/png',
-                overwrite: true,
-                createMissingParents: true,
+        // The system user's allowance isn't sized for every app's icons.
+        await this.services.fs.write(
+            this.#ownerUserId,
+            {
+                fileMetadata: {
+                    path: `${APP_ICONS_PATH_PREFIX}/${filename}`,
+                    size: buffer.length,
+                    contentType: 'image/png',
+                    overwrite: true,
+                    createMissingParents: true,
+                },
+                fileContent: Readable.from(buffer),
             },
-            fileContent: Readable.from(buffer),
-        });
+            undefined,
+            UNLIMITED_STORAGE_ALLOWANCE,
+        );
     }
 }

@@ -145,9 +145,9 @@ describe('DeepSeekProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('DeepSeekProvider model catalog', () => {
-    it('returns deepseek-v4-pro as the default', () => {
+    it('returns deepseek-flash as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('deepseek-v4-pro');
+        expect(provider.getDefaultModel()).toBe('deepseek-flash');
     });
 
     it('exposes the static DEEPSEEK_MODELS list verbatim from models()', () => {
@@ -164,8 +164,8 @@ describe('DeepSeekProvider model catalog', () => {
                 expect(ids).toContain(a);
             }
         }
+        expect(ids).toContain('deepseek-flash');
         expect(ids).toContain('deepseek-v4-pro');
-        expect(ids).toContain('deepseek-chat');
         expect(ids).toContain('deepseek/deepseek-v4-pro');
     });
 });
@@ -474,43 +474,26 @@ describe('DeepSeekProvider model resolution', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-pro');
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-flash');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'deepseek:deepseek-v4-pro',
+            'deepseek:deepseek-flash',
             expect.any(Object),
         );
     });
 
-    // The legacy DeepSeek chat/reasoner ids (and their `deepseek/…` and
-    // `deepseek:deepseek/…` variants) are aliased onto deepseek-v4-pro
-    // so callers using the old names get transparently upgraded — and
-    // metered against the v4-pro canonical prefix.
+    // DeepSeek discontinued the chat/reasoner names on 2026-07-24.
     it.each([
         'deepseek-chat',
         'deepseek/deepseek-chat',
         'deepseek:deepseek/deepseek-chat',
+        'deepseek-reasoner',
         'deepseek/deepseek-reasoner',
         'deepseek:deepseek/deepseek-reasoner',
-    ])('maps legacy alias %s onto deepseek-v4-pro', async (alias) => {
+    ])('drops the discontinued %s instead of redirecting it', async (alias) => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
-
-        await withTestActor(() =>
-            provider.complete({
-                model: alias,
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-pro');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'deepseek:deepseek-v4-pro',
-            expect.any(Object),
-        );
+        expect(await provider.list()).not.toContain(alias);
     });
 });
 
@@ -550,7 +533,6 @@ describe('DeepSeekProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
 
-        // deepseek-v4-pro costs: prompt=174, completion=348, cached=1.45
         const chat = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-v4-pro')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;

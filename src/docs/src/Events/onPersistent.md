@@ -71,7 +71,7 @@ Those five bindings are the handler's whole environment. The events worker has n
 
 ### Handlers that trigger handlers
 
-In the events worker, a write made through `user` is one run deeper than the event the handler ran for, and it can run handlers of its own, including this one. A chain stops at **12 runs on a paid plan and 4 on a free one**, by the plan of the account holding the subscription. An event past that runs no handler in the events worker. A `broadcast` one still reaches connected clients without running the handler there; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a failure. Writes made anywhere else, including from a handler running in a client, start a new chain. See [handler chains](/rate-limits-and-quotas/#handler-chains).
+In the events worker, a write made through `user`, or through a token `user` creates, is one run deeper than the event the handler ran for, and it can run handlers of its own, including this one. `user.workers.create` is refused instead — a handler cannot spin up a worker of its own to escape the chain. A chain stops at **12 runs on a paid plan and 4 on a free one**, by the plan of the account holding the subscription. An event past that runs no handler in the events worker. A `broadcast` one still reaches connected clients without running the handler there; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a failure. Writes made anywhere else, including from a handler running in a client, start a new chain. See [handler chains](/rate-limits-and-quotas/#handler-chains).
 
 `user` in the events worker is valid for 15 minutes, so don't keep it past the run.
 
@@ -164,7 +164,7 @@ The promise rejects with `{ message, code }`:
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
 | `events_subscription_limit` | The account or app is at its [persistent subscription limit](/rate-limits-and-quotas/#events). |
 | `events_value_too_large` | A field is longer than can be stored (for example an app id over 40 characters). |
-| `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. |
+| `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. Scoped access tokens, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, get no persistent subscriptions. |
 | `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |

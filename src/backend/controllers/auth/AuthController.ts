@@ -259,6 +259,15 @@ export const RESERVED_USERNAMES = new Set([
     'contact',
     'mail',
     'email',
+    // Role mailboxes: a Puter address names its account, so these must never
+    // be ownable.
+    'abuse',
+    'postmaster',
+    'hostmaster',
+    'fbl',
+    'security',
+    'noreply',
+    'no-reply',
     'null',
     'undefined',
     'test',
@@ -272,7 +281,7 @@ export const RESERVED_USERNAMES = new Set([
  * Auth controller — login/logout, permission grants/revokes, session
  * management, OTP, and permission checks.
  *
- * Routes are declared via decorators (@Get/@Post on each handler). The five
+ * Routes are declared via decorators (@Get/@Post on each handler). The
  * `/user-protected/*` and `/user-protected/delete-own-user` routes also need a
  * per-instance `createUserProtectedGate(...)` middleware built from
  * `this.config / this.stores / this.services`, which can't live in a static
@@ -2651,7 +2660,7 @@ export class AuthController extends PuterController {
 
     // -- User-protected mutations ------------------------------------
     //
-    // The five `/user-protected/*` and `/user-protected/delete-own-user`
+    // The `/user-protected/*` and `/user-protected/delete-own-user`
     // routes are wired in the `registerRoutes` override below because
     // their `middleware: createUserProtectedGate(...)` argument depends
     // on `this.config / this.stores / this.services` and so can't live
@@ -4374,6 +4383,44 @@ export class AuthController extends PuterController {
         res.json({ ok: true });
     }
 
+    // -- 2FA: setup (user-protected, wired in registerRoutes below) ---
+
+    async handleSetup2fa(req: Request, res: Response): Promise<void> {
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found', {
+                legacyCode: 'not_found',
+            });
+        if (user.otp_enabled) {
+            throw new HttpError(409, '2FA is already enabled.', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        const result = otpCreateSecret(user.username);
+
+        // Generate 10 recovery codes
+        const codes: string[] = [];
+        for (let i = 0; i < 10; i++) {
+            codes.push(createRecoveryCode());
+        }
+        const hashedCodes = codes.map((c) => hashRecoveryCode(c));
+
+        await this.clients.db.write(
+            'UPDATE `user` SET `otp_secret` = ?, `otp_recovery_codes` = ? WHERE `uuid` = ?',
+            [result.secret, hashedCodes.join(','), user.uuid],
+        );
+        await this.stores.user.invalidateById(user.id);
+
+        res.json({
+            url: result.url,
+            secret: result.secret,
+            codes,
+        });
+    }
+
     // -- 2FA: configure ----------------------------------------------
 
     @Post('/auth/configure-2fa/:action', {
@@ -4392,36 +4439,6 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
-
-        if (action === 'setup') {
-            if (user.otp_enabled) {
-                throw new HttpError(409, '2FA is already enabled.', {
-                    legacyCode: 'conflict',
-                });
-            }
-
-            const result = otpCreateSecret(user.username);
-
-            // Generate 10 recovery codes
-            const codes: string[] = [];
-            for (let i = 0; i < 10; i++) {
-                codes.push(createRecoveryCode());
-            }
-            const hashedCodes = codes.map((c) => hashRecoveryCode(c));
-
-            await this.clients.db.write(
-                'UPDATE `user` SET `otp_secret` = ?, `otp_recovery_codes` = ? WHERE `uuid` = ?',
-                [result.secret, hashedCodes.join(','), user.uuid],
-            );
-            await this.stores.user.invalidateById(user.id);
-
-            res.json({
-                url: result.url,
-                secret: result.secret,
-                codes,
-            });
-            return;
-        }
 
         if (action === 'test') {
             const { code } = req.body ?? {};
@@ -4455,6 +4472,18 @@ export class AuthController extends PuterController {
                     '2FA has not been configured. Call setup first.',
                     { legacyCode: 'conflict' },
                 );
+            }
+            // Proves the caller holds the secret setup issued; a session alone
+            // can't turn 2FA on.
+            const { code } = req.body ?? {};
+            if (typeof code !== 'string' || !code)
+                throw new HttpError(400, 'Missing `code`', {
+                    legacyCode: 'bad_request',
+                });
+            if (!verifyOtp(user.username, user.otp_secret, code)) {
+                throw new HttpError(400, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                });
             }
 
             await this.clients.db.write(
@@ -4767,7 +4796,7 @@ export class AuthController extends PuterController {
     //
     // The `@Controller('')` decorator would normally install a default
     // `registerRoutes` walker that iterates `prototype[__puterRoutes]`.
-    // We override it here so we can ALSO wire the five
+    // We override it here so we can ALSO wire the
     // `/user-protected/*` (and `/user-protected/delete-own-user`) routes
     // whose `middleware: createUserProtectedGate(...)` argument is
     // built from instance state — not expressible inside a static
@@ -4887,6 +4916,27 @@ export class AuthController extends PuterController {
                 ],
             },
             (req, res) => this.handleDisable2fa(req, res),
+        );
+
+        router.post(
+            '/user-protected/setup-2fa',
+            {
+                requireUserActor: true,
+                // A member owing their team's 2FA reaches nothing else until this.
+                allowUnconfirmed: true,
+                rateLimit: {
+                    scope: 'setup-2fa',
+                    limit: 10,
+                    window: 60 * 60_000,
+                    key: 'user',
+                },
+                middleware: [
+                    createUserProtectedGate(
+                        userProtectedDeps as never,
+                    ) as unknown as RequestHandler,
+                ],
+            },
+            (req, res) => this.handleSetup2fa(req, res),
         );
 
         router.post(

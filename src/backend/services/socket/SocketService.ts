@@ -41,6 +41,7 @@ import type { UploadProgressTrackerLike } from '../fs/types.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    subscriptionOverride,
 } from '../metering/consts.js';
 import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
@@ -536,7 +537,12 @@ export class SocketService extends PuterService {
         try {
             const sub =
                 await this.services.metering.getActorSubscription(actor);
-            return SocketService.MAX_SOCKETS_BY_SUBSCRIPTION[sub.id] ?? base;
+            return (
+                subscriptionOverride(
+                    SocketService.MAX_SOCKETS_BY_SUBSCRIPTION,
+                    sub.id,
+                ) ?? base
+            );
         } catch {
             // Same policy as the route gates: a failure to resolve the tier
             // falls through to the base rather than tightening.

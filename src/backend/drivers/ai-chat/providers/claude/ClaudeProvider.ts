@@ -135,6 +135,11 @@ export class ClaudeProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `claude:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -669,7 +674,7 @@ export class ClaudeProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     usageSum,
                     actor,
-                    `claude:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverrideFromModel,
                 );
                 chatStream.end(usageSum);
@@ -696,7 +701,7 @@ export class ClaudeProvider implements IChatProvider {
             this.#meteringService.utilRecordUsageObject(
                 usage,
                 actor,
-                `claude:${modelUsed.id}`,
+                this.meteringModelKey(modelUsed.id),
                 costsOverrideFromModel,
             );
 

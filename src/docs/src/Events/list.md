@@ -8,7 +8,7 @@ platforms: [websites, apps, nodejs, workers]
 
 Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/). Session subscriptions from `onLocal()` aren't stored, so they aren't listed.
 
-An app sees only the subscriptions it created. An account session sees all of them, **including ones left by apps that have been deleted**, so that's where to clean up stray subscriptions.
+An app sees only the subscriptions it created. An account session sees all of them, **including ones left by apps that have been deleted**, so that's where to clean up stray subscriptions. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, sees none.
 
 On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 

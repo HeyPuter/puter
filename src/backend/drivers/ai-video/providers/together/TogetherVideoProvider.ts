@@ -33,7 +33,7 @@ import {
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const POLL_INTERVAL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
-const DEFAULT_MODEL = 'minimax/video-01-director';
+const DEFAULT_MODEL = 'Wan-AI/wan2.7-t2v';
 const DEFAULT_DURATION_SECONDS = 6;
 
 // Resolution tiers ('720p', '1080P') mark models that size their output
@@ -68,7 +68,7 @@ export class TogetherVideoProvider extends VideoProvider {
     }
 
     getDefaultModel(): string {
-        return 'togetherai:minimax/video-01-director';
+        return 'togetherai:wan-ai/wan2.7-t2v';
     }
 
     async models(): Promise<IVideoModel[]> {

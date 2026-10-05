@@ -48,8 +48,8 @@ type Tier = (typeof TIERS)[number];
 const isTier = (v: string): v is Tier =>
     (TIERS as readonly string[]).includes(v);
 
-// Per-request reference image caps, per the API reference.
-const MAX_INPUT_IMAGES_PRO = 10;
+// Per-request reference image cap, per the API reference; the 5.0 pro/flash
+// entries override it with their own lower cap.
 const MAX_INPUT_IMAGES_SEEDREAM = 14;
 
 type BytePlusImageConfig = {
@@ -118,9 +118,8 @@ export class BytePlusImageProvider implements IImageProvider {
         if (input_image && (!input_images || input_images.length === 0)) {
             input_images = [input_image];
         }
-        const maxInputImages = isPro
-            ? MAX_INPUT_IMAGES_PRO
-            : MAX_INPUT_IMAGES_SEEDREAM;
+        const maxInputImages =
+            selectedModel.maxInputImages ?? MAX_INPUT_IMAGES_SEEDREAM;
         if (input_images && input_images.length > maxInputImages) {
             throw new HttpError(
                 400,

@@ -35,6 +35,8 @@ interface TokenPayloadBase {
     session_uid?: string;
     /** Stable per-user identity that survives re-login. */
     auth_id?: string;
+    /** Unix seconds; absent on a token that doesn't expire. */
+    exp?: number;
 }
 
 export type TokenType = 'session' | 'gui' | 'app-under-user' | 'access-token';
@@ -49,6 +51,8 @@ export interface SessionTokenPayload extends TokenPayloadBase {
     uuid: string;
     /** User uuid (plain). */
     user_uid: string;
+    /** Set on a worker credential riding this token type; not a browser session. */
+    worker?: boolean;
 }
 
 /**
@@ -79,6 +83,8 @@ export interface AccessTokenPayload extends TokenPayloadBase {
      * `ActorAccessToken.fullAccess`.
      */
     full_access?: boolean;
+    /** Minted by an events handler; see `Actor.handlerDepth`. */
+    handler_depth?: number;
 }
 
 export type AnyTokenPayload =

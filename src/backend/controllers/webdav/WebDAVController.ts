@@ -48,6 +48,7 @@ import {
 import type { RouteOptions } from '../../core/http/types.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { rootShowsHome } from '../../services/fs/rootListing.js';
 import {
     maskEntryPath,
     parseMaskedSharePath,
@@ -624,7 +625,8 @@ export class WebDAVController extends PuterController {
 
     /**
      * The root collection: the caller's own home directory, plus one collection
-     * per person who has shared something with them.
+     * per person who has shared something with them. A scoped access token sees
+     * the home only when it can read it.
      *
      * A share is addressed `/<owner>/<uuid>/<name>`, where the uuid stands in
      * for the folder the owner keeps it in. Only the `<owner>` segment is a
@@ -639,7 +641,16 @@ export class WebDAVController extends PuterController {
         const home = await this.stores.fsEntry.getEntryByPath(
             `/${actor.user!.username}`,
         );
-        if (home) {
+        if (
+            home &&
+            (await rootShowsHome(
+                actor,
+                home,
+                'read',
+                this.services.acl,
+                this.stores.permission,
+            ))
+        ) {
             responses.push(
                 propfindEntry(maskEntryPath(home), home, home.isDir),
             );
