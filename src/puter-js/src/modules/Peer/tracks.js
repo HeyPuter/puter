@@ -1,4 +1,4 @@
-import { PuterPeerMediaEndedEvent, PuterPeerMediaEvent } from './events.js';
+import { PuterPeerConnectionErrorEvent, PuterPeerMediaEndedEvent, PuterPeerMediaEvent } from './events.js';
 
 /** The two track kinds a slot reconciles independently. */
 const KINDS = ['audio', 'video'];
@@ -26,7 +26,12 @@ const KINDS = ['audio', 'video'];
 export class TrackPublisher {
     #pc;
     #target;
-    /** name -> { stream, senders: Map<kind, RTCRtpSender>, tracks: Map<kind, track|null>, options } */
+    /**
+     * name -> { stream, senders: Map<kind, RTCRtpSender>, tracks: Map<kind, track|null>, options, request }
+     * `tracks` is what was last asked of each sender; `request` counts the
+     * publish() calls, so a replacement that fails can tell whether a later
+     * call has made it moot.
+     */
     #published = new Map();
     #remoteNames = new Map();
     #remoteStreams = new Map();
@@ -36,6 +41,8 @@ export class TrackPublisher {
      * rather than with a description that leaves them out.
      */
     #unnamed = new Set();
+    /** The m-section each arriving track came in on. */
+    #trackMids = new Map();
     #closed = false;
 
     /**
@@ -85,10 +92,12 @@ export class TrackPublisher {
 
         let slot = this.#published.get(name);
         if ( ! slot ) {
-            slot = { stream: null, senders: new Map(), tracks: new Map(), options: {} };
+            slot = { stream: null, senders: new Map(), tracks: new Map(), options: {}, request: 0 };
             this.#published.set(name, slot);
         }
         this.#merge(slot, options);
+        const previous = slot.stream;
+        const request = ++slot.request;
         slot.stream = toStream(source);
 
         for ( const kind of KINDS ) {
@@ -105,7 +114,9 @@ export class TrackPublisher {
                 // pause to land after it.
                 if ( slot.tracks.get(kind) !== track ) {
                     slot.tracks.set(kind, track);
-                    sender.replaceTrack(track).catch(() => {});
+                    sender.replaceTrack(track).catch((error) => {
+                        this.#replacementFailed(name, slot, kind, sender, track, { request, previous, error });
+                    });
                 }
             } else if ( track ) {
                 slot.senders.set(kind, this.#pc.addTrack(track, slot.stream));
@@ -114,6 +125,27 @@ export class TrackPublisher {
         }
 
         this.#applyEncodings(slot);
+    }
+
+    /**
+     * A replacement the browser refused. One that needs a renegotiation - a
+     * track the sender's negotiated parameters cannot carry - gets it, on a
+     * sender of its own. Anything else leaves the sender with the track it
+     * had: the slot is put back to match, so that publishing the same source
+     * again tries again rather than being taken for done, and the failure is
+     * reported. A failure a later publish() has already moved past is its
+     * business, not this one's.
+     */
+    #replacementFailed ( name, slot, kind, sender, track, { request, previous, error } ) {
+        if ( this.#closed || this.#published.get(name) !== slot || slot.tracks.get(kind) !== track ) return;
+        if ( error?.name === 'InvalidModificationError' && track ) {
+            this.#withdraw(sender);
+            slot.senders.set(kind, this.#pc.addTrack(track, slot.stream ?? new MediaStream([track])));
+            return;
+        }
+        slot.tracks.set(kind, sender.track);
+        if ( slot.request === request ) slot.stream = previous;
+        this.#target.dispatchEvent(new PuterPeerConnectionErrorEvent(error));
     }
 
     /**
@@ -202,6 +234,19 @@ export class TrackPublisher {
 
         return {
             commit: () => {
+                // A track whose m-section no longer carries its name has
+                // been replaced - a name unpublished and published again
+                // comes back on a new m-section - and leaves the stream,
+                // or a <video> showing it stays on the old, silent track.
+                for ( const [name, stream] of this.#remoteStreams ) {
+                    if ( this.#unnamed.has(name) ) continue;
+                    for ( const track of stream.getTracks() ) {
+                        const mid = this.#trackMids.get(track);
+                        if ( mid === undefined || this.#remoteNames.get(mid) === name ) continue;
+                        stream.removeTrack(track);
+                        this.#trackMids.delete(track);
+                    }
+                }
                 // A name the peer no longer sends has ended, whether or not
                 // its track says so.
                 const live = new Set(this.#remoteNames.values());
@@ -225,6 +270,7 @@ export class TrackPublisher {
         }
         this.#published.clear();
         this.#remoteStreams.clear();
+        this.#trackMids.clear();
         this.#remoteNames.clear();
     }
 
@@ -254,6 +300,7 @@ export class TrackPublisher {
             if ( named === undefined ) this.#unnamed.add(name);
         }
         if ( ! stream.getTracks().includes(evt.track) ) stream.addTrack(evt.track);
+        if ( mid !== undefined && mid !== null ) this.#trackMids.set(evt.track, mid);
 
         evt.track.addEventListener?.('ended', () => {
             if ( this.#remoteStreams.get(name) !== stream ) return;
@@ -269,6 +316,7 @@ export class TrackPublisher {
         if ( ! stream ) return;
         this.#remoteStreams.delete(name);
         this.#unnamed.delete(name);
+        for ( const track of stream.getTracks() ) this.#trackMids.delete(track);
         this.#target.dispatchEvent(new PuterPeerMediaEndedEvent(name, stream));
     }
 

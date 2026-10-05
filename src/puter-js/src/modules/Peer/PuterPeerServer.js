@@ -6,6 +6,7 @@ import {
 import { ServerSignallingChannel } from './signalling.js';
 
 /** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
+/** @typedef {import('./events.js').PuterPeerServerEventMap} PuterPeerServerEventMap */
 
 /** How long to wait for the signaller to answer a registration. */
 const CREATE_TIMEOUT_MS = 15_000;
@@ -58,6 +59,56 @@ export class PuterPeerServer extends EventTarget {
     constructor ( peerConfig ) {
         super();
         this.#peerConfig = peerConfig;
+    }
+
+    /**
+     * @template {keyof PuterPeerServerEventMap} K
+     * @overload
+     * @param {K} type
+     * @param {(this: PuterPeerServer, event: PuterPeerServerEventMap[K]) => void} listener
+     * @param {boolean | AddEventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {string} type
+     * @param {EventListenerOrEventListenerObject | null} listener
+     * @param {boolean | AddEventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @param {string} type
+     * @param {any} listener
+     * @param {boolean | AddEventListenerOptions} [options]
+     * @returns {void}
+     */
+    addEventListener ( type, listener, options ) {
+        super.addEventListener(type, listener, options);
+    }
+
+    /**
+     * @template {keyof PuterPeerServerEventMap} K
+     * @overload
+     * @param {K} type
+     * @param {(this: PuterPeerServer, event: PuterPeerServerEventMap[K]) => void} listener
+     * @param {boolean | EventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {string} type
+     * @param {EventListenerOrEventListenerObject | null} listener
+     * @param {boolean | EventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @param {string} type
+     * @param {any} listener
+     * @param {boolean | EventListenerOptions} [options]
+     * @returns {void}
+     */
+    removeEventListener ( type, listener, options ) {
+        super.removeEventListener(type, listener, options);
     }
 
     get signallingAlive () {

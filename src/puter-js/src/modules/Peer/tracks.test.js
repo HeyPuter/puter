@@ -127,6 +127,56 @@ describe('publishing', () => {
         expect(sender.track).toBe(camera);
     });
 
+    it('reports a replacement the browser refused, and tries it again when asked to', async () => {
+        const { conn, pc } = await makeConnection();
+        const errors = [];
+        conn.addEventListener('error', (e) => errors.push(e.error));
+        const first = track('video', 'first');
+        const original = new FakeMediaStream([first]);
+        conn.publish('camera', original);
+        await flush();
+        const { sender } = pc.transceivers[0];
+        const replaceTrack = sender.replaceTrack.bind(sender);
+        let refuse = true;
+        const calls = [];
+        sender.replaceTrack = (t) => {
+            calls.push(t);
+            if ( refuse ) return Promise.reject(new Error('refused'));
+            return replaceTrack(t);
+        };
+
+        const second = track('video', 'second');
+        const replacement = new FakeMediaStream([second]);
+        conn.publish('camera', replacement);
+        await flush();
+        expect(errors.map((e) => e.message)).toEqual(['refused']);
+        expect(sender.track).toBe(first);
+        expect(conn.publications.get('camera')).toBe(original);
+
+        refuse = false;
+        conn.publish('camera', replacement);
+        await flush();
+        expect(calls).toEqual([second, second]);
+        expect(sender.track).toBe(second);
+        expect(conn.publications.get('camera')).toBe(replacement);
+    });
+
+    it('renegotiates a replacement the sender cannot carry as it stands', async () => {
+        const { conn, pc } = await makeConnection();
+        conn.publish('camera', new FakeMediaStream([track('video', 'first')]));
+        await flush();
+        const { sender } = pc.transceivers[0];
+        sender.replaceTrack = () => Promise.reject(Object.assign(new Error('no'), { name: 'InvalidModificationError' }));
+
+        const second = track('video', 'second');
+        conn.publish('camera', new FakeMediaStream([second]));
+        await flush();
+
+        expect(pc.transceivers).toHaveLength(2);
+        expect(pc.transceivers[0].direction).toBe('recvonly');
+        expect(pc.transceivers[1].sender.track).toBe(second);
+    });
+
     it('ends a paused publication at the far end when it is unpublished', async () => {
         // removeTrack does nothing for a sender with no track; the peer
         // must still hear the name has gone.
@@ -239,6 +289,30 @@ describe('receiving', () => {
         pc.receiveTrack(track('video'), '0');
 
         expect(seen).toEqual(['0']);
+    });
+
+    it('moves a name republished on a new m-section onto its new track', async () => {
+        // Unpublished and published again, a name comes back on a fresh
+        // transceiver; the old track stays live but silent, and a <video>
+        // on the stream would keep showing it.
+        const { conn, pc, channel } = await makeConnection();
+        const ended = [];
+        conn.addEventListener('mediaended', (e) => ended.push(e.name));
+        const before = track('video', 'before');
+        const after = track('video', 'after');
+
+        channel.onoffer({ type: 'offer', sdp: 'first' }, { 0: 'camera' });
+        await flush();
+        pc.receiveTrack(before, '0');
+        const stream = conn.media.get('camera');
+
+        channel.onoffer({ type: 'offer', sdp: 'again' }, { 1: 'camera' });
+        await flush();
+        pc.receiveTrack(after, '1');
+
+        expect(conn.media.get('camera')).toBe(stream);
+        expect(stream.getTracks()).toEqual([after]);
+        expect(ended).toEqual([]);
     });
 
     it('does not end an unnamed track because a description leaves it out', async () => {

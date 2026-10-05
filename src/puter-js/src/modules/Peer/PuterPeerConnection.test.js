@@ -284,6 +284,40 @@ describe('ICE recovery', () => {
         expect(closes).toEqual(['could not restore the connection']);
     });
 
+    it('closes on time even when the link never gets past disconnected', async () => {
+        // Browsers can leave a dead link in 'disconnected' for a long while,
+        // or for good; recovery proper only starts at 'failed'.
+        vi.useFakeTimers();
+        const channel = new LoopbackChannel('peer');
+        const conn = new PuterPeerConnection({ iceServers: [] }, { channel, recoveryTimeout: 100 });
+        const pc = FakePeerConnection.instances.at(-1);
+        const closes = [];
+        conn.addEventListener('close', (e) => closes.push(e.reason));
+        conn.acceptNegotiation();
+        channel.onoffer({ type: 'offer', sdp: 'opening-offer' });
+        await flush();
+        pc.channels[0].open();
+
+        pc.setConnectionState('disconnected');
+        await vi.advanceTimersByTimeAsync(99);
+        expect(conn.closed).toBe(false);
+        await vi.advanceTimersByTimeAsync(2);
+        expect(conn.closed).toBe(true);
+        expect(closes).toEqual(['could not restore the connection']);
+    });
+
+    it('lets a link that recovers by itself off the deadline', async () => {
+        vi.useFakeTimers();
+        const { conn, pc } = await makeConnection();
+
+        pc.setConnectionState('disconnected');
+        await vi.advanceTimersByTimeAsync(10_000);
+        pc.setConnectionState('connected');
+        await vi.advanceTimersByTimeAsync(120_000);
+
+        expect(conn.closed).toBe(false);
+    });
+
     it('waits for signalling rather than spending attempts it cannot send', async () => {
         vi.useFakeTimers();
         const { conn, pc, channel, closes } = await makeConnection();

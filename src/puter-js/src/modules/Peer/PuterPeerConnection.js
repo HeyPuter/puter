@@ -12,6 +12,8 @@ import {
 /** @typedef {import('./types.js').PuterPeerMessage} PuterPeerMessage */
 /** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
 /** @typedef {import('./tracks.js').PuterPeerPublishOptions} PuterPeerPublishOptions */
+/** @typedef {import('./events.js').PuterPeerConnectionEventMap} PuterPeerConnectionEventMap */
+/** @typedef {import('./events.js').PuterPeerLinkState} PuterPeerLinkState */
 
 /**
  * How long to keep trying to rescue a link before giving it up, counted from
@@ -66,7 +68,7 @@ export class PuterPeerConnection extends EventTarget {
      * state says: 'unstable' is a wobble nothing is being done about yet,
      * 'recovering' is an ICE restart actually in flight.
      *
-     * @type {'connecting' | 'connected' | 'unstable' | 'recovering' | 'closed'}
+     * @type {PuterPeerLinkState}
      */
     linkState = 'connecting';
 
@@ -87,6 +89,8 @@ export class PuterPeerConnection extends EventTarget {
     #polite;
     /** When the transport last left `connected`; recovery's budget runs from here. */
     #troubleSince = null;
+    /** Ends the connection once the budget is spent, whether or not recovery ever began. */
+    #troubleTimer = null;
 
     /**
      * @param {object} peerConfig
@@ -151,6 +155,56 @@ export class PuterPeerConnection extends EventTarget {
             this.#negotiator.signallingRestored();
         };
         this.#channel.onpeerback = () => this.#onPeerBack();
+    }
+
+    /**
+     * @template {keyof PuterPeerConnectionEventMap} K
+     * @overload
+     * @param {K} type
+     * @param {(this: PuterPeerConnection, event: PuterPeerConnectionEventMap[K]) => void} listener
+     * @param {boolean | AddEventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {string} type
+     * @param {EventListenerOrEventListenerObject | null} listener
+     * @param {boolean | AddEventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @param {string} type
+     * @param {any} listener
+     * @param {boolean | AddEventListenerOptions} [options]
+     * @returns {void}
+     */
+    addEventListener ( type, listener, options ) {
+        super.addEventListener(type, listener, options);
+    }
+
+    /**
+     * @template {keyof PuterPeerConnectionEventMap} K
+     * @overload
+     * @param {K} type
+     * @param {(this: PuterPeerConnection, event: PuterPeerConnectionEventMap[K]) => void} listener
+     * @param {boolean | EventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {string} type
+     * @param {EventListenerOrEventListenerObject | null} listener
+     * @param {boolean | EventListenerOptions} [options]
+     * @returns {void}
+     */
+    /**
+     * @param {string} type
+     * @param {any} listener
+     * @param {boolean | EventListenerOptions} [options]
+     * @returns {void}
+     */
+    removeEventListener ( type, listener, options ) {
+        super.removeEventListener(type, listener, options);
     }
 
     /**
@@ -232,8 +286,8 @@ export class PuterPeerConnection extends EventTarget {
     #onConnectionState () {
         this.#wakeTransportWaiters();
         const state = this.peerconnection.connectionState;
-        if ( state === 'connected' ) this.#troubleSince = null;
-        else if ( state === 'disconnected' || state === 'failed' ) this.#troubleSince ??= Date.now();
+        if ( state === 'connected' ) this.#clearTrouble();
+        else if ( state === 'disconnected' || state === 'failed' ) this.#noteTrouble();
         switch ( state ) {
             case 'connected':
                 this.#setLinkState('connected');
@@ -258,8 +312,32 @@ export class PuterPeerConnection extends EventTarget {
     }
 
     /**
-     * @param {'connecting' | 'connected' | 'unstable' | 'recovering' | 'closed'} state
-     * @param {{ attempt?: number, of?: number }} [detail]
+     * The link has stopped carrying traffic. Recovery proper waits for the
+     * browser to call it `failed`, which can take a while or never come -
+     * a link can sit in `disconnected` indefinitely - so the deadline is
+     * kept here, from the first sign of trouble. While recovery is running
+     * it keeps its own, bounded by the same budget, and says why it gave up.
+     */
+    #noteTrouble () {
+        if ( this.#troubleSince !== null ) return;
+        this.#troubleSince = Date.now();
+        this.#troubleTimer = setTimeout(() => {
+            this.#troubleTimer = null;
+            if ( this.closed || this.#recovering ) return;
+            if ( this.peerconnection.connectionState === 'connected' ) return;
+            this.#doclose('could not restore the connection', undefined);
+        }, this.#recoveryBudget);
+    }
+
+    #clearTrouble () {
+        this.#troubleSince = null;
+        clearTimeout(this.#troubleTimer);
+        this.#troubleTimer = null;
+    }
+
+    /**
+     * @param {PuterPeerLinkState} state
+     * @param {{ attempt?: number }} [detail]
      */
     #setLinkState ( state, detail ) {
         // Each restart attempt is worth announcing, so only the quiet states
@@ -424,6 +502,7 @@ export class PuterPeerConnection extends EventTarget {
         if ( this.closed ) return;
         this.closed = true;
         this.connected = false;
+        this.#clearTrouble();
 
         // `close()` below need not raise another state change, so recovery is
         // told directly that there is nothing left to wait for.
