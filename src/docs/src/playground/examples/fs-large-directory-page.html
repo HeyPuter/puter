@@ -1,0 +1,41 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="next" disabled>Load next page</button>
+    <div id="output"></div>
+    <script>
+        const button = document.getElementById('next');
+        const output = document.getElementById('output');
+        let cursor = null;
+        let pageNumber = 0;
+
+        // Read one page of 3 items and pass the cursor to get the next one
+        async function loadNextPage() {
+            const page = await puter.fs.readdir({ path: 'reports', cursor, limit: 3 });
+            pageNumber++;
+            output.innerHTML += `Page ${pageNumber}: ${page.items.map(item => item.name).join(', ')}<br>`;
+
+            // A missing cursor means this was the last page
+            if (page.cursor) {
+                cursor = page.cursor;
+                button.disabled = false;
+            } else {
+                output.innerHTML += 'No more pages<br>';
+                button.disabled = true;
+            }
+        }
+
+        (async () => {
+            // Create 7 files so there is something to page through
+            for (let i = 1; i <= 7; i++) {
+                await puter.fs.write(`reports/report-${i}.txt`, `Report ${i}`, { createMissingParents: true });
+            }
+            output.innerHTML += 'Created 7 files in reports<br><br>';
+
+            await loadNextPage();
+        })();
+
+        button.addEventListener('click', loadNextPage);
+    </script>
+</body>
+</html>

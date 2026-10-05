@@ -23,12 +23,20 @@ await puter.fs.write('notes/todo.txt', 'Buy milk');
 
 The contents can be a `String`, `File`, `Blob`, `ArrayBuffer` or typed array, so
 text and binary data are written the same way. Writing to a path that already
-exists replaces the file, and passing `dedupeName` keeps both copies by saving
-the new one under a free name:
+exists replaces the file. Passing `dedupeName` keeps both copies by saving the
+new one under a free name, and passing `overwrite: false` rejects the write
+instead:
 
 ```js
+// Saves photo-1.png if photo.png is taken.
 await puter.fs.write('uploads/photo.png', blob, { dedupeName: true });
+
+// Rejects if photo.png is taken.
+await puter.fs.write('uploads/photo.png', blob, { overwrite: false });
 ```
+
+Use `dedupeName` when two users might upload a file with the same name and both
+files should be kept.
 
 Writing into a directory that does not exist yet is one more option:
 
@@ -60,6 +68,20 @@ A relative path resolves against `~/AppData/<your-app-id>/`, the sandbox Puter
 creates for your app the first time the user signs in. You can create any files
 and folders you like inside it, and your app cannot see anything outside it.
 
+## Create a Folder
+
+To create a directory, use the [`puter.fs.mkdir()`](/FS/mkdir/) method. With
+`createMissingParents`, it creates a whole tree in one call:
+
+```js
+await puter.fs.mkdir('reports/2026/q3', { createMissingParents: true });
+```
+
+The [`mkdir()`](/FS/mkdir/) method takes the same `dedupeName` and `overwrite`
+options as [`write()`](/FS/write/). The difference is the default. Creating a
+directory that already exists fails unless you pass `overwrite: true`, while a
+write replaces an existing file.
+
 ## Upload
 
 To take a file from an `<input type="file">`, use the
@@ -87,8 +109,9 @@ const items = await puter.fs.readdir('uploads', { sortBy: 'modified', sortOrder:
 ```
 
 It pages the way a key listing does, with `limit` and `cursor`, or `stream:
-true` for `for await`, which is what keeps a directory of thousands affordable
-to display.
+true` for `for await`. [Work with a large
+directory](/recipes/work-with-a-large-directory/) covers paging, sorting and
+counting a directory of thousands of files.
 
 To read the metadata of one file, use the [`puter.fs.stat()`](/FS/stat/) method:
 

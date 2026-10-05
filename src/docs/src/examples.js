@@ -421,6 +421,30 @@ const examples = [
                 source: '/playground/examples/fs-delete-directory.html',
             },
             {
+                title: 'Read a directory page by page',
+                description: 'Read a directory one page at a time with a cursor using Puter.js filesystem API. Run and experiment with this example in the playground.',
+                slug: 'fs-large-directory-page',
+                source: '/playground/examples/fs-large-directory-page.html',
+            },
+            {
+                title: 'Stream directory pages',
+                description: 'Read a large directory with an async iterator using Puter.js filesystem API. Run and modify this example instantly in your browser.',
+                slug: 'fs-large-directory-stream',
+                source: '/playground/examples/fs-large-directory-stream.html',
+            },
+            {
+                title: 'Sort a directory and include subdirectories',
+                description: 'Sort a directory listing and include subdirectories with Puter.js filesystem API. Run and experiment with this example in the playground.',
+                slug: 'fs-large-directory-sort',
+                source: '/playground/examples/fs-large-directory-sort.html',
+            },
+            {
+                title: 'Count a directory while paging',
+                description: 'Get a total entry count alongside a page of results with Puter.js filesystem API. Run and modify this example directly in your browser.',
+                slug: 'fs-large-directory-total',
+                source: '/playground/examples/fs-large-directory-total.html',
+            },
+            {
                 title: 'Share a file',
                 description: 'Share a file with another user using Puter.js filesystem API. Run and experiment with this sharing example in the playground.',
                 slug: 'fs-share',
