@@ -172,6 +172,65 @@ describe('AppStore app stats (cache-on-read)', () => {
             delete server.clients.clickhouse;
         }
     });
+
+    it('keeps ids longer than an app uid out of the ClickHouse query', async () => {
+        const uid = freshUid();
+        const longId = `iap-${'a'.repeat(36)}-extra`;
+        const multiByteId = `app-${'b'.repeat(35)}é`;
+        const queried = [];
+
+        // Mirrors ClickHouse: the FixedString(40) column fails the whole
+        // query on a longer value.
+        server.clients.clickhouse = {
+            query: async ({ query_params }) => {
+                queried.push(query_params.uids);
+                if (
+                    query_params.uids.some(
+                        (u) => Buffer.byteLength(u, 'utf8') > 40,
+                    )
+                ) {
+                    throw new Error('Too large string for FixedString column.');
+                }
+                return {
+                    json: async () => [
+                        { app_uid: uid, open_count: '3', user_count: '2' },
+                    ],
+                };
+            },
+        };
+
+        try {
+            const stats = await appStore.getAppsStats([
+                uid,
+                longId,
+                multiByteId,
+            ]);
+            expect(queried).toEqual([[uid]]);
+            expect(stats.get(uid)).toMatchObject({
+                open_count: 3,
+                user_count: 2,
+            });
+            expect(stats.get(longId)).toMatchObject({
+                open_count: 0,
+                user_count: 0,
+            });
+            expect(stats.get(multiByteId)).toMatchObject({
+                open_count: 0,
+                user_count: 0,
+            });
+
+            queried.length = 0;
+            const onlyLong = await appStore.getAppsStats([
+                `sub-${'c'.repeat(36)}-extra`,
+            ]);
+            expect(queried).toEqual([]);
+            expect([...onlyLong.values()]).toEqual([
+                { open_count: 0, user_count: 0, referral_count: null },
+            ]);
+        } finally {
+            delete server.clients.clickhouse;
+        }
+    });
 });
 
 describe('AppStore batched lookups', () => {
