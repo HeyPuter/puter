@@ -38,6 +38,12 @@ export interface ActorAccessToken {
      * still rejected by `requireUserActor`, so never account management.
      */
     fullAccess?: boolean;
+    /**
+     * The privileged app a full-access token was launched for. Attribution
+     * only: it never sets `effectiveApp`, so the token keeps the account's
+     * reach while revokes, audits and gate hooks can still name the app.
+     */
+    godmodeApp?: ActorApp | null;
 }
 
 export interface Actor {

@@ -78,6 +78,7 @@ import {
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
 import {
@@ -4138,6 +4139,21 @@ export class AuthController extends PuterController {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
                 legacyCode: 'not_found',
             });
+        }
+
+        // A desktop launch of a godmode app gets a full-access token tied to
+        // this session. Origin lookups (sign-in popups for pages outside the
+        // desktop) keep getting an ordinary app token.
+        if (!resolvedFromOrigin && isGodmodeApp(app)) {
+            const { token, expiresAt } =
+                await this.services.auth.getGodmodeAppToken(req.actor!, app);
+            res.json({
+                token,
+                app_uid,
+                godmode: true,
+                expires_at: expiresAt,
+            });
+            return;
         }
 
         const userPermGrantPromise =

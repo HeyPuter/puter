@@ -102,7 +102,11 @@ describe('full-access token route admissions', () => {
         ['POST', '/auth/grant-user-app', { app_uid: 'app-x', permission: 'p' }],
         ['POST', '/open_item', { path: '~/' }],
         // Only `requireAuth` on the route; the refusal is AuthService's.
-        ['POST', '/auth/create-access-token', { permissions: ['fs:read'] }],
+        [
+            'POST',
+            '/auth/create-access-token',
+            { permissions: ['full-api-access'] },
+        ],
     ];
 
     it.each(REFUSED)(
@@ -113,6 +117,14 @@ describe('full-access token route admissions', () => {
             expect(await res.json()).toMatchObject({ code: 'forbidden' });
         },
     );
+
+    it('lets a full-access token mint a scoped token', async () => {
+        const res = await call('POST', '/auth/create-access-token', pat, {
+            permissions: ['service:foo:ii:read'],
+            expiresIn: '1h',
+        });
+        expect(res.status).toBe(200);
+    });
 
     // Root-origin only, so it needs the other base URL.
     it('refuses a full-access token on GET /get-gui-token', async () => {

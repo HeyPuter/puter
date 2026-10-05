@@ -56,6 +56,9 @@ export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// A godmode app's token is re-minted by the desktop before this runs out, so a
+// closed desktop's tokens lapse on their own.
+export const GODMODE_TOKEN_WINDOW_SECONDS = 12 * 60 * 60; // 12h
 
 const sqlTimestamp = (ms) =>
     new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
@@ -175,9 +178,9 @@ export class SessionStore extends PuterStore {
      *   row-level expiry (used for `access_token` rows whose JWT `exp` is the
      *   truth). Sliding kinds (web/app/asset) get this populated by the caller
      *   per the lifetime table; `touch()` then slides it.
-     * @param opts.app_uid - App UID this row authorizes. Only set for
-     *   `kind='app'`; participates in the (user_id, app_uid) idempotency
-     *   index.
+     * @param opts.app_uid - App UID this row authorizes, for `kind='app'`
+     *   (where it participates in the (user_id, app_uid) idempotency index), or
+     *   the godmode app an `access_token` row was minted for.
      * @param opts.legacy_token_uid - V1 token_uid this row backfills. Only set
      *   for `created_via='legacy_backfill'`.
      * @param opts.access_token_uid - For `kind='access_token'` v2 rows: the
@@ -466,6 +469,54 @@ export class SessionStore extends PuterStore {
             [tokenUid, tokenUid, now],
         );
         return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * The token row a godmode app runs on under one web session, created on
+     * first launch and reused after: each mint moves its `expires_at` to
+     * `expiresAt`, so the sessions list keeps one row per (session, app).
+     * Reviving a lapsed row is safe because every JWT carries its own `exp`.
+     * Concurrent first launches can each insert a row; both stay valid.
+     *
+     * @param userId - User row id (numeric).
+     * @param opts.parentSessionUid - The web session minting it; revoking that
+     *   session cascades here.
+     * @param opts.appUid - The godmode app.
+     * @param opts.expiresAt - Unix seconds; matches the minted JWT's `exp`.
+     * @param opts.label - Shown in the sessions list.
+     * @param opts.auth_id - Stable per-user identity.
+     */
+    async getOrCreateGodmodeToken(
+        userId,
+        { parentSessionUid, appUid, expiresAt, label = null, auth_id = null },
+    ) {
+        if (!userId || !parentSessionUid || !appUid) return null;
+
+        const rows = await this.clients.db.pread(
+            "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND `user_id` = ? AND `parent_session_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL ORDER BY `id` DESC LIMIT 1",
+            [userId, parentSessionUid, appUid],
+        );
+        const existing = this.#normalizeRow(rows[0]);
+        if (!existing) {
+            return this.#insertSession(userId, {
+                kind: 'access_token',
+                label,
+                parent_session_id: parentSessionUid,
+                expires_at: expiresAt,
+                app_uid: appUid,
+                access_token_uid: uuidv4(),
+                auth_id,
+            });
+        }
+
+        const keys = this.#allCacheKeysForRow(existing);
+        await this.publishCacheKeys({ keys, broadcast: true });
+        await this.clients.db.write(
+            'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL',
+            [expiresAt, existing.uuid],
+        );
+        await this.publishCacheKeys({ keys, broadcast: true });
+        return { ...existing, expires_at: expiresAt };
     }
 
     /**
