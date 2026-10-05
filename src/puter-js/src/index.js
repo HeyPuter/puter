@@ -5,6 +5,7 @@ import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import { isFramedDocument } from './lib/appModeGate.js';
 import {
+    isGodmodeTokenPayload,
     isUserSessionTokenPayload,
     urlWithoutQueryParam,
 } from './lib/launchToken.js';
@@ -1322,6 +1323,18 @@ export class Puter {
 
     /**
      * @internal
+     * Whether `token` is a godmode app's launch token, which the desktop
+     * renews on request.
+     *
+     * @param {string | null} token
+     * @returns {boolean}
+     */
+    isGodmodeToken_ = function (token) {
+        return isGodmodeTokenPayload(this.decodeJwtPayload(token));
+    };
+
+    /**
+     * @internal
      * Keep a godmode app's session token in sessionStorage, bound to the API
      * origin like the localStorage copy, or clear it with `null`.
      *
@@ -1989,6 +2002,10 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
+            // Inside the desktop, only the embedding desktop hands out tokens.
+            if (puter.env === 'app' && event.source !== globalThis.parent) {
+                return;
+            }
             // Set the authToken property
             puter.setAuthToken(event.data.token);
             // update appID only when token does not include app identity

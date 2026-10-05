@@ -37,6 +37,7 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
+import { renewGodmodeToken } from './helpers/godmodeTokens.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
@@ -234,6 +235,14 @@ const ipc_listener = async (event, handled) => {
             msg: 'requestEmailConfirmationResponded',
             response: email_confirm_resp,
         }, '*');
+    }
+    //--------------------------------------------------------
+    // reauth_required
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'reauth_required' ) {
+        // A godmode app's own token lapsed or was revoked; it waits for a new
+        // one. Other apps are left alone, so revoking them sticks.
+        await renewGodmodeToken(event.data.appInstanceID, { origin: event.origin });
     }
     //--------------------------------------------------------
     // requestVerificationGate

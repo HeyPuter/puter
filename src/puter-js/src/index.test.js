@@ -29,6 +29,13 @@ const APP_TOKEN = jwt({
     v: '2',
     au: Buffer.alloc(16, 1).toString('base64'),
 });
+const GODMODE_TOKEN = jwt({
+    t: 't',
+    v: '2',
+    token_uid: 'tok',
+    full_access: true,
+    godmode_app_uid: 'app-1',
+});
 
 // Every test boots a fresh SDK, and a custom element can't be defined twice.
 const origDefine = customElements.define.bind(customElements);
@@ -180,6 +187,47 @@ describe('app-mode launch token', () => {
         expect(puter.authToken).toBeNull();
         expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
         expect(localStorage.getItem(ORIGIN_KEY)).toBeNull();
+    });
+
+    it('keeps a godmode launch token in sessionStorage only', async () => {
+        const puter = await bootApp(`${LAUNCH}${GODMODE_TOKEN}`);
+        expect(puter.authToken).toBe(GODMODE_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBe(GODMODE_TOKEN);
+
+        await afterLoad();
+        const reloaded = await bootApp(location.search);
+        expect(reloaded.authToken).toBe(GODMODE_TOKEN);
+    });
+
+    it('takes a renewed token only from the embedding desktop', async () => {
+        const puter = await bootApp(`${LAUNCH}${GODMODE_TOKEN}`);
+        const renewed = jwt({
+            t: 't',
+            token_uid: 'tok2',
+            full_access: true,
+            godmode_app_uid: 'app-1',
+        });
+
+        window.dispatchEvent(
+            new MessageEvent('message', {
+                origin: puter.defaultGUIOrigin,
+                source: window,
+                data: { msg: 'puter.token', token: renewed },
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(puter.authToken).toBe(GODMODE_TOKEN);
+
+        window.dispatchEvent(
+            new MessageEvent('message', {
+                origin: puter.defaultGUIOrigin,
+                source: globalThis.parent,
+                data: { msg: 'puter.token', token: renewed },
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(puter.authToken).toBe(renewed);
     });
 
     it('leaves a stored app token alone on a godmode launch', async () => {

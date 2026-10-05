@@ -30,14 +30,27 @@ export const urlWithoutQueryParam = (href, name) => {
 };
 
 /**
- * Whether a decoded token payload is a user session token (the desktop's own
- * session, or a plain session token) rather than one minted for an app.
+ * Whether a decoded token payload is a godmode app's launch token: full access
+ * for the account, renewed by the desktop before it expires.
+ *
+ * @param {Record<string, unknown> | null} payload
+ * @returns {boolean}
+ */
+export const isGodmodeTokenPayload = (payload) =>
+    typeof payload?.godmode_app_uid === 'string' &&
+    payload.godmode_app_uid.length > 0;
+
+/**
+ * Whether a decoded token payload carries the user's own session reach (the
+ * desktop's session, a plain session token, or a godmode app's launch token)
+ * rather than one minted for an app. These never persist on an app's origin.
  *
  * @param {Record<string, unknown> | null} payload
  * @returns {boolean}
  */
 export const isUserSessionTokenPayload = (payload) => {
     if (!payload) return false;
+    if (isGodmodeTokenPayload(payload)) return true;
     // `t: 's'` is the compressed form of `type: 'session'`.
     const kind = payload.t ?? payload.type;
     return kind === 'gui' || kind === 'session' || kind === 's';

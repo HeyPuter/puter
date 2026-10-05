@@ -295,7 +295,8 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             return session.app?.title || session.app?.name || i18n('ui_session_kind_app') || 'App session';
         }
         if ( session.kind === 'access_token' ) {
-            return session.label || i18n('ui_session_kind_access_token') || 'Access token';
+            return session.label || session.app?.title || session.app?.name
+                || i18n('ui_session_kind_access_token') || 'Access token';
         }
         if ( session.kind === 'web' ) {
             return session.label || i18n('ui_session_kind_web') || 'Browser session';
@@ -381,7 +382,8 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         // Icon tile — app icon when available, otherwise a device/kind glyph.
         const el_icon = document.createElement('div');
         el_icon.classList.add('session-widget-icon');
-        if ( session.kind === 'app' && session.app?.icon ) {
+        // A godmode app's token row carries its app too.
+        if ( (session.kind === 'app' || session.kind === 'access_token') && session.app?.icon ) {
             el_icon.classList.add('session-widget-icon-img');
             const img = document.createElement('img');
             img.src = session.app.icon;

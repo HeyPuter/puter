@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    isGodmodeTokenPayload,
     isUserSessionTokenPayload,
     urlWithoutQueryParam,
 } from './launchToken.js';
@@ -78,6 +79,16 @@ describe('isUserSessionTokenPayload', () => {
         expect(isUserSessionTokenPayload({ type: 'session' })).toBe(true);
     });
 
+    it('matches a godmode app launch token', () => {
+        expect(
+            isUserSessionTokenPayload({
+                t: 't',
+                full_access: true,
+                godmode_app_uid: 'app-1',
+            }),
+        ).toBe(true);
+    });
+
     it('does not match app or access tokens', () => {
         expect(isUserSessionTokenPayload({ t: 'au', au: 'x' })).toBe(false);
         expect(isUserSessionTokenPayload({ t: 't' })).toBe(false);
@@ -86,5 +97,23 @@ describe('isUserSessionTokenPayload', () => {
         );
         expect(isUserSessionTokenPayload({})).toBe(false);
         expect(isUserSessionTokenPayload(null)).toBe(false);
+    });
+});
+
+describe('isGodmodeTokenPayload', () => {
+    it('matches only a token carrying the godmode app', () => {
+        expect(
+            isGodmodeTokenPayload({
+                t: 't',
+                full_access: true,
+                godmode_app_uid: 'app-1',
+            }),
+        ).toBe(true);
+        expect(isGodmodeTokenPayload({ t: 't', full_access: true })).toBe(
+            false,
+        );
+        expect(isGodmodeTokenPayload({ t: 'gui' })).toBe(false);
+        expect(isGodmodeTokenPayload({ godmode_app_uid: '' })).toBe(false);
+        expect(isGodmodeTokenPayload(null)).toBe(false);
     });
 });
