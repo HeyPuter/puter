@@ -1,31 +1,23 @@
 ---
 title: Work With a Large Directory
-description: "Page through a directory that is too big to read at once, sort and descend into it, and write into it without clobbering what is already there."
+description: "Learn how to list a directory with thousands of files in Puter.js, so your app can load and show it one page at a time."
 tags: [fs, performance]
 order: 46
 ---
 
-**Use this when** a directory has more in it than you want in memory at once, or
-when you are writing into a folder that other things are also writing into.
-Typically:
+Reading a directory with [`puter.fs.readdir()`](/FS/readdir/) returns every item
+in one call, as shown in [Store Files](/recipes/store-files/). That works for a
+folder of a few dozen files. A folder of user uploads or generated exports can
+grow to thousands of items, and loading all of them before showing anything
+makes your app slow. The same method can return the directory in pages, sort
+it, include subdirectories and count it, which is what a file browser with
+infinite scrolling and a "showing 50 of 214" label needs.
 
-- A **file browser** with an infinite-scrolling list, a sort header, and a
-  "showing 50 of 214" label.
-- A **media gallery** that shows the newest uploads first and walks
-  subdirectories to find them.
-- An **upload endpoint** where two people can send `invoice.pdf` a second apart
-  and neither should lose theirs.
-- A **report generator** writing to `reports/2026/q3/` before that folder tree
-  exists.
+## Read One Page at a Time
 
-Reading a whole directory is one call and covered in
-[storing files](/recipes/store-files/). This is what to do when that is no
-longer enough.
-
-## Page through it
-
-`readdir()` normally resolves to a plain array. Passing `cursor` — even `null`
-for the first page — switches it to a page object instead:
+By default, the [`readdir()`](/FS/readdir/) method resolves to a plain array.
+Passing a `cursor` switches the result to a page object with `items` and
+`cursor`. For the first page, pass `null`:
 
 ```js
 let page = await puter.fs.readdir({ path: 'uploads', cursor: null, limit: 100 });
@@ -39,13 +31,17 @@ for (;;) {
 }
 ```
 
-Stop when `cursor` is absent. It is present only while more pages remain, so
-that is the condition — not comparing `items.length` to `limit`.
+Each page includes a `cursor` if there are more pages to load. When `cursor` is
+missing, you've reached the last page.
 
-## Stream the pages instead
+Paging with a cursor is fast on every page. The `offset` option also works, but
+the server has to count past every item you skip, so later pages get slower.
 
-`stream: true` hands back an async iterator, which is usually what you want when
-you are just walking the whole thing:
+## Stream the Pages
+
+To read the whole directory, pass `stream: true`. The
+[`readdir()`](/FS/readdir/) method then returns an async iterator that you read
+with `for await`:
 
 ```js
 for await (const page of puter.fs.readdir({ path: 'uploads', stream: true })) {
@@ -55,9 +51,12 @@ for await (const page of puter.fs.readdir({ path: 'uploads', stream: true })) {
 }
 ```
 
-Same pages, less bookkeeping. Combine it with `limit` to set the page size.
+Each loop gives you one page, and the cursor is handled for you. Set
+`limit` to choose the page size. Streaming cannot be combined with `offset`.
 
-## Sort it, and descend
+## Sort the Results
+
+To change the order, pass `sortBy` and `sortOrder`:
 
 ```js
 const items = await puter.fs.readdir({
@@ -67,10 +66,14 @@ const items = await puter.fs.readdir({
 });
 ```
 
-`sortBy` takes `name` (the default), `modified`, `type` or `size`.
+The `sortBy` option takes `name` (the default), `modified`, `type` or `size`,
+and `sortOrder` takes `asc` (the default) or `desc`. When you read pages with a
+cursor, every page must use the same sort as the first one.
 
-`recursive: true` lists what is in the subdirectories too, and `depth` bounds
-how far down it goes:
+## Include Subdirectories
+
+To list the contents of subdirectories as well, pass `recursive: true`. Set
+`depth` to limit how many levels down it goes:
 
 ```js
 const items = await puter.fs.readdir({
@@ -80,62 +83,23 @@ const items = await puter.fs.readdir({
 });
 ```
 
-Sorting interacts with recursion in a way worth knowing: sorting by `name`
-orders by *full path*, so each directory's contents stay together. The other
-fields sort across the whole subtree, so files from different folders interleave.
+With `recursive`, sorting by `name` sorts by full path, so the contents of each
+directory stay together. Sorting by `modified`, `type` or `size` sorts across
+all levels at once, so files from different directories are mixed together.
 
-## Count it
+## Count the Items
+
+To show a total such as "showing 50 of 214", pass `includeTotal: true`. It also
+switches the result to a page object, so you get the count along with the first
+page:
 
 ```js
-const { items, total } = await puter.fs.readdir({
+const { items, total, cursor } = await puter.fs.readdir({
     path: 'uploads',
     cursor: null,
+    limit: 50,
     includeTotal: true,
 });
 ```
 
-`includeTotal` also switches the result to a page object, so you get a count
-without giving up paging.
-
-## Write into it without clobbering
-
-`write()` overwrites by default. Two options change that:
-
-```js
-// Keep both: writes report-1.txt if report.txt is taken.
-await puter.fs.write('uploads/report.txt', data, { dedupeName: true });
-
-// Refuse instead of replacing.
-await puter.fs.write('uploads/report.txt', data, { overwrite: false });
-```
-
-`dedupeName` is what you want when two users might upload the same filename and
-you would rather keep both than lose one.
-
-## Create the folders on the way
-
-Writing into a folder that does not exist fails unless you say otherwise:
-
-```js
-await puter.fs.write('reports/2026/q3/summary.txt', data, {
-    createMissingParents: true,
-});
-```
-
-`mkdir()` takes the same three options, so a directory tree can be created in
-one call rather than level by level.
-
-## Notes
-
-- `offset` still works but gets slower the further in you go, because the server
-  counts past everything you skipped. Prefer `cursor`.
-- **A cursor pins the sort.** Later pages must not ask for a different `sortBy`
-  or `sortOrder`, and `stream` cannot be combined with `offset`.
-- Each item carries `is_shared`. Only shares on the item itself count — the
-  children of a folder you shared report `false`, because the share lives on the
-  folder. See [sharing a file](/recipes/share-a-file/).
-- `mkdir()` defaults `overwrite` to `false`, while `write()` defaults it to
-  `true`. They are not the same, which is easy to assume.
-- The same three result shapes — array, page object, async iterator — are how
-  the other listing methods work too, including
-  [`puter.fs.listShared()`](/FS/listShared/).
+When you stream with `includeTotal`, only the first page carries `total`.
