@@ -247,38 +247,6 @@ const CHANGE_USERNAME_ATTEMPT_LIMIT = {
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-export const RESERVED_USERNAMES = new Set([
-    'admin',
-    'administrator',
-    'root',
-    'system',
-    'puter',
-    'www',
-    'api',
-    'support',
-    'help',
-    'info',
-    'contact',
-    'mail',
-    'email',
-    // Role mailboxes: a Puter address names its account, so these must never
-    // be ownable.
-    'abuse',
-    'postmaster',
-    'hostmaster',
-    'fbl',
-    'security',
-    'noreply',
-    'no-reply',
-    'null',
-    'undefined',
-    'test',
-    'guest',
-    'anonymous',
-    'user',
-    'users',
-]);
-
 /**
  * Auth controller — login/logout, permission grants/revokes, session
  * management, OTP, and permission checks.
