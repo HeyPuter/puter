@@ -79,21 +79,29 @@ module.exports = async (options = {}) => {
     }
 
     const config = {};
-    config.entry = [
-        './src/init_sync.js',
-        './src/init_async.js',
-        './src/initgui.js',
-        './src/helpers.js',
-        './src/IPC.js',
-        './src/globals.js',
-        './src/i18n/i18n.js',
-        './src/keyboard.js',
-        './src/index.js',
-        ...entries,
-    ];
+    config.entry = {
+        bundle: [
+            './src/init_sync.js',
+            './src/init_async.js',
+            './src/initgui.js',
+            './src/helpers.js',
+            './src/IPC.js',
+            './src/globals.js',
+            './src/i18n/i18n.js',
+            './src/keyboard.js',
+            './src/index.js',
+            ...entries,
+        ],
+        'apps-embed': './src/appsEmbed.js',
+        'toolbar-embed': './src/toolbarEmbed.js',
+        'toolbar-host': './src/toolbarHost.js',
+    };
     config.output = {
         path: path.resolve(__dirname, '../dist'),
-        filename: 'bundle.min.js',
+        filename: '[name].min.js',
+    };
+    config.module = {
+        rules: [{ test: /jquery-3\.6\.1\.min\.js$/, type: 'javascript/auto' }],
     };
     config.resolve = {
         modules: [

@@ -49,6 +49,47 @@ const makeReq = (over: Partial<Request> = {}): Request =>
         ...over,
     }) as unknown as Request;
 
+describe('app browser embed shell', () => {
+    it.each([
+        [{ env: 'dev' }, '/sdk/puter.dev.js'],
+        [{ env: 'prod' }, 'https://js.puter.com/v2/'],
+        [{ gui_puterjs_bundle: '/custom-sdk.js' }, '/custom-sdk.js'],
+    ])('uses the deployment SDK configuration %j', (config, sdkUrl) => {
+        const service = makeService({
+            ...config,
+            api_base_url: 'https://api.deployment.test',
+            domain: 'deployment.test',
+        });
+        const html = service.renderAppBrowserEmbed();
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson)).toEqual({
+            apiOrigin: 'https://api.deployment.test', domain: 'deployment.test', sdkUrl,
+        });
+        expect(html).toContain('/dist/apps-embed.min.js');
+        expect(html).not.toContain('/dist/bundle.min.js');
+        expect(html).not.toContain('gui(');
+    });
+
+    it('renders the toolbar entry without the desktop shell', () => {
+        const html = makeService({ domain: 'deployment.test' }).renderAppBrowserEmbed('toolbar');
+        expect(html).toContain('id="puter-toolbar"');
+        expect(html).toContain('/css/toolbar-embed.css');
+        expect(html).toContain('/dist/toolbar-embed.min.js');
+        expect(html).not.toContain('/dist/bundle.min.js');
+    });
+
+    it('escapes configured values without breaking its JSON bootstrap', () => {
+        const sdkUrl = '/sdk.js?value=</script><script>unexpected()</script>';
+        const html = makeService({
+            gui_params: { title: '<script>unexpected()</script>' },
+            gui_puterjs_bundle: sdkUrl,
+        }).renderAppBrowserEmbed();
+        expect(html).not.toContain('<script>unexpected()');
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).sdkUrl).toBe(sdkUrl);
+    });
+});
+
 /** Capture what the service sends, and return the rendered HTML. */
 const render = async (
     service: PuterHomepageService,
