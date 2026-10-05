@@ -530,6 +530,25 @@ describe('transient retry', () => {
         vi.useRealTimers();
     });
 
+    // Waiting on the account's own requests to finish takes longer than a rate
+    // window, so `credits_reserved` backs off exponentially past 2s.
+    it('backs off exponentially on a credits_reserved 429', async () => {
+        vi.useFakeTimers();
+        const reserved = respond({
+            status: 429,
+            body: { code: 'too_many_requests', errorCode: 'credits_reserved' },
+        });
+        const xhrs = installFakeXHR(reserved);
+        const p = fetchUrl('https://api.example/x', { method: 'POST' });
+        // 1 + 2 + 4 + 8 + 16 + 30s: the gate schedule would have given up.
+        await vi.advanceTimersByTimeAsync(61_000);
+        expect(xhrs.length).toBe(7);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect((await p).status).toBe(429);
+        expect(xhrs.length).toBe(9); // 1 initial + 8 scheduled retries
+        vi.useRealTimers();
+    });
+
     it('honors retry:false on a 429', async () => {
         const xhrs = installFakeXHR(
             sequence(respond({ status: 429, body: {} })),
@@ -939,6 +958,62 @@ describe('driverCall', () => {
                 code: 'forbidden',
             });
             expect(requestUpgrade).not.toHaveBeenCalled();
+        });
+
+        it('resolves a completion cut short by the balance, and prompts', async () => {
+            installFakeXHR(
+                respond({
+                    body: {
+                        success: true,
+                        result: { message: { content: 'partial' } },
+                        metadata: { usage_limited: true },
+                    },
+                }),
+            );
+            await expect(driverCall(call)).resolves.toEqual({
+                message: { content: 'partial' },
+            });
+            expect(requestUpgrade).toHaveBeenCalledTimes(1);
+            expect(requestUpgrade.mock.calls[0][0].reason).toBe('funds');
+        });
+
+        it('prompts on a stream whose usage line says the balance ran out', async () => {
+            installFakeXHR((xhr) => {
+                xhr._setHeaders(200, {
+                    'content-type': 'application/x-ndjson',
+                });
+                xhr._headersReceived();
+                xhr._progress(
+                    '{"type":"text","text":"part"}\n{"type":"usage","usage":{"output_tokens":9},"metadata":{"usage_limited":true}}\n',
+                );
+                xhr._done();
+            });
+            const parts = [];
+            for await (const part of await driverCall(call)) parts.push(part);
+            expect(parts).toHaveLength(2);
+            expect(requestUpgrade).toHaveBeenCalledTimes(1);
+        });
+
+        it('waits out a credits_reserved 429 without prompting', async () => {
+            vi.useFakeTimers();
+            const xhrs = installFakeXHR(
+                sequence(
+                    respond({
+                        status: 429,
+                        body: {
+                            code: 'too_many_requests',
+                            errorCode: 'credits_reserved',
+                        },
+                    }),
+                    respond({ body: { success: true, result: 'v' } }),
+                ),
+            );
+            const p = driverCall(call);
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(await p).toBe('v');
+            expect(xhrs.length).toBe(2);
+            expect(requestUpgrade).not.toHaveBeenCalled();
+            vi.useRealTimers();
         });
     });
 });

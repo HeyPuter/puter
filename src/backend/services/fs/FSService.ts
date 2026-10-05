@@ -38,6 +38,7 @@ import {
 import {
     Actor,
     handlerDepthOf,
+    isAccountContext,
     isAppActor,
     isPlainUserActor,
 } from '../../core/actor.js';
@@ -53,11 +54,13 @@ import {
 } from '../../stores/fs/FSEntry.js';
 import {
     clampSignedUploadExpirySeconds,
+    isIncompleteBodyError,
     isMissingObjectError,
 } from '../../stores/fs/S3ObjectStore.js';
 import { toUploadReservationBytes } from '../../stores/fs/UploadReservationStore.js';
 import type {
     MultipartCompletePart,
+    ServerUploadInput,
     SignedUploadResult,
 } from '../../stores/fs/s3Types.js';
 import type { puterStores } from '../../stores/index.js';
@@ -118,6 +121,16 @@ export const MAX_PENDING_UPLOADS_PER_OWNER = 10_000;
 const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
 
 /**
+ * Trash bookkeeping: `original_path`/`original_name` steer where a later
+ * restore lands. Only `move`'s own trash step may set them — never a write.
+ */
+const CLIENT_TRASH_METADATA_KEYS: readonly string[] = [
+    'original_path',
+    'original_name',
+    'trashed_ts',
+];
+
+/**
  * The app whose `AppData` subtree `path` sits in, when that app is not
  * `ownAppUid` — i.e. the target of a cross-app access. Null for anything else.
  */
@@ -126,11 +139,24 @@ const foreignAppDataOwner = (
     username: string,
     ownAppUid: string,
 ): string | null => {
-    const prefix = `/${username}/AppData/`;
-    if (!path.startsWith(prefix)) return null;
-    const appUid = path.slice(prefix.length).split('/')[0];
+    const segments = path.split('/');
+    if (segments[1] !== username || segments[2]?.toLowerCase() !== 'appdata') {
+        return null;
+    }
+    const appUid = segments[3];
     if (!appUid || appUid === ownAppUid) return null;
     return appUid;
+};
+
+/** `/<username>/AppData/<appUid>`: the directory an app's launch provisions. */
+const isAppDataRootPath = (path: string): boolean => {
+    const segments = path.split('/');
+    // ASCII-case match only, same as MySQL's ci collation on this column.
+    return (
+        segments.length === 4 &&
+        segments[2]?.toLowerCase() === 'appdata' &&
+        segments[3] !== ''
+    );
 };
 
 const isNoSuchKeyError = (err: unknown): boolean => {
@@ -645,17 +671,37 @@ export class FSService extends PuterService {
                 return metadata;
             }
             return JSON.stringify(
-                this.#stripReservedMetadataKeys(
+                this.#sanitizeClientMetadataRecord(
                     parsed as Record<string, unknown>,
                 ),
             );
         }
         if (typeof metadata === 'object' && !Array.isArray(metadata)) {
-            return this.#stripReservedMetadataKeys(
+            return this.#sanitizeClientMetadataRecord(
                 metadata as Record<string, unknown>,
             );
         }
         return metadata;
+    }
+
+    // Narrows the type for `createNonFileEntry`, which only takes a string.
+    #sanitizeStoredMetadata(metadata: string | null): string | null {
+        return this.#sanitizeClientMetadata(metadata) as string | null;
+    }
+
+    // Nothing legitimate sets trash keys through a write — the GUI only ever
+    // sends them via move's `new_metadata` — so drop them for every caller
+    // with an actor; only a no-actor internal call is trusted to carry them.
+    #sanitizeClientMetadataRecord(
+        record: Record<string, unknown>,
+    ): Record<string, unknown> {
+        const cleaned = this.#stripReservedMetadataKeys(record);
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor) return cleaned;
+        for (const key of CLIENT_TRASH_METADATA_KEYS) {
+            delete cleaned[key];
+        }
+        return cleaned;
     }
 
     #stripReservedMetadataKeys(
@@ -1533,6 +1579,30 @@ export class FSService extends PuterService {
         });
     }
 
+    async #uploadContent(
+        input: ServerUploadInput,
+        region: string,
+        uploadBody: UploadPayload,
+    ): Promise<void> {
+        try {
+            await this.stores.s3Object.uploadFromServer(input, region);
+        } catch (error) {
+            // A stream is sent with the caller's declared size as its length,
+            // so a body that ends short of it is a bad request.
+            if (
+                uploadBody.contentLength === undefined &&
+                isIncompleteBodyError(error)
+            ) {
+                throw new HttpError(
+                    400,
+                    'File content is shorter than its declared size',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            throw error;
+        }
+    }
+
     async #cleanupPreparedBatchUploads(
         preparedBatch: PreparedBatchWrite,
         uploadedItems: UploadedBatchWriteItem[],
@@ -1896,7 +1966,7 @@ export class FSService extends PuterService {
             input.uploadTracker,
         );
 
-        await this.stores.s3Object.uploadFromServer(
+        await this.#uploadContent(
             {
                 bucket: preparedItem.normalizedInput.bucket,
                 objectKey: preparedItem.objectKey,
@@ -1910,6 +1980,7 @@ export class FSService extends PuterService {
                     : {}),
             },
             preparedItem.normalizedInput.bucketRegion,
+            uploadBody,
         );
 
         const uploadedSize = uploadBody.uploadedSize();
@@ -3360,7 +3431,7 @@ export class FSService extends PuterService {
             uploadTracker,
         );
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        await this.stores.s3Object.uploadFromServer(
+        await this.#uploadContent(
             {
                 bucket: normalizedInput.bucket,
                 objectKey,
@@ -3374,6 +3445,7 @@ export class FSService extends PuterService {
                     : {}),
             },
             normalizedInput.bucketRegion,
+            uploadBody,
         );
 
         const uploadedSize = uploadBody.uploadedSize();
@@ -3944,6 +4016,7 @@ export class FSService extends PuterService {
         await this.#assertCanRename(entry, userId);
         this.#assertUsableName(newName);
         if (entry.name === newName) return entry;
+        this.#assertAppDataRootsStay(entry.path);
         await this.#assertCrossAppDeleteAllowed(entry.path);
 
         const parentPath = pathPosix.dirname(entry.path);
@@ -4097,6 +4170,88 @@ export class FSService extends PuterService {
                 `Cannot ${verb} a home directory — its name follows the account username.`,
                 { legacyCode: 'forbidden' },
             );
+        }
+    }
+
+    /**
+     * An AppData root's name is its app's uid, launch adopts whatever directory
+     * holds that name, and grants on an entry follow it when it moves. So only
+     * the account itself may rename or move a root, or move an entry into a
+     * root's place.
+     */
+    #assertAppDataRootsStay(...paths: string[]): void {
+        if (!paths.some(isAppDataRootPath)) return;
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor || isAccountContext(actor)) return;
+        throw new HttpError(
+            403,
+            'Only the account owner can rename or move AppData folders',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
+    /**
+     * Only the account moving within its own tree (source _and_ destination
+     * both its own) may set these freely; anyone else gets them stripped, or
+     * recomputed from the entry if landing in the owner's Trash.
+     */
+    #reconcileTrashMetadata(
+        source: FSEntry,
+        destinationParent: FSEntry,
+        newMetadata: Record<string, unknown> | null | undefined,
+    ): Record<string, unknown> | null | undefined {
+        const actor = Context.get('actor') as Actor | undefined;
+        const isOwner =
+            !actor ||
+            (isAccountContext(actor) &&
+                actor.user?.id === source.userId &&
+                actor.user?.id === destinationParent.userId);
+        if (isOwner) return newMetadata;
+
+        const effective =
+            newMetadata !== undefined
+                ? newMetadata
+                : this.#parseStoredMetadata(source.metadata);
+
+        if (!isOwnersTrash(source, destinationParent)) {
+            if (
+                !effective ||
+                typeof effective !== 'object' ||
+                !CLIENT_TRASH_METADATA_KEYS.some((key) => key in effective)
+            ) {
+                return newMetadata;
+            }
+            const cleaned = { ...effective };
+            for (const key of CLIENT_TRASH_METADATA_KEYS) {
+                delete cleaned[key];
+            }
+            return cleaned;
+        }
+
+        const base =
+            effective && typeof effective === 'object' ? effective : {};
+        return {
+            ...base,
+            original_path: source.path,
+            original_name: source.name,
+            trashed_ts: Math.round(Date.now() / 1000),
+        };
+    }
+
+    /** Parses stored metadata back into a record, or null if it isn't one. */
+    #parseStoredMetadata(
+        metadata: string | null,
+    ): Record<string, unknown> | null {
+        if (!metadata) return null;
+        try {
+            const parsed = JSON.parse(metadata);
+            return parsed &&
+                typeof parsed === 'object' &&
+                !Array.isArray(parsed)
+                ? (parsed as Record<string, unknown>)
+                : null;
+        } catch {
+            return null;
         }
     }
 
@@ -4534,6 +4689,14 @@ export class FSService extends PuterService {
             destinationParent.path === '/'
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
+        // Ahead of the overwrite below. A deduped name keeps the parent, so it
+        // is covered too.
+        this.#assertAppDataRootsStay(source.path, targetPath);
+        const newMetadata = this.#reconcileTrashMetadata(
+            source,
+            destinationParent,
+            input.newMetadata,
+        );
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (collision && collision.uuid !== source.uuid) {
@@ -4565,10 +4728,10 @@ export class FSService extends PuterService {
                 : `${destinationParent.path}/${name}`;
 
         let metadataPatch: string | null | undefined;
-        if (input.newMetadata === null) metadataPatch = null;
-        else if (input.newMetadata && typeof input.newMetadata === 'object')
+        if (newMetadata === null) metadataPatch = null;
+        else if (newMetadata && typeof newMetadata === 'object')
             metadataPatch = JSON.stringify(
-                this.#stripReservedMetadataKeys(input.newMetadata),
+                this.#stripReservedMetadataKeys(newMetadata),
             );
 
         // Moving your entry into another tree hands it over, bytes included,
@@ -4746,7 +4909,7 @@ export class FSService extends PuterService {
             parent: destinationParent,
             name,
             kind: 'directory',
-            metadata: source.metadata,
+            metadata: this.#sanitizeStoredMetadata(source.metadata),
             thumbnail: source.thumbnail,
             associatedAppId: source.associatedAppId,
             isPublic: source.isPublic,
@@ -4780,7 +4943,9 @@ export class FSService extends PuterService {
                       parent: newParent,
                       name: descendant.name,
                       kind: 'directory',
-                      metadata: descendant.metadata,
+                      metadata: this.#sanitizeStoredMetadata(
+                          descendant.metadata,
+                      ),
                       thumbnail: descendant.thumbnail,
                       associatedAppId: descendant.associatedAppId,
                       isPublic: descendant.isPublic,
@@ -4822,7 +4987,7 @@ export class FSService extends PuterService {
                 name: newName,
                 kind: 'symlink',
                 symlinkPath: source.symlinkPath,
-                metadata: source.metadata,
+                metadata: this.#sanitizeStoredMetadata(source.metadata),
                 associatedAppId: source.associatedAppId,
             });
         }
@@ -4832,7 +4997,7 @@ export class FSService extends PuterService {
                 name: newName,
                 kind: 'shortcut',
                 shortcutTo: source.shortcutTo,
-                metadata: source.metadata,
+                metadata: this.#sanitizeStoredMetadata(source.metadata),
                 associatedAppId: source.associatedAppId,
             });
         }
@@ -4846,7 +5011,7 @@ export class FSService extends PuterService {
                 parent: destinationParent,
                 name: newName,
                 kind: 'empty-file',
-                metadata: source.metadata,
+                metadata: this.#sanitizeStoredMetadata(source.metadata),
                 thumbnail: source.thumbnail,
                 associatedAppId: source.associatedAppId,
                 isPublic: source.isPublic,

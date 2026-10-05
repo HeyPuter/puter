@@ -1156,7 +1156,7 @@ describe('KVStoreDriver', () => {
             ).toBe('from-calendar');
         });
 
-        it('keeps delete orthogonal to write', async () => {
+        it('lets delete imply write, but not write imply delete', async () => {
             const write = await setup();
             await grant(
                 write.owner,
@@ -1175,11 +1175,16 @@ describe('KVStoreDriver', () => {
                 del.calendar.uid,
                 appDataPermission(del.contacts.uid, 'kv', 'delete'),
             );
-            await expect(
-                crossApp(del.calendarActor, del.contacts.uid, (optConfig) =>
-                    target.set({ key: 'entry', value: 'nope', optConfig }),
+            await crossApp(del.calendarActor, del.contacts.uid, (optConfig) =>
+                target.set({ key: 'entry', value: 'changed', optConfig }),
+            );
+            expect(
+                await crossApp(
+                    del.calendarActor,
+                    del.contacts.uid,
+                    (optConfig) => target.get({ key: 'entry', optConfig }),
                 ),
-            ).rejects.toMatchObject({ statusCode: 403 });
+            ).toBe('changed');
         });
 
         it('permits every delete op with the delete class', async () => {

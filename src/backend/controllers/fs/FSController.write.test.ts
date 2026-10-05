@@ -28,6 +28,7 @@ import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSController } from './FSController.js';
+import { FS_BATCH_WRITE_MAX_ITEMS, FS_MULTIPART_MAX_PARTS } from './limits.js';
 import type {
     ClientSignedWriteResponse,
     CompleteWriteRequest,
@@ -661,6 +662,60 @@ describe('batch write handlers with a malformed element', () => {
     });
 });
 
+describe('batch write handlers at the item cap', () => {
+    // Null elements fail the per-item body check, so which 400 comes back
+    // shows whether the cap ran before any item was read.
+    const handlers: Array<
+        [string, (c: typeof controller, r: Request, res: Response) => unknown]
+    > = [
+        [
+            'startBatchWrites',
+            (c, r, res) => c.startBatchWrites(r as never, res as never),
+        ],
+        ['batchWrites', (c, r, res) => c.batchWrites(r as never, res as never)],
+        [
+            'completeBatchWrites',
+            (c, r, res) => c.completeBatchWrites(r as never, res as never),
+        ],
+    ];
+
+    const callWith = async (
+        call: (typeof handlers)[number][1],
+        length: number,
+    ) => {
+        const { actor } = await makeUser();
+        const req = makeReq({ actor });
+        (req as { body?: unknown }).body = Array(length).fill(null);
+        const { res } = makeRes();
+        return withActor(actor, async () => call(controller, req, res));
+    };
+
+    it.each(handlers)(
+        '%s rejects one item over the cap up front',
+        async (_label, call) => {
+            await expect(
+                callWith(call, FS_BATCH_WRITE_MAX_ITEMS + 1),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message: `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
+            });
+        },
+    );
+
+    it.each(handlers)(
+        '%s lets exactly the cap through to the per-item checks',
+        async (_label, call) => {
+            await expect(
+                callWith(call, FS_BATCH_WRITE_MAX_ITEMS),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'A request body is required',
+            });
+        },
+    );
+});
+
 describe('FSController.write storage allowance', () => {
     let limitedServer: PuterServer;
     let limitedController: FSController;
@@ -857,15 +912,18 @@ describe('FSController.startWrite', () => {
 
     it('attaches signed thumbnail upload targets published by a listener', async () => {
         const { actor, username } = await makeUser();
+        const itemUids: string[] = [];
         const listener = (_key: string, data: unknown) => {
             const payload = data as {
                 items: Array<{
                     index: number;
+                    item_uid: string;
                     uploadUrl?: string;
                     thumbnailUrl?: string;
                 }>;
             };
             for (const item of payload.items) {
+                itemUids.push(item.item_uid);
                 item.uploadUrl = `https://thumbs.test/put/${item.index}`;
                 item.thumbnailUrl = `https://thumbs.test/get/${item.index}`;
             }
@@ -894,6 +952,13 @@ describe('FSController.startWrite', () => {
             const body = captured.body as ClientSignedWriteResponse;
             expect(body.thumbnailUploadUrl).toBe('https://thumbs.test/put/0');
             expect(body.thumbnailUrl).toBe('https://thumbs.test/get/0');
+            // Listeners are told the entry the upload will complete into, so
+            // the thumbnail can be bound to it.
+            const session =
+                await server.stores.fsEntry.getPendingEntryBySessionId(
+                    body.sessionId,
+                );
+            expect(itemUids).toEqual([session?.objectKey]);
         } finally {
             server.clients.event.off(
                 'thumbnail.upload.prepare',
@@ -1144,6 +1209,38 @@ describe('FSController.completeWrite', () => {
         expect(stored?.thumbnail).toBe('https://thumbs.test/x.png');
     });
 
+    it('tells thumbnail listeners which entry the thumbnail is for', async () => {
+        const { actor, username } = await makeUser();
+        const target = `/${username}/Documents/complete-bound-thumb.txt`;
+        const started = await startSignedWrite(actor, target, 2);
+        await fetch(started.url!, { method: 'PUT', body: 'yz' });
+
+        const seen: unknown[] = [];
+        const listener = (_key: string, data: unknown) => {
+            seen.push(data);
+        };
+        server.clients.event.on('thumbnail.created', listener as never);
+        try {
+            const { res } = makeRes();
+            await withActor(actor, () =>
+                controller.completeWrite(
+                    makeReq<CompleteWriteRequest>({
+                        body: {
+                            uploadId: started.sessionId,
+                            thumbnailData: 'https://thumbs.test/x.png',
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+        } finally {
+            server.clients.event.off('thumbnail.created', listener as never);
+        }
+        const stored = await server.stores.fsEntry.getEntryByPath(target);
+        expect(seen).toEqual([expect.objectContaining({ uuid: stored?.uuid })]);
+    });
+
     it('404s an unknown upload id', async () => {
         const { actor } = await makeUser();
         const { res } = makeRes();
@@ -1282,6 +1379,29 @@ describe('FSController.signMultipartParts', () => {
                 ),
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    // The session is unknown, so reaching the lookup would answer 404.
+    it.each([
+        [FS_MULTIPART_MAX_PARTS + 1, 400],
+        [FS_MULTIPART_MAX_PARTS, 404],
+    ])('answers %i part numbers with %i', async (length, statusCode) => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.signMultipartParts(
+                    makeReq<SignMultipartPartsRequest>({
+                        body: {
+                            uploadId: uuidv4(),
+                            partNumbers: Array(length).fill(1),
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode });
     });
 });
 
@@ -1713,6 +1833,35 @@ describe('FSController.batchWrites (multipart)', () => {
         ).rejects.toMatchObject({
             statusCode: 400,
             message: expect.stringContaining('non-empty items array'),
+        });
+    });
+
+    it('rejects a manifest over the item cap', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.batchWrites(
+                    makeMultipartReq(
+                        [
+                            {
+                                kind: 'field',
+                                name: 'manifest',
+                                value: JSON.stringify({
+                                    items: Array(
+                                        FS_BATCH_WRITE_MAX_ITEMS + 1,
+                                    ).fill(null),
+                                }),
+                            },
+                        ],
+                        actor,
+                    ),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
         });
     });
 

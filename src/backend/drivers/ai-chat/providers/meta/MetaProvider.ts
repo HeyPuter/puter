@@ -99,6 +99,11 @@ export class MetaProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `meta:${modelId}`;
+    }
+
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
@@ -227,7 +232,7 @@ export class MetaProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `meta:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

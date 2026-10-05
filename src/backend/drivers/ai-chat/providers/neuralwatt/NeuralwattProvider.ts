@@ -157,6 +157,11 @@ export class NeuralwattProvider implements IChatProvider {
         return undefined;
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return modelId;
+    }
+
     async complete({
         messages,
         stream,
@@ -305,7 +310,7 @@ export class NeuralwattProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     billedTrackedUsage,
                     actor!,
-                    modelUsed.id,
+                    this.meteringModelKey(modelUsed.id),
                     costOverwrites,
                 );
                 const result = annotate(billedTrackedUsage);
@@ -327,7 +332,7 @@ export class NeuralwattProvider implements IChatProvider {
             this.#meteringService.utilRecordUsageObject(
                 trackedUsage,
                 actor!,
-                modelUsed.id,
+                this.meteringModelKey(modelUsed.id),
                 costOverwrites,
             );
             return annotate(trackedUsage);

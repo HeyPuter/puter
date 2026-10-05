@@ -19,7 +19,7 @@
 
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -340,10 +340,9 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(appToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: a reauth token is only ever minted for the
+            // user's own session/GUI token, never an app token.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('app-under-user: returns reauth.session_expired when the app session expires_at is in the past', async () => {
@@ -372,10 +371,7 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(appToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_expired',
-                auth_id: user.uuid,
-            });
+            expect(result.reauth).toEqual({ reason: 'session_expired' });
         });
 
         // ── Access-token verify path ───────────────────────────────
@@ -404,10 +400,8 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(accessToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: access tokens never get a reauth token.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('access-token: returns reauth.session_expired when the access-token session expires_at is in the past', async () => {
@@ -440,10 +434,27 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(accessToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_expired',
-                auth_id: user.uuid,
-            });
+            expect(result.reauth).toEqual({ reason: 'session_expired' });
+        });
+
+        it('a revoked worker session gets no auth_id even though it rides the session token type', async () => {
+            const user = await makeUser();
+            const actor: Actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            };
+            const { token, session } =
+                await authService.createWorkerSessionToken(
+                    actor,
+                    user,
+                    `w-${uuidv4()}`,
+                );
+            await server.stores.session.removeByUuid(
+                (session as { uuid: string }).uuid,
+            );
+
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
     });
 
@@ -1285,6 +1296,40 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 403 });
         });
 
+        it('createWorkerAppToken refuses an actor running behind a handler (403)', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                handlerDepth: 1,
+            } as Actor;
+            await expect(
+                authService.createWorkerAppToken(
+                    actor,
+                    `app-${uuidv4()}`,
+                    'wk-handler',
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'events_handler_worker_forbidden',
+            });
+        });
+
+        it('createWorkerAppToken still mints for a plain actor passing handlerDepth via options', async () => {
+            // The events-delivery mint path (`resolveGrantActor`): the actor
+            // itself carries no handlerDepth, only the options do.
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const token = await authService.createWorkerAppToken(
+                actor,
+                `app-${uuidv4()}`,
+                'wk-delivery',
+                { handlerDepth: 2 },
+            );
+            expect(decodeAuth(token).handler_depth).toBe(2);
+        });
+
         it('createWorkerAppToken rejects an empty workerName (400)', async () => {
             const user = await makeUser();
             const actor = {
@@ -1515,10 +1560,9 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(token);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: a worker credential isn't a browser session,
+            // even though it rides the session/gui token type.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('createWorkerSessionToken after revoke mints a new session uuid (composite cache invalidates)', async () => {
@@ -1617,6 +1661,24 @@ describe('AuthService (integration)', () => {
                 authService.appUidFromOrigin('not-a-url'),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        // What a browser sends for a sandboxed iframe and a `file://` page.
+        it.each(['null', 'file://'])(
+            'throws 400 for the opaque origin %s without logging an error',
+            async (origin) => {
+                const spy = vi
+                    .spyOn(console, 'error')
+                    .mockImplementation(() => {});
+                try {
+                    await expect(
+                        authService.appUidFromOrigin(origin),
+                    ).rejects.toMatchObject({ statusCode: 400 });
+                    expect(spy).not.toHaveBeenCalled();
+                } finally {
+                    spy.mockRestore();
+                }
+            },
+        );
 
         it('returns a deterministic app-<uuid> for arbitrary origins', async () => {
             const origin = `https://stable-${uuidv4()}.example.com`;

@@ -963,23 +963,33 @@ if (window.opener) {
         const callbackUrl = this.services.oidc.getCallbackUrl(flow);
         if (!callbackUrl) return { error: 'Invalid flow.' };
 
-        const tokens = await this.services.oidc.exchangeCodeForTokens(
-            provider,
-            code,
-            callbackUrl,
-        );
-        if (!tokens || !tokens.access_token)
-            return { error: 'Token exchange failed.' };
+        try {
+            const tokens = await this.services.oidc.exchangeCodeForTokens(
+                provider,
+                code,
+                callbackUrl,
+            );
+            if (!tokens || !tokens.access_token)
+                return { error: 'Token exchange failed.' };
 
-        const userinfo = await this.services.oidc.getUserInfo(
-            provider,
-            tokens.access_token,
-            typeof tokens.id_token === 'string' ? tokens.id_token : undefined,
-        );
-        if (!userinfo || !userinfo.sub)
-            return { error: 'Could not get user info.' };
+            const userinfo = await this.services.oidc.getUserInfo(
+                provider,
+                tokens.access_token,
+                typeof tokens.id_token === 'string'
+                    ? tokens.id_token
+                    : undefined,
+            );
+            if (!userinfo || !userinfo.sub)
+                return { error: 'Could not get user info.' };
 
-        return { provider, userinfo, stateDecoded };
+            return { provider, userinfo, stateDecoded };
+        } catch (e) {
+            // Network failures reaching the provider; the user can retry.
+            console.warn(`[oidc] ${provider} request failed`, e);
+            return {
+                error: 'Could not reach the sign-in provider. Please try again.',
+            };
+        }
     }
 
     async #finishLogin(

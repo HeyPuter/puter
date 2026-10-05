@@ -30,6 +30,7 @@
 
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { TOTP } from 'otpauth';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
@@ -46,6 +47,7 @@ import {
     type TokenSource,
 } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
+import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
 import { kvSharePermission } from '../../services/events/kvShares.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -816,6 +818,22 @@ describe('AuthController.handleSignup', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it.each(['abuse', 'postmaster', 'fbl'])(
+        'rejects the role mailbox name "%s"',
+        async (username) => {
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `a_${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it('rejects an invalid email format', async () => {
         await expect(
@@ -5994,6 +6012,35 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         }
     });
 
+    it('change-username: only completed renames spend the 2-per-30-days budget', async () => {
+        const { user: other } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        for (let i = 0; i < 3; i++) {
+            await expect(
+                controller.handleChangeUsername(
+                    makeReq({ new_username: other.username }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        for (let i = 0; i < 2; i++) {
+            await controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            );
+        }
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+    });
+
     it('change-username: 400 when the home path is already occupied, before the rename', async () => {
         const { user, actor } = await makeUserAndActor();
         // A name no account holds, whose home path a stray row does. This is
@@ -6048,6 +6095,48 @@ describe('AuthController user-protected mutations (validation paths)', () => {
             force: true,
         });
         expect(after!.username).toBe(mover.username);
+    });
+
+    it('change-username: a name just vacated stays closed to other accounts, not to its last holder', async () => {
+        const { user: leaver, actor: leaverActor } = await makeUserAndActor();
+        const vacated = leaver.username;
+        // Warm the entry cache under the old path, as any read would.
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${vacated}/Documents`,
+        ))!;
+        await controller.handleChangeUsername(
+            makeReq({ new_username: `r_${uniq()}` }, { actor: leaverActor }),
+            makeRes(),
+        );
+
+        // The cache still maps the old path to the leaver's folder, so a new
+        // holder of the name would pass ACL on it.
+        const cached = await server.stores.fsEntry.getEntryByPath(
+            `/${vacated}/Documents`,
+        );
+        expect(cached?.uuid).toBe(docs.uuid);
+
+        const { user: claimer, actor: claimerActor } = await makeUserAndActor();
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: vacated }, { actor: claimerActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'username_already_in_use',
+        });
+        const after = await server.stores.user.getById(claimer.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(claimer.username);
+
+        const res = makeRes();
+        await controller.handleChangeUsername(
+            makeReq({ new_username: vacated }, { actor: leaverActor }),
+            res,
+        );
+        expect(res.body).toEqual({ username: vacated });
     });
 
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
@@ -7154,6 +7243,29 @@ describe('AuthController.handleAppUidFromOrigin', () => {
 
 // ── 2FA configure / disable ────────────────────────────────────────
 
+/** The code an authenticator app would show right now for `secret`. */
+const liveTotp = (username: string, secret: string) =>
+    new TOTP({
+        issuer: 'puter.com',
+        label: username,
+        algorithm: 'SHA1',
+        digits: 6,
+        secret,
+    }).generate();
+
+/** Calls the handler directly; the route's gate is tested over HTTP. */
+const setup2fa = async (actor: Actor) => {
+    const res = makeRes();
+    await controller.handleSetup2fa(makeReq({}, { actor }), res);
+    return res.body as { url: string; secret: string; codes: string[] };
+};
+
+const enable2fa = (actor: Actor, body: Record<string, unknown> = {}) =>
+    controller.handleConfigure2fa(
+        makeReq(body, { actor, params: { action: 'enable' } }),
+        makeRes(),
+    );
+
 describe('AuthController 2FA flows', () => {
     it('configure-2fa: 400 on an unknown :action', async () => {
         const { actor } = await makeUserAndActor();
@@ -7163,6 +7275,20 @@ describe('AuthController 2FA flows', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('configure-2fa: has no setup action, so a bare session mints no secret', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await expect(
+            controller.handleConfigure2fa(
+                makeReq({}, { actor, params: { action: 'setup' } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.otp_secret ?? null).toBeNull();
     });
 
     it('lets a team seat enable 2FA without a confirmed email', async () => {
@@ -7188,14 +7314,8 @@ describe('AuthController 2FA flows', () => {
         } as Actor;
         expect(Boolean(seat!.email_confirmed)).toBe(false);
 
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'setup' } }),
-            makeRes(),
-        );
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'enable' } }),
-            makeRes(),
-        );
+        const { secret } = await setup2fa(actor);
+        await enable2fa(actor, { code: liveTotp(seat!.username, secret) });
         const after = await server.stores.user.getById(seat!.id, {
             force: true,
         });
@@ -7220,14 +7340,8 @@ describe('AuthController 2FA flows', () => {
                 email: seat!.email ?? null,
             },
         } as Actor;
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'setup' } }),
-            makeRes(),
-        );
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'enable' } }),
-            makeRes(),
-        );
+        const { secret } = await setup2fa(actor);
+        await enable2fa(actor, { code: liveTotp(seat!.username, secret) });
         await server.services.team.updateTeam(team.uid, owner.user.id, {
             require2fa: true,
         });
@@ -7242,31 +7356,16 @@ describe('AuthController 2FA flows', () => {
     });
 
     it('still refuses an ordinary account with an unconfirmed email', async () => {
-        const { actor } = await makeUserAndActor({ email_confirmed: 0 });
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'setup' } }),
-            makeRes(),
-        );
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 0 });
+        const { secret } = await setup2fa(actor);
         await expect(
-            controller.handleConfigure2fa(
-                makeReq({}, { actor, params: { action: 'enable' } }),
-                makeRes(),
-            ),
+            enable2fa(actor, { code: liveTotp(user.username, secret) }),
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('configure-2fa setup: returns {url, secret, codes[10]} and stores the secret', async () => {
+    it('setup-2fa: returns {url, secret, codes[10]} and stores the secret', async () => {
         const { user, actor } = await makeUserAndActor();
-        const res = makeRes();
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'setup' } }),
-            res,
-        );
-        const body = res.body as {
-            url: string;
-            secret: string;
-            codes: string[];
-        };
+        const body = await setup2fa(actor);
         expect(body.codes).toHaveLength(10);
         expect(typeof body.secret).toBe('string');
         const after = await server.stores.user.getById(user.id, {
@@ -7278,19 +7377,10 @@ describe('AuthController 2FA flows', () => {
         ).toHaveLength(10);
     });
 
-    it('a recovery code minted by configure-2fa setup satisfies /login/recovery-code', async () => {
+    it('a recovery code minted by setup-2fa satisfies /login/recovery-code', async () => {
         const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
-        const setupRes = makeRes();
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'setup' } }),
-            setupRes,
-        );
-        const { codes } = setupRes.body as { codes: string[] };
-
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'enable' } }),
-            makeRes(),
-        );
+        const { secret, codes } = await setup2fa(actor);
+        await enable2fa(actor, { code: liveTotp(user.username, secret) });
 
         const otpJwt = server.services.token.sign(
             'otp',
@@ -7305,14 +7395,11 @@ describe('AuthController 2FA flows', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
-    it('configure-2fa setup: 409 when 2FA is already enabled', async () => {
+    it('setup-2fa: 409 when 2FA is already enabled', async () => {
         const { actor } = await makeUserAndActor({ otp_enabled: 1 });
-        await expect(
-            controller.handleConfigure2fa(
-                makeReq({}, { actor, params: { action: 'setup' } }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 409 });
+        await expect(setup2fa(actor)).rejects.toMatchObject({
+            statusCode: 409,
+        });
     });
 
     it('configure-2fa test: 400 when code is missing', async () => {
@@ -7323,6 +7410,37 @@ describe('AuthController 2FA flows', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('configure-2fa enable: refuses a missing or wrong code and leaves 2FA off', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const { secret } = await setup2fa(actor);
+
+        await expect(enable2fa(actor)).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+        // A live code for a secret the server never issued, as from a
+        // session enrolling an authenticator of its own.
+        const foreign = otpCreateSecret(user.username).secret;
+        await expect(
+            enable2fa(actor, { code: liveTotp(user.username, foreign) }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'code_mismatch',
+        });
+        // Not coerced: a number is not a code.
+        await expect(
+            enable2fa(actor, {
+                code: Number(liveTotp(user.username, secret)),
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.otp_enabled).toBeFalsy();
+        expect(after!.otp_secret).toBe(secret);
     });
 
     it('configure-2fa enable: 403 if email is unconfirmed; 409 if already enabled or no secret', async () => {
@@ -8400,10 +8518,7 @@ describe('AuthController 2FA additional branches', () => {
     it('configure-2fa test: returns ok:false on a mismatched code', async () => {
         // Setup so otp_secret is populated.
         const { user, actor } = await makeUserAndActor();
-        await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'setup' } }),
-            makeRes(),
-        );
+        await setup2fa(actor);
         const refreshed = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -8418,7 +8533,7 @@ describe('AuthController 2FA additional branches', () => {
         expect(res.body).toEqual({ ok: false });
     });
 
-    it('configure-2fa enable: succeeds when email is confirmed and a secret exists', async () => {
+    it('configure-2fa enable: succeeds with a live code for the stored secret', async () => {
         const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
         // Bootstrap a secret directly so we don't depend on the setup
         // handler's side effects.
@@ -8430,7 +8545,10 @@ describe('AuthController 2FA additional branches', () => {
 
         const res = makeRes();
         await controller.handleConfigure2fa(
-            makeReq({}, { actor, params: { action: 'enable' } }),
+            makeReq(
+                { code: liveTotp(user.username, 'TESTSECRETBASE32') },
+                { actor, params: { action: 'enable' } },
+            ),
             res,
         );
         expect(res.body).toEqual({});

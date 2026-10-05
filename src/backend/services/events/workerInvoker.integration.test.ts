@@ -169,6 +169,27 @@ const subscribe = async (token: string = appToken): Promise<string> => {
     return body.subId;
 };
 
+/** A `broadcast` subscription, left at its default targets (socket + worker). */
+const subscribeBroadcast = async (
+    token: string = appToken,
+): Promise<string> => {
+    const response = await fetch(new URL('/events/subscribe', env.apiOrigin), {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+            subject: `fs:${anchor}`,
+            delivery: 'broadcast',
+            handlerName: HANDLER,
+        }),
+    });
+    const body = (await response.json()) as { subId: string };
+    expect(response.status).toBe(200);
+    return body.subId;
+};
+
 /**
  * A second app, isolated from the shared fixture, for tests that revoke or
  * uninstall — so they don't take the rest of the suite's app down with them.
@@ -698,6 +719,63 @@ describe('what each answer does to the delivery', () => {
     });
 });
 
+describe('a broadcast delivery, with a worker to take it', () => {
+    it('hands the run to the worker and marks the socket copy', async () => {
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        try {
+            await subscribeBroadcast();
+
+            await touch('broadcast.txt');
+            await invoked(1);
+
+            expect(calls).toHaveLength(1);
+            expect(send).toHaveBeenCalledWith(
+                expect.anything(),
+                'events.delivery',
+                expect.objectContaining({ skipHandler: true }),
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('marks the copy and calls no worker for an event as deep as the plan lets a chain go', async () => {
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        try {
+            // Created before the subscription exists, so this write itself
+            // does not also dispatch at depth 0.
+            const path = `${anchor}/deep-broadcast.txt`;
+            await touch('deep-broadcast.txt');
+            await subscribeBroadcast();
+
+            const { actor } = await env.server.services.auth.authenticate(
+                env.users.user.token,
+            );
+            const plan =
+                await env.server.services.metering.getActorSubscription(actor!);
+            const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
+            const entry =
+                (await env.server.stores.fsEntry.getEntryByPath(path))!;
+
+            await events().dispatchFs('fs.write.file', entry, {
+                handlerDepth: maxDepth,
+                ancestors: () => env.server.services.fs.getAncestorChain(path),
+            });
+
+            await waitUntil(() =>
+                expect(send).toHaveBeenCalledWith(
+                    expect.anything(),
+                    'events.delivery',
+                    expect.objectContaining({ skipHandler: true }),
+                ),
+            );
+            expect(calls).toEqual([]);
+        } finally {
+            send.mockRestore();
+        }
+    });
+});
+
 describe('with no events worker to address', () => {
     it('counts the same as a handler that could not answer', async () => {
         const subId = await subscribe();
@@ -961,6 +1039,89 @@ describe('handlers whose writes run handlers', () => {
         );
         const second = await nextCall(worker.appUid, 1);
         expect(depthOf(second.body.token!)).toBe(2);
+    });
+
+    describe('a token the handler mints with its own', () => {
+        const lifetimeOf = (token: string) =>
+            env.server.services.token.verify('auth', token) as {
+                iat: number;
+                exp?: number;
+            };
+
+        const mint = async (
+            token: string,
+            path: string,
+            body: Record<string, unknown>,
+        ): Promise<string> => {
+            const response = await fetch(new URL(path, env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(body),
+            });
+            expect(response.status).toBe(200);
+            const { token: minted } = (await response.json()) as {
+                token?: string;
+            };
+            expect(typeof minted).toBe('string');
+            return minted!;
+        };
+
+        it('keeps an app token for its own app as deep, and expiring with it', async () => {
+            const worker = await makeWorkerApp();
+            await subscribe(worker.appToken);
+
+            await touch('sign-first.txt');
+            const first = await nextCall(worker.appUid, 0);
+            const handlerToken = first.body.token!;
+            const minted = await mint(handlerToken, '/sign', {
+                app_uid: worker.appUid,
+                items: [{ path: `${anchor}/sign-first.txt` }],
+            });
+            expect(depthOf(minted)).toBe(1);
+            expect(lifetimeOf(minted).exp).toBe(lifetimeOf(handlerToken).exp);
+
+            await runWithContext({ actor: await actorOf(minted) }, () =>
+                touch('sign-second.txt'),
+            );
+            const second = await nextCall(worker.appUid, 1);
+            expect(depthOf(second.body.token!)).toBe(2);
+        });
+
+        it('keeps an access token as deep, at the lifetime asked for', async () => {
+            const worker = await makeWorkerApp();
+            await subscribe(worker.appToken);
+
+            await touch('access-first.txt');
+            const first = await nextCall(worker.appUid, 0);
+            const minted = await mint(
+                first.body.token!,
+                '/auth/create-access-token',
+                { permissions: [`fs:${anchorUid}:list`], expiresIn: '24h' },
+            );
+            expect(depthOf(minted)).toBe(1);
+            const { iat, exp } = lifetimeOf(minted);
+            expect(exp! - iat).toBe(24 * 60 * 60);
+
+            await runWithContext({ actor: await actorOf(minted) }, () =>
+                touch('access-second.txt'),
+            );
+            const second = await nextCall(worker.appUid, 1);
+            expect(depthOf(second.body.token!)).toBe(2);
+        });
+
+        it('leaves one minted outside a handler without a depth or an expiry', async () => {
+            const worker = await makeWorkerApp();
+            const minted = await mint(worker.appToken, '/sign', {
+                app_uid: worker.appUid,
+                items: [{ path: `${anchor}/outside.txt` }],
+            });
+            expect(depthOf(minted)).toBeUndefined();
+            expect(lifetimeOf(minted).exp).toBeUndefined();
+            expect((await actorOf(minted)).handlerDepth).toBeUndefined();
+        });
     });
 
     it('runs no handler for an event as deep as the plan lets a chain go', async () => {

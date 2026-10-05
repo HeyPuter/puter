@@ -69,13 +69,13 @@ See the [AI model directory](https://developer.puter.com/ai/models/) for the inc
 
 `puter.ai.listModels()` lists chat models. The image catalog above describes configured integrations; upstream account access and availability can still vary.
 
-**Availability notes (September 16, 2026):**
+**Availability notes (September 30, 2026):**
 
-- Gemini `gemini-3-pro-image` and `gemini-3.1-flash-image` use stable endpoints. Their previous `-preview` spellings remain aliases. `gemini-2.5-flash-image` is scheduled for retirement on October 2, 2026. Google's table names `gemini-3.1-flash-image-preview` as its replacement; that preview id itself retired on June 25, 2026 in favor of `gemini-3.1-flash-image`, the default here. See [Google's deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations).
-- OpenAI has deprecated `gpt-image-1`, `gpt-image-1-mini`, and `gpt-image-1.5`, with shutdowns on October 23, 2026 (`gpt-image-1`) and December 1, 2026 (the other two). They stay routable by id until then but are hidden from the catalog listing; after shutdown they will fail with `bad_request`. Use `gpt-image-2` or a `gpt-image-2.5-*` model for new work. `chatgpt-image-latest` was never offered. `replicate:openai/gpt-image-1.5` is also available through Replicate. See [OpenAI's deprecation schedule](https://developers.openai.com/api/docs/deprecations).
+- Gemini `gemini-3-pro-image` and `gemini-3.1-flash-image` use stable endpoints. Their previous `-preview` spellings remain aliases. Google deprecated `gemini-2.5-flash-image` (shutdown October 2, 2026); Puter no longer offers it, and requests for `gemini-2.5-flash-image` or `nano-banana` fail as unknown models. Use `gemini-3.1-flash-image`, the default here. See [Google's deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations).
+- OpenAI has deprecated `gpt-image-1`, `gpt-image-1-mini`, and `gpt-image-1.5`. Puter no longer offers them through any provider; requests for them fail with `Model not found`. Use `gpt-image-2` or a `gpt-image-2.5-*` model. `chatgpt-image-latest` was never offered. See [OpenAI's deprecation schedule](https://developers.openai.com/api/docs/deprecations).
 - All cataloged Together image routes are excluded because they require a third-party data-sharing opt-in. This includes Imagen 4; its retirement through Together has not been confirmed. Excluded routes reject generation before contacting the provider. Previously retired Together aliases still fail as unavailable. To use Cloudflare Schnell, select `@cf/black-forest-labs/flux-1-schnell` or `workers-ai:black-forest-labs/flux.1-schnell`.
 - Cloudflare `@cf/black-forest-labs/flux-2-dev` timed out on every live request on September 16, 2026, including 512×512 at 4 steps, while the Klein variants respond normally. It stays listed pending a Cloudflare-side fix.
-- xAI `grok-imagine-image-2.0` is available. `grok-imagine-image-quality` is scheduled to redirect to the new model on November 2, 2026; the original `grok-imagine-image` remains available. See [xAI's release notes](https://docs.x.ai/developers/release-notes).
+- xAI `grok-imagine-image-2.0` is available. xAI retires `grok-imagine-image-quality` on November 2, 2026; Puter no longer offers it, and requests for it fail as an unknown model. Use `grok-imagine-image-2.0`. The original `grok-imagine-image` remains available. See [xAI's release notes](https://docs.x.ai/developers/release-notes).
 
 #### Output dimensions
 
@@ -104,7 +104,7 @@ Available when `provider: 'openai'` or inferred from model (`gpt-image-2.5-sunbu
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'` (default). The deprecated `'gpt-image-1.5'`, `'gpt-image-1-mini'`, and `'gpt-image-1'` still route until their shutdown dates (fixed 1024×1024, 1024×1536, or 1536×1024 sizes; `'low'`, `'medium'`, `'high'` only). |
+| `model` | `String` | Image model to use. Available: `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'` (default). |
 | `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` models also accept `'xhigh'`, `'max'`, and `'auto'`. Case-insensitive; unrecognized values fall back to `'low'`. |
 | `ratio` | `Object` | Aspect ratio with `w` and `h` properties. All GPT Image models accept dynamic sizes subject to provider limits (16-pixel steps, 3:1 maximum ratio, 3840-pixel edge cap) |
 | `input_image` | `String` | An input image for image-to-image editing — a URL or base64/data-URI (URLs are fetched server-side). |
@@ -118,9 +118,9 @@ Available when `provider: 'gemini'` or inferred from model:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-3.1-flash-lite-image'`, `'gemini-3-pro-image'`, or `'gemini-2.5-flash-image'`. |
+| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-3.1-flash-lite-image'`, or `'gemini-3-pro-image'`. |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
-| `quality` | `String` | 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Ignored by 2.5 Flash. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on 3 Pro and 3.1 Flash Lite. |
+| `quality` | `String` | 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on 3 Pro and 3.1 Flash Lite. |
 | `input_images` | `Array<String>` | Input images for image-to-image — a URL or base64/data-URI (URLs are fetched server-side). |
 
 #### xAI (Grok) Options
@@ -129,7 +129,7 @@ Available when `provider: 'xai'` or inferred from model (`grok-imagine-image`, a
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'grok-imagine-image'` (default), `'grok-imagine-image-quality'`, `'grok-imagine-image-2.0'` |
+| `model` | `String` | Image model to use. Available: `'grok-imagine-image'` (default), `'grok-imagine-image-2.0'` |
 | `prompt` | `String` | Text prompt for the image (or the edit instruction when input images are supplied). |
 | `resolution` | `String` | Output resolution: `'1k'` (default) or `'2k'`. |
 | `quality` | `String` | On 2.0 (case-insensitive): `'low'`, `'medium'`, or `'auto'` (default; low for generation, medium for edits). On older models, `'1k'`/`'2k'` remains a resolution alias. Explicit `resolution` takes precedence. |

@@ -23,12 +23,15 @@ import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
-import { FREE_SUBSCRIPTION_IDS } from '../../services/metering/consts.js';
+import { isFreeSubscription } from '../../services/metering/consts.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import {
+    type AiMeteringService,
+    withAiCostFactor,
+} from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,
@@ -92,6 +95,7 @@ import {
     isOutputCostKey,
     longContextMultipliers,
     trackedInputTokens,
+    trackedOutputTokens,
 } from './utils/pricing.js';
 import {
     isRouteUnhealthy,
@@ -120,6 +124,43 @@ const HOLD_RENEW_INTERVAL_MS = 5 * 60 * 1000;
  */
 const isModerationRefusal = (e: unknown): boolean =>
     isHttpError(e) && e.code === 'moderation_flagged';
+
+/**
+ * The refusal for a request its funds can't cover. When what's missing is only
+ * held by the account's own requests still in flight, waiting is the remedy,
+ * not a top-up: a retryable 429 rather than a 402 that prompts an upgrade.
+ */
+const fundsRefusal = (heldByInFlight: boolean): HttpError =>
+    heldByInFlight
+        ? new HttpError(
+              429,
+              'Usage is reserved by requests still running. Retry when they finish.',
+              { legacyCode: 'too_many_requests', code: 'credits_reserved' },
+          )
+        : new HttpError(402, 'No usage left for request.', {
+              legacyCode: 'insufficient_funds',
+          });
+
+const positiveOrInfinity = (n: unknown): number =>
+    typeof n === 'number' && Number.isFinite(n) && n > 0
+        ? n
+        : Number.POSITIVE_INFINITY;
+
+/**
+ * The most output a request to `model` can get: its output limit, and no more
+ * than the context window leaves after the prompt. A limit a catalog doesn't
+ * know bounds nothing. A prompt estimated to fill the window is left for the
+ * provider to refuse — the estimate is approximate, and running out of credits
+ * would be the wrong answer either way.
+ */
+const outputCeiling = (
+    model: IChatModel,
+    promptTokenEstimate: number,
+): number => {
+    const outputLimit = positiveOrInfinity(model.max_tokens);
+    const contextRoom = positiveOrInfinity(model.context) - promptTokenEstimate;
+    return contextRoom >= 1 ? Math.min(outputLimit, contextRoom) : outputLimit;
+};
 
 type ProviderAttempt = {
     model: string;
@@ -326,8 +367,12 @@ export class ChatCompletionDriver extends PuterDriver {
     #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
-    get #aiMetering(): MeteringService {
-        return this.services.metering.withAiCostFactor(this.driverName);
+    get #aiMetering(): AiMeteringService {
+        return withAiCostFactor(
+            this.services.metering,
+            this.clients.event,
+            this.driverName,
+        );
     }
 
     override onServerStart() {
@@ -510,11 +555,15 @@ export class ChatCompletionDriver extends PuterDriver {
         // where "done" is the stream draining rather than this method
         // returning.
         let hold: CreditHold = NO_CREDIT_HOLD;
+        // The current attempt's balance-bound output cap, if it had one.
+        let fundsCap: number | undefined;
         if (!useFakeProvider) {
-            hold = await this.#applyCreditGate(actor, model, args, {
-                promptTokenEstimate,
-                requestedMaxTokens,
-            });
+            ({ hold, fundsCap } = await this.#applyCreditGate(
+                actor,
+                model,
+                args,
+                { promptTokenEstimate, requestedMaxTokens },
+            ));
         }
 
         // First attempt
@@ -587,10 +636,12 @@ export class ChatCompletionDriver extends PuterDriver {
                 // The previous attempt released its hold when it failed, so
                 // this one starts from nothing held.
                 if (!useFakeProvider) {
-                    hold = await this.#applyCreditGate(actor, fallback, args, {
-                        promptTokenEstimate,
-                        requestedMaxTokens,
-                    });
+                    ({ hold, fundsCap } = await this.#applyCreditGate(
+                        actor,
+                        fallback,
+                        args,
+                        { promptTokenEstimate, requestedMaxTokens },
+                    ));
                 }
 
                 tried.add(routeId(fallback.provider!, fallback.id));
@@ -631,6 +682,13 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const username = actor.user?.username;
 
+        // A completion that used all of a balance-bound cap stopped because
+        // the account ran dry, so the caller is told to top up.
+        const ranOutOfFunds = (usage: Record<string, unknown> | undefined) =>
+            fundsCap !== undefined &&
+            !!usage &&
+            trackedOutputTokens(usage, model) >= fundsCap;
+
         // Streaming result — create a PassThrough, kick off the provider's
         // stream populator, and return a DriverStreamResult so the route
         // handler pipes it to the HTTP response as chunked NDJSON.
@@ -639,6 +697,13 @@ export class ChatCompletionDriver extends PuterDriver {
             const chatStream = new AIChatStream({ stream: passthrough });
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
+
+            // A caller that hangs up stops the generation, and with it the
+            // hold and the billing for output nobody will read.
+            const abortSignal = Context.get('abortSignal');
+            const abortStream = () => chatStream.abort();
+            if (abortSignal?.aborted) abortStream();
+            else abortSignal?.addEventListener('abort', abortStream);
 
             // Intercept `chatStream.end(usage)` to fire complete + cost events
             // (mirrors the non-streaming branch). Clone usage so providers that
@@ -671,7 +736,12 @@ export class ChatCompletionDriver extends PuterDriver {
                         intendedProvider,
                     });
                 }
-                return originalEnd(enrichedUsage!);
+                return originalEnd(
+                    enrichedUsage!,
+                    ranOutOfFunds(usage)
+                        ? { metadata: { usage_limited: true } }
+                        : undefined,
+                );
             };
 
             // The hold lives for the whole stream, which can outlast its TTL —
@@ -687,17 +757,20 @@ export class ChatCompletionDriver extends PuterDriver {
                 try {
                     await init({ chatStream });
                 } catch (e) {
-                    passthrough.write(
-                        `${JSON.stringify({
-                            type: 'error',
-                            message: sanitizeUpstreamMessage(
-                                e instanceof Error ? e.message : String(e),
-                            ),
-                        })}\n`,
-                    );
+                    if (!chatStream.aborted) {
+                        passthrough.write(
+                            `${JSON.stringify({
+                                type: 'error',
+                                message: sanitizeUpstreamMessage(
+                                    e instanceof Error ? e.message : String(e),
+                                ),
+                            })}\n`,
+                        );
+                    }
                     passthrough.end();
                 } finally {
                     clearInterval(renewHold);
+                    abortSignal?.removeEventListener('abort', abortStream);
                     // Providers report usage the moment they meter it (see
                     // `AIChatStream.reportUsage`); a stream that never got
                     // there was never charged for.
@@ -766,6 +839,13 @@ export class ChatCompletionDriver extends PuterDriver {
         Context.set('driverMetadata', {
             service_used: model.provider,
             providerUsed: model.id,
+            ...(ranOutOfFunds(
+                'usage' in res
+                    ? (res.usage as Record<string, unknown>)
+                    : undefined,
+            )
+                ? { usage_limited: true }
+                : {}),
         });
 
         // Response-format precedence: an explicit per-call `normalize` wins in
@@ -914,7 +994,9 @@ export class ChatCompletionDriver extends PuterDriver {
      *
      * Returns a hold on what the attempt can cost at worst, so requests this
      * account is running in parallel see the spend before it is recorded. The
-     * caller releases it once the attempt is done.
+     * caller releases it once the attempt is done. `fundsCap` is set when the
+     * account's balance, not the request or the model, decided the output cap —
+     * a completion that uses all of it has run the account dry.
      */
     async #applyCreditGate(
         actor: Actor,
@@ -934,34 +1016,46 @@ export class ChatCompletionDriver extends PuterDriver {
              */
             requestedMaxTokens: number | undefined;
         },
-    ): Promise<CreditHold> {
+    ): Promise<{ hold: CreditHold; fundsCap?: number }> {
         const metering = this.services.metering;
         const { promptTokenEstimate, requestedMaxTokens } = estimates;
         const { inputKey, outputKey } = costKeys(model);
         // A prompt estimated past a long-context threshold pays the raised
         // rates on input and output alike.
         const multipliers = longContextMultipliers(model, promptTokenEstimate);
+        // Recorded costs pass through the AI cost factor; the gate prices at
+        // the same rate or it under-reserves on every request.
+        const costFactor = await this.#aiMetering.costFactor(
+            actor,
+            this.#meteringModelKey(model),
+        );
         // `|| 0` also catches NaN from a malformed cost table.
         const inputTokenCost =
-            (Number(model.costs?.[inputKey] ?? 0) || 0) * multipliers.input;
+            (Number(model.costs?.[inputKey] ?? 0) || 0) *
+            multipliers.input *
+            costFactor;
         const outputTokenCost =
-            (Number(model.costs?.[outputKey] ?? 0) || 0) * multipliers.output;
+            (Number(model.costs?.[outputKey] ?? 0) || 0) *
+            multipliers.output *
+            costFactor;
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
         const minimumCredits = Number(model.minimumCredits || 1);
+        const needed = Math.max(approximateInputCost, minimumCredits);
 
-        // One balance read serves the whole gate: the affordability check
-        // here and the output cap below.
-        const remainingCredits = await metering.getRemainingUsage(actor);
-        if (remainingCredits < Math.max(approximateInputCost, minimumCredits)) {
-            throw new HttpError(402, 'No usage left for request.', {
-                legacyCode: 'insufficient_funds',
-            });
+        // One read of the balance and its holds serves the whole gate: the
+        // affordability check here and the output cap below, net of holds,
+        // and the balance alone, which tells spent from committed to requests
+        // that are still running.
+        const { balance, held } = await metering.getUsageHeadroom(actor);
+        const remainingCredits = Math.max(0, balance - held);
+
+        if (remainingCredits < needed) {
+            throw fundsRefusal(balance >= needed);
         }
 
         if (model.subscriberOnly) {
             const subscription = await metering.getActorSubscription(actor);
-            // Every free plan, not two named ones.
-            if (FREE_SUBSCRIPTION_IDS.has(subscription.id)) {
+            if (isFreeSubscription(subscription.id)) {
                 throw new HttpError(
                     403,
                     `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
@@ -970,25 +1064,17 @@ export class ChatCompletionDriver extends PuterDriver {
             }
         }
 
+        let fundsCap: number | undefined;
         if (outputTokenCost > 0) {
-            const maxAllowedOutputUcents =
-                remainingCredits - approximateInputCost;
-            const maxAllowedOutputTokens =
-                maxAllowedOutputUcents / outputTokenCost;
-            // A provider may not know a model's output ceiling. Drop the term
-            // rather than let a missing value drive the cap: `null` coerces to
-            // 0, so the subtraction goes negative instead of NaN and the user
-            // is told they're out of credits.
-            const modelOutputCeiling =
-                Number.isFinite(model.max_tokens) && model.max_tokens > 0
-                    ? model.max_tokens - promptTokenEstimate
-                    : Number.POSITIVE_INFINITY;
+            const affordableOutputTokens = (credits: number): number =>
+                (credits - approximateInputCost) / outputTokenCost;
+            // What the request would get with money no object.
+            const limit = Math.min(
+                requestedMaxTokens ?? Number.POSITIVE_INFINITY,
+                outputCeiling(model, promptTokenEstimate),
+            );
             const cap = Math.floor(
-                Math.min(
-                    requestedMaxTokens ?? Number.POSITIVE_INFINITY,
-                    maxAllowedOutputTokens,
-                    modelOutputCeiling,
-                ),
+                Math.min(limit, affordableOutputTokens(remainingCredits)),
             );
             // `cap` is the credit-bounded ceiling on output tokens. When it
             // drops below 1 the user can't afford even a single output token,
@@ -1000,11 +1086,20 @@ export class ChatCompletionDriver extends PuterDriver {
             // too: a NaN requested max_tokens poisons the Math.min above, and
             // `NaN < 1` is false — letting an uncapped request through.
             if (!(cap >= 1)) {
-                throw new HttpError(402, 'No usage left for request.', {
-                    legacyCode: 'insufficient_funds',
-                });
+                // Holds only explain a shortfall in funds, not a request that
+                // asked for less than a token.
+                const fundsShort = !(
+                    affordableOutputTokens(remainingCredits) >= 1
+                );
+                throw fundsRefusal(
+                    fundsShort && affordableOutputTokens(balance) >= 1,
+                );
             }
             args.max_tokens = cap;
+            // Holds alone shrinking the cap is a busy account, not a broke one.
+            if (cap < limit && affordableOutputTokens(balance) < limit) {
+                fundsCap = cap;
+            }
         } else {
             // No output price, nothing to bound — but a previous attempt may
             // have written its cap here; give this one the user's own value.
@@ -1014,12 +1109,22 @@ export class ChatCompletionDriver extends PuterDriver {
         // What this attempt can cost at worst: the prompt, plus output run to
         // the cap just set. Capped output is what makes the number finite —
         // for a model with no output price the output term is zero and the
-        // prompt estimate stands alone.
+        // prompt estimate stands alone. Already factored, so it's held through
+        // the plain service rather than scaled a second time.
         const worstCaseCost =
             approximateInputCost + (args.max_tokens ?? 0) * outputTokenCost;
-        return this.services.metering.reserveCredits(
+        const hold = await this.services.metering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
+        );
+        return { hold, fundsCap };
+    }
+
+    /** The key `model`'s usage is recorded and cost-factored under. */
+    #meteringModelKey(model: IChatModel): string {
+        return (
+            this.#providers[model.provider!]?.meteringModelKey?.(model.id) ??
+            `${model.provider}:${model.id}`
         );
     }
 
@@ -1078,7 +1183,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 [`estimated_${outputKey}`]: outputTokens,
             },
             actor,
-            `${model.provider}:${model.id}`,
+            this.#meteringModelKey(model),
             {
                 // Undefined when the model has no cost table: the entry is
                 // recorded unpriced rather than free.

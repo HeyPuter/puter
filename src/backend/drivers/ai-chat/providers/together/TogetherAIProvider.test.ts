@@ -83,12 +83,12 @@ let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 const KV_KEY = 'togetherai:models';
 // Together's `models.list()` returns API-shaped rows; the provider
 // coerces them to IChatModel. Costs (per million):
-// Llama-3.1-8B: input=18, output=18; Qwen-7B: input=20, output=20.
+// Llama-3.3-70B: input=18, output=18; Qwen-7B: input=20, output=20.
 const SAMPLE_API_MODELS = [
     {
-        id: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+        id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
         type: 'chat',
-        display_name: 'Llama 3.1 8B Instruct Turbo',
+        display_name: 'Llama 3.3 70B Instruct Turbo',
         context_length: 32768,
         pricing: { input: 18, output: 18 },
     },
@@ -188,7 +188,7 @@ describe('TogetherAIProvider model catalog', () => {
     it('returns the togetherai-prefixed default model id', () => {
         const { provider } = makeProvider();
         expect(provider.getDefaultModel()).toBe(
-            'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
     });
 
@@ -199,14 +199,14 @@ describe('TogetherAIProvider model catalog', () => {
         expect(ids).not.toContain('togetherai:some/embedding-model');
         // Canonical id is prefixed with togetherai:
         expect(ids).toContain(
-            'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
         // Aliases include the bare id and the slash-separated tail.
-        expect(ids).toContain('meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo');
+        expect(ids).toContain('meta-llama/Llama-3.3-70B-Instruct-Turbo');
         expect(ids).toContain(
-            'togetherai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'togetherai/meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
-        expect(ids).toContain('Meta-Llama-3.1-8B-Instruct-Turbo');
+        expect(ids).toContain('Llama-3.3-70B-Instruct-Turbo');
     });
 
     it('reserves headroom under the context length for the output cap', async () => {
@@ -631,7 +631,7 @@ describe('TogetherAIProvider model resolution', () => {
         );
 
         expect(createMock.mock.calls[0]![0].model).toBe(
-            'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
     });
 });

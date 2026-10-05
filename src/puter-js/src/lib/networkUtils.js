@@ -419,6 +419,28 @@ const gateRetry = (ctx) => {
     return delayMs === undefined ? null : { delayMs };
 };
 
+// A 429 `credits_reserved` means the account's balance is held by its own
+// requests still running. It frees up when they finish — anywhere from seconds
+// to minutes — so it backs off exponentially, well past the gate schedule's
+// 2s ceiling. Same replay rules as the gate otherwise.
+const CREDIT_HOLD_RETRY_BASE_MS = 1000;
+const CREDIT_HOLD_RETRY_MAX_MS = 30_000;
+const CREDIT_HOLD_MAX_RETRIES = 8; // ~2 minutes of waiting in total
+
+const isCreditHoldRejection = (parsed) =>
+    [parsed?.errorCode, parsed?.error?.errorCode].includes('credits_reserved');
+
+const creditHoldRetry = (ctx) => {
+    if (!(ctx.retryGated && autoRetryEnabled())) return null;
+    if (ctx.attempt > CREDIT_HOLD_MAX_RETRIES) return null;
+    return {
+        delayMs: Math.min(
+            CREDIT_HOLD_RETRY_MAX_MS,
+            CREDIT_HOLD_RETRY_BASE_MS * 2 ** (ctx.attempt - 1),
+        ),
+    };
+};
+
 /**
  * Drive the env-specific permission prompt for a denied driver call.
  *
@@ -651,8 +673,13 @@ async function classifyRetry(outcome, ctx) {
         return null;
     }
 
-    // gate rejection — any method, honors kill switch, fixed schedule.
-    if (status === GATE_REJECT_STATUS) return gateRetry(ctx);
+    // gate rejection — any method, honors kill switch, fixed schedule (an
+    // exponential one when it's waiting on the account's own requests).
+    if (status === GATE_REJECT_STATUS) {
+        return isCreditHoldRejection(parsed)
+            ? creditHoldRetry(ctx)
+            : gateRetry(ctx);
+    }
 
     // transient status — read-safe only, honors kill switch, fixed schedule.
     if (RETRYABLE_STATUS.has(status)) return transientRetry(ctx);

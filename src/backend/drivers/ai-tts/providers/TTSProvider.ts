@@ -23,7 +23,7 @@
  * contract.
  */
 
-import type { MeteringService } from '../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../util/aiCostFactor.js';
 import type {
     ITTSProvider,
     ITTSVoice,
@@ -34,12 +34,12 @@ import type {
 export abstract class TTSProvider implements ITTSProvider {
     abstract readonly providerName: string;
 
-    protected meteringService: MeteringService;
+    protected meteringService: AiMeteringService;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected providerConfig: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(meteringService: MeteringService, config: any) {
+    constructor(meteringService: AiMeteringService, config: any) {
         this.meteringService = meteringService;
         this.providerConfig = config;
     }

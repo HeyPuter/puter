@@ -92,4 +92,13 @@ export const HOONIFY_MODELS: HoonifyChatModel[] = [
         usdPerMToken(0.32, 3.2, 0.15),
         ['qwen/qwen3.6-27b'],
     ),
+    // Hoonify publishes no output cap; 64K leaves prompt room in its 256K window.
+    hoonifyModel(
+        'thinkingmachines/Inkling-Small',
+        'Inkling Small',
+        262_144,
+        65_536,
+        usdPerMToken(0.5, 1.2, 0.1),
+        ['thinkingmachines/inkling-small'],
+    ),
 ];

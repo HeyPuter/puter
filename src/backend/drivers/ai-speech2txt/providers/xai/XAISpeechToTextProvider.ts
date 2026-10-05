@@ -42,6 +42,11 @@ const MAX_AUDIO_FILE_SIZE = 500 * 1024 * 1024; // 500 MB per xAI docs
 // Per second: 10_000_000 / 3600 ≈ 2778 microcents per second
 const UCENTS_PER_SECOND = 2778;
 
+// `xai-stt` sends no `model` and gets xAI's default; pinned ids are forwarded
+// as-is. All versions share the same per-hour rate.
+const DEFAULT_MODEL = 'xai-stt';
+const PINNED_MODELS = ['grok-voice-transcribe-2.0'];
+
 const SAMPLE_TRANSCRIPT = {
     text: 'Hello! This is a sample transcription returned while test mode is enabled.',
     language: 'English',
@@ -82,8 +87,17 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
     async listModels(): Promise<ISpeechToTextModel[]> {
         return [
             {
-                id: 'xai-stt',
+                id: DEFAULT_MODEL,
                 name: 'xAI Speech to Text',
+                type: 'transcription',
+                response_formats: ['json'],
+                supports_prompt: false,
+                supports_logprobs: false,
+                supports_diarization: true,
+            },
+            {
+                id: 'grok-voice-transcribe-2.0',
+                name: 'Grok Voice Transcribe 2.0',
                 type: 'transcription',
                 response_formats: ['json'],
                 supports_prompt: false,
@@ -111,8 +125,16 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
     }
 
     async #handleTranscription(args: ITranscribeArgs) {
+        const pinnedModel =
+            args.model && PINNED_MODELS.includes(args.model)
+                ? args.model
+                : undefined;
+
         if (args.test_mode) {
-            return { ...SAMPLE_TRANSCRIPT, model: 'xai-stt' };
+            return {
+                ...SAMPLE_TRANSCRIPT,
+                model: pinnedModel ?? DEFAULT_MODEL,
+            };
         }
 
         if (!this.#apiKey) {
@@ -153,100 +175,108 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
             ? Math.max(1, Math.ceil(fileBuffer.byteLength / 16000))
             : 60;
         const estimatedCost = UCENTS_PER_SECOND * estimatedSeconds;
-        const allowed = await this.deps.metering.hasEnoughCredits(
+        const hold = await this.deps.metering.reserveAiCredits(
             actor,
+            'xai:stt:second',
             estimatedCost,
         );
-        if (!allowed)
+        if (!hold)
             throw new HttpError(402, 'Insufficient credits', {
                 legacyCode: 'insufficient_funds',
             });
 
-        // Build multipart form data
-        const formData = new FormData();
+        try {
+            // Build multipart form data
+            const formData = new FormData();
 
-        if (args.language) formData.append('language', args.language);
-        if (args.format !== undefined)
-            formData.append('format', String(args.format));
-        if (args.diarize) formData.append('diarize', 'true');
-        if (args.multichannel) formData.append('multichannel', 'true');
-        if (args.channels) formData.append('channels', String(args.channels));
-        if (args.audio_format)
-            formData.append('audio_format', args.audio_format);
-        if (args.sample_rate)
-            formData.append('sample_rate', String(args.sample_rate));
+            if (pinnedModel) formData.append('model', pinnedModel);
+            if (args.language) formData.append('language', args.language);
+            if (args.format !== undefined)
+                formData.append('format', String(args.format));
+            if (args.diarize) formData.append('diarize', 'true');
+            if (args.multichannel) formData.append('multichannel', 'true');
+            if (args.channels)
+                formData.append('channels', String(args.channels));
+            if (args.audio_format)
+                formData.append('audio_format', args.audio_format);
+            if (args.sample_rate)
+                formData.append('sample_rate', String(args.sample_rate));
 
-        if (isUrl) {
-            // Pass URL directly to xAI — it downloads server-side
-            formData.append('url', args.file as string);
-        } else {
-            // File must be the last field per xAI docs
-            // Copy into a plain Uint8Array — Node's Buffer type doesn't
-            // satisfy the DOM BlobPart signature.
-            const blob = new Blob([new Uint8Array(fileBuffer!)], {
-                type: mimeType,
-            });
-            formData.append('file', blob, filename);
-        }
+            if (isUrl) {
+                // Pass URL directly to xAI — it downloads server-side
+                formData.append('url', args.file as string);
+            } else {
+                // File must be the last field per xAI docs
+                // Copy into a plain Uint8Array — Node's Buffer type doesn't
+                // satisfy the DOM BlobPart signature.
+                const blob = new Blob([new Uint8Array(fileBuffer!)], {
+                    type: mimeType,
+                });
+                formData.append('file', blob, filename);
+            }
 
-        const response = await fetch(`${API_BASE}/stt`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.#apiKey}`,
-            },
-            body: formData,
-        });
-
-        if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            console.error(
-                `[XAISpeechToTextProvider] API returned ${response.status}: ${errText}`,
-            );
-            // Mirrors ElevenLabs / XAITTS — map upstream status to an
-            // `upstream_*` HttpError so the alarm gate skips it.
-            const legacyCode =
-                response.status >= 500
-                    ? 'upstream_provider_unavailable'
-                    : response.status === 401 || response.status === 403
-                      ? 'upstream_auth_failed'
-                      : response.status === 429
-                        ? 'upstream_rate_limited'
-                        : 'upstream_bad_request';
-            const exposedStatus =
-                legacyCode === 'upstream_rate_limited'
-                    ? 429
-                    : legacyCode === 'upstream_auth_failed'
-                      ? 500
-                      : 400;
-            throw new HttpError(
-                exposedStatus,
-                errText || `xAI STT request failed (status ${response.status})`,
-                {
-                    legacyCode,
-                    fields: {
-                        provider: 'xai',
-                        upstreamStatus: response.status,
-                    },
+            const response = await fetch(`${API_BASE}/stt`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.#apiKey}`,
                 },
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                console.error(
+                    `[XAISpeechToTextProvider] API returned ${response.status}: ${errText}`,
+                );
+                // Mirrors ElevenLabs / XAITTS — map upstream status to an
+                // `upstream_*` HttpError so the alarm gate skips it.
+                const legacyCode =
+                    response.status >= 500
+                        ? 'upstream_provider_unavailable'
+                        : response.status === 401 || response.status === 403
+                          ? 'upstream_auth_failed'
+                          : response.status === 429
+                            ? 'upstream_rate_limited'
+                            : 'upstream_bad_request';
+                const exposedStatus =
+                    legacyCode === 'upstream_rate_limited'
+                        ? 429
+                        : legacyCode === 'upstream_auth_failed'
+                          ? 500
+                          : 400;
+                throw new HttpError(
+                    exposedStatus,
+                    errText ||
+                        `xAI STT request failed (status ${response.status})`,
+                    {
+                        legacyCode,
+                        fields: {
+                            provider: 'xai',
+                            upstreamStatus: response.status,
+                        },
+                    },
+                );
+            }
+
+            const result = await response.json();
+
+            // Meter actual usage using returned duration, or estimated
+            const actualSeconds =
+                typeof result.duration === 'number'
+                    ? Math.ceil(result.duration)
+                    : estimatedSeconds;
+            const actualCost = UCENTS_PER_SECOND * actualSeconds;
+
+            this.deps.metering.incrementUsage(
+                actor,
+                'xai:stt:second',
+                actualSeconds,
+                actualCost,
             );
+
+            return result;
+        } finally {
+            await hold.release();
         }
-
-        const result = await response.json();
-
-        // Meter actual usage using returned duration, or estimated
-        const actualSeconds =
-            typeof result.duration === 'number'
-                ? Math.ceil(result.duration)
-                : estimatedSeconds;
-        const actualCost = UCENTS_PER_SECOND * actualSeconds;
-
-        this.deps.metering.incrementUsage(
-            actor,
-            'xai:stt:second',
-            actualSeconds,
-            actualCost,
-        );
-
-        return result;
     }
 }

@@ -45,35 +45,17 @@ import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
-import { GEMINI_VIDEO_GENERATION_MODELS } from './providers/gemini/models.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './providers/together/models.js';
 import type { VideoGenerationDriver } from './VideoGenerationDriver.js';
 
-const DEFAULT_MODEL = 'veo-3.1-lite-generate-preview';
+const DEFAULT_MODEL = 'togetherai:wan-ai/wan2.7-t2v';
+const DEFAULT_WIRE_MODEL = 'Wan-AI/wan2.7-t2v';
 
 // ── SDK mocks ──────────────────────────────────────────────────────
 //
 // These boot during PuterServer.start() since each provider's
 // constructor instantiates its SDK. The driver-level tests only care
 // about which provider the driver dispatched to.
-
-const { geminiGenerateVideosMock } = vi.hoisted(() => ({
-    geminiGenerateVideosMock: vi.fn(),
-}));
-
-vi.mock('@google/genai', () => {
-    const GoogleGenAI = vi.fn().mockImplementation(function (
-        this: Record<string, unknown>,
-    ) {
-        this.models = {
-            generateContent: vi.fn(),
-            generateImages: vi.fn(),
-            generateVideos: geminiGenerateVideosMock,
-        };
-        this.operations = { getVideosOperation: vi.fn() };
-    });
-    return { GoogleGenAI };
-});
 
 const { togetherVideosCreateMock, togetherVideosRetrieveMock } = vi.hoisted(
     () => ({
@@ -114,6 +96,8 @@ beforeAll(async () => {
     server = await setupTestServer({
         providers: {
             'together-video-generation': { apiKey: 'tg-key' },
+            // Configured on purpose: a Gemini key must no longer register a
+            // video provider now that its Veo previews are gone.
             'gemini-video-generation': { apiKey: 'gem-key' },
         },
     } as never);
@@ -125,7 +109,6 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-    geminiGenerateVideosMock.mockReset();
     togetherVideosCreateMock.mockReset();
     togetherVideosRetrieveMock.mockReset();
     secureFetchMock.mockReset();
@@ -146,21 +129,18 @@ const withActor = <T>(fn: () => T | Promise<T>): Promise<T> =>
 const withDriverName = <T>(driverName: string, fn: () => T | Promise<T>) =>
     Promise.resolve(runWithContext({ actor: SYSTEM_ACTOR, driverName }, fn));
 
-// Terminal Veo operation; the driver's polling loop reads `done` first.
-const geminiCompletedOperation = (
-    video: Record<string, unknown> = { uri: 'https://gemini/out.mp4' },
-) => ({
-    done: true,
-    response: { generatedVideos: [{ video }] },
-});
+// Queues one Together job that completes on the first poll.
+const completeTogetherJob = (videoUrl = 'https://together/out.mp4') => {
+    togetherVideosCreateMock.mockResolvedValueOnce({ id: 'tg-job' });
+    togetherVideosRetrieveMock.mockResolvedValueOnce({
+        id: 'tg-job',
+        status: 'completed',
+        outputs: { video_url: videoUrl },
+    });
+};
 
-const geminiSent = (call = 0) =>
-    geminiGenerateVideosMock.mock.calls[call]![0] as {
-        model: string;
-        prompt: string;
-        config: Record<string, unknown>;
-        puter_output_path?: unknown;
-    };
+const togetherSent = (call = 0) =>
+    togetherVideosCreateMock.mock.calls[call]![0] as Record<string, unknown>;
 
 // ── Authentication ──────────────────────────────────────────────────
 
@@ -196,14 +176,12 @@ describe('VideoGenerationDriver.generate argument validation', () => {
 // server that builds the map. (Same regression as in
 // ChatCompletionDriver.test.ts.)
 const pristineCatalogs = structuredClone({
-    GEMINI_VIDEO_GENERATION_MODELS,
     TOGETHER_VIDEO_GENERATION_MODELS,
 });
 
 describe('VideoGenerationDriver catalog', () => {
     it('does not mutate the catalog objects providers hand back', () => {
         expect({
-            GEMINI_VIDEO_GENERATION_MODELS,
             TOGETHER_VIDEO_GENERATION_MODELS,
         }).toEqual(pristineCatalogs);
     });
@@ -211,17 +189,14 @@ describe('VideoGenerationDriver catalog', () => {
     it('models() returns deduped entries sorted by provider then id', async () => {
         const all = await driver.models();
         const ids = all.map((m) => m.id);
-        // Sentinel ids from each provider.
-        expect(ids).toContain('veo-3.1-generate-preview'); // Gemini
         // Together IDs are lowercased togetherai:org/model strings.
         expect(ids).toContain('togetherai:minimax/video-01-director');
         expect(ids.some((id) => id.includes('sora'))).toBe(false);
         // Sort assertion: same-provider entries should be alphabetical.
-        const geminiEntries = all.filter(
-            (m) => m.provider === 'gemini-video-generation',
-        );
-        const geminiIds = geminiEntries.map((m) => m.id);
-        expect(geminiIds).toEqual([...geminiIds].sort());
+        const togetherIds = all
+            .filter((m) => m.provider === 'together-video-generation')
+            .map((m) => m.id);
+        expect(togetherIds).toEqual([...togetherIds].sort());
     });
 
     it('list() returns ids sorted', async () => {
@@ -239,11 +214,11 @@ describe('VideoGenerationDriver catalog', () => {
         const litePerSec = reported.find(
             (r) =>
                 r.usageType ===
-                `gemini-video-generation:${DEFAULT_MODEL}:per-second`,
+                `together-video-generation:${DEFAULT_MODEL}:per-second`,
         );
         expect(litePerSec).toBeDefined();
         expect(litePerSec?.source).toBe(
-            'driver:aiVideo/gemini-video-generation',
+            'driver:aiVideo/together-video-generation',
         );
     });
 });
@@ -262,7 +237,6 @@ describe('VideoGenerationDriver.generate provider routing', () => {
                 statusCode: 400,
                 legacyCode: 'bad_request',
             });
-            expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
             expect(togetherVideosCreateMock).not.toHaveBeenCalled();
         },
     );
@@ -270,28 +244,44 @@ describe('VideoGenerationDriver.generate provider routing', () => {
     it.each(['__proto__', 'constructor'])(
         'uses the default for an unknown provider named %s',
         async (provider) => {
-            geminiGenerateVideosMock.mockResolvedValueOnce(
-                geminiCompletedOperation(),
-            );
+            completeTogetherJob();
             await withActor(() => driver.generate({ prompt: 'hi', provider }));
-            expect(geminiSent().model).toBe(DEFAULT_MODEL);
+            expect(togetherSent().model).toBe(DEFAULT_WIRE_MODEL);
         },
     );
 
-    it('routes a known veo-3.1-generate-preview id to the Gemini provider', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+    it.each([
+        'veo-3.1-generate-preview',
+        'veo-3.1-fast-generate-preview',
+        'veo-3.1-lite-generate-preview',
+        'google:google/veo-3.1-lite',
+    ])('rejects the retired Gemini Veo preview id %s', async (model) => {
+        await expect(
+            withActor(() => driver.generate({ prompt: 'hi', model } as never)),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
 
-        await withActor(() =>
-            driver.generate({
-                prompt: 'hi',
-                model: 'veo-3.1-generate-preview',
-            } as never),
-        );
+    it('registers no Gemini video provider even when a Gemini key is configured', async () => {
+        const all = await driver.models();
+        expect(
+            all.some((m) => m.provider === 'gemini-video-generation'),
+        ).toBe(false);
+        expect(driver.driverAliases).not.toContain('gemini-video-generation');
+    });
 
-        expect(geminiGenerateVideosMock).toHaveBeenCalledTimes(1);
-        expect(geminiSent().model).toBe('veo-3.1-generate-preview');
+    it.each([
+        'togetherai:google/veo-2.0',
+        'togetherai:kwaivgi/kling-2.1-master',
+        'togetherai:kwaivgi/kling-2.1-standard',
+        'togetherai:kwaivgi/kling-2.1-pro',
+        'togetherai:kwaivgi/kling-1.6-standard',
+        'kling-2.1-master',
+        'veo-2.0',
+    ])('rejects the delisted Together model %s', async (model) => {
+        await expect(
+            withActor(() => driver.generate({ prompt: 'hi', model } as never)),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
@@ -311,46 +301,37 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         );
 
         expect(togetherVideosCreateMock).toHaveBeenCalledTimes(1);
-        expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
     });
 
-    it('lowercases model lookups so case variants resolve (VEO-3.1-LITE → veo-3.1-lite)', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+    it('lowercases model lookups so case variants resolve (WAN2.7-T2V → wan2.7-t2v)', async () => {
+        completeTogetherJob();
 
         await withActor(() =>
-            driver.generate({ prompt: 'hi', model: 'VEO-3.1-LITE' } as never),
+            driver.generate({ prompt: 'hi', model: 'WAN2.7-T2V' } as never),
         );
 
-        expect(geminiGenerateVideosMock).toHaveBeenCalledTimes(1);
-        expect(geminiSent().model).toBe(DEFAULT_MODEL);
+        expect(togetherVideosCreateMock).toHaveBeenCalledTimes(1);
+        expect(togetherSent().model).toBe(DEFAULT_WIRE_MODEL);
     });
 
-    it('defaults to Veo 3.1 Lite on Gemini when no model or provider hint is supplied', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+    it('defaults to Wan 2.7 T2V on Together when no model or provider hint is supplied', async () => {
+        completeTogetherJob();
 
         await withActor(() => driver.generate({ prompt: 'hi' } as never));
 
-        expect(geminiGenerateVideosMock).toHaveBeenCalledTimes(1);
-        expect(geminiSent().model).toBe(DEFAULT_MODEL);
-        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).toHaveBeenCalledTimes(1);
+        expect(togetherSent().model).toBe(DEFAULT_WIRE_MODEL);
     });
 
-    it('still defaults to Veo 3.1 Lite when Context.driverName is the generic ai-video alias', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+    it('still defaults to Wan 2.7 T2V when Context.driverName is the generic ai-video alias', async () => {
+        completeTogetherJob();
 
         await withDriverName('ai-video', () =>
             driver.generate({ prompt: 'hi' } as never),
         );
 
-        expect(geminiGenerateVideosMock).toHaveBeenCalledTimes(1);
-        expect(geminiSent().model).toBe(DEFAULT_MODEL);
-        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).toHaveBeenCalledTimes(1);
+        expect(togetherSent().model).toBe(DEFAULT_WIRE_MODEL);
     });
 
     it('falls through to the requested provider via Context.driverName when args.provider is not supplied', async () => {
@@ -376,45 +357,37 @@ describe('VideoGenerationDriver.generate provider routing', () => {
 
 describe('VideoGenerationDriver.generate parameter normalisation', () => {
     it('snaps invalid seconds to the first allowed value for the resolved model', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+        completeTogetherJob();
 
         await withActor(() =>
             driver.generate({
                 prompt: 'hi',
                 model: DEFAULT_MODEL,
-                seconds: 999, // not in [4, 6, 8]
+                seconds: 999, // outside Wan 2.7's 2-15s range
             } as never),
         );
 
-        // Veo's first allowed second is 4 (snapped from 999).
-        expect(geminiSent().config.durationSeconds).toBe(4);
+        // Wan 2.7 T2V's default (first) duration is 5 seconds.
+        expect(togetherSent().seconds).toBe('5');
     });
 
     it('snaps invalid resolution to the first allowed dimension for the resolved model', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+        completeTogetherJob();
 
         await withActor(() =>
             driver.generate({
                 prompt: 'hi',
                 model: DEFAULT_MODEL,
-                size: '99x99',
+                resolution: '4k',
             } as never),
         );
 
-        // Veo's first dimension is 1280x720 → 16:9 at 720p.
-        const { config } = geminiSent();
-        expect(config.aspectRatio).toBe('16:9');
-        expect(config.resolution).toBe('720p');
+        // Wan 2.7 T2V's first tier is 720P.
+        expect(togetherSent().resolution).toBe('720P');
     });
 
     it('coerces a string seconds value to a number before snapping', async () => {
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+        completeTogetherJob();
 
         await withActor(() =>
             driver.generate({
@@ -424,7 +397,7 @@ describe('VideoGenerationDriver.generate parameter normalisation', () => {
             } as never),
         );
 
-        expect(geminiSent().config.durationSeconds).toBe(8);
+        expect(togetherSent().seconds).toBe('8');
     });
 });
 
@@ -442,7 +415,7 @@ describe('VideoGenerationDriver.generate error mapping', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
         // Provider should not be called when validation lives at provider level.
         // The error is thrown by the provider; ensure no upstream call leaked.
-        expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
     it('does not meter when the dispatched provider throws an SDK error', async () => {
@@ -450,7 +423,7 @@ describe('VideoGenerationDriver.generate error mapping', () => {
             server.services.metering,
             'incrementUsage',
         );
-        geminiGenerateVideosMock.mockRejectedValueOnce(
+        togetherVideosCreateMock.mockRejectedValueOnce(
             new Error('upstream blew up'),
         );
 
@@ -474,9 +447,7 @@ describe('VideoGenerationDriver metering propagation', () => {
             server.services.metering,
             'incrementUsage',
         );
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+        completeTogetherJob();
 
         await withActor(() =>
             driver.generate({ prompt: 'hi', model: DEFAULT_MODEL } as never),
@@ -484,8 +455,8 @@ describe('VideoGenerationDriver metering propagation', () => {
 
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
         const [, usageType] = incrementUsageSpy.mock.calls[0]!;
-        // GeminiVideoProvider meters under the gemini:<model>[:tier] shape.
-        expect(usageType).toMatch(/^gemini:veo-3\.1-lite-generate-preview/);
+        // TogetherVideoProvider meters under the together-video:<model> shape.
+        expect(usageType).toBe(`together-video:${DEFAULT_WIRE_MODEL}`);
     });
 });
 
@@ -510,7 +481,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
 
-        expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
     it('throws 400 when puter_output_path parent is root (e.g. /video.mp4)', async () => {
@@ -524,7 +495,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
 
-        expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
     it('throws 403 when ACL denies write access', async () => {
@@ -541,7 +512,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
 
-        expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
     it('ACL check runs BEFORE provider.generate so credits are not wasted', async () => {
@@ -551,9 +522,9 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
             callOrder.push('acl');
             return false;
         });
-        geminiGenerateVideosMock.mockImplementation(async () => {
+        togetherVideosCreateMock.mockImplementation(async () => {
             callOrder.push('provider');
-            return geminiCompletedOperation();
+            return { id: 'tg-job' };
         });
 
         await expect(
@@ -576,9 +547,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
         fsWriteSpy.mockResolvedValueOnce(undefined as never);
 
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+        completeTogetherJob();
         secureFetchMock.mockResolvedValueOnce(
             new Response(Buffer.from('fake-mp4'), {
                 status: 200,
@@ -650,9 +619,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         fsWriteSpy.mockResolvedValueOnce(undefined as never);
 
         const videoBytes = Buffer.from('video-bytes').toString('base64');
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation({ videoBytes, mimeType: 'video/mp4' }),
-        );
+        completeTogetherJob(`data:video/mp4;base64,${videoBytes}`);
 
         const result = await withTestUser(() =>
             driver.generate({
@@ -691,9 +658,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
         fsWriteSpy.mockResolvedValueOnce(undefined as never);
 
-        geminiGenerateVideosMock.mockResolvedValueOnce(
-            geminiCompletedOperation(),
-        );
+        completeTogetherJob();
         secureFetchMock.mockResolvedValueOnce(
             new Response(Buffer.from('fake-mp4'), {
                 status: 200,
@@ -709,7 +674,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
             } as never),
         );
 
-        expect(geminiSent().puter_output_path).toBeUndefined();
+        expect(togetherSent().puter_output_path).toBeUndefined();
     });
 
     it('throws 400 when actor has no user ID but puter_output_path is set', async () => {
@@ -728,24 +693,13 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
 
-        expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 });
 
 // ── Size unification ───────────────────────────────────────────────
 
 describe('VideoGenerationDriver.generate size unification', () => {
-    const completeTogetherJob = () => {
-        togetherVideosCreateMock.mockResolvedValueOnce({ id: 'tg-job' });
-        togetherVideosRetrieveMock.mockResolvedValueOnce({
-            id: 'tg-job',
-            status: 'completed',
-            outputs: { video_url: 'https://together/out.mp4' },
-        });
-    };
-    const togetherSent = () =>
-        togetherVideosCreateMock.mock.calls[0]![0] as Record<string, unknown>;
-
     it('maps a WIDTHxHEIGHT size onto a tier plus aspect ratio for tier-based models', async () => {
         completeTogetherJob();
 

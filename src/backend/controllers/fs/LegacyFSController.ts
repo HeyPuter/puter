@@ -38,9 +38,15 @@ import {
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
-import type { SignedFile } from '../../util/fileSigning.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type {
+    SignAction,
+    SignedFile,
+    SigningConfig,
+} from '../../util/fileSigning.js';
 import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
+    parseSignedQuery,
     verifySignature,
 } from '../../util/fileSigning.js';
 import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
@@ -50,6 +56,7 @@ import {
     splitParentAndName,
 } from '../../services/fs/resolveNode.js';
 import { maskEntryPath } from '../../services/fs/sharePathMask.js';
+import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     buildHostedBackingDenial,
     hostedIndexUrlBackingIsUnavailable,
@@ -72,6 +79,7 @@ import {
     FS_SEARCH_CONCURRENT,
     FS_SEARCH_LIMIT,
     FS_SIGN_LIMIT,
+    FS_SIGN_MAX_ITEMS,
     FS_SIGNED_CONCURRENT,
     FS_SIGNED_READ_LIMIT,
     FS_SIGNED_WRITE_LIMIT,
@@ -95,6 +103,11 @@ import {
 type RouterCache = Map<string, RequestHandler | null>;
 
 const additionalRoutePaths: Record<string, string> = {};
+
+// Shape only: version and variant nibbles aren't checked, so a row whose uuid
+// wasn't minted by an RFC-conforming generator still resolves.
+const UUID_SHAPE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Legacy `/batch` multipart upload caps. Each file is buffered fully into
 // memory before any quota / storage check runs, so without these limits an
@@ -502,11 +515,18 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        const [suggestedApps, appsById, shareFlags] = await Promise.all([
-            this.services.suggestedApps.getSuggestedApps(entry),
-            loadLegacyAssociatedApps(this.stores.app, [entry]),
-            this.services.share.shareFlags(actor, [entry]),
-        ]);
+        const [suggestedApps, appsById, shareFlags, parentUid] =
+            await Promise.all([
+                this.services.suggestedApps.getSuggestedApps(entry),
+                loadLegacyAssociatedApps(this.stores.app, [entry]),
+                this.services.share.shareFlags(actor, [entry]),
+                clientParentUid(
+                    actor,
+                    entry,
+                    this.services.acl,
+                    this.stores.permission,
+                ),
+            ]);
         entry.suggestedApps = suggestedApps;
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
@@ -518,6 +538,7 @@ export class LegacyFSController extends PuterController {
             },
             appsById,
             isShared: shareFlags.get(entry.uuid) ?? null,
+            parentUid,
         });
 
         // Optional hydrations:
@@ -566,6 +587,8 @@ export class LegacyFSController extends PuterController {
             const rootChildren = await listRootEntries(
                 actor,
                 this.stores.fsEntry,
+                this.services.acl,
+                this.stores.permission,
             );
             const rootSuggestions =
                 await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -1180,7 +1203,7 @@ export class LegacyFSController extends PuterController {
         // emitAndWait is required: the thumbnails extension rewrites
         // `event.url` from a data URL to an `s3://` pointer, and the DB
         // write below needs to see that rewrite.
-        const event = { url: thumbnail };
+        const event = { url: thumbnail, uuid: entry.uuid };
         await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
         await this.clients.db.write(
@@ -1351,6 +1374,12 @@ export class LegacyFSController extends PuterController {
             throw new HttpError(400, '`items` is required', {
                 legacyCode: 'bad_request',
             });
+        if (items.length > FS_SIGN_MAX_ITEMS)
+            throw new HttpError(
+                400,
+                `Too many items in one request (max ${FS_SIGN_MAX_ITEMS})`,
+                { legacyCode: 'bad_request' },
+            );
 
         const actingApp = actor.effectiveApp;
         const signingCfg = signingConfigFromAppConfig(this.config);
@@ -1486,24 +1515,11 @@ export class LegacyFSController extends PuterController {
     writeFile = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
         const signingCfg = signingConfigFromAppConfig(this.config);
-        verifySignature(
-            {
-                uid: query.uid as string,
-                expires: query.expires as string,
-                signature: query.signature as string,
-            },
+        const targetEntry = await this.#resolveSignedEntry(
+            query,
             'write',
             signingCfg,
         );
-
-        const uid = typeof query.uid === 'string' ? query.uid : '';
-        const targetEntry = await resolveV1Selector(this.stores.fsEntry, {
-            uid,
-        });
-        if (!targetEntry)
-            throw new HttpError(404, 'Item not found', {
-                legacyCode: 'not_found',
-            });
 
         // Owner suspension check.
         const owner = await this.stores.user.getById(targetEntry.userId);
@@ -1728,18 +1744,7 @@ export class LegacyFSController extends PuterController {
     file = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
         const signingCfg = signingConfigFromAppConfig(this.config);
-        verifySignature(
-            {
-                uid: query.uid as string,
-                expires: query.expires as string,
-                signature: query.signature as string,
-            },
-            'read',
-            signingCfg,
-        );
-
-        const uid = typeof query.uid === 'string' ? query.uid : '';
-        const entry = await resolveV1Selector(this.stores.fsEntry, { uid });
+        const entry = await this.#resolveSignedEntry(query, 'read', signingCfg);
 
         // Owner-suspension guard — matches v1's /file. A signed URL stays
         // valid forever by default, so a signature minted before a suspension
@@ -1763,6 +1768,7 @@ export class LegacyFSController extends PuterController {
                     uuid: owner.uuid,
                     id: owner.id,
                     username: owner.username,
+                    email: owner.email ?? null,
                     suspended: !!(owner as { suspended?: unknown }).suspended,
                 },
             };
@@ -2826,6 +2832,36 @@ export class LegacyFSController extends PuterController {
     }
 
     // -- Helpers ---------------------------------------------------------
+
+    /**
+     * Resolve the entry a signed URL names and verify the signature against its
+     * current owner. Malformed or expired params fail before the lookup.
+     */
+    async #resolveSignedEntry(
+        query: Record<string, unknown>,
+        action: SignAction,
+        signingCfg: SigningConfig,
+    ): Promise<FSEntry> {
+        const signed = {
+            uid: query.uid as string,
+            expires: query.expires as string,
+            signature: query.signature as string,
+        };
+        const { uid } = parseSignedQuery(signed);
+        // A non-UUID uid can never match a real entry — skip the cache/DB
+        // round trip a forged request would otherwise pay for on every hit.
+        const entry = UUID_SHAPE.test(uid)
+            ? await this.stores.fsEntry.getEntryByUuid(uid)
+            : null;
+        verifySignature(signed, action, signingCfg, entry?.userId ?? null);
+        // Only a signature from before owner binding verifies without an entry.
+        if (!entry)
+            throw new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+        return entry;
+    }
+
     #requireActor(req: Request) {
         const actor = req.actor;
         if (!actor) {

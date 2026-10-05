@@ -66,6 +66,9 @@ const INDEX_URL_CHUNK_SIZE = 900;
 // analytics source once and backfill) and left to autoexpire — these counts
 // tolerate being slightly stale, so there's no background refresh.
 const STATS_CACHE_TTL_SECONDS = 30 * 60;
+// `app-` + a UUID. ClickHouse's `app_opens.app_uid` is FixedString(40) and
+// fails the whole query on a longer value.
+const APP_UID_MAX_BYTES = 40;
 
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
@@ -235,7 +238,7 @@ export class AppStore extends PuterStore {
             );
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
-                `SELECT * FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
+                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
                 chunk,
             );
             for (const row of rows) {
@@ -474,7 +477,7 @@ export class AppStore extends PuterStore {
             // Fall through to DB on any cache failure.
         }
 
-        let sql = `SELECT * FROM \`apps\` ${whereClause} ORDER BY \`id\` ASC LIMIT ?`;
+        let sql = `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` ${whereClause} ORDER BY \`id\` ASC LIMIT ?`;
         const sqlParams = [...params, limit];
         if (offset > 0) {
             sql += ' OFFSET ?';
@@ -632,7 +635,7 @@ export class AppStore extends PuterStore {
             // the replica may not have it yet, which is exactly the lag
             // that let both callers past the existence check.
             const rows = await this.clients.db.pread(
-                'SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
+                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`uid\` = ? LIMIT 1`,
                 [uid],
             );
             if (rows.length === 0) throw error;
@@ -823,7 +826,7 @@ export class AppStore extends PuterStore {
         // Rows written before writes were canonicalized may carry a leading
         // dot (`.docx`); match both forms so they work without a migration.
         const rows = await this.clients.db.read(
-            `SELECT a.* FROM \`apps\` a
+            `SELECT a.*, ${this.#createdEpochColumn('a.')} FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
              WHERE fa.\`type\` IN (?, ?)`,
             [ext, `.${ext}`],
@@ -977,7 +980,7 @@ export class AppStore extends PuterStore {
             // owner of the name takes precedence over any historical
             // redirect still lingering in `old_app_names`.
             const directRows = await read(
-                'SELECT * FROM `apps` WHERE `name` = ? LIMIT 1',
+                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`name\` = ? LIMIT 1`,
                 [value],
             );
             if (directRows.length > 0) {
@@ -987,11 +990,26 @@ export class AppStore extends PuterStore {
         }
 
         const rows = await read(
-            `SELECT * FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
+            `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
             [value],
         );
         if (rows.length === 0) return null;
         return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * The row's creation time as unix seconds, computed by the database: the
+     * mysql driver reads a stored UTC timestamp as local time, so parsing
+     * `timestamp` in JS can be off by the server's UTC offset.
+     */
+    #createdEpochColumn(alias = '') {
+        const column = `${alias}\`timestamp\``;
+        const epoch = this.clients.db.case({
+            postgres: `EXTRACT(EPOCH FROM ${column})::bigint`,
+            mysql: `UNIX_TIMESTAMP(${column})`,
+            otherwise: `CAST(strftime('%s', ${column}) AS INTEGER)`,
+        });
+        return `${epoch} AS \`created_epoch\``;
     }
 
     /** `old_app_names` timestamp below which a redirect has expired. */
@@ -1009,7 +1027,7 @@ export class AppStore extends PuterStore {
      */
     async #resolveByOldName(name) {
         const rows = await this.clients.db.read(
-            `SELECT a.* FROM \`apps\` AS a
+            `SELECT a.*, ${this.#createdEpochColumn('a.')} FROM \`apps\` AS a
              INNER JOIN \`old_app_names\` AS o ON o.\`app_uid\` = a.\`uid\`
              WHERE o.\`name\` = ? AND o.\`timestamp\` >= ${this.#oldNameCutoffClause()}
              ORDER BY o.\`timestamp\` DESC
@@ -1190,6 +1208,9 @@ export class AppStore extends PuterStore {
                 row.metadata = null;
             }
         }
+        if (row.created_epoch !== undefined && row.created_epoch !== null) {
+            row.created_epoch = Number(row.created_epoch);
+        }
         // Alias created_at
         if (row.timestamp !== undefined && row.created_at === undefined) {
             row.created_at = row.timestamp;
@@ -1319,8 +1340,13 @@ export class AppStore extends PuterStore {
 
     // -- Stats internals ----------------------------------------------
 
-    async #queryStatsForUids(uids) {
+    async #queryStatsForUids(requestedUids) {
         const out = new Map();
+        // Marketplace callers pass item ids too. One longer than an app uid
+        // can't have opens, so leave it at zero rather than query it.
+        const uids = requestedUids.filter(
+            (u) => Buffer.byteLength(u, 'utf8') <= APP_UID_MAX_BYTES,
+        );
         if (uids.length === 0) return out;
 
         const clickhouse = this.clients.clickhouse;

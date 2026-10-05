@@ -25,6 +25,7 @@ import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     expandTildePath,
     isOwnersTrash,
@@ -52,7 +53,9 @@ import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterController } from '../types.js';
 import { STORAGE_OP_COSTS } from '../../services/metering/costs.js';
 import {
+    FS_BATCH_WRITE_MAX_ITEMS,
     FS_MULTIPART_LIMIT,
+    FS_MULTIPART_MAX_PARTS,
     FS_MUTATE_LIMIT,
     FS_READ_CONCURRENT,
     FS_READ_LIMIT,
@@ -222,6 +225,7 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const appUidLookupCache = new Map<string, Promise<number | null>>();
+        this.#assertBatchItemCount(req.body);
         const requests = Array.isArray(req.body)
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
@@ -367,6 +371,7 @@ export class FSController extends PuterController {
         res: Response<ClientCompleteWriteResponse[]>,
     ) {
         const userId = this.#getActorUserId(req);
+        this.#assertBatchItemCount(req.body);
         const requests = Array.isArray(req.body)
             ? req.body.map((requestBody) => {
                   return this.#withGuiMetadata(
@@ -443,6 +448,17 @@ export class FSController extends PuterController {
         res: Response<ClientSignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
+        const partNumbers = req.body?.partNumbers;
+        if (
+            Array.isArray(partNumbers) &&
+            partNumbers.length > FS_MULTIPART_MAX_PARTS
+        ) {
+            throw new HttpError(
+                400,
+                `Too many partNumbers in one request (max ${FS_MULTIPART_MAX_PARTS})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
         await this.#assertUploadSessionWriteAccess(req, userId, [
             req.body?.uploadId,
         ]);
@@ -863,6 +879,7 @@ export class FSController extends PuterController {
             return;
         }
 
+        this.#assertBatchItemCount(req.body);
         const requests = Array.isArray(req.body)
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
@@ -1015,7 +1032,7 @@ export class FSController extends PuterController {
                 legacyCode: 'too_many_requests',
             });
         }
-        const [subtreeSize, suggestedApps, shareFlags, shares] =
+        const [subtreeSize, suggestedApps, shareFlags, shares, parentUid] =
             await Promise.all([
                 entry.isDir && wantsSize
                     ? this.services.fs.getSubtreeSize(userId, entry.path)
@@ -1030,11 +1047,21 @@ export class FSController extends PuterController {
                           entry.uuid,
                       )
                     : undefined,
+                clientParentUid(
+                    actor,
+                    entry,
+                    this.services.acl,
+                    this.stores.permission,
+                ),
             ]);
         entry.suggestedApps = suggestedApps;
 
         res.json({
-            ...this.#toClientEntry(entry, shareFlags.get(entry.uuid) ?? null),
+            ...this.#toClientEntry(
+                entry,
+                shareFlags.get(entry.uuid) ?? null,
+                parentUid,
+            ),
             ...(subtreeSize !== undefined ? { size: subtreeSize } : {}),
             ...(shares !== undefined ? { shares } : {}),
         });
@@ -1047,8 +1074,16 @@ export class FSController extends PuterController {
      * callers who only hold `see`/`list` on the entry — a share recipient, or
      * (with public folders enabled) any authenticated user. The legacy read
      * path already curates its output; this does the same for the v2 routes.
+     *
+     * `parentUid` is `entry.parentUid` unless `parentUidOverride` is passed
+     * (even as `null`) — callers reading a scoped access token's home pass the
+     * result of `clientParentUid` to hide it there.
      */
-    #toClientEntry(entry: FSEntry, isShared?: boolean | null): ClientFSEntry {
+    #toClientEntry(
+        entry: FSEntry,
+        isShared?: boolean | null,
+        parentUidOverride?: string | null,
+    ): ClientFSEntry {
         // Allowlist, not a denylist: a denylist silently ships every column
         // added to `fsentries` later. Omits the numeric primary keys (`id`,
         // `parentId`, `associatedAppId`), the storage columns, the owning
@@ -1060,7 +1095,10 @@ export class FSController extends PuterController {
         return {
             uuid: entry.uuid,
             uid: entry.uid ?? entry.uuid,
-            parentUid: entry.parentUid ?? null,
+            parentUid:
+                parentUidOverride !== undefined
+                    ? parentUidOverride
+                    : (entry.parentUid ?? null),
             path: maskEntryPath(entry),
             name: entry.name,
             isDir: entry.isDir,
@@ -1181,6 +1219,8 @@ export class FSController extends PuterController {
             const rootChildren = await listRootEntries(
                 actor,
                 this.stores.fsEntry,
+                this.services.acl,
+                this.stores.permission,
             );
             const rootSuggestions =
                 await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -1322,6 +1362,12 @@ export class FSController extends PuterController {
                 ...this.#toClientEntry(
                     entry,
                     shareFlags.get(entry.uuid) ?? null,
+                    await clientParentUid(
+                        actor,
+                        entry,
+                        this.services.acl,
+                        this.stores.permission,
+                    ),
                 ),
                 // Fields the client cannot derive on its own.
                 type: fsEntryMimeType(entry),
@@ -2382,6 +2428,16 @@ export class FSController extends PuterController {
         return guiMetadata;
     }
 
+    #assertBatchItemCount(items: unknown): void {
+        if (Array.isArray(items) && items.length > FS_BATCH_WRITE_MAX_ITEMS) {
+            throw new HttpError(
+                400,
+                `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+    }
+
     /**
      * The write handlers build on `req.body` being an object. A request whose
      * body never parsed leaves it undefined, and the first field read after
@@ -2704,10 +2760,13 @@ export class FSController extends PuterController {
             return fsEntry;
         }
 
-        const thumbnailPayload = { url: requestedThumbnail };
+        const thumbnailPayload = {
+            url: requestedThumbnail,
+            uuid: fsEntry.uuid,
+        };
         // emitAndWait — the thumbnails extension may rewrite `url` from a
-        // data URL to an `s3://` pointer; plain `emit` races with the DB
-        // update below.
+        // data URL to an `s3://` pointer bound to `uuid`, or drop a pointer
+        // not minted for it; plain `emit` races with the DB update below.
         await this.clients.event.emitAndWait(
             'thumbnail.created',
             thumbnailPayload,
@@ -2796,6 +2855,9 @@ export class FSController extends PuterController {
                         index: item.index,
                         contentType: item.contentType,
                         ...(item.size !== undefined ? { size: item.size } : {}),
+                        // The entry the upload lands on; its thumbnail key is
+                        // bound to it.
+                        item_uid: responses[item.index]?.objectKey ?? '',
                     }) as ThumbnailUploadPrepareItem,
             ),
         };
@@ -3019,6 +3081,7 @@ export class FSController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
+        this.#assertBatchItemCount(manifest.items);
 
         const manifestGuiMetadata = this.#extractGuiMetadata(
             manifest,

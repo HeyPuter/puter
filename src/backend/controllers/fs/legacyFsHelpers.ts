@@ -464,7 +464,9 @@ export async function signEntryThumbnail(
  * URL for a signed one. Pass `fsEntryStore`/`userStore` to hydrate `is_empty`
  * (directories) and `owner` — both are required fields per the legacy stat
  * contract but need extra DB lookups. Pass `appsById` (built via
- * `loadLegacyAssociatedApps`) to populate `associated_app`.
+ * `loadLegacyAssociatedApps`) to populate `associated_app`. Pass `parentUid`
+ * (even as `null`, via `clientParentUid`) to override `parent_id`/`parent_uid`
+ * — callers reading a scoped access token's home use it to hide the uuid.
  */
 export async function toLegacyEntry(
     eventClient: EventClient | undefined,
@@ -479,6 +481,7 @@ export async function toLegacyEntry(
         isShared?: boolean | null;
         /** Skip the mask: the mask is the actor's, and only they can read it. */
         forOwner?: boolean;
+        parentUid?: string | null;
     } = {},
 ): Promise<Record<string, unknown>> {
     // Someone else's entry is published under its masked path; the owner's
@@ -491,12 +494,17 @@ export async function toLegacyEntry(
     const appdata_app =
         pathComponents[2] === 'AppData' ? pathComponents[3] : undefined;
 
+    const parentUid =
+        opts.parentUid !== undefined
+            ? opts.parentUid
+            : (entry.parentUid ?? null);
+
     const response: Record<string, unknown> = {
         id: entry.uuid,
         uid: entry.uuid,
         uuid: entry.uuid,
-        parent_id: entry.parentUid,
-        parent_uid: entry.parentUid,
+        parent_id: parentUid,
+        parent_uid: parentUid,
         path: publishedPath,
         dirname,
         dirpath: dirname,
@@ -591,7 +599,11 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
             { legacyCode: 'internal_error' },
         );
     }
-    return { secret, apiBaseUrl };
+    return {
+        secret,
+        apiBaseUrl,
+        allowLegacySignatures: config.legacy_file_signatures !== false,
+    };
 }
 
 /**
@@ -599,7 +611,7 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
  *
  * Pass `actorUserId` so a signature over someone else's entry — a shared file —
  * expires rather than outliving the share (see
- * NON_OWNER_SIGNATURE_TTL_SECONDS).
+ * NON_OWNER_SIGNATURE_TTL_SECONDS). The signature is bound to `entry.userId`.
  */
 export function signEntry(
     entry: {
@@ -610,7 +622,7 @@ export function signEntry(
         accessed: number | null;
         modified: number;
         created: number | null;
-        userId?: number;
+        userId: number;
     },
     config: SigningConfig,
     opts: { actorUserId?: number; ttlSeconds?: number } = {},

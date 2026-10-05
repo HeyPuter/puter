@@ -256,7 +256,21 @@ describe('signingConfigFromAppConfig', () => {
                 url_signature_secret: 's3cret',
                 api_base_url: 'https://api.test',
             } as never),
-        ).toEqual({ secret: 's3cret', apiBaseUrl: 'https://api.test' });
+        ).toEqual({
+            secret: 's3cret',
+            apiBaseUrl: 'https://api.test',
+            allowLegacySignatures: true,
+        });
+    });
+
+    it('stops accepting pre-binding signatures when legacy_file_signatures is false', () => {
+        expect(
+            signingConfigFromAppConfig({
+                url_signature_secret: 's3cret',
+                api_base_url: 'https://api.test',
+                legacy_file_signatures: false,
+            } as never).allowLegacySignatures,
+        ).toBe(false);
     });
 
     it('fails loudly when the signing secret is missing', () => {
@@ -411,6 +425,23 @@ describe('toLegacyEntry', () => {
             { appsById: new Map() },
         );
         expect(shaped.associated_app).toBeNull();
+    });
+
+    it('uses the parentUid override, including null, over the entry’s own', async () => {
+        const hidden = await toLegacyEntry(undefined, baseEntry(), {
+            parentUid: null,
+        });
+        expect(hidden.parent_id).toBeNull();
+        expect(hidden.parent_uid).toBeNull();
+
+        const overridden = await toLegacyEntry(undefined, baseEntry(), {
+            parentUid: 'other-parent',
+        });
+        expect(overridden.parent_id).toBe('other-parent');
+        expect(overridden.parent_uid).toBe('other-parent');
+
+        const defaulted = await toLegacyEntry(undefined, baseEntry());
+        expect(defaulted.parent_uid).toBe('parent-1');
     });
 });
 

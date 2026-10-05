@@ -90,8 +90,8 @@ const KV_KEY = 'openrouterChat:models';
 
 const SAMPLE_API_MODELS = [
     {
-        id: 'openai/gpt-5-nano',
-        name: 'GPT-5 Nano',
+        id: 'openai/gpt-6-luna',
+        name: 'GPT-6 Luna',
         created: 1714564800,
         context_length: 128000,
         pricing: { prompt: 0.00001, completion: 0.00003 },
@@ -113,6 +113,35 @@ const SAMPLE_API_MODELS = [
         context_length: 1048576,
         pricing: { prompt: 0.00000125, completion: 0.00000425 },
         top_provider: { max_completion_tokens: null },
+    },
+    {
+        // Long-context tiers arrive as a structured `overrides` list.
+        id: 'openai/gpt-6.1-sol',
+        name: 'GPT-6.1 Sol',
+        created: 1790552874,
+        context_length: 1050000,
+        pricing: {
+            prompt: '0.000002',
+            completion: '0.00001',
+            overrides: [
+                {
+                    min_prompt_tokens: 272000,
+                    prompt: '0.000004',
+                    completion: '0.000015',
+                },
+            ],
+        },
+        top_provider: { max_completion_tokens: 128000 },
+    },
+    {
+        // Deprecated upstream: scheduled for removal, so it's filtered out.
+        id: 'qwen/qwen3-max',
+        name: 'Qwen3 Max',
+        created: 1758672000,
+        context_length: 262144,
+        pricing: { prompt: 0.0000012, completion: 0.000006 },
+        top_provider: { max_completion_tokens: 32768 },
+        expiration_date: '2026-10-09',
     },
     {
         // 'openrouter/auto' is filtered out — disallowed.
@@ -218,15 +247,34 @@ describe('OpenRouterProvider construction', () => {
 describe('OpenRouterProvider model catalog', () => {
     it('returns the openrouter-prefixed default model id', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('openrouter:openai/gpt-5-nano');
+        expect(provider.getDefaultModel()).toBe('openrouter:openai/gpt-6-luna');
     });
 
     it('list() prefixes ids with openrouter: and filters out openrouter/auto', async () => {
         const { provider } = makeProvider();
         const ids = await provider.list();
-        expect(ids).toContain('openrouter:openai/gpt-5-nano');
+        expect(ids).toContain('openrouter:openai/gpt-6-luna');
         expect(ids).toContain('openrouter:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('openrouter:openrouter/auto');
+    });
+
+    it('filters out models OpenRouter has scheduled for expiration', async () => {
+        const { provider } = makeProvider();
+        const ids = await provider.list();
+        expect(ids).not.toContain('openrouter:qwen/qwen3-max');
+        expect(ids).not.toContain('qwen/qwen3-max');
+    });
+
+    it('coerces string prices and skips the structured overrides entry', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        const sol = models.find((m) => m.id === 'openrouter:openai/gpt-6.1-sol')!;
+        expect(sol.costs).toEqual({
+            tokens: 1_000_000,
+            prompt: 200,
+            completion: 1000,
+            request: 0,
+        });
     });
 
     it('caches the coerced model list in kv after the first axios round-trip', async () => {
@@ -251,7 +299,7 @@ describe('OpenRouterProvider model catalog', () => {
 
         // A model that reports its own cap keeps it.
         const capped = models.find(
-            (m) => m.id === 'openrouter:openai/gpt-5-nano',
+            (m) => m.id === 'openrouter:openai/gpt-6-luna',
         )!;
         expect(capped.max_tokens).toBe(16000);
     });
@@ -262,7 +310,7 @@ describe('OpenRouterProvider model catalog', () => {
         expect(models).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    id: 'openrouter:openai/gpt-5-nano',
+                    id: 'openrouter:openai/gpt-6-luna',
                     release_date: '2024-05-01',
                 }),
                 expect.objectContaining({
@@ -314,14 +362,14 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
         // openrouter: prefix is dropped before the SDK call.
-        expect(args.model).toBe('openai/gpt-5-nano');
+        expect(args.model).toBe('openai/gpt-6-luna');
         // OpenRouter requires `usage: { include: true }` to surface the
         // cost field — the provider always sets this.
         expect(args.usage).toEqual({ include: true });
@@ -333,7 +381,7 @@ describe('OpenRouterProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -344,7 +392,7 @@ describe('OpenRouterProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -369,7 +417,7 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 4100,
             }),
@@ -396,7 +444,7 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 // ~1000 estimated tokens, doubled: the retry assumes the
                 // estimator's whitespace-poor worst case.
                 messages: [{ role: 'user', content: 'x'.repeat(8000) }],
@@ -419,7 +467,7 @@ describe('OpenRouterProvider.complete request shape', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'openrouter:openai/gpt-5-nano',
+                    model: 'openrouter:openai/gpt-6-luna',
                     messages: [{ role: 'user', content: 'boom' }],
                     max_tokens: 100,
                 }),
@@ -442,7 +490,7 @@ describe('OpenRouterProvider.complete request shape', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'openrouter:openai/gpt-5-nano',
+                    model: 'openrouter:openai/gpt-6-luna',
                     messages: [{ role: 'user', content: 'boom' }],
                     max_tokens: 100,
                 }),
@@ -476,7 +524,7 @@ describe('OpenRouterProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         )) as { usage: Record<string, number> };
@@ -485,7 +533,7 @@ describe('OpenRouterProvider.complete non-stream output', () => {
         // single `billedUsage` line item priced at usage.cost * 1e8.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('openrouter:openai/gpt-5-nano');
+        expect(prefix).toBe('openrouter:openai/gpt-6-luna');
         expect(usage).toMatchObject({
             prompt: 100 - 10, // prompt_tokens - cached
             completion: 50,
@@ -521,12 +569,12 @@ describe('OpenRouterProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        // gpt-5-nano API pricing converted to microcents per token:
+        // Fixture pricing converted to microcents per token:
         // prompt=0.00001 → 0.00001 * 1_000_000 * 100 = 1000
         // completion=0.00003 → 3000
         const [usage, , , overrides] = recordSpy.mock.calls[0]!;
@@ -562,7 +610,7 @@ describe('OpenRouterProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:openai/gpt-5-nano',
+                model: 'openrouter:openai/gpt-6-luna',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -583,7 +631,7 @@ describe('OpenRouterProvider.complete streaming', () => {
         // Cost-branch metering on the final chunk.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('openrouter:openai/gpt-5-nano');
+        expect(prefix).toBe('openrouter:openai/gpt-6-luna');
         expect(overrides.billedUsage).toBe(0.00005 * 100_000_000);
     });
 });

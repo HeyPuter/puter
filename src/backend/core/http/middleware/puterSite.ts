@@ -32,6 +32,8 @@ import {
     buildPrivateHostRedirect,
     buildPublicHostRedirect,
     hostMatchesPrivateDomain,
+    isTopLevelNavigation,
+    pathWithoutQueryParam,
     renderLoginBootstrapHtml,
     resolveOwnedAppForHostedSite,
     resolvePrivateIdentity,
@@ -146,6 +148,7 @@ interface UserRow {
     id: number;
     uuid: string;
     username: string;
+    email?: string | null;
     suspended?: number | null;
 }
 
@@ -369,7 +372,8 @@ export const createPuterSiteMiddleware = (
             // Mint the sticky cookie only when we don't already have a
             // valid one — keeps Set-Cookie off of the hot path for repeat
             // visitors but still refreshes after rotation/expiry.
-            if (!identity.hasValidPrivateCookie) {
+            let hasStickyCookie = !!identity.hasValidPrivateCookie;
+            if (!hasStickyCookie) {
                 try {
                     const token =
                         await layers.services.auth.createPrivateAssetToken({
@@ -386,6 +390,7 @@ export const createPuterSiteMiddleware = (
                             requestHostname: host,
                         }),
                     );
+                    hasStickyCookie = true;
                 } catch (e) {
                     console.warn(
                         '[puter-site] failed to mint private asset cookie',
@@ -397,6 +402,20 @@ export const createPuterSiteMiddleware = (
             // Referrer-policy hardening — don't leak private-host URLs to
             // third-party resources loaded from the app.
             res.setHeader('Referrer-Policy', 'no-referrer');
+
+            // A tab opened straight on the app carries the sign-in token in
+            // its URL. Once the cookie stands in for it, reload without it so
+            // it doesn't stay in the address bar. Framed launches keep it:
+            // the SDK inside reads it from there.
+            const cleanPath =
+                hasStickyCookie && isTopLevelNavigation(req)
+                    ? pathWithoutQueryParam(req.originalUrl, 'puter.auth.token')
+                    : null;
+            if (cleanPath) {
+                res.set('Cache-Control', 'no-store');
+                res.redirect(302, cleanPath);
+                return;
+            }
         } else if (privateHostingDomains.has(matched)) {
             // Non-private content landed on the private hosting domain —
             // mirror of the private redirect above. Covers two cases:
@@ -745,6 +764,7 @@ export const createPuterSiteMiddleware = (
                 uuid: owner.uuid,
                 id: owner.id,
                 username: owner.username,
+                email: owner.email ?? null,
                 suspended: !!owner.suspended,
             },
         };

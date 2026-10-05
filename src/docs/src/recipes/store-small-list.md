@@ -1,76 +1,92 @@
 ---
 title: Store a Small List
-description: "Learn how to keep a list of items, such as todos or notes, inside one key-value entry so you can retrieve data in a single read. It fits a few thousand small items."
+description: "Learn how to keep a list in one Puter.js key-value entry, so your app loads it with a single read and edits any item in place. It fits a few thousand small items."
 tags: [kv, data-modeling]
-order: 20
+order: 10
 ---
 
-Most applications keep a list the user edits later, such as todos, notes, saved
-records or a task board. The whole list can live in one key-value entry, so a
-screen loads with a single [`puter.kv.get()`](/KV/get/) and there is nothing to
-page through.
-
-You can store the list as an object with an item id key. This lets you add,
-edit, and delete each item in one call without manually reading the entire list.
+Most applications keep a list the user adds to and edits later, such as todos,
+notes, saved records or an activity log. The whole list can live in one
+key-value entry as an array, so you read all of it with a single
+[`puter.kv.get()`](/KV/get/) call, without pagination.
 
 ## Add an Item
 
-To add an item, use the [`puter.kv.update()`](/KV/update/) method with the id as
-the path:
+To add an item to the end of the list, use the [`puter.kv.add()`](/KV/add/)
+method and wrap the item in an array:
 
 ```js
-const id = crypto.randomUUID();
-
-await puter.kv.update('todos', {
-    [id]: { text: 'Buy milk', done: false, at: Date.now() },
-});
+await puter.kv.add('todos', [{ text: 'Buy milk', done: false }]);
 ```
 
-The id becomes the key you reference later to update or delete that item. Any
-unique string works, and
-[`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)
-is a safe default.
+If the key does not exist yet, it is created as an array. The append is atomic,
+so two concurrent calls both add their item.
+
+To add several items, put them all in the array. Each element is appended as a
+separate item:
+
+```js
+await puter.kv.add('todos', [
+    { text: 'Walk the dog', done: false },
+    { text: 'Call mom', done: false },
+]);
+```
 
 ## Show the List
 
 To load the list, use the [`puter.kv.get()`](/KV/get/) method. One read returns
-every item:
+every item in the order it was added, so you don't need an additional field for
+sorting. A list that was never written comes back as `null`, so default it to an
+empty array:
 
 ```js
-const todos = await puter.kv.get('todos') ?? {};
-
-const items = Object.entries(todos)
-    .map(([id, todo]) => ({ id, ...todo }))
-    .sort((a, b) => a.at - b.at);
+const todos = await puter.kv.get('todos') ?? [];
 ```
-
-An object has no inherent order, and the stored field order is not preserved on
-read, so carry an `at` or `order` field on each item and sort when you render.
-At sizes that fit in one entry, sorting in memory costs nothing measurable.
 
 ## Edit an Item
 
 To change one field of one item, use the [`puter.kv.update()`](/KV/update/)
-method with the item's id and the field you are changing:
+method with a path made of the item's index in brackets, then the field name.
+This marks the first todo as done:
 
 ```js
-await puter.kv.update('todos', { [`${ id }.done`]: true });
+await puter.kv.update('todos', { '[0].done': true });
 ```
 
-This updates the specific property of the object with that id, without you
-having to manually iterate the whole list and update it.
+The index is the item's position in the array you read with
+[`puter.kv.get()`](/KV/get/). To edit an item you know by a field value, find
+its index first:
+
+```js
+const todos = await puter.kv.get('todos') ?? [];
+const index = todos.findIndex((todo) => todo.text === 'Buy milk');
+
+await puter.kv.update('todos', { [`[${ index }].done`]: true });
+```
+
+To replace the whole item, use the index on its own:
+
+```js
+await puter.kv.update('todos', { [`[${ index }]`]: { text: 'Buy oat milk', done: false } });
+```
 
 ## Delete an Item
 
 To remove an item, use the [`puter.kv.remove()`](/KV/remove/) method with its
-id:
+index in brackets:
 
 ```js
-await puter.kv.remove('todos', id);
+await puter.kv.remove('todos', `[${ index }]`);
 ```
 
-It also takes several paths in one call, so `remove('todos', idA, idB)` deletes
-two items at once.
+Every item after it moves down by one index. To delete several items, pass all
+their indexes in one call, such as `remove('todos', '[0]', '[3]')`. The indexes
+in one call refer to the list as it was before the call.
+
+Because indexes shift, a list edited from two tabs or devices at once can go
+wrong. After one tab deletes an item, the other tab still has the old indexes
+and can edit or delete the wrong item. In that case, [store items by
+ID](/recipes/store-items-by-id/) instead, where each item has a fixed ID.
 
 ## When to Switch
 

@@ -66,6 +66,15 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 const isExpired = (row, now = nowSeconds()) =>
     row?.expires_at != null && row.expires_at <= now;
 
+/**
+ * True when a row was created before `notBefore` (unix seconds): an app or
+ * worker row minted for an earlier app that held the same uid.
+ */
+const predates = (row, notBefore) =>
+    notBefore != null &&
+    Number(row?.created_at) > 0 &&
+    Number(row.created_at) < notBefore;
+
 export class SessionStore extends PuterStore {
     #lastSessionTouchMs = new Map();
     #lastUserTouchMs = new Map();
@@ -478,24 +487,31 @@ export class SessionStore extends PuterStore {
      *   first-time creation. Ignored when a row already exists.
      * @param opts.auth_id - Stable per-user identity (survives re-login);
      *   carried on every v2 JWT so manage-sessions can group by identity.
+     * @param opts.notBefore - Unix seconds. A live row created earlier belongs
+     *   to a previous app with this uid; it is revoked and replaced.
      */
     async getOrCreateApp(userId, appUid, opts = {}) {
         if (!userId || !appUid) return null;
 
         const cacheKey = this.#cacheKeyApp(userId, appUid);
         const now = nowSeconds();
+        const notBefore = opts.notBefore ?? null;
 
         const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
+        const cachedLive =
+            cached && cached.revoked_at == null && !isExpired(cached, now);
+        if (cachedLive && !predates(cached, notBefore)) {
             return cached;
         }
 
         const existing = await this.#selectAppRow(userId, appUid);
-        if (existing) {
+        if (existing && !predates(existing, notBefore)) {
             await this.#writeCacheKey(cacheKey, existing);
             this.#writeCache(existing).catch(() => {});
             return existing;
         }
+        const stale = existing ?? (cachedLive ? cached : null);
+        if (stale) await this.revokeCascade(stale.uuid);
 
         // INSERT-or-IGNORE so concurrent racers don't throw on the
         // partial unique index; we re-SELECT below to find the row
@@ -516,7 +532,10 @@ export class SessionStore extends PuterStore {
             { ignoreConflict: true },
         );
 
-        const winner = await this.#selectAppRow(userId, appUid);
+        // After a revoke the replica may still show the old row as live.
+        const winner = await this.#selectAppRow(userId, appUid, {
+            primary: stale !== null,
+        });
         const row = winner ?? created;
         await this.#writeCacheKey(cacheKey, row);
         this.#writeCache(row).catch(() => {});
@@ -541,12 +560,17 @@ export class SessionStore extends PuterStore {
      * @param opts.last_ip / opts.last_user_agent - Request context for
      *   first-time creation. Ignored when a row already exists.
      * @param opts.auth_id - Stable per-user identity (survives re-login).
+     * @param opts.notBefore - Unix seconds. A live row created earlier belongs
+     *   to a previous app with this uid; it is revoked and replaced.
      */
     async getOrCreateWorker(userId, opts = {}) {
         if (!userId || !opts.workerName) return null;
 
         const existing = await this.getWorker(userId, opts);
-        if (existing) return existing;
+        if (existing && !predates(existing, opts.notBefore ?? null)) {
+            return existing;
+        }
+        if (existing) await this.revokeCascade(existing.uuid);
 
         const appUid = opts.appUid ?? null;
         const workerName = String(opts.workerName);
@@ -575,7 +599,10 @@ export class SessionStore extends PuterStore {
         // INSERT-IGNORE may have lost the race against another caller;
         // re-SELECT under the partial unique index to find whichever
         // row actually won.
-        const winner = await this.#selectWorkerRow(userId, appUid, workerName);
+        // After a revoke the replica may still show the old row as live.
+        const winner = await this.#selectWorkerRow(userId, appUid, workerName, {
+            primary: existing !== null,
+        });
         const row = winner ?? created;
         await this.#writeCacheKey(cacheKey, row);
         this.#writeCache(row).catch(() => {});
@@ -919,9 +946,10 @@ export class SessionStore extends PuterStore {
      * `idx_sessions_user_app_active`. Kept private — public callers should go
      * through `getOrCreateApp` so cache and idempotency stay in sync.
      */
-    async #selectAppRow(userId, appUid) {
+    async #selectAppRow(userId, appUid, { primary = false } = {}) {
         const now = nowSeconds();
-        const rows = await this.clients.db.read(
+        const read = primary ? 'pread' : 'read';
+        const rows = await this.clients.db[read](
             "SELECT * FROM `sessions` WHERE `kind` = 'app' AND `user_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1",
             [userId, appUid, now],
         );
@@ -934,14 +962,20 @@ export class SessionStore extends PuterStore {
      * allowed null for user-scoped workers; COALESCE keeps the comparison
      * correct since SQL `= NULL` doesn't match.
      */
-    async #selectWorkerRow(userId, appUid, workerName) {
+    async #selectWorkerRow(
+        userId,
+        appUid,
+        workerName,
+        { primary = false } = {},
+    ) {
         const now = nowSeconds();
+        const read = primary ? 'pread' : 'read';
         const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
             'worker_name',
         ]);
         const appUidExpr = this.clients.db.nullCoalesce('`app_uid`', "''");
         const appUidBound = this.clients.db.nullCoalesce('?', "''");
-        const rows = await this.clients.db.read(
+        const rows = await this.clients.db[read](
             `SELECT * FROM \`sessions\` WHERE \`kind\` = 'worker' AND \`user_id\` = ? AND ${appUidExpr} = ${appUidBound} AND ${workerNameExpr} = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) LIMIT 1`,
             [userId, appUid ?? null, workerName, now],
         );

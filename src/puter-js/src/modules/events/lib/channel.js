@@ -246,10 +246,11 @@ export class EventChannel {
     }
 
     /**
-     * Run a persistent subscription's handler here whenever this client is the
-     * one the server delivers to. The subscription itself already exists and is
-     * not re-registered by any of this — what is registered is only where its
-     * deliveries go while this page is open.
+     * Run a persistent subscription's handler here while this client is
+     * connected, on every delivery the server doesn't mark `skipHandler`. The
+     * subscription itself already exists and is not re-registered by any of
+     * this — what is registered is only where its deliveries go while this
+     * page is open.
      *
      * @internal
      * @param {string} subId
@@ -500,7 +501,7 @@ export class EventChannel {
 
     /**
      * @internal
-     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string }} envelope
+     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     route (envelope) {
@@ -537,7 +538,9 @@ export class EventChannel {
     }
 
     /**
-     * Run a persistent subscription's handler on one delivery.
+     * Run a persistent subscription's handler on one delivery, unless the
+     * server marked it `skipHandler`: the app's events worker takes it, or it
+     * is past the handler-chain limit.
      *
      * The handler is handed the same environment its published copy gets in the
      * app's events worker, so one body runs unchanged in either place. A
@@ -547,10 +550,14 @@ export class EventChannel {
      *
      * @internal
      * @param {DurableRegistration} registration
-     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string }} envelope
+     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     runDurable (registration, envelope) {
+        // `single` always carries `ackRequired` here and must still run —
+        // only an unacknowledged broadcast copy is ever marked this way.
+        if ( envelope.skipHandler === true && ! envelope.ackRequired ) return;
+
         const event = /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event);
         const { puter } = this.module;
         const delivery = {

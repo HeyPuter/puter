@@ -188,6 +188,14 @@ describe('MoonshotProvider model catalog', () => {
         expect(names).toContain('kimi');
         expect(names).toContain('kimi-k2.6');
     });
+
+    it.each(MOONSHOT_MODELS.map((m) => m.id))(
+        'declares image and video input for %s, as the live API reports',
+        (id) => {
+            const model = MOONSHOT_MODELS.find((m) => m.id === id)!;
+            expect(model.modalities.input).toEqual(['text', 'image', 'video']);
+        },
+    );
 });
 
 // ── Request shape ───────────────────────────────────────────────────
@@ -391,6 +399,13 @@ describe('MoonshotProvider image inlining', () => {
 
     it('does not invoke inlineHttpImageUrls for text-only models', async () => {
         const { provider } = makeProvider();
+        // Every live Kimi model takes images, so stub a text-only entry.
+        vi.spyOn(provider, 'models').mockReturnValue([
+            {
+                ...MOONSHOT_MODELS.find((m) => m.id === 'kimi-k2.6')!,
+                modalities: { input: ['text'], output: ['text'] },
+            },
+        ]);
         createMock.mockResolvedValueOnce(baseCompletion);
 
         await withTestActor(() =>

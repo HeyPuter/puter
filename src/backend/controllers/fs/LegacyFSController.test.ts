@@ -28,12 +28,13 @@ import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
-import { FS_MUTATE_LIMIT } from './limits.js';
+import { FS_MUTATE_LIMIT, FS_SIGN_MAX_ITEMS } from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -75,7 +76,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
     const refreshed = (await server.stores.user.getById(created.id))!;
     return {
         userId: refreshed.id,
-        actor: {
+        actor: makeActor({
             user: {
                 id: refreshed.id,
                 uuid: refreshed.uuid,
@@ -83,7 +84,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
                 email: refreshed.email ?? null,
                 email_confirmed: true,
             } as Actor['user'],
-        },
+        }),
     };
 };
 
@@ -548,6 +549,88 @@ describe('LegacyFSController.stat', () => {
             controller.stat(makeReq({ body: { path }, actor }), plain.res),
         );
         expect(plain.captured.body).toMatchObject({ name: 'share-budget' });
+    });
+
+    describe('parent_uid of a home child', () => {
+        const tokenActorFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            const token = await server.services.auth.createAccessToken(
+                makeActor({ user }),
+                [[permission]],
+            );
+            return (await server.services.auth.authenticateFromToken(token))!;
+        };
+
+        it('nulls it for a token scoped below the home', async () => {
+            const { userId } = await makeUser();
+            const user = (await server.stores.user.getById(userId))!;
+            const username = user.username!;
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const scoped = await tokenActorFor(
+                userId,
+                `fs:${documents.uuid}:read`,
+            );
+
+            const { res, captured } = makeRes();
+            await withActor(scoped, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: scoped,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.parent_uid).toBeNull();
+            expect(body.parent_id).toBeNull();
+        });
+
+        it('keeps it for a token that can list the home', async () => {
+            const { userId } = await makeUser();
+            const user = (await server.stores.user.getById(userId))!;
+            const username = user.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            const scoped = await tokenActorFor(userId, `fs:${home.uuid}:list`);
+
+            const { res, captured } = makeRes();
+            await withActor(scoped, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: scoped,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.parent_uid).toBe(home.uuid);
+        });
+
+        it('keeps it for a session actor', async () => {
+            const { actor } = await makeUser();
+            const username = actor.user!.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.parent_uid).toBe(home.uuid);
+        });
     });
 });
 
@@ -1136,6 +1219,71 @@ describe('LegacyFSController.readdir', () => {
         );
         // Root listing returns an array (the actor's home entries).
         expect(Array.isArray(captured.body)).toBe(true);
+    });
+
+    describe('at the root, per credential', () => {
+        const listRoot = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.readdir(
+                    makeReq({ body: { path: '/' }, actor }),
+                    res,
+                ),
+            );
+            return captured.body as Array<{ path: string }>;
+        };
+
+        const tokenActorFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            const token = await server.services.auth.createAccessToken(
+                makeActor({ user }),
+                [[permission]],
+            );
+            return (await server.services.auth.authenticateFromToken(token))!;
+        };
+
+        it('lists the home for a session and a full-access token', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const user = (await server.stores.user.getById(userId))!;
+            const fullAccess = await tokenActorFor(userId, FULL_API_ACCESS);
+
+            for (const credential of [makeActor({ user }), fullAccess]) {
+                const entries = await listRoot(credential);
+                expect(entries.map((entry) => entry.path)).toEqual([
+                    `/${username}`,
+                ]);
+            }
+        });
+
+        it('leaves the home out for a token scoped below it', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const scoped = await tokenActorFor(
+                userId,
+                `fs:${documents.uuid}:read`,
+            );
+
+            expect(await listRoot(scoped)).toEqual([]);
+        });
+
+        it('lists the home for a token that can list it', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            const scoped = await tokenActorFor(userId, `fs:${home.uuid}:list`);
+
+            const entries = await listRoot(scoped);
+
+            expect(entries.map((entry) => entry.path)).toEqual([
+                `/${username}`,
+            ]);
+        });
     });
 
     it('rejects readdir on a non-directory with 400', async () => {
@@ -1917,6 +2065,53 @@ describe('LegacyFSController.sign', () => {
                 controller.sign(makeReq({ body: { items: [] }, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    // The missing app would 404 if any item or the grant were looked at first.
+    it('rejects items over the cap before resolving anything', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.sign(
+                    makeReq({
+                        body: {
+                            items: Array(FS_SIGN_MAX_ITEMS + 1).fill({
+                                path: '/x',
+                                action: 'read',
+                            }),
+                            app_uid: `does-not-exist-${uuidv4()}`,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: `Too many items in one request (max ${FS_SIGN_MAX_ITEMS})`,
+        });
+    });
+
+    it('accepts exactly the cap', async () => {
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.sign(
+                makeReq({
+                    body: {
+                        items: Array(FS_SIGN_MAX_ITEMS).fill({
+                            action: 'read',
+                        }),
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { signatures: Array<unknown> };
+        expect(body.signatures).toHaveLength(FS_SIGN_MAX_ITEMS);
     });
 
     it('signs a valid entry by path and returns a signature', async () => {

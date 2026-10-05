@@ -80,6 +80,11 @@ export class BytePlusProvider implements IChatProvider {
         return modelLookupNames(this.models());
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `byteplus:${modelId}`;
+    }
+
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
@@ -151,7 +156,7 @@ export class BytePlusProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `byteplus:${modelUsed.id}`,
+                    this.meteringModelKey(modelUsed.id),
                     costsOverride,
                 );
                 return trackedUsage;

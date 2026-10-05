@@ -2,7 +2,7 @@ import * as utils from '../lib/utils.js';
 import { fetchUrl } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
-import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
+import { hasOpaqueOrigin, hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 
 /**
  * Puter user details, as returned by `getUser()`.
@@ -115,9 +115,10 @@ export class AuthModule extends PuterModule {
      * user's click on it. Resolves once the user has signed in.
      *
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
-     * popup, `{ error: 'auth_window_closed' }` if the user closed it, or
+     * popup, `{ error: 'auth_window_closed' }` if the user closed it,
      * `{ error: 'not_available_in_app' }` when called from an app — an app's
-     * token comes from the Puter session that launched it.
+     * token comes from the Puter session that launched it — or
+     * `{ error: 'unsupported_origin' }` on a page with no origin to sign in.
      *
      * `request_auth` asks the popup to let the user re-pick their account even
      * when this site already holds a token for them — the GUI otherwise skips
@@ -138,6 +139,14 @@ export class AuthModule extends PuterModule {
             return Promise.reject({
                 error: 'not_available_in_app',
                 msg: 'signIn is not available to an app; the Puter session that launched it provides the token.',
+            });
+        }
+
+        // The popup could never hand a token back to a page with no origin.
+        if ( hasOpaqueOrigin() ) {
+            return Promise.reject({
+                error: 'unsupported_origin',
+                msg: 'This page has no origin Puter can sign in. Serve it over http://localhost or a real domain instead of opening it from a file, and give sandboxed iframes allow-same-origin.',
             });
         }
 
@@ -459,7 +468,8 @@ export class AuthModule extends PuterModule {
 
     /**
      * The user's resource usage for the current month, scoped to the calling
-     * app. Amounts are in microcents ($0.01 = 1,000,000).
+     * app. `allowanceInfo` covers the whole account, not just the app.
+     * Amounts are in microcents ($0.01 = 1,000,000).
      *
      * @returns {Promise<MonthlyUsage>}
      */

@@ -36,7 +36,7 @@ An id this caller doesn't hold (already ended, or created by another app) is rep
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
 
-An app can only end subscriptions it created. An account session can end any of them, including ones left by deleted apps.
+An app can only end subscriptions it created. An account session can end any of them, including ones left by deleted apps. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, can't end any.
 
 ## Examples
 

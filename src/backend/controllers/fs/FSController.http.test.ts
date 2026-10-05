@@ -353,6 +353,70 @@ describe('GET /fs/readdir over HTTP', () => {
             expect(stat.shares).toEqual([]);
         });
     });
+
+    describe('the root listing', () => {
+        const mint = async (permissions: string[]) => {
+            const response = await fetch(
+                new URL('/auth/create-access-token', env.apiOrigin),
+                {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        authorization: `Bearer ${env.users.user.token}`,
+                    },
+                    body: JSON.stringify({ permissions }),
+                },
+            );
+            expect(response.status).toBe(200);
+            return ((await response.json()) as { token: string }).token;
+        };
+
+        const listRoot = async (token: string) => {
+            const response = await fetch(
+                readdirUrl({ path: '/', auth_token: token }),
+            );
+            expect(response.status).toBe(200);
+            return response.text();
+        };
+
+        const rootPaths = async (token: string) => {
+            const entries = JSON.parse(await listRoot(token)) as Array<{
+                path: string;
+            }>;
+            return entries.map((entry) => entry.path);
+        };
+
+        const entryAt = async (path: string) =>
+            (await env.server.stores.fsEntry.getEntryByPath(path))!;
+
+        it('lists the home for a session and a full-access token', async () => {
+            const { username, token, apiToken } = env.users.user;
+            for (const credential of [token, apiToken]) {
+                expect(await rootPaths(credential)).toEqual([`/${username}`]);
+            }
+        });
+
+        it('leaves the home out for a token scoped below it', async () => {
+            const { username } = env.users.user;
+            const home = await entryAt(`/${username}`);
+            const documents = await entryAt(`/${username}/Documents`);
+            const scoped = await mint([`fs:${documents.uuid}:read`]);
+
+            const raw = await listRoot(scoped);
+
+            expect(JSON.parse(raw)).toEqual([]);
+            expect(raw).not.toContain(home.uuid);
+            expect(raw).not.toContain(username);
+        });
+
+        it('lists the home for a token that can list it', async () => {
+            const { username } = env.users.user;
+            const home = await entryAt(`/${username}`);
+            const scoped = await mint([`fs:${home.uuid}:list`]);
+
+            expect(await rootPaths(scoped)).toEqual([`/${username}`]);
+        });
+    });
 });
 
 describe('POST /fs/completeWrite over HTTP', () => {

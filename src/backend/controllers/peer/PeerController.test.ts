@@ -458,6 +458,7 @@ describe('PeerController TURN', () => {
                     uuid: created.uuid,
                     id: created.id,
                     username: created.username,
+                    email: created.email,
                 },
                 effectiveApp: null,
             });

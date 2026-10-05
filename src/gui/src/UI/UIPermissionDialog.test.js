@@ -52,8 +52,13 @@ describe('UIPermissionDialog app-data descriptions', () => {
         // Deletion must be named, not folded into "change".
         expect((await describeScope(`app-data:${CONTACTS}:kv:del`)).html)
             .toContain('perm_app_data_delete');
+    });
+
+    it('names reading and changing for the delete class, which implies both', async () => {
         expect((await describeScope(`app-data:${CONTACTS}:kv:delete`)).html)
-            .toContain('perm_app_data_delete');
+            .toContain('perm_app_data_store_all');
+        expect((await describeScope(`app-data:${CONTACTS}:fs:delete`)).html)
+            .toContain('perm_app_data_store_all');
     });
 
     it('distinguishes files from saved data', async () => {

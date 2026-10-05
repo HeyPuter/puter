@@ -50,6 +50,7 @@ import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
+import { buildPdf } from '../../testFixtures/pdf.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { OCRDriver } from './OCRDriver.js';
@@ -356,7 +357,7 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     // fsEntry, and the driver's per-region TextractClient cache leaks
     // across tests.
 
-it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
+    it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
         const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
 
@@ -776,6 +777,206 @@ describe('OCRDriver.recognize (mistral)', () => {
     });
 });
 
+// ── Credit pre-flight ───────────────────────────────────────────────
+
+describe('OCRDriver credit pre-flight', () => {
+    const pageType = 'mistral-ocr:mistral-ocr-4-1:page';
+    const perPage = OCR_COSTS[pageType];
+    const pdfSource = (buffer: Buffer) => dataUrl(buffer, 'application/pdf');
+    const checkedCosts = () => hasCreditsSpy.mock.calls.map(([, cost]) => cost);
+    const outstandingHolds = (actor: Actor) =>
+        server.stores.creditHold.outstanding(actor.user.uuid!);
+
+    it('checks and holds credits for every page of a multi-page PDF', async () => {
+        const { actor } = await makeUser();
+        const before = await server.services.metering.getRemainingUsage(actor);
+        let remainingDuringCall: number | undefined;
+        mistralOcrProcessMock.mockImplementationOnce(async () => {
+            remainingDuringCall =
+                await server.services.metering.getRemainingUsage(actor);
+            return { pages: [], usageInfo: { pagesProcessed: 12 } };
+        });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: pdfSource(buildPdf(12)),
+                provider: 'mistral',
+            }),
+        );
+
+        expect(checkedCosts()).toEqual([perPage * 12]);
+        // Concurrent calls see the whole document's cost while it runs.
+        expect(remainingDuringCall).toBe(before - perPage * 12);
+        expect(await outstandingHolds(actor)).toBe(0);
+        // Billing still follows the pages the provider reports.
+        const [, , count, cost] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === pageType,
+        )!;
+        expect(count).toBe(12);
+        expect(cost).toBe(perPage * 12);
+    });
+
+    it('prices the hold at the AI cost factor', async () => {
+        const { actor } = await makeUser();
+        const doubled = (_key: string, event: { factor: number }) => {
+            event.factor = 2;
+        };
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(3)),
+                    provider: 'mistral',
+                }),
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(checkedCosts()).toEqual([perPage * 3 * 2]);
+    });
+
+    it('refuses with 402 a PDF the balance cannot cover, even when one page fits', async () => {
+        const { actor } = await makeUser();
+        const remaining =
+            await server.services.metering.getRemainingUsage(actor);
+        const affordablePages = Math.floor(remaining / perPage);
+        expect(affordablePages).toBeGreaterThanOrEqual(1);
+        expect(affordablePages).toBeLessThan(1000);
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(affordablePages + 1)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        expect(await outstandingHolds(actor)).toBe(0);
+    });
+
+    it('rejects a zero-balance actor before estimating pages or holding credits', async () => {
+        const { actor } = await makeUser();
+        const noUsage = vi
+            .spyOn(server.services.metering, 'hasAnyUsageCached')
+            .mockResolvedValueOnce(false);
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(5)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+
+        // The estimate/hold path (which calls hasEnoughCredits) never ran.
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        noUsage.mockRestore();
+    });
+
+    it('releases the hold when the provider fails', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockRejectedValueOnce(new Error('upstream down'));
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(3)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toThrow('upstream down');
+        expect(await outstandingHolds(actor)).toBe(0);
+    });
+
+    it('counts PDFs packed in object streams', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: pdfSource(buildPdf(8, { objectStream: true })),
+                provider: 'mistral',
+            }),
+        );
+
+        expect(checkedCosts()).toEqual([perPage * 8]);
+    });
+
+    it('estimates a page selection, capped by the document', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+        const source = pdfSource(buildPdf(20));
+
+        for (const pages of [
+            [0, 2, 2, 5],
+            Array.from({ length: 50 }, (_, i) => i),
+            [],
+        ]) {
+            await withActor(actor, () =>
+                driver.recognize({ source, provider: 'mistral', pages }),
+            );
+        }
+
+        // Duplicates count once; an empty selection reads the whole document.
+        expect(checkedCosts()).toEqual([
+            perPage * 3,
+            perPage * 20,
+            perPage * 20,
+        ]);
+    });
+
+    it('falls back to 20 pages per MB for documents it cannot count', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+        const unreadablePdf = Buffer.alloc(1024 * 1024, 0xff);
+        unreadablePdf.write('%PDF-1.7\n', 'latin1');
+        const docx =
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+        for (const source of [
+            pdfSource(unreadablePdf),
+            dataUrl(Buffer.alloc(512 * 1024), docx),
+            // Small unreadable input stays at one page.
+            pdfSource(Buffer.from('x')),
+        ]) {
+            await withActor(actor, () =>
+                driver.recognize({ source, provider: 'mistral' }),
+            );
+        }
+
+        expect(checkedCosts()).toEqual([perPage * 20, perPage * 10, perPage]);
+    });
+
+    it('counts an image, and any Textract input, as one page', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+        textractSendMock.mockResolvedValue({ Blocks: [{ BlockType: 'PAGE' }] });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.alloc(2 * 1024 * 1024), 'image/png'),
+                provider: 'mistral',
+            }),
+        );
+        // Textract's synchronous API reads single-page documents only.
+        await withActor(actor, () =>
+            driver.recognize({
+                source: pdfSource(buildPdf(30)),
+                provider: 'aws-textract',
+            }),
+        );
+
+        expect(checkedCosts()).toEqual([
+            perPage,
+            OCR_COSTS['aws-textract:detect-document-text:page'],
+        ]);
+    });
+});
+
 // ── Default provider selection ──────────────────────────────────────
 
 describe('OCRDriver provider aliases', () => {
@@ -816,7 +1017,7 @@ describe('OCRDriver model routing', () => {
         ['aws-textract', 'textract'],
         ['textract', 'textract'],
         ['mistral-ocr-latest', 'mistral'],
-        ['mistral-ocr-4-0', 'mistral'],
+        ['mistral-ocr-4-1', 'mistral'],
         ['MISTRAL-OCR-2512', 'mistral'],
     ])('model %s alone selects the %s backend', async (model, expected) => {
         const { actor } = await makeUser();
@@ -842,7 +1043,9 @@ describe('OCRDriver model routing', () => {
     });
 
     it.each([
+        [{ model: 'mistral-ocr-2503' }, 'no longer available'],
         [{ model: 'mistral-ocr-2505' }, 'no longer available'],
+        [{ model: 'mistral-ocr-4-0' }, 'no longer available'],
         [{ model: 'gpt-4o' }, 'Unknown OCR model'],
         [{ model: '' }, 'non-empty string'],
         [
@@ -865,22 +1068,6 @@ describe('OCRDriver model routing', () => {
         });
         expect(textractSendMock).not.toHaveBeenCalled();
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
-    });
-
-    it('keeps the retired mistral-ocr-2503 working on the model Mistral serves it with', async () => {
-        const { actor } = await makeUser();
-        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
-
-        await withActor(actor, () =>
-            driver.recognize({
-                source: dataUrl(Buffer.from('img'), 'image/png'),
-                model: 'mistral-ocr-2503',
-            }),
-        );
-
-        expect(mistralOcrProcessMock.mock.calls[0]![0].model).toBe(
-            'mistral-ocr-4-1',
-        );
     });
 });
 

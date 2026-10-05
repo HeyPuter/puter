@@ -387,6 +387,101 @@ describe('XAIProvider model resolution', () => {
         );
     });
 
+    it('meters grok-4.7 at its standard rates below the long-context threshold', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 1000,
+                completion_tokens: 500,
+                prompt_tokens_details: { cached_tokens: 200 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'x-ai/grok-4.7',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].model).toBe('grok-4.7');
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            'xai:grok-4.7',
+            {
+                prompt_tokens: 800 * 200,
+                completion_tokens: 500 * 600,
+                cached_tokens: 200 * 50,
+            },
+        );
+    });
+
+    it('doubles every rate once the prompt passes 200K tokens', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 250_000,
+                completion_tokens: 500,
+                prompt_tokens_details: { cached_tokens: 50_000 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.7',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            'xai:grok-4.7',
+            {
+                prompt_tokens: 200_000 * 200 * 2,
+                completion_tokens: 500 * 600 * 2,
+                cached_tokens: 50_000 * 50 * 2,
+            },
+        );
+    });
+
+    it('resolves the upstream grok-4.20-beta alias to the 0309 reasoning model', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.20-beta',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].model).toBe(
+            'grok-4.20-0309-reasoning',
+        );
+    });
+
     it('resolves grok-4.6 aliases to grok-4.6 with correct metering overrides', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce({
@@ -416,7 +511,7 @@ describe('XAIProvider model resolution', () => {
             expect.anything(),
             'xai:grok-4.6',
             {
-                prompt_tokens: 1000 * 200,
+                prompt_tokens: 800 * 200,
                 completion_tokens: 500 * 600,
                 cached_tokens: 200 * 50,
             },
@@ -491,14 +586,14 @@ describe('XAIProvider.complete non-stream output', () => {
         const [usage, actor, prefix, overrides] =
             recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('xai:grok-4.6');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * 200,
+            prompt_tokens: 90 * 200,
             completion_tokens: 50 * 600,
             cached_tokens: 10 * 50,
         });
@@ -640,7 +735,7 @@ describe('XAIProvider.complete streaming', () => {
             recordSpy.mock.calls[0]!;
         expect(prefix).toBe('xai:grok-build-0.1');
         expect(overrides).toEqual({
-            prompt_tokens: 4 * 100,
+            prompt_tokens: 3 * 100,
             completion_tokens: 2 * 200,
             cached_tokens: 1 * 20,
         });

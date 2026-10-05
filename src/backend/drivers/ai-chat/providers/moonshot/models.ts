@@ -52,7 +52,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
             'kimi-k26',
             'kimi',
         ],
-        modalities: { input: ['text'], output: ['text'] },
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',

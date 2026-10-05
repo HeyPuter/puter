@@ -19,7 +19,7 @@
  */
 
 import { Readable } from 'node:stream';
-import { CreateBucketCommand } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
@@ -503,6 +503,75 @@ describe('FSService write payload handling', () => {
         // Generous timeout: the object-store client retries the torn-off body
         // before giving up, which puts the rejection just past the default.
     }, 20_000);
+
+    /**
+     * Answer every PutObject the way the real store does when the body ends
+     * before the length it was sent with; the in-memory store doesn't check.
+     */
+    const rejectShortPuts = () => {
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(null),
+        );
+        const original = client.send.bind(client);
+        return vi.spyOn(client, 'send').mockImplementation((async (
+            command: unknown,
+        ) => {
+            if (!(command instanceof PutObjectCommand)) {
+                return original(command as never);
+            }
+            const body = command.input.Body;
+            if (body instanceof Readable) {
+                for await (const _chunk of body) {
+                    // drain
+                }
+            }
+            throw Object.assign(
+                new Error(
+                    'You did not provide the number of bytes specified by the Content-Length HTTP header',
+                ),
+                { name: 'IncompleteBody', Code: 'IncompleteBody' },
+            );
+        }) as never);
+    };
+
+    it('rejects a stream shorter than its declared size as a bad request', async () => {
+        const send = rejectShortPuts();
+        try {
+            const error = await caught(() =>
+                fs.write(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/short.bin`,
+                        size: 57,
+                        contentType: 'text/plain',
+                    },
+                    fileContent: Readable.from(['x'.repeat(54)]),
+                }),
+            );
+            expect(error.statusCode).toBe(400);
+            expect(error.message).toBe(
+                'File content is shorter than its declared size',
+            );
+        } finally {
+            send.mockRestore();
+        }
+        expect(await entryAt(user, '/Documents/short.bin')).toBeNull();
+    });
+
+    it('leaves a short-body rejection of a measured payload as a server error', async () => {
+        // A buffer's length is measured here, not declared by the caller, so
+        // the store refusing it is not the caller's fault.
+        const send = rejectShortPuts();
+        try {
+            const error = await write('measured.bin', Buffer.from('abc')).then(
+                () => null,
+                (e: unknown) => e,
+            );
+            expect(error).not.toBeInstanceOf(HttpError);
+            expect((error as { name?: string })?.name).toBe('IncompleteBody');
+        } finally {
+            send.mockRestore();
+        }
+    });
 });
 
 describe('FSService overwrite and dedupe resolution', () => {
@@ -5355,6 +5424,485 @@ describe('FSService — cross-app AppData access', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
+    });
+});
+
+describe('FSService AppData root guard', () => {
+    // Launch adopts whatever directory sits at `AppData/<appUid>`, and grants on
+    // a directory follow it, so an app able to put its root in another app's
+    // place would keep its access to everything that app stores there.
+    let owner: TestUser;
+    let appUid: string;
+    let otherUid: string;
+    let root: FSEntry;
+    let userActor: Actor;
+    let appActor: Actor;
+
+    const as = <T>(actor: Actor, fn: () => Promise<T>) =>
+        runWithContext({ actor }, fn);
+
+    const tokenActor = (issuer: Actor, fullAccess: boolean) =>
+        makeActor({
+            user: owner.actor.user,
+            accessToken: { uid: `tok-${uuidv4()}`, issuer, fullAccess },
+        });
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        appUid = `app-${uuidv4()}`;
+        otherUid = `app-${uuidv4()}`;
+        root = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${appUid}`,
+            createMissingParents: true,
+        });
+        userActor = makeActor({ user: owner.actor.user });
+        appActor = makeActor({ user: owner.actor.user, app: { uid: appUid } });
+    });
+
+    it('refuses an app renaming its root or moving it away', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        await expect(
+            as(appActor, () => fs.rename(owner.userId, root, otherUid)),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: root,
+                    destinationParent: trash,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/AppData/${appUid}`))?.uuid).toBe(
+            root.uuid,
+        );
+    });
+
+    it('refuses an app moving an entry into a root’s place', async () => {
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+        const appData = (await entryAt(owner, '/AppData'))!;
+
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: appData,
+                    newName: otherUid,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(await entryAt(owner, `/AppData/${otherUid}`)).toBeNull();
+    });
+
+    it('rewrites a trash origin an app records other than the entry’s own', async () => {
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const trashAs = (originalPath: string) =>
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: trash,
+                    newName: inner.uuid,
+                    newMetadata: {
+                        original_name: otherUid,
+                        original_path: originalPath,
+                        trashed_ts: 1,
+                    },
+                }),
+            );
+
+        // Refusing this would also break an ordinary app-initiated delete, so
+        // the forged keys are corrected to the entry's own instead.
+        const trashed = await trashAs(`${owner.home}/AppData/${otherUid}`);
+        expect(trashed.path).toBe(`${owner.home}/Trash/${inner.uuid}`);
+        const metadata = JSON.parse(trashed.metadata!) as Record<
+            string,
+            unknown
+        >;
+        expect(metadata.original_path).toBe(inner.path);
+        expect(metadata.original_name).toBe('inner');
+        expect(metadata.trashed_ts).not.toBe(1);
+    });
+
+    it('refuses an app-issued token and a scoped token', async () => {
+        for (const actor of [
+            tokenActor(appActor, false),
+            tokenActor(userActor, false),
+        ]) {
+            await expect(
+                as(actor, () => fs.rename(owner.userId, root, otherUid)),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        }
+    });
+
+    it('still lets an app rename and move inside its root, and delete the root', async () => {
+        const file = await writeFile(owner, `${root.path}/state.json`, '{}');
+        const sub = await fs.mkdir(owner.userId, { path: `${root.path}/sub` });
+
+        const renamed = await as(appActor, () =>
+            fs.rename(owner.userId, file, 'state-2.json'),
+        );
+        const moved = await as(appActor, () =>
+            fs.move(owner.userId, { source: renamed, destinationParent: sub }),
+        );
+        expect(moved.path).toBe(`${root.path}/sub/state-2.json`);
+
+        await as(appActor, () =>
+            fs.remove(owner.userId, { entry: root, recursive: true }),
+        );
+        expect(await entryAt(owner, `/AppData/${appUid}`)).toBeNull();
+    });
+
+    it('leaves the account free to trash, restore and rename a root', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const appData = (await entryAt(owner, '/AppData'))!;
+
+        // As the desktop does it: trash under the entry's uid with its origin
+        // recorded, then restore under the original name.
+        const trashed = await as(userActor, () =>
+            fs.move(owner.userId, {
+                source: root,
+                destinationParent: trash,
+                newName: root.uuid,
+                newMetadata: {
+                    original_name: appUid,
+                    original_path: root.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+        const restored = await as(userActor, () =>
+            fs.move(owner.userId, {
+                source: trashed,
+                destinationParent: appData,
+                newName: appUid,
+                newMetadata: {},
+            }),
+        );
+        expect(restored.path).toBe(root.path);
+
+        const renamed = await as(tokenActor(userActor, true), () =>
+            fs.rename(owner.userId, restored, otherUid),
+        );
+        expect(renamed.path).toBe(`${owner.home}/AppData/${otherUid}`);
+
+        // No actor: an internal caller.
+        const back = await fs.rename(owner.userId, renamed, appUid);
+        expect(back.path).toBe(root.path);
+    });
+
+    it('drops forged trash metadata from a write, for an app or the account alike', async () => {
+        // Nothing legitimate sets these through a write — the GUI only ever
+        // sends them via move's trash step — so a write never keeps them,
+        // regardless of who's writing.
+        const forged = {
+            original_path: `${owner.home}/AppData/${otherUid}`,
+            original_name: otherUid,
+            trashed_ts: 1,
+            keep: 'value',
+        };
+
+        const fromApp = await as(appActor, () =>
+            writeFile(owner, `${root.path}/evil.json`, '{}', {
+                metadata: forged,
+            }),
+        );
+        expect(JSON.parse(fromApp.metadata!)).toEqual({
+            keep: 'value',
+            contentType: 'text/plain',
+        });
+
+        const fromAccount = await as(userActor, () =>
+            writeFile(owner, `${root.path}/legit.json`, '{}', {
+                metadata: forged,
+            }),
+        );
+        expect(JSON.parse(fromAccount.metadata!)).toEqual({
+            keep: 'value',
+            contentType: 'text/plain',
+        });
+    });
+
+    it('refuses overwriting another app’s root via move, even with overwrite: true', async () => {
+        const appData = (await entryAt(owner, '/AppData'))!;
+        const otherRoot = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${otherUid}`,
+        });
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: appData,
+                    newName: otherUid,
+                    overwrite: true,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/AppData/${otherUid}`))?.uuid).toBe(
+            otherRoot.uuid,
+        );
+    });
+
+    it('still protects a root after its AppData folder is renamed to a different case', async () => {
+        const appData = (await entryAt(owner, '/AppData'))!;
+        await as(userActor, () => fs.rename(owner.userId, appData, 'appdata'));
+
+        const recased = (await entryAt(owner, `/appdata/${appUid}`))!;
+        expect(recased.uuid).toBe(root.uuid);
+
+        await expect(
+            as(appActor, () => fs.rename(owner.userId, recased, otherUid)),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/appdata/${appUid}`))?.uuid).toBe(
+            root.uuid,
+        );
+    });
+});
+
+describe('FSService trash metadata across a share', () => {
+    // The trash keys steer a later restore, so a recipient never sets them.
+    let owner: TestUser;
+    let holder: TestUser;
+    let ownerActor: Actor;
+    let holderActor: Actor;
+    let shared: FSEntry;
+
+    const as = <T>(actor: Actor, fn: () => Promise<T>) =>
+        runWithContext({ actor }, fn);
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        // `makeActor` resolves `effectiveApp`, which account context reads.
+        ownerActor = makeActor({ user: owner.actor.user });
+        holderActor = makeActor({ user: holder.actor.user });
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Shared`,
+        });
+        await server.services.acl.setUserUser(
+            ownerActor,
+            holderActor,
+            {
+                path: shared.path,
+                resolveAncestors: () => fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+    });
+
+    it('drops forged trash metadata from a recipient’s write into the shared folder', async () => {
+        const forged = {
+            original_path: `${owner.home}/AppData/some-other-app`,
+            original_name: 'some-other-app',
+            trashed_ts: 1,
+        };
+
+        const written = await as(holderActor, () =>
+            writeFile(holder, `${shared.path}/evil.txt`, 'x', {
+                metadata: forged,
+            }),
+        );
+        expect(JSON.parse(written.metadata!)).toEqual({
+            contentType: 'text/plain',
+        });
+    });
+
+    it('recomputes original_path/original_name when a recipient trashes with forged new_metadata', async () => {
+        const file = await writeFile(owner, `${shared.path}/theirs.txt`, 'x');
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: trash,
+                newName: file.uuid,
+                newMetadata: {
+                    original_name: 'not-theirs',
+                    original_path: `${owner.home}/AppData/some-other-app`,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        const metadata = JSON.parse(moved.metadata!) as Record<string, unknown>;
+        expect(metadata.original_path).toBe(file.path);
+        expect(metadata.original_name).toBe(file.name);
+        expect(metadata.trashed_ts).not.toBe(1);
+    });
+
+    it('keeps what the owner’s own session sends when trashing its own tree', async () => {
+        const file = await writeFile(owner, `${shared.path}/mine.txt`, 'x');
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        const moved = await as(ownerActor, () =>
+            fs.move(owner.userId, {
+                source: file,
+                destinationParent: trash,
+                newName: file.uuid,
+                newMetadata: {
+                    original_name: file.name,
+                    original_path: file.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        expect(JSON.parse(moved.metadata!)).toEqual({
+            original_name: file.name,
+            original_path: file.path,
+            trashed_ts: 1,
+        });
+    });
+
+    it('drops forged new_metadata when a recipient moves its own file into the shared folder', async () => {
+        const seed = await writeFile(
+            holder,
+            `${holder.home}/Documents/seed.txt`,
+            'x',
+        );
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: seed,
+                destinationParent: shared,
+                newMetadata: {
+                    original_path: `${owner.home}/AppData/some-other-app`,
+                    original_name: 'some-other-app',
+                    trashed_ts: 1,
+                    keep: true,
+                },
+            }),
+        );
+
+        expect(JSON.parse(moved.metadata!)).toEqual({ keep: true });
+    });
+
+    it('drops trash metadata a recipient set in its own tree once the file moves into the shared folder', async () => {
+        // A recipient may set anything on its own file; it must not survive
+        // the move into someone else's tree.
+        const seed = await writeFile(
+            holder,
+            `${holder.home}/Documents/seed.txt`,
+            'x',
+            {
+                metadata: {
+                    original_path: `${owner.home}/AppData/some-other-app`,
+                    original_name: 'some-other-app',
+                    trashed_ts: 1,
+                },
+            },
+        );
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: seed,
+                destinationParent: shared,
+            }),
+        );
+
+        expect(JSON.parse(moved.metadata!)).toEqual({
+            contentType: 'text/plain',
+        });
+    });
+
+    it('leaves metadata alone when a recipient moves an entry without trash keys', async () => {
+        const file = await writeFile(owner, `${shared.path}/plain.txt`, 'x', {
+            metadata: { keep: true },
+        });
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub`,
+        });
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, { source: file, destinationParent: sub }),
+        );
+
+        expect(moved.metadata).toBe(file.metadata);
+    });
+
+    it('accepts non-object new_metadata from a recipient', async () => {
+        const file = await writeFile(owner, `${shared.path}/odd.txt`, 'x');
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/odd-sub`,
+        });
+
+        await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: sub,
+                newMetadata: 'x' as never,
+            }),
+        );
+    });
+
+    it('does not carry trash metadata forward onto a copy of a trashed directory', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const dir = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/ToTrash`,
+        });
+        const trashedDir = await as(ownerActor, () =>
+            fs.move(owner.userId, {
+                source: dir,
+                destinationParent: trash,
+                newName: dir.uuid,
+                newMetadata: {
+                    original_name: dir.name,
+                    original_path: dir.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        const documents = (await entryAt(owner, '/Documents'))!;
+        const copiedDir = await as(ownerActor, () =>
+            fs.copy(owner.userId, {
+                source: trashedDir,
+                destinationParent: documents,
+                newName: 'CopiedDir',
+            }),
+        );
+        expect(JSON.parse(copiedDir.metadata!)).toEqual({});
+    });
+
+    it('does not carry trash metadata forward onto a copy of a trashed empty file', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const file = await fs.touch(owner.userId, {
+            path: `${owner.home}/Documents/empty.txt`,
+        });
+        const trashedFile = await as(ownerActor, () =>
+            fs.move(owner.userId, {
+                source: file,
+                destinationParent: trash,
+                newName: file.uuid,
+                newMetadata: {
+                    original_name: file.name,
+                    original_path: file.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        const documents = (await entryAt(owner, '/Documents'))!;
+        const copiedFile = await as(ownerActor, () =>
+            fs.copy(owner.userId, {
+                source: trashedFile,
+                destinationParent: documents,
+                newName: 'restored-copy.txt',
+            }),
+        );
+        expect(JSON.parse(copiedFile.metadata!)).toEqual({});
     });
 });
 

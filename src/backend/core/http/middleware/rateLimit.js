@@ -21,10 +21,7 @@
 import crypto from 'node:crypto';
 import { withSpan } from '../../../util/span.js';
 import { HttpError } from '../HttpError.js';
-import {
-    DEFAULT_FREE_SUBSCRIPTION,
-    FREE_SUBSCRIPTION_IDS,
-} from '../../../services/metering/consts.js';
+import { subscriptionOverride } from '../../../services/metering/consts.js';
 
 /**
  * Sliding-window rate limiter with swappable, **co-resident** backends.
@@ -748,6 +745,29 @@ export async function consumeRouteRateLimit(req, spec) {
 }
 
 /**
+ * `consumeRouteRateLimit` without the spend: same spec, same bucket. Pair the
+ * two when only a successful outcome should count — peek before the work,
+ * consume after it succeeds. Single-window specs only. Fails open.
+ */
+export async function peekRouteRateLimit(req, spec) {
+    const {
+        window: windowMs,
+        key: strategy = 'fingerprint',
+        scope,
+        backend,
+    } = spec;
+    const backendPair = resolveBackend(backend);
+    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
+    try {
+        const limit = await resolveSubscriptionLimit(req, spec);
+        return await backendPair.peek(key, limit, windowMs);
+    } catch (err) {
+        console.error('[rate-limit] handler peek failed, failing open:', err);
+        return true;
+    }
+}
+
+/**
  * Read whether `key` still has budget, without spending any. The twin to
  * `checkRateLimit` for gates whose budget is consumed by an outcome rather than
  * by the request: a failed-credential counter has to be readable before the
@@ -846,15 +866,6 @@ export const CONCURRENT_SLOT_TTL_MS = ORPHAN_SAFETY_TTL_MS;
  * actor, no metering, metering throws) falls through to the base — rate /
  * concurrency limiting should never _amplify_ a request failure path.
  */
-// An unlisted free plan would otherwise take `limit`, the paid cap.
-function overrideFor(bySubscription, subscriptionId) {
-    const own = bySubscription[subscriptionId];
-    if (typeof own === 'number') return own;
-    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
-        ? bySubscription[DEFAULT_FREE_SUBSCRIPTION]
-        : undefined;
-}
-
 async function resolveSubscriptionLimit(req, opts) {
     const base = opts.limit;
     if (!opts.bySubscription || !meteringService) return base;
@@ -862,7 +873,7 @@ async function resolveSubscriptionLimit(req, opts) {
     if (!actor?.user?.uuid) return base;
     try {
         const sub = await meteringService.getActorSubscription(actor);
-        const override = overrideFor(opts.bySubscription, sub.id);
+        const override = subscriptionOverride(opts.bySubscription, sub.id);
         return typeof override === 'number' ? override : base;
     } catch {
         return base;

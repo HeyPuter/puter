@@ -665,11 +665,11 @@ const en = {
         teams_audit_directory_enabled: 'Directory opened to apps',
         teams_audit_directory_disabled: 'Directory closed to apps',
         teams_directory: 'Directory',
-        teams_directory_hint: 'Whether the apps your members use may look up who else is here.',
-        teams_directory_label: 'Let apps suggest colleagues by name',
-        teams_directory_on_note: 'Apps your members use can read usernames of everyone active here. They cannot see emails, records, or suspended accounts.',
+        teams_directory_hint: 'Whether apps your members use may access team details and look up who else is here.',
+        teams_directory_label: 'Let apps access team information',
+        teams_directory_on_note: 'Apps your members use can access team details and read usernames of everyone active here. They cannot see emails, records, or suspended accounts.',
         teams_directory_off_note: 'Members can still see each other. Only apps are shut out.',
-        teams_directory_confirm: 'Apps your members install will be able to read the usernames of everyone active in this team. They will not see emails, records, or suspended accounts. You can turn this off again at any time.',
+        teams_directory_confirm: 'Apps your members install will be able to access team details and read the usernames of everyone active in this team. They will not see emails, records, or suspended accounts. You can turn this off again at any time.',
         teams_directory_confirm_action: 'Open the directory',
         teams_require_2fa_label: 'Require two-factor authentication',
         teams_require_2fa_on_note: 'Accounts this team created must set it up before they can use Puter.',
@@ -774,7 +774,7 @@ const en = {
 
         // === 2FA Setup ===
         setup2fa_1_step_heading: 'Open your authenticator app',
-        setup2fa_1_instructions: 'Scan the QR code with your authenticator app, then enter the 6-digit code it generates.',
+        setup2fa_1_instructions: 'Scan the QR code with your authenticator app.',
         setup2fa_2_step_heading: 'Scan the QR code',
         setup2fa_3_step_heading: 'Enter the 6-digit code',
         setup2fa_4_step_heading: 'Copy your recovery codes',
@@ -786,6 +786,8 @@ const en = {
         setup2fa_5_confirmation_1: 'I have saved my recovery codes in a secure location',
         setup2fa_5_confirmation_2: 'I am ready to enable 2FA',
         setup2fa_5_button: 'Enable 2FA',
+        setup2fa_password_instructions: 'Enter your password to set up 2FA.',
+        setup2fa_code_expired: 'That code has expired. Enter the current code from your authenticator app to finish.',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Enter 2FA Code',
@@ -911,6 +913,7 @@ const en = {
         sign_up_with_provider: 'Sign up with %%',
         sign_up_with_email: 'Sign up using email',
         popup_opener_uses_puter: '%strong% is powered by Puter for its AI and cloud features.\nUse your Puter account to continue.',
+        popup_opener_origin_unsupported: 'Puter cannot sign you in to this page because the browser gives it no identifiable address. Pages opened straight from a file (file://) and iframes sandboxed without allow-same-origin are not supported — serve the page over http://localhost or a real domain and try again.',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window

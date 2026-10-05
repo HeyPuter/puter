@@ -23,6 +23,8 @@ Various object types and classes that represent different entities in the Puter 
 - **[PuterPeerServer](/Objects/puterpeerserver/)** - Represents a peer server and its connected clients
 - **[Speech2TxtResult](/Objects/speech2txtresult/)** - Represents speech-to-text transcription results
 - **[Subdomain](/Objects/subdomain/)** - Represents a subdomain
+- **[Team](/Objects/team/)** - Represents a Puter team
+- **[TeamDirectoryEntry](/Objects/teamdirectoryentry/)** - Represents a member of a team
 - **[TTSEngine](/Objects/ttsengine/)** - Represents an available text-to-speech engine/model
 - **[TTSVoice](/Objects/ttsvoice/)** - Represents an available text-to-speech voice
 - **[ToolCall](/Objects/toolcall/)** - Represents a tool invocation request
