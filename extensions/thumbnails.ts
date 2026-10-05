@@ -9,6 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extension } from '@heyputer/backend/src/extensions';
 import { isMissingObjectError } from '@heyputer/backend/src/stores/fs/S3ObjectStore';
 import crypto from 'node:crypto';
+import type { Readable } from 'node:stream';
 import sharp from 'sharp';
 const clients = extension.import('client');
 
@@ -400,6 +401,11 @@ export const handleFsCopyNodeThumbnail = async (
         const source = await deps.s3.send(
             new GetObjectCommand({ Bucket: deps.bucketName, Key: sourceKey }),
         );
+        // The object can be replaced after the HEAD; bound what gets buffered.
+        if ((source.ContentLength ?? 0) > MAX_THUMBNAIL_BYTES) {
+            (source.Body as Readable | undefined)?.destroy();
+            throw new Error('thumbnail exceeds the size bound');
+        }
         const body = await source.Body?.transformToByteArray();
         if (!body) throw new Error('thumbnail has no body');
         await deps.s3.send(

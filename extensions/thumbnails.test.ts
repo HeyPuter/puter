@@ -734,6 +734,40 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         expect(params).toEqual([copyUuid]);
     });
 
+    it('drops the pointer when the object outgrows the bound after its size was checked', async () => {
+        const sourceKey = mintedKey();
+        await putObject(s3, sourceKey, Buffer.from(TINY_PNG_BASE64, 'base64'));
+        const sent: unknown[] = [];
+        // Replaces the object between the HEAD and the GET.
+        const racing = {
+            send: async (command: unknown) => {
+                sent.push(command);
+                const result = await s3.send(command as never);
+                if (command instanceof HeadObjectCommand) {
+                    await putObject(
+                        s3,
+                        sourceKey,
+                        Buffer.alloc(2 * 1024 * 1024 + 1),
+                    );
+                }
+                return result;
+            },
+        } as unknown as S3Client;
+
+        const copyUuid = crypto.randomUUID();
+        const db = await copyNode(
+            `s3://${BUCKET}/${sourceKey}`,
+            copyUuid,
+            racing,
+        );
+
+        expect(db.write).toHaveBeenCalledTimes(1);
+        const [sql, params] = db.write.mock.calls[0] as [string, [string]];
+        expect(sql).toContain('NULL');
+        expect(params).toEqual([copyUuid]);
+        expect(sent.some((c) => c instanceof PutObjectCommand)).toBe(false);
+    });
+
     it('does not duplicate an object the pointer names but we did not mint', async () => {
         const foreignKey = crypto.randomUUID(); // shaped like an fs object key
         const db = await copyNode(
