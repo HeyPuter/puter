@@ -1152,6 +1152,10 @@ export class SystemKVStore extends PuterStore {
 
     override async onServerStart(): Promise<void> {
         if (this.#cache.enabled) this.#subscribeRemoteInvalidations();
+        this.clients.dynamo.registerKeySchema(
+            this.tableName,
+            PUTER_KV_STORE_TABLE_DEFINITION.KeySchema!,
+        );
 
         // For local/dynalite runs we need to create the table up front.
         // Real AWS deployments provision tables externally (Terraform), so

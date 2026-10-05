@@ -20,7 +20,17 @@
 
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    type MockInstance,
+    vi,
+} from 'vitest';
 import type { IConfig } from '../../types';
 import { DDBClient } from './DDBClient';
 
@@ -761,5 +771,221 @@ describe('DDBClient — unprocessed batch keys', () => {
         await expect(
             stubClient().batchGet([{ table: TABLE, items: { pk: 'anon' } }]),
         ).resolves.toEqual({ Responses: {}, ConsumedCapacity: [] });
+    });
+});
+
+// Throttles are a service-side signal the emulator never produces, so these
+// drive the client against a stub answering in DynamoDB's error shape.
+describe('DDBClient — throttle logging', () => {
+    let server: Server;
+    let endpoint: string;
+    let responses: { status: number; body: unknown }[];
+    let warn: MockInstance<typeof console.warn>;
+
+    beforeAll(async () => {
+        server = createServer((req, res) => {
+            req.resume();
+            req.on('end', () => {
+                const next = responses.shift() ?? { status: 200, body: {} };
+                res.writeHead(next.status, {
+                    'content-type': 'application/x-amz-json-1.0',
+                });
+                res.end(JSON.stringify(next.body));
+            });
+        });
+        await new Promise<void>((resolve) =>
+            server.listen(0, '127.0.0.1', resolve),
+        );
+        endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+
+    afterAll(async () => {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    beforeEach(() => {
+        warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const stubClient = () =>
+        new DDBClient({
+            port: 0,
+            extensions: [],
+            dynamo: {
+                aws: {
+                    access_key: 'a',
+                    secret_key: 'b',
+                    region: 'eu-central-1',
+                },
+                endpoint,
+            },
+        } as unknown as IConfig);
+
+    const throttled = (reason = 'TableWriteKeyRangeThroughputExceeded') => ({
+        status: 400,
+        body: {
+            __type: 'com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException',
+            message:
+                'The level of configured provisioned throughput for the table was exceeded.',
+            ThrottlingReasons: [
+                {
+                    reason,
+                    resource: `arn:aws:dynamodb:eu-central-1:0:table/${TABLE}`,
+                },
+            ],
+        },
+    });
+    const ok = (body: unknown = {}) => ({ status: 200, body });
+
+    const ddbWarnings = () =>
+        warn.mock.calls
+            .map(([line]) => String(line))
+            .filter((line) => line.startsWith('[ddb] '));
+
+    it('logs the key of a throttled update that succeeds on retry', async () => {
+        responses = [
+            throttled(),
+            ok({
+                Attributes: {
+                    pk: { S: 'hot' },
+                    sk: { S: 'counter' },
+                    v: { N: '1' },
+                },
+            }),
+        ];
+
+        const result = await stubClient().update(
+            TABLE,
+            { pk: 'hot', sk: 'counter' },
+            'SET v = :v',
+            { ':v': 1 },
+        );
+
+        expect(result.Attributes?.v).toBe(1);
+        expect(ddbWarnings()).toEqual([
+            '[ddb] throttled UpdateItem kv-items pk=hot sk=counter in eu-central-1: TableWriteKeyRangeThroughputExceeded',
+        ]);
+    }, 15_000);
+
+    it('logs only the key attributes of a throttled put', async () => {
+        const client = stubClient();
+        // On a managed deployment this creates nothing but learns the key schema.
+        await client.createTableIfNotExists(tableSchema);
+        responses = [throttled(), ok()];
+
+        await client.put(TABLE, {
+            pk: 'user-1',
+            sk: 'settings',
+            secret: 'do-not-log',
+        });
+
+        expect(ddbWarnings()).toEqual([
+            '[ddb] throttled PutItem kv-items pk=user-1 sk=settings in eu-central-1: TableWriteKeyRangeThroughputExceeded',
+        ]);
+        expect(warn.mock.calls.flat().join('\n')).not.toContain('do-not-log');
+    }, 15_000);
+
+    it('logs a hot key once a minute and counts the throttles in between', async () => {
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        const client = stubClient();
+        const read = 'TableReadKeyRangeThroughputExceeded';
+
+        responses = [throttled(read), ok(), throttled(read), ok()];
+        await client.get(TABLE, { pk: 'burst', sk: 'a' });
+        await client.get(TABLE, { pk: 'burst', sk: 'a' });
+
+        now.mockReturnValue(1_000_000 + 61_000);
+        responses = [throttled(read), ok()];
+        await client.get(TABLE, { pk: 'burst', sk: 'a' });
+
+        expect(ddbWarnings()).toEqual([
+            `[ddb] throttled GetItem kv-items pk=burst sk=a in eu-central-1: ${read}`,
+            `[ddb] throttled GetItem kv-items pk=burst sk=a in eu-central-1: ${read} (+1 since last logged)`,
+        ]);
+    }, 15_000);
+
+    it('names the partition a throttled query read', async () => {
+        responses = [throttled('IndexReadKeyRangeThroughputExceeded'), ok()];
+
+        await stubClient().query(TABLE, { kind: 'note' }, 0, undefined, GSI);
+
+        expect(ddbWarnings()).toEqual([
+            '[ddb] throttled Query kv-items index=by-kind kind=note in eu-central-1: IndexReadKeyRangeThroughputExceeded',
+        ]);
+    }, 15_000);
+
+    it('names up to five keys of a throttled batch', async () => {
+        responses = [
+            throttled('TableReadKeyRangeThroughputExceeded'),
+            ok({ Responses: {}, UnprocessedKeys: {} }),
+        ];
+
+        await stubClient().batchGet(
+            Array.from({ length: 7 }, (_, index) => ({
+                table: TABLE,
+                items: { pk: `batch-${index}`, sk: 's' },
+            })),
+        );
+
+        expect(ddbWarnings()).toEqual([
+            '[ddb] throttled BatchGetItem kv-items pk=batch-0 sk=s, pk=batch-1 sk=s, pk=batch-2 sk=s, pk=batch-3 sk=s, pk=batch-4 sk=s (+2 more) in eu-central-1: TableReadKeyRangeThroughputExceeded',
+        ]);
+    }, 15_000);
+
+    it('logs batch items DynamoDB hands back unprocessed', async () => {
+        const client = stubClient();
+        await client.createTableIfNotExists(tableSchema);
+        responses = [
+            ok({
+                UnprocessedItems: {
+                    [TABLE]: [
+                        {
+                            PutRequest: {
+                                Item: {
+                                    pk: { S: 'left' },
+                                    sk: { S: 'over' },
+                                    v: { N: '1' },
+                                },
+                            },
+                        },
+                    ],
+                },
+            }),
+            ok({ UnprocessedItems: {} }),
+        ];
+
+        await client.batchPut([
+            { table: TABLE, item: { pk: 'left', sk: 'over', v: 1 } },
+            { table: TABLE, item: { pk: 'done', sk: 'fine', v: 2 } },
+        ]);
+
+        expect(ddbWarnings()).toEqual([
+            '[ddb] unprocessed BatchWriteItem kv-items pk=left sk=over in eu-central-1',
+        ]);
+    });
+
+    it('does not log errors that are not throttles', async () => {
+        responses = [
+            {
+                status: 400,
+                body: {
+                    __type: 'com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException',
+                    message: 'The conditional request failed',
+                },
+            },
+        ];
+
+        await expect(
+            stubClient().del(
+                TABLE,
+                { pk: 'guarded', sk: 'a' },
+                { condition: { expression: 'attribute_exists(pk)' } },
+            ),
+        ).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+        expect(ddbWarnings()).toEqual([]);
     });
 });

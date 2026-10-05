@@ -50,6 +50,7 @@ import {
     isRepairableMarshallError,
     repairForMarshall,
 } from './marshallRepair.js';
+import { attachThrottleLogging } from './throttleLog.js';
 
 const LOCAL_DYNAMO_MEMORY_PREFIX = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
@@ -172,6 +173,7 @@ export class DDBClient extends PuterClient {
     // key per instance so parallel clients don't share state, but
     // `recreateClient()` reuses this same key and so reuses the server.
     #localPathKey: string;
+    #keyNamesByTable = new Map<string, string[]>();
 
     constructor(config: IConfig) {
         super(config);
@@ -633,10 +635,25 @@ export class DDBClient extends PuterClient {
         );
     }
 
+    /** Lets throttle logs name a put's key without logging the item. */
+    registerKeySchema(
+        table: string,
+        keySchema: NonNullable<CreateTableCommandInput['KeySchema']>,
+    ) {
+        this.#keyNamesByTable.set(
+            table,
+            keySchema.map((key) => key.AttributeName!),
+        );
+    }
+
     async createTableIfNotExists(
         params: CreateTableCommandInput,
         ttlAttribute?: string,
     ) {
+        if (params.TableName && params.KeySchema) {
+            this.registerKeySchema(params.TableName, params.KeySchema);
+        }
+
         // Real-AWS deployments provision tables externally (Terraform / IaC),
         // so we no-op there by default. Self-hosters pointing at
         // dynamodb-local opt in via `dynamo.bootstrapTables: true`.
@@ -711,6 +728,7 @@ export class DDBClient extends PuterClient {
             );
         }
 
+        const region = this.#ddbConfig.aws?.region || 'us-west-2';
         const ddbClient = new DynamoDBClient({
             credentials: {
                 accessKeyId,
@@ -725,8 +743,11 @@ export class DDBClient extends PuterClient {
             ...(this.#ddbConfig.endpoint
                 ? { endpoint: this.#ddbConfig.endpoint }
                 : {}),
-            region: this.#ddbConfig.aws?.region || 'us-west-2',
+            region,
         });
+        attachThrottleLogging(ddbClient, region, (table) =>
+            this.#keyNamesByTable.get(table),
+        );
 
         this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
             marshallOptions: {
