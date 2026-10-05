@@ -90,7 +90,6 @@ export class FakePeerConnection {
     removeTrack (sender) {
         if ( sender.track === null ) return;
         sender.track = null;
-        sender.removed = true;
         const transceiver = this.transceivers.find((t) => t.sender === sender);
         if ( transceiver ) {
             transceiver.setDirectionQuietly(transceiver.direction === 'sendrecv' ? 'recvonly' : 'inactive');
@@ -207,7 +206,6 @@ export class FakeTransceiver {
 
 /** A sender whose encoding parameters a test can inspect. */
 export class FakeSender {
-    removed = false;
     #params = { encodings: [{}] };
     /** Replacements asked for, in order; the sender's track changes only once one lands. */
     replacements = [];
@@ -224,11 +222,11 @@ export class FakeSender {
     }
 
     getParameters () {
-        return this.#params;
+        return structuredClone(this.#params);
     }
 
     async setParameters (params) {
-        this.#params = params;
+        this.#params = structuredClone(params);
     }
 
     get encoding () {

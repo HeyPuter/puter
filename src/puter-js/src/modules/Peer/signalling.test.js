@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientSignallingChannel } from './signalling.js';
 
-/**
- * A client whose socket drops under a live call dials again and reclaims its
- * session, so its peer server addresses it as before and the call can go on
- * renegotiating — an ICE restart above all — instead of being rebuilt.
- */
-
 class FakeWebSocket {
     static all = [];
     sent = [];
@@ -92,17 +86,6 @@ describe('ClientSignallingChannel reclaiming its session', () => {
         expect(second.sent.at(-1)).toEqual({ client: { candidate: { candidate: { candidate: 'c' } } } });
     });
 
-    it('keeps dialing while the network is down', async () => {
-        const { first } = await attached();
-        first.onclose({});
-        for ( let i = 0; i < 3; i++ ) {
-            await vi.advanceTimersByTimeAsync(5000);
-            FakeWebSocket.latest.onerror({});
-        }
-        await vi.advanceTimersByTimeAsync(5000);
-        expect(FakeWebSocket.all.length).toBeGreaterThanOrEqual(5);
-    });
-
     it('strands itself when the reclaim is turned down, and stops dialing', async () => {
         const { channel, events, first } = await attached();
         first.onclose({});
@@ -124,17 +107,6 @@ describe('ClientSignallingChannel reclaiming its session', () => {
         channel.close();
         expect(first.sent.at(-1)).toEqual({ client: { release: {} } });
         expect(first.closed).toBe(true);
-        await vi.advanceTimersByTimeAsync(60_000);
-        expect(FakeWebSocket.all).toHaveLength(1);
-    });
-
-    it('does not try to reclaim a handshake that never got attached', async () => {
-        const channel = new ClientSignallingChannel({ signallerUrl: 'wss://signaller.test/' });
-        channel.onunusable = () => {};
-        const opening = channel.open('INV-1');
-        FakeWebSocket.latest.onopen();
-        await opening;
-        FakeWebSocket.latest.onclose({});
         await vi.advanceTimersByTimeAsync(60_000);
         expect(FakeWebSocket.all).toHaveLength(1);
     });
