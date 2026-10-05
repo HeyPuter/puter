@@ -1,5 +1,4 @@
 import {
-    CopyObjectCommand,
     DeleteObjectCommand,
     GetObjectCommand,
     HeadObjectCommand,
@@ -10,6 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extension } from '@heyputer/backend/src/extensions';
 import { isMissingObjectError } from '@heyputer/backend/src/stores/fs/S3ObjectStore';
 import crypto from 'node:crypto';
+import type { Readable } from 'node:stream';
 import sharp from 'sharp';
 const clients = extension.import('client');
 
@@ -396,11 +396,24 @@ export const handleFsCopyNodeThumbnail = async (
         ) {
             throw new Error('thumbnail exceeds the size bound');
         }
+        // Read and rewrite rather than CopyObject: a copy source skips any path
+        // in the client's endpoint, so it can miss an object Bucket/Key reach.
+        const source = await deps.s3.send(
+            new GetObjectCommand({ Bucket: deps.bucketName, Key: sourceKey }),
+        );
+        // The object can be replaced after the HEAD; bound what gets buffered.
+        if ((source.ContentLength ?? 0) > MAX_THUMBNAIL_BYTES) {
+            (source.Body as Readable | undefined)?.destroy();
+            throw new Error('thumbnail exceeds the size bound');
+        }
+        const body = await source.Body?.transformToByteArray();
+        if (!body) throw new Error('thumbnail has no body');
         await deps.s3.send(
-            new CopyObjectCommand({
+            new PutObjectCommand({
                 Bucket: deps.bucketName,
-                CopySource: `${deps.bucketName}/${sourceKey}`,
                 Key: newKey,
+                Body: body,
+                ContentType: source.ContentType,
             }),
         );
     } catch (err) {
