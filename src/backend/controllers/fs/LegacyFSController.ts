@@ -940,7 +940,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1397,7 +1399,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1998,7 +2001,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -2083,6 +2089,10 @@ export class LegacyFSController extends PuterController {
             entry.path,
             'read',
         );
+
+        // The GUI calls this on the root origin, which egress metering skips
+        // by default, so opt in by naming the downloader as who pays.
+        req.egressActor = actor;
 
         const range =
             typeof req.headers.range === 'string'

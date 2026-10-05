@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../actor';
 import { PERIOD_ESCAPE } from '../../../services/metering/consts.js';
 import type { MeteringService } from '../../../services/metering/MeteringService.js';
@@ -112,6 +112,59 @@ describe('egress metering over HTTP', () => {
             units: number;
         };
         expect(reads.units).toBeGreaterThanOrEqual(1);
+    });
+
+    it('bills a root-origin /down to the downloader', async () => {
+        const { username, apiToken } = env.users.user;
+        const actor = await actorFor(username);
+
+        const body = Buffer.from('z'.repeat(4096));
+        const path = `/${username}/Desktop/down-egress.txt`;
+        await env.server.services.fs.write(actor.user.id!, {
+            fileMetadata: {
+                path,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+
+        const before = await usageFor(actor);
+        const beforeEgress =
+            (before[escape('egress:bytes')] as { units?: number } | undefined)
+                ?.units ?? 0;
+        const beforeReads =
+            (
+                before[escape('storage:read:ops')] as
+                    | { units?: number }
+                    | undefined
+            )?.units ?? 0;
+
+        const downUrl = new URL('/down', env.origin);
+        downUrl.searchParams.set('path', path);
+        const down = await fetch(downUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiToken}` },
+        });
+        expect(down.status).toBe(200);
+        expect(await down.text()).toHaveLength(body.byteLength);
+
+        // A streamed body can be fully read before the server sees the
+        // response close, which is when its usage is buffered.
+        await vi.waitFor(async () => {
+            const after = await usageFor(actor);
+            const egress = after[escape('egress:bytes')] as {
+                units: number;
+                cost: number;
+            };
+            expect(egress.units).toBeGreaterThan(beforeEgress);
+            expect(egress.cost).toBeGreaterThan(0);
+
+            const reads = after[escape('storage:read:ops')] as {
+                units: number;
+            };
+            expect(reads.units).toBeGreaterThan(beforeReads);
+        });
     });
 
     it('bills a signed-URL read to the account whose file it is', async () => {

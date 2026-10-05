@@ -1097,13 +1097,17 @@ export class AuthService extends PuterService {
         return this.#normalizedOrigin(parsed);
     }
 
-    /** Scheme + lowercased host + explicit port, with no trailing separator. */
+    /**
+     * Scheme + lowercased host without a trailing dot + explicit port, with no
+     * trailing separator.
+     */
     #normalizedOrigin(parsed: URL): string {
         const port = parsed.port ? `:${parsed.port}` : '';
-        // `new URL()` lowercases http(s) hosts but leaves opaque ones alone, so
-        // without this an extension id in two spellings hashes to two app uids
-        // (and misses the blocklist, which matches on a lowercased host).
-        return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${port}`;
+        // `new URL()` lowercases http(s) hosts but leaves opaque ones alone, and
+        // keeps the fully-qualified trailing dot, so without this one host in
+        // two spellings hashes to two app uids.
+        const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+        return `${parsed.protocol}//${host}${port}`;
     }
 
     /** Same subdomain on the primary hosting domain; null when not hosted. */
@@ -2272,7 +2276,7 @@ export class AuthService extends PuterService {
             }
             // Extension schemes aren't "special", so `new URL()` accepts them
             // with no authority at all (`chrome-extension:`).
-            if (!parsed.hostname) {
+            if (!parsed.hostname.replace(/\.+$/, '')) {
                 return null;
             }
             return this.#normalizedOrigin(parsed);
@@ -2338,20 +2342,8 @@ export class AuthService extends PuterService {
         const app = await this.stores.app.getByUid(decoded.app_uid);
         if (!app) return { invalid: true };
 
-        // Reject already-issued app tokens whose app origin is now blocked, so
-        // a block takes effect immediately rather than waiting for token
-        // expiry. The app's `index_url` host is the same origin checked at
-        // token acquisition.
-        const indexUrl = (app as { index_url?: unknown }).index_url;
-        if (typeof indexUrl === 'string' && indexUrl) {
-            const block =
-                await this.services.appOriginBlocklist.isOriginBlocked(
-                    indexUrl,
-                );
-            if (block.blocked) {
-                return { blocked: { reason: block.reason } };
-            }
-        }
+        const blocked = await this.#appOriginBlock(app);
+        if (blocked) return { blocked };
 
         let rawRow: SessionRow | null = null;
         if (decoded.session_uid) {
@@ -2395,6 +2387,21 @@ export class AuthService extends PuterService {
         const actor = this.#buildAppUnderUserActor(user, app, session);
         this.#applyHandlerDepth(actor, decoded);
         return { actor };
+    }
+
+    /**
+     * Block details when `app`'s origin is on the blocklist, so tokens the app
+     * already holds stop working as soon as it's blocked. The `index_url` host
+     * is the same origin checked at token acquisition.
+     */
+    async #appOriginBlock(app: {
+        index_url?: unknown;
+    }): Promise<{ reason?: string } | null> {
+        const indexUrl = app.index_url;
+        if (typeof indexUrl !== 'string' || !indexUrl) return null;
+        const block =
+            await this.services.appOriginBlocklist.isOriginBlocked(indexUrl);
+        return block.blocked ? { reason: block.reason } : null;
     }
 
     /**
@@ -2459,6 +2466,8 @@ export class AuthService extends PuterService {
         if (decoded.app_uid) {
             const app = await this.stores.app.getByUid(decoded.app_uid);
             if (!app) return { invalid: true };
+            const blocked = await this.#appOriginBlock(app);
+            if (blocked) return { blocked };
             authorizer = this.#buildAppUnderUserActor(user, app, null);
         } else {
             authorizer = this.#buildUserActor(user, null);

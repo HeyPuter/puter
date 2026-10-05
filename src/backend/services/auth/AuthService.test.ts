@@ -2184,6 +2184,56 @@ describe('AuthService (integration)', () => {
             expect(blocked.actor).toBeUndefined();
             expect(blocked.blocked).toBeTruthy();
         });
+
+        it('rejects an already-issued app access token once its origin is blocked', async () => {
+            const user = await makeUser();
+            const host = `late-block-at-${uuidv4()}.example.com`;
+            const appUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [appUid, `n-${appUid}`, `t-${appUid}`, `https://${host}/`, 1],
+            );
+            const accessToken = server.services.token.sign(
+                'auth',
+                {
+                    type: 'access-token',
+                    token_uid: uuidv4(),
+                    user_uid: user.uuid,
+                    app_uid: appUid,
+                },
+                { expiresIn: '5m' },
+            );
+
+            const ok = await authService.authenticate(accessToken);
+            expect(ok.actor?.accessToken?.issuer.app?.uid).toBe(appUid);
+
+            await blockOrigin(host);
+            const blocked = await authService.authenticate(accessToken);
+            expect(blocked.actor).toBeUndefined();
+            expect(blocked.blocked).toBeTruthy();
+        });
+
+        it('appUidFromOrigin blocks the trailing-dot spelling of a blocked host', async () => {
+            const host = `blocked-dot-${uuidv4()}.example.com`;
+            await blockOrigin(host);
+            await expect(
+                authService.appUidFromOrigin(`https://${host}./`),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'app_blocked',
+            });
+        });
+
+        it('appUidFromOrigin resolves the trailing-dot spelling to the same uid', async () => {
+            const host = `dot-${uuidv4()}.example.com`;
+            const plain = await authService.appUidFromOrigin(
+                `https://${host}/`,
+            );
+            const dotted = await authService.appUidFromOrigin(
+                `https://${host}./`,
+            );
+            expect(dotted).toBe(plain);
+        });
     });
 
     describe('getUserAppToken', () => {
