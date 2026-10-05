@@ -113,6 +113,13 @@ import {
 const MAX_ATTEMPTS = 3; // the first attempt plus two fallbacks
 
 /**
+ * Key of the driver's token-count entry point. A symbol rather than a method
+ * name so it stays off the `/drivers/call` surface, which only resolves
+ * string-named methods; the Anthropic route calls it in-process.
+ */
+export const COUNT_TOKENS = Symbol('aiChat.countTokens');
+
+/**
  * How often a streaming completion renews its credit hold. Holds default to a
  * 10-minute TTL; a long generation (a reasoning model with a large
  * `max_tokens`) can stream past that, and a hold that expires mid-stream
@@ -1069,7 +1076,7 @@ export class ChatCompletionDriver extends PuterDriver {
      * provider's own counter (Claude's `count_tokens`) over the driver's
      * estimate.
      */
-    async countTokens(
+    async [COUNT_TOKENS](
         args: ICompleteArguments,
     ): Promise<{ input_tokens: number }> {
         let intendedProvider = args.provider || '';

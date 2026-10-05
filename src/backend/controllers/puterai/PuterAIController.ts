@@ -26,7 +26,10 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
 import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
+import {
+    COUNT_TOKENS,
+    type ChatCompletionDriver,
+} from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type {
     IChatCompleteResult,
     IChatMessageResult,
@@ -1260,7 +1263,7 @@ export class PuterAIController extends PuterController {
         const args = parseAnthropicRequest(body, req.headers, {
             countTokens: true,
         });
-        const result = await this.#driver().countTokens(args);
+        const result = await this.#driver()[COUNT_TOKENS](args);
         res.setHeader('request-id', anthropicRequestId());
         res.json(result);
     };

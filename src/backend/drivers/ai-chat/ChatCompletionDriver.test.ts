@@ -50,7 +50,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { withTestActor } from '../integrationTestUtil.js';
-import { ChatCompletionDriver } from './ChatCompletionDriver.js';
+import { COUNT_TOKENS, ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import type {
     IChatCompleteResult,
@@ -1644,7 +1644,7 @@ describe('ChatCompletionDriver.countTokens', () => {
     it('estimates from messages + tools when the provider has no countTokens hook', async () => {
         const messages = [{ role: 'user', content: 'hello there' }];
         const tools = [{ type: 'function', function: { name: 'lookup' } }];
-        const result = await driver.countTokens({
+        const result = await driver[COUNT_TOKENS]({
             model: 'fake',
             messages,
             tools,
@@ -1659,7 +1659,7 @@ describe('ChatCompletionDriver.countTokens', () => {
         // No withTestActor/Context.set('actor', ...) at all — countTokens
         // must not touch the credit gate or read Context.get('actor').
         await expect(
-            driver.countTokens({
+            driver[COUNT_TOKENS]({
                 model: 'fake',
                 messages: [{ role: 'user', content: 'hi' }],
             } as ICompleteArguments),
@@ -1671,7 +1671,7 @@ describe('ChatCompletionDriver.countTokens', () => {
         (FakeChatProvider.prototype as unknown as { countTokens?: unknown }).countTokens =
             hook;
         try {
-            const result = await driver.countTokens({
+            const result = await driver[COUNT_TOKENS]({
                 model: 'fake',
                 messages: [{ role: 'user', content: 'hi' }],
             } as ICompleteArguments);
@@ -1689,7 +1689,7 @@ describe('ChatCompletionDriver.countTokens', () => {
 
     it('400s for an unresolvable model', async () => {
         await expect(
-            driver.countTokens({
+            driver[COUNT_TOKENS]({
                 model: 'not-a-real-model',
                 messages: [],
             } as unknown as ICompleteArguments),

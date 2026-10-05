@@ -45,7 +45,10 @@ import {
 
 import type { Actor } from '../../core/actor.js';
 import type { RouteOptions } from '../../core/http/index.js';
-import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
+import {
+    COUNT_TOKENS,
+    type ChatCompletionDriver,
+} from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterServer } from '../../server.js';
 import { inRequestScope, setupTestServer } from '../../testUtil.js';
@@ -2332,7 +2335,7 @@ describe('PuterAIController.anthropicCountTokens', () => {
         vi
             .spyOn(
                 server.drivers.aiChat as unknown as ChatCompletionDriver,
-                'countTokens',
+                COUNT_TOKENS,
             )
             .mockResolvedValueOnce(result as never);
 
