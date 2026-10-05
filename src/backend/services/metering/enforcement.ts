@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Request } from 'express';
+import type { EventClient } from '../../clients/event/EventClient';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -216,6 +218,38 @@ export const actorOnPaidPlan = async (
 };
 
 /**
+ * Where a plan gate sits, so a `subscription.gate.<surface>` listener can waive
+ * it for a call it recognizes. `surface` is the key segment after
+ * `subscription.gate.`, e.g. `route.post.puterai.openai.v1.chat.completions`.
+ */
+export interface SubscriptionGateHook {
+    events: Pick<EventClient, 'emitAndWait'> | undefined;
+    surface: string;
+    req?: Request;
+}
+
+const waivedByHook = async (
+    hook: SubscriptionGateHook | undefined,
+    actor: Actor,
+    requirement: SubscriptionRequirement,
+): Promise<boolean> => {
+    if (!hook?.events) return false;
+    const event = {
+        actor,
+        surface: hook.surface,
+        requirement,
+        req: hook.req,
+        allow: false,
+    };
+    await hook.events.emitAndWait(
+        `subscription.gate.${hook.surface}`,
+        event,
+        {},
+    );
+    return event.allow === true;
+};
+
+/**
  * Reject a caller whose plan doesn't cover the surface they're calling.
  *
  * Unlike the credit check, a worker session is not exempt: a worker acts for an
@@ -224,13 +258,15 @@ export const actorOnPaidPlan = async (
  * metering wired — there are no plans to be on.
  *
  * The answer comes from the metering service's per-actor subscription cache, so
- * this normally costs a map lookup.
+ * this normally costs a map lookup. A caller the plan doesn't cover is offered
+ * to `hook` listeners before being refused.
  */
 export const assertActorHasSubscription = async (
     metering: SubscriptionMetering,
     actor: Actor | undefined,
     requirement: SubscriptionRequirement,
     config: EnforcementConfig,
+    hook?: SubscriptionGateHook,
 ): Promise<void> => {
     if (subscriptionCheckWaived(metering, actor, requirement, config)) return;
 
@@ -242,6 +278,7 @@ export const assertActorHasSubscription = async (
 
     const subscription = await metering!.getActorSubscription(actor);
     if (subscriptionSatisfies(subscription.id, requirement)) return;
+    if (await waivedByHook(hook, actor, requirement)) return;
 
     throw new HttpError(402, 'A subscription is required for this action', {
         legacyCode: 'subscription_required',

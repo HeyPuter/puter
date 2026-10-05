@@ -20,6 +20,7 @@
 import type { RequestHandler } from 'express';
 import {
     assertActorHasSubscription,
+    type SubscriptionGateHook,
     type SubscriptionMetering,
     type SubscriptionRequirement,
 } from '../../../services/metering/enforcement.js';
@@ -40,6 +41,7 @@ export const requireSubscriptionGate = (
     metering: SubscriptionMetering | undefined,
     config: IConfig,
     requirement: SubscriptionRequirement,
+    hook?: Omit<SubscriptionGateHook, 'req'>,
 ): RequestHandler => {
     return (req, _res, next) => {
         assertActorHasSubscription(
@@ -47,6 +49,7 @@ export const requireSubscriptionGate = (
             req.actor,
             requirement,
             config,
+            hook && { ...hook, req },
         ).then(
             () => next(),
             (err) => next(err),
