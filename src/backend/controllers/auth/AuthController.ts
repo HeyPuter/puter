@@ -3609,6 +3609,7 @@ export class AuthController extends PuterController {
                 // resolves to. Once a path is created, `grantUserAppPermission`
                 // re-runs the identical rewrite and check itself.
                 await this.services.permission.assertUserAppPermissionWritable(
+                    req.actor!,
                     entry,
                 );
             }

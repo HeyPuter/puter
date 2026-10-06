@@ -26,7 +26,8 @@ import {
     userRelatedActor,
 } from '../../core/actor';
 import { Context, runWithContext } from '../../core/context';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import { isOwnHomePath, parseFsPathPermission } from './fsPathPermission.js';
 import { isMissingParentViolation } from '../../util/dbError.js';
 import { Span } from '../../util/span.js';
 import { PuterService } from '../types';
@@ -122,6 +123,34 @@ export class PermissionService extends PuterService {
     }
 
     // -- Rewrite / explode (pure-ish helpers) ------------------------
+
+    /**
+     * As `rewritePermission`, minus the 404 that would confirm someone else's
+     * path exists.
+     */
+    async rewritePermissionForActor(
+        actor: Actor,
+        permission: string,
+    ): Promise<string> {
+        try {
+            return await this.rewritePermission(permission);
+        } catch (e) {
+            if (
+                !isHttpError(e) ||
+                e.legacyCode !== 'subject_does_not_exist' ||
+                !actor.user?.username
+            ) {
+                throw e;
+            }
+            const parsed = parseFsPathPermission(permission);
+            if (parsed && isOwnHomePath(parsed.path, actor.user.username)) {
+                throw e;
+            }
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+    }
 
     async rewritePermission(permission: string): Promise<string> {
         for (const rewriter of this.rewriters) {
@@ -892,7 +921,7 @@ export class PermissionService extends PuterService {
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
     ): Promise<void> {
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         this.assertGrantableFsPermission(permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
@@ -1001,7 +1030,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         // First: the rewrite decides the row's width and what a revoke matches.
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         this.assertGrantableFsPermission(permission);
         if (permission.length > PERMISSION_MAX_LEN) {
             throw new HttpError(400, 'permission is too long', {
@@ -1058,7 +1087,7 @@ export class PermissionService extends PuterService {
         opts: { issuerUserId?: number } = {},
     ): Promise<boolean> {
         // Same rewrite as the grant, or this matches nothing and says it did.
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         const groupId = await this.#requireGroupId(groupUid);
 
         if (!actor.user?.id) {
@@ -1129,7 +1158,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
         opts: { issuerUserId?: number } = {},
     ): Promise<boolean> {
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
             throw new HttpError(404, `user_does_not_exist: ${username}`, {
@@ -1253,7 +1282,7 @@ export class PermissionService extends PuterService {
         permission: string,
         meta: GrantMeta = {},
     ): Promise<string[]> {
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
             throw new HttpError(404, `user_does_not_exist: ${username}`, {
@@ -1327,7 +1356,10 @@ export class PermissionService extends PuterService {
      * Allow" kept it. (The flag's name predates that; it now covers both
      * writes.)
      */
-    async #rewriteForUserAppWrite(permission: string): Promise<string> {
+    async #rewriteForUserAppWrite(
+        actor: Actor,
+        permission: string,
+    ): Promise<string> {
         // A caller outside a request scope (an internal job, a direct unit
         // test) still needs the flag set, or its write resolves differently
         // from the paired one — and `Context.set` has nothing to set it on.
@@ -1335,12 +1367,12 @@ export class PermissionService extends PuterService {
         // missing, so this only makes the flag settable.
         if (!Context.current()) {
             return runWithContext({}, () =>
-                this.#rewriteForUserAppWrite(permission),
+                this.#rewriteForUserAppWrite(actor, permission),
             );
         }
         Context.set('is_grant_user_app_permission', true);
         try {
-            return await this.rewritePermission(permission);
+            return await this.rewritePermissionForActor(actor, permission);
         } finally {
             Context.set('is_grant_user_app_permission', false);
         }
@@ -1361,8 +1393,11 @@ export class PermissionService extends PuterService {
      * before committing any of it — a half-written set reads to the caller as a
      * refusal while some access is live.
      */
-    async assertUserAppPermissionWritable(permission: string): Promise<void> {
-        const rewritten = await this.#rewriteForUserAppWrite(permission);
+    async assertUserAppPermissionWritable(
+        actor: Actor,
+        permission: string,
+    ): Promise<void> {
+        const rewritten = await this.#rewriteForUserAppWrite(actor, permission);
         this.assertGrantableFsPermission(rewritten);
         if (rewritten.length > PERMISSION_MAX_LEN) {
             throw new HttpError(400, 'Invalid `permission`', {
@@ -1379,7 +1414,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         const grantedAs = this.#recordsSource(permission) ? permission : null;
-        permission = await this.#rewriteForUserAppWrite(permission);
+        permission = await this.#rewriteForUserAppWrite(actor, permission);
         this.assertGrantableFsPermission(permission);
         // Checked after the rewrite, because the rewrite is what decides how
         // wide the row actually is: `fs:/deep/path:read` collapses to
@@ -1470,7 +1505,7 @@ export class PermissionService extends PuterService {
         // resolve somewhere other than where the grant did.
         let rewritten = recordsSource
             ? null
-            : await this.#rewriteForUserAppWrite(permission);
+            : await this.#rewriteForUserAppWrite(actor, permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
             throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
@@ -1495,7 +1530,7 @@ export class PermissionService extends PuterService {
         if (removed.length === 0) {
             // Rows written before sources were recorded carry none, so they
             // can only be found by what the permission resolves to now.
-            rewritten ??= await this.#rewriteForUserAppWrite(permission);
+            rewritten ??= await this.#rewriteForUserAppWrite(actor, permission);
             removed = [rewritten];
         }
 
@@ -1572,7 +1607,7 @@ export class PermissionService extends PuterService {
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
     ): Promise<void> {
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         this.assertGrantableFsPermission(permission);
         // Post-rewrite, for the same reason as the user-app grant above.
         if (permission.length > PERMISSION_MAX_LEN) {
@@ -1617,7 +1652,7 @@ export class PermissionService extends PuterService {
         permission: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        permission = await this.rewritePermission(permission);
+        permission = await this.rewritePermissionForActor(actor, permission);
         if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',

@@ -85,6 +85,12 @@ export function assertCreatablePath(path: string, username: string): void {
     }
 }
 
+/** Whether `path` is inside this user's own home tree. */
+export function isOwnHomePath(path: string, username: string): boolean {
+    const home = `/${username}`;
+    return path === home || path.startsWith(`${home}/`);
+}
+
 export type FsCreateKind = 'dir' | 'file';
 
 /**

@@ -848,6 +848,69 @@ describe('PermissionService (integration)', () => {
         });
     });
 
+    describe('fs path rewrite does not oracle existence', () => {
+        it('answers the same for a foreign path that exists and one that does not', async () => {
+            const { user: prober, actor: proberActor } = await makeUserActor();
+            const { user: victim } = await makeUserActor();
+            const { user: recipient } = await makeUserActor();
+            for (const u of [prober, victim]) {
+                await generateDefaultFsentries(
+                    server.clients.db,
+                    server.stores.user,
+                    u as never,
+                );
+            }
+
+            const real = `fs:/${victim.username}/Documents:read`;
+            const absent = `fs:/${victim.username}/no-such-${uuidv4()}:read`;
+
+            const outcome = async (permission: string) => {
+                try {
+                    await runWithContext({ actor: proberActor }, () =>
+                        permService.grantUserUserPermission(
+                            proberActor,
+                            recipient.username,
+                            permission,
+                        ),
+                    );
+                    return 'granted';
+                } catch (e) {
+                    const err = e as {
+                        statusCode?: number;
+                        legacyCode?: string;
+                    };
+                    return `${err.statusCode}:${err.legacyCode}`;
+                }
+            };
+
+            const [onReal, onAbsent] = [
+                await outcome(real),
+                await outcome(absent),
+            ];
+            expect(onAbsent).toBe(onReal);
+            expect(onReal).toBe('403:permission_denied');
+        });
+
+        it('still says so for a missing path in the caller own home', async () => {
+            const { user, actor } = await makeUserActor();
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                user as never,
+            );
+
+            await expect(
+                permService.rewritePermissionForActor(
+                    actor,
+                    `fs:/${user.username}/no-such-${uuidv4()}:read`,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 404,
+                legacyCode: 'subject_does_not_exist',
+            });
+        });
+    });
+
     // The flat view must hold the holder's own grant and nothing broader that
     // the issuer happens to hold above it.
     describe('flat warm scope', () => {
