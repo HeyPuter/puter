@@ -132,9 +132,15 @@ export const isCreditExhaustion = (
 
 /**
  * Strips markup, URLs and request ids, then bounds length so provider details
- * never ride through into a response body or an alarm signature.
+ * never ride through into a response body or an alarm signature. The fallback
+ * bound fits a user-facing error; callers that keep the message only in
+ * `fields.attempts` (never serialized to the client on the vendor-compatible
+ * routes) can ask for more room.
  */
-export const sanitizeUpstreamMessage = (raw: string): string => {
+export const sanitizeUpstreamMessage = (
+    raw: string,
+    maxLength: number = MAX_UPSTREAM_MESSAGE_LENGTH,
+): string => {
     const text = raw
         .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
         .replace(/<[^>]*>/g, ' ')
@@ -143,7 +149,7 @@ export const sanitizeUpstreamMessage = (raw: string): string => {
         .replace(/\brequest[\s_-]?id\s*:\s*\S+/gi, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-    return text.length > MAX_UPSTREAM_MESSAGE_LENGTH
-        ? `${text.slice(0, MAX_UPSTREAM_MESSAGE_LENGTH - 3)}...`
+    return text.length > maxLength
+        ? `${text.slice(0, maxLength - 3)}...`
         : text;
 };

@@ -293,14 +293,35 @@ describe('MetaProvider.complete request shape', () => {
             temperature: 0.4,
             top_p: 0.9,
             tools,
-            tool_choice: 'auto',
+            tool_choice: { type: 'auto' },
         });
 
         const [args] = createMock.mock.calls[0]!;
         expect(args.temperature).toBe(0.4);
         expect(args.top_p).toBe(0.9);
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
         expect(args.tool_choice).toBe('auto');
+    });
+
+    it('omits a non-auto tool_choice (e.g. {type:"any"}), but keeps the rest of the compat mapper', async () => {
+        createMock.mockResolvedValueOnce(OK_COMPLETION);
+        const tools = [
+            {
+                type: 'function',
+                function: { name: 'lookup', parameters: {} },
+            },
+        ];
+        await complete(makeProvider(), {
+            tools,
+            tool_choice: { type: 'any' },
+            parallel_tool_calls: true,
+            stopSequences: ['STOP'],
+        });
+
+        const [args] = createMock.mock.calls[0]!;
+        expect('tool_choice' in args).toBe(false);
+        expect(args.parallel_tool_calls).toBe(true);
+        expect(args.stop).toEqual(['STOP']);
     });
 
     it('forwards reasoning_effort, including the Meta-only tiers', async () => {

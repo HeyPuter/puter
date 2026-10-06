@@ -29,6 +29,8 @@ import {
     handle_completion_output_responses_api,
     process_input_messages,
     process_input_messages_responses_api,
+    toOpenAIChatMessages,
+    usageDetailsFromTrackedUsage,
 } from './OpenAIUtil.js';
 // @ts-expect-error — sibling JS module without an adjacent .d.ts
 import { AIChatStream } from './Streaming.js';
@@ -67,6 +69,203 @@ const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
             yield item;
         }
     },
+});
+
+// -- toOpenAIChatMessages ---------------------------------------------
+
+describe('toOpenAIChatMessages', () => {
+    it('drops thinking, redacted_thinking and server_tool_use blocks', () => {
+        const messages = [
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'secret', signature: 'sig' },
+                    { type: 'redacted_thinking', data: 'opaque' },
+                    {
+                        type: 'server_tool_use',
+                        id: 'srvtoolu_1',
+                        name: 'web_search',
+                        input: {},
+                    },
+                    { type: 'text', text: 'hello' },
+                ],
+            },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.content).toEqual([{ type: 'text', text: 'hello' }]);
+    });
+
+    it('drops a message entirely when only Anthropic-only blocks remain', () => {
+        const messages = [
+            {
+                role: 'assistant',
+                content: [{ type: 'thinking', thinking: 'x', signature: 'y' }],
+            },
+            { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        ];
+        const out = toOpenAIChatMessages(messages);
+        expect(out).toHaveLength(1);
+        expect(out[0].role).toBe('user');
+    });
+
+    it('drops *_tool_result server blocks', () => {
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'web_search_tool_result',
+                        tool_use_id: 'srvtoolu_1',
+                        content: [],
+                    },
+                    { type: 'text', text: 'kept' },
+                ],
+            },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.content).toEqual([{ type: 'text', text: 'kept' }]);
+    });
+
+    it('flattens a tool_result content array and prefixes is_error', () => {
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'call_1',
+                        is_error: true,
+                        content: [
+                            { type: 'text', text: 'boom' },
+                            { type: 'image', source: { type: 'file' } },
+                            { type: 'tool_reference', name: 'bash' },
+                        ],
+                    },
+                ],
+            },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.content[0].type).toBe('tool_result');
+        expect(out.content[0].content).toBe(
+            'Error: boom' +
+                '{error: image content is not supported by this model; the user did not write this message}' +
+                '[tool reference: bash]',
+        );
+        expect(out.content[0].is_error).toBeUndefined();
+    });
+
+    it('strips citations, cache_control and clear_at unless keepCacheControl', () => {
+        const messages = [
+            {
+                role: 'system',
+                clear_at: 'next_user_message',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'hi',
+                        citations: [{ type: 'char_location' }],
+                        cache_control: { type: 'ephemeral' },
+                    },
+                ],
+            },
+        ];
+        const [stripped] = toOpenAIChatMessages(messages);
+        expect(stripped.clear_at).toBeUndefined();
+        expect(stripped.content[0].citations).toBeUndefined();
+        expect(stripped.content[0].cache_control).toBeUndefined();
+
+        const [kept] = toOpenAIChatMessages(messages, {
+            keepCacheControl: true,
+        });
+        expect(kept.content[0].cache_control).toEqual({ type: 'ephemeral' });
+    });
+
+    it('strips a message-level cache_control even when content is a bare string', () => {
+        const messages = [
+            { role: 'user', content: 'hi', cache_control: { type: 'ephemeral' } },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.cache_control).toBeUndefined();
+        expect(out.content).toBe('hi');
+
+        const [kept] = toOpenAIChatMessages(messages, { keepCacheControl: true });
+        expect(kept.cache_control).toEqual({ type: 'ephemeral' });
+    });
+
+    it('drops a system block starting with the billing header marker', () => {
+        const messages = [
+            {
+                role: 'system',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'x-anthropic-billing-header: secret',
+                    },
+                ],
+            },
+        ];
+        expect(toOpenAIChatMessages(messages)).toHaveLength(0);
+    });
+
+    it('does not mutate the caller\'s message or block objects', () => {
+        const block = { type: 'text', text: 'hi', cache_control: { type: 'ephemeral' } };
+        const message = { role: 'user', content: [block] };
+        const out = toOpenAIChatMessages([message]);
+        expect(out[0]).not.toBe(message);
+        expect(out[0].content[0]).not.toBe(block);
+        expect(block.cache_control).toEqual({ type: 'ephemeral' });
+    });
+});
+
+// -- usageDetailsFromTrackedUsage -------------------------------------
+
+describe('usageDetailsFromTrackedUsage', () => {
+    it('maps prompt/completion tokens to inputTokens/outputTokens', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+            }),
+        ).toEqual({ inputTokens: 10, outputTokens: 5 });
+    });
+
+    it('includes cacheReadTokens/cacheWrite5mTokens only when present', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                cached_tokens: 3,
+                cache_write_tokens: 2,
+            }),
+        ).toEqual({
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 3,
+            cacheWrite5mTokens: 2,
+        });
+    });
+
+    it('returns undefined for a missing/non-object usage', () => {
+        expect(usageDetailsFromTrackedUsage(undefined)).toBeUndefined();
+        expect(usageDetailsFromTrackedUsage(null)).toBeUndefined();
+    });
+
+    it('maps the {prompt, completion, input_cache_read} shape OpenRouter tracks', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt: 7,
+                completion: 3,
+                input_cache_read: 2,
+                request: 1,
+            }),
+        ).toEqual({ inputTokens: 7, outputTokens: 3, cacheReadTokens: 2 });
+    });
+
+    it('leaves an unrecognized usage shape to the driver', () => {
+        expect(
+            usageDetailsFromTrackedUsage({ input_tokens: 5, output_tokens: 1 }),
+        ).toBeUndefined();
+    });
 });
 
 // ── process_input_messages ──────────────────────────────────────────
@@ -531,6 +730,49 @@ describe('process_input_messages_responses_api', () => {
         expect(out!.call_id).toBe('call_1');
         expect(out!.output).toBe('result');
     });
+
+    it('splits a parallel tool-call turn into one function_call item per tool_use block', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        canonical_id: 'fc_1',
+                        name: 'lookup',
+                        input: { q: 'puter' },
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'call_2',
+                        canonical_id: 'fc_2',
+                        name: 'weather',
+                        input: { city: 'nyc' },
+                    },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out).toHaveLength(2);
+        expect(out[0]).toMatchObject({
+            type: 'function_call',
+            call_id: 'call_1',
+            id: 'fc_1',
+            name: 'lookup',
+            arguments: JSON.stringify({ q: 'puter' }),
+        });
+        expect(out[1]).toMatchObject({
+            type: 'function_call',
+            call_id: 'call_2',
+            id: 'fc_2',
+            name: 'weather',
+            arguments: JSON.stringify({ city: 'nyc' }),
+        });
+    });
 });
 
 // ── create_usage_calculator ─────────────────────────────────────────
@@ -689,6 +931,52 @@ describe('create_chat_stream_handler', () => {
         expect(toolEvent?.name).toBe('lookup');
         // Buffered partial-JSON is parsed once on `.end()`.
         expect(toolEvent?.input).toEqual({ q: 'puter' });
+    });
+
+    it('captures choice.finish_reason into the end chunk', async () => {
+        const completion = asAsyncIterable([
+            { choices: [{ delta: { content: 'hi' } }] },
+            {
+                choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+                usage: { prompt_tokens: 1, completion_tokens: 2 },
+            },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: ({ usage }: { usage: unknown }) => usage,
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usageEvent = harness.events().find((e) => e.type === 'usage');
+        expect(usageEvent?.finish_reason).toBe('tool_calls');
+        expect(usageEvent?.stopReason).toBe('tool_use');
+    });
+
+    it('sets usageDetails from the tracked-usage shape, cached tokens included', async () => {
+        const completion = asAsyncIterable([
+            { choices: [{ delta: { content: 'hi' } }] },
+            { choices: [{ delta: {} }], usage: { prompt_tokens: 10 } },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({
+                prompt_tokens: 7,
+                completion_tokens: 3,
+                cached_tokens: 4,
+            }),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usageEvent = harness.events().find((e) => e.type === 'usage');
+        expect(usageEvent?.usageDetails).toEqual({
+            inputTokens: 7,
+            outputTokens: 3,
+            cacheReadTokens: 4,
+        });
     });
 
     it('honors the deviations.chunk_but_like_actually unwrap', async () => {
@@ -892,6 +1180,155 @@ describe('create_chat_stream_handler_responses_api', () => {
         expect(tool?.name).toBe('lookup');
         expect(tool?.input).toEqual({ q: 'puter' });
     });
+
+    it('sets stopReason to tool_use when a function_call completed', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'function_call',
+                    id: 'fc_1',
+                    call_id: 'call_1',
+                    name: 'lookup',
+                    arguments: '{}',
+                },
+            },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('tool_use');
+        expect(usage?.finish_reason).toBe('tool_calls');
+    });
+
+    it('meters and stops as max_tokens on a response.incomplete (truncated) stream', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hi' },
+            {
+                type: 'response.incomplete',
+                response: {
+                    status: 'incomplete',
+                    incomplete_details: { reason: 'max_output_tokens' },
+                    usage: { input_tokens: 1, output_tokens: 2 },
+                },
+            },
+        ]);
+        const usageCalculator = vi.fn(() => ({
+            prompt_tokens: 1,
+            completion_tokens: 2,
+        }));
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: usageCalculator,
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        expect(usageCalculator).toHaveBeenCalledWith(
+            expect.objectContaining({
+                usage: { input_tokens: 1, output_tokens: 2 },
+            }),
+        );
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('max_tokens');
+        expect(usage?.finish_reason).toBe('length');
+    });
+
+    it('defaults stopReason to end_turn for a plain text turn', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hi' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('end_turn');
+        expect(usage?.finish_reason).toBe('stop');
+    });
+
+    it('emits a reasoning_detail chunk for a completed reasoning item', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'reasoning',
+                    id: 'rs_1',
+                    encrypted_content: 'ENC',
+                    summary: [{ type: 'summary_text', text: 'because' }],
+                },
+            },
+            { type: 'response.output_text.delta', delta: 'answer' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const detail = harness
+            .events()
+            .find((e) => e.type === 'reasoning_detail');
+        expect(detail?.detail).toEqual({
+            type: 'reasoning',
+            id: 'rs_1',
+            encrypted_content: 'ENC',
+            summary: [{ type: 'summary_text', text: 'because' }],
+        });
+    });
+
+    it('sets usageDetails on the end chunk', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hi' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({
+                prompt_tokens: 5,
+                completion_tokens: 1,
+                cached_tokens: 2,
+            }),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.usageDetails).toEqual({
+            inputTokens: 5,
+            outputTokens: 1,
+            cacheReadTokens: 2,
+        });
+    });
 });
 
 // ── handle_completion_output (non-stream) ───────────────────────────
@@ -920,6 +1357,32 @@ describe('handle_completion_output non-stream', () => {
         expect(result.message.content).toBe('hello there');
         expect(result.usage).toEqual({
             forwarded: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+    });
+
+    it('sets usageDetails from the calculator output, cached tokens included', async () => {
+        const completion = {
+            choices: [
+                { message: { content: 'hi' }, finish_reason: 'stop' },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+        };
+        const result = await handle_completion_output({
+            deviations: undefined,
+            stream: false,
+            completion,
+            moderate: undefined,
+            usage_calculator: () => ({
+                prompt_tokens: 6,
+                completion_tokens: 5,
+                cached_tokens: 4,
+            }),
+            finally_fn: undefined,
+        });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 6,
+            outputTokens: 5,
+            cacheReadTokens: 4,
         });
     });
 
@@ -1039,6 +1502,45 @@ describe('handle_completion_output_responses_api non-stream', () => {
         expect(result.usage).toEqual({ input_tokens: 1, output_tokens: 2 });
         // Sanity: no leftover `type` field bleeds into the response.
         expect(result.type).toBeUndefined();
+    });
+
+    it('maps finish_reason to length when incomplete for max_output_tokens', async () => {
+        const completion = {
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'partial',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.finish_reason).toBe('length');
+    });
+
+    it('sets usageDetails from the calculator output', async () => {
+        const completion = {
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'hi',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+            usage_calculator: () => ({
+                prompt_tokens: 9,
+                completion_tokens: 2,
+                cached_tokens: 1,
+            }),
+        });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 9,
+            outputTokens: 2,
+            cacheReadTokens: 1,
+        });
     });
 
     it('surfaces tool_calls from output[type=function_call] entries', async () => {

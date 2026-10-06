@@ -22,7 +22,11 @@ import type { IChatModel } from '../types.js';
 import {
     buildCostsOverride,
     isFreeModel,
+    isOutputCostKey,
     longContextMultipliers,
+    trackedInputTokens,
+    trackedOutputTokens,
+    usageDetailsFromUsage,
     usdPerMToken,
 } from './pricing.js';
 
@@ -169,6 +173,79 @@ describe('buildCostsOverride', () => {
             output_tokens: 180,
             cached_tokens: 15,
         });
+    });
+});
+
+describe('isOutputCostKey', () => {
+    it('treats any key ending in _output_tokens as output-side, prefixed or not', () => {
+        expect(isOutputCostKey('fast_output_tokens', 'output_tokens')).toBe(true);
+        expect(isOutputCostKey('advisor_output_tokens', 'output_tokens')).toBe(true);
+    });
+
+    it('does not mistake the plain output key itself for a prefixed one', () => {
+        // Sanity: the suffix rule and the exact-match rule agree, they don't
+        // double-count or disagree on the base case.
+        expect(isOutputCostKey('output_tokens', 'output_tokens')).toBe(true);
+    });
+
+    it('leaves a prefixed input key on the input side', () => {
+        expect(isOutputCostKey('fast_input_tokens', 'output_tokens')).toBe(false);
+        expect(isOutputCostKey('advisor_input_tokens', 'output_tokens')).toBe(false);
+    });
+});
+
+describe('trackedInputTokens / trackedOutputTokens skip per-call and advisor keys', () => {
+    const m = model({ input_tokens: 1, output_tokens: 1 });
+
+    it('excludes a _requests count from both totals', () => {
+        const usage = { input_tokens: 10, output_tokens: 5, web_search_requests: 2 };
+        expect(trackedInputTokens(usage, m)).toBe(10);
+        expect(trackedOutputTokens(usage, m)).toBe(5);
+    });
+
+    it('excludes a _calls count from both totals', () => {
+        const usage = { input_tokens: 10, output_tokens: 5, web_search_calls: 3 };
+        expect(trackedInputTokens(usage, m)).toBe(10);
+        expect(trackedOutputTokens(usage, m)).toBe(5);
+    });
+
+    it('excludes advisor-prefixed tokens from the executor totals', () => {
+        const usage = {
+            input_tokens: 10,
+            output_tokens: 5,
+            advisor_input_tokens: 100,
+            advisor_output_tokens: 50,
+        };
+        expect(trackedInputTokens(usage, m)).toBe(10);
+        expect(trackedOutputTokens(usage, m)).toBe(5);
+    });
+});
+
+describe('usageDetailsFromUsage', () => {
+    it('sums every non-output key into inputTokens and every output-denominated key into outputTokens', () => {
+        const details = usageDetailsFromUsage(
+            {
+                prompt_tokens: 10,
+                cached_tokens: 5,
+                completion_tokens: 20,
+                thinking_tokens: 7,
+            },
+            model({ prompt_tokens: 1, completion_tokens: 1, cached_tokens: 1 }),
+        );
+
+        expect(details).toEqual({
+            inputTokens: 15,
+            outputTokens: 27,
+        });
+    });
+
+    it('ignores the tokens scale descriptor and usd_cents', () => {
+        const details = usageDetailsFromUsage(
+            { prompt_tokens: 10, completion_tokens: 5, tokens: 1_000_000, usd_cents: 3 },
+            model({ prompt_tokens: 1, completion_tokens: 1 }),
+        );
+
+        expect(details).toEqual({ inputTokens: 10, outputTokens: 5 });
     });
 });
 

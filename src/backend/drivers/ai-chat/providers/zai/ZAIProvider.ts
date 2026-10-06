@@ -22,7 +22,9 @@ import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { openAICompatParams } from '../../utils/openaiParams.js';
 import { ZAI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
@@ -87,15 +89,8 @@ export class ZAIProvider implements IChatProvider {
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
-        const {
-            custom,
-            max_tokens,
-            stream,
-            temperature,
-            tools,
-            tool_choice,
-            top_p,
-        } = params;
+        const { custom, max_tokens, stream, temperature, tools, top_p } =
+            params;
         let { messages, model } = params;
         const actor = Context.get('actor');
         const availableModels = this.models();
@@ -104,12 +99,12 @@ export class ZAIProvider implements IChatProvider {
                 [m.id, ...(m.aliases || [])].includes(model),
             ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
 
+        messages = OpenAIUtil.toOpenAIChatMessages(messages);
         messages = await OpenAIUtil.process_input_messages(messages);
-        messages = messages.map((message) => {
-            delete message.cache_control;
-            return message;
-        });
 
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
         const customParams = asRecord(custom) as ZAICustomParams;
         // Puter's abuse attribution; `custom` can't override it.
         const userId = upstreamUserIdentifier(actor, USER_ID_MAX_LENGTH);
@@ -117,11 +112,14 @@ export class ZAIProvider implements IChatProvider {
         const completionParams: ChatCompletionCreateParams = {
             messages,
             model: modelUsed.id,
-            ...(tools ? { tools } : {}),
-            ...(tool_choice !== undefined ? { tool_choice } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined ? { max_tokens } : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
+            ...openAICompatParams({ ...params, tools: mappedTools }, 'chat', {
+                only: ['tool_choice'],
+                toolChoiceAutoOnly: true,
+            }),
             ...(customParams.do_sample !== undefined
                 ? { do_sample: customParams.do_sample }
                 : {}),
@@ -145,7 +143,7 @@ export class ZAIProvider implements IChatProvider {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-        } as ChatCompletionCreateParams;
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openai.chat.completions.create(completionParams);

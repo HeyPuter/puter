@@ -24,15 +24,55 @@ import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import type {
+    IChatModel,
+    IChatProvider,
+    ICompleteArguments,
+} from '../../types.js';
 import { toOpenAiContextManagement } from '../../utils/compaction.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
+import {
+    clampReasoningEffort,
+    openAICompatParams,
+    rejectStatefulResponsesFields,
+} from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+
+const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
+    type === 'web_search_20250305' ||
+    (typeof type === 'string' && /^web_search_2026/.test(type));
+
+// $10/1k calls for `web_search` on every model, and for `web_search_preview`
+// on a reasoning model; $25/1k for `web_search_preview` on a non-reasoning
+// model (verified against platform.openai.com/docs/pricing, 2026-10).
+const WEB_SEARCH_CALL_RATE = 1_000_000;
+const WEB_SEARCH_PREVIEW_NON_REASONING_RATE = 2_500_000;
+
+const isReasoningModel = (modelId: string): boolean =>
+    /^gpt-(5|6)([.-]|$)/.test(modelId);
+
+/** Μ¢ per call for whichever web-search-shaped tool a request carries. */
+const webSearchCallRate = (
+    tools: unknown[] | undefined,
+    modelId: string,
+): number | undefined => {
+    const list = (tools ?? []) as Array<Record<string, unknown>>;
+    const hasPreview = list.some((t) => t?.type === 'web_search_preview');
+    const hasOther = list.some(
+        (t) => t?.type === 'web_search' || ANTHROPIC_WEB_SEARCH_TYPE(t?.type),
+    );
+    if (!hasPreview && !hasOther) return undefined;
+    if (hasPreview && !isReasoningModel(modelId)) {
+        return WEB_SEARCH_PREVIEW_NON_REASONING_RATE;
+    }
+    return WEB_SEARCH_CALL_RATE;
+};
 
 /**
  * OpenAICompletionService class provides an interface to OpenAI's chat
@@ -93,6 +133,20 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         return `openai:${modelId}`;
     }
 
+    /**
+     * Sizes the credit hold for a web-search tool: one call's worth, at
+     * whichever rate the tool variant and model imply. OpenAI doesn't bound how
+     * many searches a single request can run — every call is metered at
+     * settlement, so the hold only needs to cover the model actually trying.
+     */
+    requestPricing(
+        args: ICompleteArguments,
+        model: IChatModel,
+    ): { inputKey?: string; outputKey?: string; extraCost?: number } {
+        const rate = webSearchCallRate(args.tools, model.id);
+        return rate ? { extraCost: rate } : {};
+    }
+
     async complete({
         messages,
         model,
@@ -122,6 +176,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         reasoning_effort,
         temperature,
         text,
+        outputFormat,
     }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         // Validate messages
         if (!Array.isArray(messages)) {
@@ -129,6 +184,12 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 legacyCode: 'bad_request',
             });
         }
+        rejectStatefulResponsesFields({
+            previous_response_id,
+            conversation,
+            prompt,
+            background,
+        });
         const actor = Context.get('actor');
 
         model = model ?? this.#defaultModel;
@@ -171,7 +232,13 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 }
             });
         }
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'responses' })
+            : undefined;
 
+        // Strip Anthropic-only shape a fallback-replayed message can carry
+        // before the existing in-place coercion mutates only this pass's copy.
+        messages = OpenAiUtil.toOpenAIChatMessages(messages);
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
         // that's missing. We normalise it here so the token count code works.
@@ -180,10 +247,19 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        const isGpt6Model = /^gpt-6[.-]/.test(modelUsed.id);
-        const supportsReasoningControls =
-            isGpt6Model ||
-            (typeof model === 'string' && model.startsWith('gpt-5'));
+        const clampedEffort = clampReasoningEffort(
+            modelUsed.id,
+            requestedReasoningEffort,
+        );
+        // gpt-5/gpt-6 are the reasoning-capable families in this catalog;
+        // every other model 400s on an unsupported `verbosity` (the effort
+        // param is handled by the clamp above).
+        const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
+        const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
+        // A clamped effort above 'none' puts the model in reasoning mode,
+        // where temperature/top_p steer a sampler that isn't in play.
+        const dropsSamplingParams =
+            clampedEffort !== undefined && clampedEffort !== 'none';
 
         // Translate the neutral compaction opt-in (or pass a raw
         // `context_management` payload through) to OpenAI's Responses shape.
@@ -192,27 +268,50 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             context_management,
         });
 
+        const mapped = openAICompatParams(
+            {
+                tools: mappedTools,
+                tool_choice,
+                parallel_tool_calls,
+                outputFormat,
+                ...(dropsSamplingParams ? {} : { top_p }),
+            } as ICompleteArguments,
+            'responses',
+        );
+        // `text`/`reasoning` have several sources (the client's raw object,
+        // the legacy `verbosity`/`reasoning_effort` fields, and now
+        // `outputFormat`'s `text.format`) — merged here rather than spread
+        // separately, since a later spread of the same top-level key would
+        // silently replace the earlier one instead of merging into it.
+        const mergedText = {
+            ...(text ?? {}),
+            ...((mapped.text as Record<string, unknown>) ?? {}),
+            ...(supportsReasoningFamily &&
+            !isCodexModel &&
+            requestedVerbosity !== undefined
+                ? { verbosity: requestedVerbosity }
+                : {}),
+        };
+        // The raw `reasoning` object's own `effort` is never trusted
+        // verbatim — only the clamped value below is.
+        const { effort: _rawEffort, ...reasoningRest } = reasoning ?? {};
+        const mergedReasoning = {
+            ...(supportsReasoningFamily ? reasoningRest : {}),
+            ...(clampedEffort !== undefined ? { effort: clampedEffort } : {}),
+        };
+
         const completionParams: ResponseCreateParams = {
             user: userIdentifier,
             safety_identifier: userIdentifier,
             input: messages,
             model: modelUsed.id,
-            ...(tools ? { tools } : {}),
-            ...(tool_choice !== undefined ? { tool_choice } : {}),
-            ...(parallel_tool_calls !== undefined
-                ? { parallel_tool_calls }
-                : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(include !== undefined ? { include } : {}),
             ...(contextManagement !== undefined
                 ? { context_management: contextManagement }
                 : {}),
-            ...(conversation !== undefined ? { conversation } : {}),
-            ...(previous_response_id !== undefined
-                ? { previous_response_id }
-                : {}),
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
-            ...(prompt !== undefined ? { prompt } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             ...(prompt_cache_retention !== undefined
                 ? { prompt_cache_retention }
@@ -221,43 +320,23 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             ...(max_tokens !== undefined
                 ? { max_output_tokens: max_tokens }
                 : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(top_p !== undefined ? { top_p } : {}),
+            ...(temperature !== undefined && !dropsSamplingParams
+                ? { temperature }
+                : {}),
             ...(truncation !== undefined ? { truncation } : {}),
-            ...(background !== undefined ? { background } : {}),
             ...(service_tier !== undefined ? { service_tier } : {}),
             ...(stream !== undefined ? { stream: !!stream } : {}),
-            ...(text !== undefined ? { text } : {}),
-            ...(supportsReasoningControls
-                ? {}
-                : {
-                      ...(requestedReasoningEffort
-                          ? { reasoning_effort: requestedReasoningEffort }
-                          : {}),
-                      ...(requestedVerbosity
-                          ? { verbosity: requestedVerbosity }
-                          : {}),
-                  }),
-            ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
-            ...(isGpt6Model && requestedReasoningEffort !== undefined
-                ? {
-                      reasoning: {
-                          ...reasoning,
-                          effort: requestedReasoningEffort,
-                      },
-                  }
-                : {}),
-            ...(isGpt6Model && requestedVerbosity !== undefined
-                ? { text: { ...text, verbosity: requestedVerbosity } }
+            ...mapped,
+            ...(Object.keys(mergedText).length ? { text: mergedText } : {}),
+            ...(Object.keys(mergedReasoning).length
+                ? { reasoning: mergedReasoning }
                 : {}),
         } as unknown as ResponseCreateParams;
 
-        // console.log("completion params: ", completionParams)
         const completion =
             await this.#openAi.responses.create(completionParams);
-        // console.log("Completion: ", completion)
         return OpenAiUtil.handle_completion_output_responses_api({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: ({ usage, webSearchCalls, setUsageCosts }) => {
                 const cachedTokens =
                     (usage as any).input_tokens_details?.cached_tokens ?? 0;
                 // GPT-5.6 and later bill cache writes at 1.25x input. They're
@@ -265,7 +344,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 const cacheWriteTokens =
                     (usage as any).input_tokens_details?.cache_write_tokens ??
                     0;
-                const trackedUsage = {
+                const trackedUsage: Record<string, number> = {
                     prompt_tokens:
                         ((usage as any).input_tokens ?? 0) -
                         cachedTokens -
@@ -275,12 +354,29 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                     ...(cacheWriteTokens
                         ? { cache_write_tokens: cacheWriteTokens }
                         : {}),
+                    ...(webSearchCalls
+                        ? { web_search_calls: webSearchCalls }
+                        : {}),
                 };
 
                 const costsOverrideFromModel = buildCostsOverride(
                     trackedUsage,
                     modelUsed,
                 );
+                // Priced dynamically: the rate depends on which
+                // web-search tool variant was requested and whether the model
+                // is a reasoning model, not a static per-model cost-table
+                // entry — `buildCostsOverride`'s fallback would otherwise
+                // price it (wrongly) at the input/output token rate.
+                if (webSearchCalls) {
+                    const rate = webSearchCallRate(tools, modelUsed.id) ?? 0;
+                    costsOverrideFromModel.web_search_calls =
+                        webSearchCalls * rate;
+                    setUsageCosts?.({
+                        web_search_calls:
+                            costsOverrideFromModel.web_search_calls,
+                    });
+                }
 
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
