@@ -249,6 +249,40 @@ export class UserStore extends PuterStore {
     }
 
     /**
+     * Which of these accounts are suspended, read from the primary.
+     *
+     * Deliberately not `getByIds`, which answers from cache: a caller deciding
+     * whether to suspend an account needs the row as it is now, not as it was
+     * when something last cached it.
+     */
+    async getSuspendedByIds(ids: number[]): Promise<Map<number, boolean>> {
+        const out = new Map<number, boolean>();
+        const unique = [
+            ...new Set(
+                (Array.isArray(ids) ? ids : []).filter(
+                    (id): id is number => typeof id === 'number',
+                ),
+            ),
+        ];
+        for (
+            let offset = 0;
+            offset < unique.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = unique.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = (await this.clients.db.pread(
+                `SELECT \`id\`, \`suspended\` FROM \`user\` WHERE \`id\` IN (${placeholders})`,
+                chunk,
+            )) as Array<{ id: number; suspended: unknown }>;
+            for (const row of rows) {
+                out.set(Number(row.id), Boolean(row.suspended));
+            }
+        }
+        return out;
+    }
+
+    /**
      * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
      * MGET, and resolves remaining misses with a single `SELECT … WHERE id IN
      * (…)` per chunk. Use this in place of `Promise.all(ids.map(getById))` to
