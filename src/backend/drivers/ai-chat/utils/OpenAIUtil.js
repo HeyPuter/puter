@@ -1,4 +1,5 @@
 import { HttpError } from '@heyputer/backend/src/core/http';
+import { Context } from '../../../core/context.js';
 import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
 import { fromFinishReason } from './stopReason.js';
 
@@ -658,6 +659,11 @@ export const create_chat_stream_handler =
             }
         }
 
+        Context.get('abortSignal')?.throwIfAborted();
+        if (!finish_reason && !last_usage) {
+            throw new Error('Stream ended before completion');
+        }
+
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
         // No usage chunk means there is nothing to meter from — reaching into
         // a null usage object here used to throw, which took down a response
@@ -711,11 +717,19 @@ export const create_chat_stream_handler_responses_api =
         const mode = 'text';
 
         let last_usage = null;
+        let completed = false;
         let sawFunctionCall = false;
         let incompleteReason = null;
         let webSearchCalls = 0;
         let toolUsage = null;
         for await (const chunk of completion) {
+            if (chunk.type === 'response.failed' || chunk.type === 'error') {
+                throw new Error(
+                    chunk.response?.error?.message ??
+                        chunk.message ??
+                        'Upstream response failed',
+                );
+            }
             if (chunk.type === 'response.output_text.delta') {
                 textblock.addText(chunk.delta);
                 continue;
@@ -746,6 +760,7 @@ export const create_chat_stream_handler_responses_api =
                 chunk.type === 'response.completed' ||
                 chunk.type === 'response.incomplete'
             ) {
+                completed = true;
                 last_usage = chunk.response.usage;
                 toolUsage = chunk.response.tool_usage ?? toolUsage;
                 if (
@@ -824,6 +839,9 @@ export const create_chat_stream_handler_responses_api =
                 toolblock.end();
             }
         }
+
+        Context.get('abortSignal')?.throwIfAborted();
+        if (!completed) throw new Error('Stream ended before completion');
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
         // Missing usage is left undefined rather than fed to the calculator —

@@ -50,6 +50,7 @@ import { isDriverStreamResult } from '../../drivers/meta.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterController } from '../types.js';
 import { parseAnthropicRequest, toAnthropicMessage } from './anthropicWire.js';
+import { pipeNdjsonStream } from './ndjsonStream.js';
 import { AnthropicSseWriter, startSse } from './sse.js';
 import {
     anthropicRequestId,
@@ -1228,13 +1229,7 @@ export class PuterAIController extends PuterController {
 
             let buffer = '';
             pipeNdjsonStream(streamResult.stream, (ev) => writer.onChunk(ev), {
-                onEnd: () => {
-                    // A stream that ended with no usage chunk (shouldn't
-                    // happen from a real provider) still closes the
-                    // message instead of leaving the response hanging.
-                    if (!writer.ended)
-                        writer.onChunk({ type: 'usage', usage: {} });
-                },
+                onEnd: () => {},
                 onError: (err) => {
                     if (!writer.ended) {
                         writer.onChunk({
@@ -1476,49 +1471,6 @@ const expectStream = (
         });
     }
     return result as unknown as { stream: NodeJS.ReadableStream };
-};
-
-/**
- * The chat driver's stream emits one JSON object per line (`{type: 'text',
- * text}` / `{type: 'tool_use', ...}` / `{type: 'usage', ...}`). This helper
- * consumes the stream line-by-line and hands parsed events to the caller's
- * reducer, so the per-route translators can stay shape-focused.
- */
-interface NdjsonPipeOptions {
-    onEnd: () => void;
-    onError: (err: Error) => void;
-    getBuffer: () => string;
-    setBuffer: (v: string) => void;
-}
-
-const pipeNdjsonStream = (
-    stream: NodeJS.ReadableStream,
-    onEvent: (event: Record<string, unknown>) => void,
-    opts: NdjsonPipeOptions,
-): void => {
-    stream.on('data', (chunk: Buffer | string) => {
-        opts.setBuffer(
-            opts.getBuffer() +
-                (typeof chunk === 'string' ? chunk : chunk.toString('utf8')),
-        );
-        let newlineIndex: number;
-        let buf = opts.getBuffer();
-        while ((newlineIndex = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, newlineIndex).trim();
-            buf = buf.slice(newlineIndex + 1);
-            if (!line) continue;
-            let event: Record<string, unknown>;
-            try {
-                event = JSON.parse(line) as Record<string, unknown>;
-            } catch {
-                continue;
-            }
-            onEvent(event);
-        }
-        opts.setBuffer(buf);
-    });
-    stream.on('end', opts.onEnd);
-    stream.on('error', opts.onError);
 };
 
 // -- OpenAI/Anthropic shape helpers -----------------------------------

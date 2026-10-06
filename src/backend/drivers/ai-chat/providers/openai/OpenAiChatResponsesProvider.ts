@@ -330,8 +330,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 : {}),
         } as unknown as ResponseCreateParams;
 
-        const completion =
-            await this.#openAi.responses.create(completionParams);
+        const completion = await this.#openAi.responses.create(
+            completionParams,
+            { signal: Context.get('abortSignal') },
+        );
         return OpenAiUtil.handle_completion_output_responses_api({
             usage_calculator: ({ usage, webSearchCalls, setUsageCosts }) => {
                 const cachedTokens =

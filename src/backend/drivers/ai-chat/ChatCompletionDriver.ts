@@ -565,6 +565,8 @@ export class ChatCompletionDriver extends PuterDriver {
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
+        const abortSignal = Context.get('abortSignal');
+        abortSignal?.throwIfAborted();
         const actor = Context.get('actor');
         if (!actor)
             throw new HttpError(401, 'Authentication required', {
@@ -743,9 +745,11 @@ export class ChatCompletionDriver extends PuterDriver {
         };
 
         try {
+            abortSignal?.throwIfAborted();
             if (!useFakeProvider) {
                 await this.#resolvePuterPaths(provider, args, actor);
             }
+            abortSignal?.throwIfAborted();
             res = await provider.complete({
                 ...args,
                 model: model.id,
@@ -756,6 +760,7 @@ export class ChatCompletionDriver extends PuterDriver {
             // takes a hold of its own.
             await hold.release();
             hold = NO_CREDIT_HOLD;
+            abortSignal?.throwIfAborted();
 
             // A withheld completion was still a completion — charged, final,
             // not a route failure worth another (billed) attempt elsewhere.
@@ -815,9 +820,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
+                    abortSignal?.throwIfAborted();
                     if (!useFakeProvider) {
                         await this.#resolvePuterPaths(fbProvider, args, actor);
                     }
+                    abortSignal?.throwIfAborted();
                     res = await fbProvider.complete({
                         ...args,
                         model: fallback.id,
@@ -831,6 +838,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 } catch (fbErr) {
                     await hold.release();
                     hold = NO_CREDIT_HOLD;
+                    abortSignal?.throwIfAborted();
                     if (isModerationRefusal(fbErr)) throw fbErr;
                     const attempt = recordFailure(fallback, fbErr);
                     // A fallback's own 4xx is a translation gap between
@@ -898,9 +906,7 @@ export class ChatCompletionDriver extends PuterDriver {
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
 
-            // A caller that hangs up stops the generation, and with it the
-            // hold and the billing for output nobody will read.
-            const abortSignal = Context.get('abortSignal');
+            // Providers also receive this signal to cancel while waiting for output.
             const abortStream = () => chatStream.abort();
             if (abortSignal?.aborted) abortStream();
             else abortSignal?.addEventListener('abort', abortStream);
@@ -910,6 +916,7 @@ export class ChatCompletionDriver extends PuterDriver {
             // meter after this call (e.g. Claude) don't pick up `usd_cents`.
             const originalEnd = chatStream.end.bind(chatStream);
             chatStream.end = (usage?: Record<string, number>) => {
+                if (chatStream.aborted) return originalEnd(usage!);
                 // Read before `originalEnd` writes the wire line — the
                 // provider sets it (if at all) any time before `end()`.
                 const usageCosts = chatStream.usageCosts ?? undefined;
@@ -981,6 +988,9 @@ export class ChatCompletionDriver extends PuterDriver {
             (async () => {
                 try {
                     await init({ chatStream });
+                    if (!chatStream.aborted && !passthrough.writableEnded) {
+                        throw new Error('Stream ended before completion');
+                    }
                 } catch (e) {
                     if (!chatStream.aborted) {
                         const attempt = toAttempt(model.id, model.provider!, e);
@@ -1004,25 +1014,34 @@ export class ChatCompletionDriver extends PuterDriver {
                     // Providers report usage the moment they meter it (see
                     // `AIChatStream.reportUsage`); a stream that never got
                     // there was never charged for.
-                    if (!blocked && !chatStream.reportedUsage) {
-                        this.#meterUnreportedStream({
-                            actor,
-                            chatStream,
-                            model,
-                            promptTokenEstimate,
-                            completionId,
-                            username,
-                            intendedProvider,
-                        });
+                    try {
+                        if (!blocked && !chatStream.reportedUsage) {
+                            this.#meterUnreportedStream({
+                                actor,
+                                chatStream,
+                                model,
+                                promptTokenEstimate,
+                                completionId,
+                                username,
+                                intendedProvider,
+                            });
+                        }
+                    } finally {
+                        try {
+                            await hold.release();
+                        } finally {
+                            if (cleanup) await cleanup();
+                        }
                     }
-                    // Held until the generation is actually over: for a
-                    // stream, the provider returns as soon as it has a
-                    // populator, and everything the account pays for happens
-                    // after that.
-                    await hold.release();
-                    if (cleanup) await cleanup();
                 }
-            })();
+            })().catch((error) => {
+                console.warn(
+                    'Chat stream cleanup failed:',
+                    sanitizeUpstreamMessage(
+                        error instanceof Error ? error.message : String(error),
+                    ),
+                );
+            });
 
             const streamResult: DriverStreamResult = {
                 dataType: 'stream',
@@ -1448,7 +1467,11 @@ export class ChatCompletionDriver extends PuterDriver {
             }
             args.max_tokens = cap;
             // Holds alone shrinking the cap is a busy account, not a broke one.
-            if (cap < limit && affordableOutputTokens(balance) < limit) {
+            if (
+                cap < limit &&
+                affordableOutputTokens(balance) < limit &&
+                cap >= Math.floor(affordableOutputTokens(balance))
+            ) {
                 fundsCap = cap;
             }
         } else {

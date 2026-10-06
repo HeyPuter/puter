@@ -169,8 +169,10 @@ export class OpenRouterProvider implements IChatProvider {
 
         let completion;
         try {
-            completion =
-                await this.#openai.chat.completions.create(completionParams);
+            completion = await this.#openai.chat.completions.create(
+                completionParams,
+                { signal: Context.get('abortSignal') },
+            );
         } catch (e: unknown) {
             if (!isContextLengthError(e)) {
                 console.log(
@@ -187,8 +189,10 @@ export class OpenRouterProvider implements IChatProvider {
                 contextWindow: modelUsed.context,
             });
             if (!retryParams) throw e;
-            completion =
-                await this.#openai.chat.completions.create(retryParams);
+            completion = await this.#openai.chat.completions.create(
+                retryParams,
+                { signal: Context.get('abortSignal') },
+            );
         }
 
         return OpenAIUtil.handle_completion_output({

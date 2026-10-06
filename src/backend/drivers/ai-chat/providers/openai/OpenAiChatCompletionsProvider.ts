@@ -274,8 +274,10 @@ export class OpenAiChatProvider implements IChatProvider {
                 : {}),
         } as unknown as ChatCompletionCreateParams;
 
-        const completion =
-            await this.#openAi.chat.completions.create(completionParams);
+        const completion = await this.#openAi.chat.completions.create(
+            completionParams,
+            { signal: Context.get('abortSignal') },
+        );
 
         return OpenAiUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {

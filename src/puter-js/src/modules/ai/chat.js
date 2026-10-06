@@ -4,7 +4,7 @@ import { hasTestModeFlag, isPlainObject } from './lib/args.js';
 /** @typedef {import('./types.js').ChatMessage} ChatMessage */
 /** @typedef {import('./types.js').ChatOptions} ChatOptions */
 /** @typedef {import('./types.js').ChatResponse} ChatResponse */
-/** @typedef {import('./types.js').ChatResponseChunk} ChatResponseChunk */
+/** @typedef {import('./types.js').ChatResponseStream} ChatResponseStream */
 /** @typedef {import('./types.js').StreamingChatOptions} StreamingChatOptions */
 
 // Parameters copied from the caller's options object onto the driver
@@ -64,7 +64,7 @@ export const normalizeToolChoice = (toolChoice) =>
  * @param {string} prompt
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -93,7 +93,7 @@ export const normalizeToolChoice = (toolChoice) =>
  * @param {string | File} imageURL
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -109,7 +109,7 @@ export const normalizeToolChoice = (toolChoice) =>
  * @param {string[]} imageURLArray
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -130,7 +130,7 @@ export const normalizeToolChoice = (toolChoice) =>
  * @param {ChatMessage[]} messages
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -157,7 +157,7 @@ export const normalizeToolChoice = (toolChoice) =>
  * @param {string | File | string[] | ChatOptions | boolean | null} [mediaOrOptions]
  * @param {ChatOptions | boolean} [optionsOrTestMode]
  * @param {boolean | ChatOptions} [testModeOrOptions]
- * @returns {Promise<ChatResponse | AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponse | ChatResponseStream>}
  */
 export async function chat (
     promptOrMessages,

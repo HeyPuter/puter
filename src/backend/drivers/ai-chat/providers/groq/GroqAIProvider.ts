@@ -78,14 +78,17 @@ export class GroqAIProvider implements IChatProvider {
             }
         }
 
-        const completion = await this.#client.chat.completions.create({
-            messages,
-            model: modelUsed.id,
-            stream,
-            tools,
-            max_completion_tokens: max_tokens,
-            temperature,
-        } as ChatCompletionCreateParams);
+        const completion = await this.#client.chat.completions.create(
+            {
+                messages,
+                model: modelUsed.id,
+                stream,
+                tools,
+                max_completion_tokens: max_tokens,
+                temperature,
+            } as ChatCompletionCreateParams,
+            { signal: Context.get('abortSignal') },
+        );
 
         return OpenAIUtil.handle_completion_output({
             deviations: {

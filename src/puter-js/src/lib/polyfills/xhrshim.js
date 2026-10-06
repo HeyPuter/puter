@@ -198,7 +198,7 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
                     this.readyState = this.constructor.LOADING;
 
                     bytes = mergeUint8Arrays(bytes, chunk);
-                    parseBody.call(this, bytes);
+                    await parseBody.call(this, bytes);
                     this[sDispatch](new CustomEvent('progress'));
                 }
             } else {
@@ -206,12 +206,12 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
                 for await ( const chunk of body ) {
                     bytesChunks.push(chunk);
                 }
-                parseBody.call(this, mergeUint8Arrays(...bytesChunks));
+                await parseBody.call(this, mergeUint8Arrays(...bytesChunks));
             }
 
             this.readyState = this.constructor.DONE;
             this[sDispatch](new CustomEvent('load'));
-        }, err => {
+        }).catch(err => {
             let eventName = 'abort';
             if ( err.name !== 'AbortError' ) {
                 this[sErrored] = true;

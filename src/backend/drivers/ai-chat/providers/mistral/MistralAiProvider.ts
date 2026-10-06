@@ -217,16 +217,19 @@ export class MistralAIProvider implements IChatProvider {
         try {
             completion = await this.#client.chat[
                 stream ? 'stream' : 'complete'
-            ]({
-                model: selectedModel.id,
-                ...(tools ? { tools: tools as any[] } : {}),
-                ...(customParams.prompt_mode !== undefined
-                    ? { promptMode: customParams.prompt_mode }
-                    : {}),
-                messages,
-                maxTokens: max_tokens,
-                temperature,
-            });
+            ](
+                {
+                    model: selectedModel.id,
+                    ...(tools ? { tools: tools as any[] } : {}),
+                    ...(customParams.prompt_mode !== undefined
+                        ? { promptMode: customParams.prompt_mode }
+                        : {}),
+                    messages,
+                    maxTokens: max_tokens,
+                    temperature,
+                },
+                { signal: Context.get('abortSignal') },
+            );
         } catch (e) {
             // The SDK validates input client-side and throws without a status,
             // which the driver would count as a route failure. Its `instanceof`

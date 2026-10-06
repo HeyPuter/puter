@@ -44,6 +44,7 @@ import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
+import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import type { IChatCompleteResult } from './types.js';
 import { type AIChatStream, ChatStreamAbortedError } from './utils/Streaming.js';
@@ -750,6 +751,19 @@ describe('ChatCompletionDriver when the balance runs out', () => {
         }
     });
 
+    it('does not flag a held cap when the unreserved balance also limits output', async () => {
+        const actor = await spentToATenth();
+        const metering = server.services.metering;
+        const { balance } = await metering.getUsageHeadroom(actor);
+        const hold = await metering.reserveCredits(actor, balance / 2);
+        try {
+            const metadata = await completeWithOutput(actor, (cap) => cap);
+            expect(metadata.usage_limited).toBeUndefined();
+        } finally {
+            await hold.release();
+        }
+    });
+
     it('marks the usage line of a stream that ran the balance out', async () => {
         const actor = await spentToATenth();
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementationOnce(
@@ -811,6 +825,86 @@ describe('ChatCompletionDriver when the balance runs out', () => {
 });
 
 describe('ChatCompletionDriver when the caller hangs up', () => {
+    it('does not start a provider request after cancellation', async () => {
+        const abort = new AbortController();
+        abort.abort();
+        const complete = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        await expect(
+            withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return driver.complete({
+                    model: 'priced',
+                    messages: [{ role: 'user', content: 'go' }],
+                });
+            }, freeUser() as never),
+        ).rejects.toBe(abort.signal.reason);
+        expect(complete).not.toHaveBeenCalled();
+    });
+
+    it('releases the hold without treating cancellation as a provider failure', async () => {
+        clearUnhealthyRoutes();
+        const actor = freeUser() as never;
+        const abort = new AbortController();
+        const reason = new DOMException('Cancelled', 'AbortError');
+        const complete = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockImplementationOnce(async () => {
+                abort.abort(reason);
+                throw abort.signal.reason;
+            });
+        try {
+            await expect(
+                withTestActor(() => {
+                    Context.set('abortSignal', abort.signal);
+                    return driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: 'go' }],
+                    });
+                }, actor),
+            ).rejects.toBe(reason);
+            expect(complete).toHaveBeenCalledTimes(1);
+            expect(isRouteUnhealthy('fake-chat', 'priced')).toBe(false);
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0);
+        } finally {
+            clearUnhealthyRoutes();
+        }
+    });
+
+    it('does not announce a successful completion after cancellation', async () => {
+        const abort = new AbortController();
+        let resume!: () => void;
+        const paused = new Promise<void>((resolve) => {
+            resume = resolve;
+        });
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            streamOf(async ({ chatStream }) => {
+                chatStream
+                    .message()
+                    .contentBlock({ type: 'text' })
+                    .addText('partial');
+                await paused;
+                chatStream.end({ input_tokens: 1, output_tokens: 1 });
+            }) as never,
+        );
+        const events = vi.spyOn(server.clients.event, 'emit');
+        const { stream } = (await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return driver.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+            });
+        }, freeUser() as never)) as unknown as { stream: Readable };
+        abort.abort();
+        resume();
+        await drain(stream);
+        expect(
+            events.mock.calls.some(([key]) => key === 'ai.prompt.complete'),
+        ).toBe(false);
+    });
+
     it('stops the generation and gives the hold back', async () => {
         const actor = freeUser() as never;
         const metering = server.services.metering;
@@ -862,5 +956,35 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         expect(await metering.getOutstandingHolds(actor)).toBe(0);
         // What was generated before the hang-up is still charged.
         expect(metered).toHaveBeenCalled();
+    });
+});
+
+
+describe('stream pump termination', () => {
+    it('ends with an error if a provider returns without finishing its stream', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            streamOf(async ({ chatStream }) => {
+                chatStream.message().contentBlock({ type: 'text' }).addText('partial');
+            }) as never,
+        );
+        const result = await startStream(driver);
+        let body = '';
+        for await (const chunk of result.stream) body += chunk.toString();
+        expect(body).toContain('Stream ended before completion');
+        expect(body).not.toContain('"type":"usage"');
+    });
+    it('releases the hold even if final provider cleanup throws', async () => {
+        const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            ...streamOf(async ({ chatStream }) => chatStream.end({})),
+            finally_fn: async () => { throw new Error('cleanup failed'); },
+        } as never);
+        const actor = freeUser() as never;
+        const result = await withTestActor(() => driver.complete({
+            model: 'priced', messages: [{ role: 'user', content: 'hi' }], stream: true,
+        }), actor) as unknown as { stream: Readable };
+        await drain(result.stream);
+        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0);
+        expect(warning).toHaveBeenCalledWith('Chat stream cleanup failed:', 'cleanup failed');
     });
 });

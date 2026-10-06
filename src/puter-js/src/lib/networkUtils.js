@@ -549,19 +549,41 @@ function sendOnce(spec) {
         let carry = '';
         let consumed = 0;
 
+        let streamError;
+        const abortRequest = () => xhr.abort();
+        const removeAbortListener = () =>
+            spec.signal?.removeEventListener('abort', abortRequest);
+        const failStream = (error) => {
+            streamError = error;
+            responseComplete = true;
+            signalStreamUpdate?.();
+            removeAbortListener();
+        };
         const lineStream = (async function* () {
-            while (true) {
-                while (lines.length > 0) {
-                    const line = lines.shift();
-                    if (line.trim() === '') continue;
-                    yield JSON.parse(line);
+            try {
+                while (true) {
+                    if (streamError) throw streamError;
+                    while (lines.length > 0) {
+                        const line = lines.shift();
+                        if (line.trim() === '') continue;
+                        yield JSON.parse(line);
+                        if (streamError) throw streamError;
+                    }
+                    if (responseComplete) break;
+                    const sig = createDeferred();
+                    signalStreamUpdate = sig.resolve;
+                    await sig.promise;
                 }
-                if (responseComplete) break;
-                const sig = createDeferred();
-                signalStreamUpdate = sig.resolve;
-                await sig.promise;
+            } finally {
+                if (!responseComplete) xhr.abort();
+                removeAbortListener();
             }
         })();
+        const returnStream = lineStream.return.bind(lineStream);
+        lineStream.return = (value) => {
+            if (!responseComplete) xhr.abort();
+            return returnStream(value);
+        };
 
         xhr.onreadystatechange = () => {
             if (
@@ -570,14 +592,6 @@ function sendOnce(spec) {
             ) {
                 streamed = true;
                 resolve({ streamed: true, xhr, lineStream });
-            }
-            if (xhr.readyState === 4 && streamed) {
-                if (carry.length > 0) {
-                    lines.push(carry);
-                    carry = '';
-                }
-                responseComplete = true;
-                signalStreamUpdate?.();
             }
         };
 
@@ -596,18 +610,34 @@ function sendOnce(spec) {
         };
 
         xhr.addEventListener('load', () => {
-            if (streamed) return;
-            resolve({ xhr, status: xhr.status });
+            removeAbortListener();
+            if (!streamed) {
+                resolve({ xhr, status: xhr.status });
+                return;
+            }
+            xhr.onprogress();
+            if (carry.length > 0) {
+                lines.push(carry);
+                carry = '';
+            }
+            responseComplete = true;
+            signalStreamUpdate?.();
         });
-        xhr.addEventListener('error', () =>
-            resolve({ networkError: true, xhr }),
-        );
-        xhr.addEventListener('abort', () =>
-            reject(
-                spec.signal?.reason ??
-                    new DOMException('Aborted', 'AbortError'),
-            ),
-        );
+        xhr.addEventListener('timeout', () => {
+            const error = { message: 'Network request timed out.', code: 'network_error' };
+            failStream(error);
+            resolve({ networkError: true, xhr });
+        });
+        xhr.addEventListener('error', () => {
+            failStream({ message: 'Network request failed.', code: 'network_error' });
+            resolve({ networkError: true, xhr });
+        });
+        xhr.addEventListener('abort', () => {
+            const error = spec.signal?.reason ??
+                new DOMException('Aborted', 'AbortError');
+            failStream(error);
+            reject(error);
+        });
 
         if (spec.signal) {
             if (spec.signal.aborted)
@@ -615,9 +645,7 @@ function sendOnce(spec) {
                     spec.signal.reason ??
                         new DOMException('Aborted', 'AbortError'),
                 );
-            spec.signal.addEventListener('abort', () => xhr.abort(), {
-                once: true,
-            });
+            spec.signal.addEventListener('abort', abortRequest, { once: true });
         }
 
         const body =
@@ -1034,14 +1062,27 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
         }
     })();
 
+    const returnStream = stream.return.bind(stream);
+    stream.return = async (value) => {
+        await lineStream.return();
+        return returnStream(value);
+    };
+    Object.defineProperty(stream, 'cancel', {
+        enumerable: false,
+        value: () => stream.return(),
+    });
     Object.defineProperty(stream, 'start', {
         enumerable: false,
         value: async (controller) => {
-            const encoder = new TextEncoder();
-            for await (const part of stream) {
-                controller.enqueue(encoder.encode(part));
+            try {
+                const encoder = new TextEncoder();
+                for await (const part of stream) {
+                    controller.enqueue(encoder.encode(part));
+                }
+                controller.close();
+            } catch (error) {
+                controller.error(error);
             }
-            controller.close();
         },
     });
 

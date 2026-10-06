@@ -76,18 +76,21 @@ export class XAIProvider implements IChatProvider {
         messages = await OpenAIUtil.process_input_messages(messages);
         let completion;
         try {
-            completion = await this.#openai.chat.completions.create({
-                messages,
-                model: modelUsed.id,
-                ...(tools ? { tools } : {}),
-                max_tokens: 1000,
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams);
+            completion = await this.#openai.chat.completions.create(
+                {
+                    messages,
+                    model: modelUsed.id,
+                    ...(tools ? { tools } : {}),
+                    max_tokens: 1000,
+                    stream,
+                    ...(stream
+                        ? {
+                              stream_options: { include_usage: true },
+                          }
+                        : {}),
+                } as ChatCompletionCreateParams,
+                { signal: Context.get('abortSignal') },
+            );
         } catch (e) {
             console.log('XAI AI process_input_messages error: ', e);
             throw e;
