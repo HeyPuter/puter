@@ -18,6 +18,7 @@
  */
 
 import type { LayerInstances } from '../../types';
+import type { EventMetadata } from '../../clients/event/types.js';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
@@ -595,16 +596,18 @@ export class OIDCService extends PuterService {
             allow: true,
             message: null as string | null,
         };
+        const emailMeta: EventMetadata = {};
         try {
             await this.clients.event?.emitAndWait(
                 'email.validate',
                 emailEvent,
-                {},
+                emailMeta,
             );
         } catch (e) {
             console.warn('[oidc] email validate hook failed:', e);
+            emailMeta.listener_failed = true;
         }
-        if (!emailEvent.allow) {
+        if (emailMeta.listener_failed || !emailEvent.allow) {
             return {
                 success: false,
                 error:
@@ -631,16 +634,19 @@ export class OIDCService extends PuterService {
             };
         }
 
+        const validateMeta: EventMetadata = {};
         try {
             await this.clients.event?.emitAndWait(
                 'puter.signup.validate',
                 validateEvent,
-                {},
+                validateMeta,
             );
         } catch (e) {
             console.warn('[oidc] validate hook failed:', e);
+            validateMeta.listener_failed = true;
         }
-        if (!validateEvent.allow) {
+        // A check that could not run is not a check that passed.
+        if (validateMeta.listener_failed || !validateEvent.allow) {
             return {
                 success: false,
                 error: validateEvent.message ?? 'Signup blocked',
