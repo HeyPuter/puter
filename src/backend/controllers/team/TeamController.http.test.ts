@@ -303,6 +303,21 @@ describe('team endpoints over HTTP', () => {
         expect(afterBody.items.some((t) => t.uid === team.uid)).toBe(true);
     });
 
+    it('does not count a team it hides from an app token', async () => {
+        const { team } = await makeServiceTeam();
+        const appToken = await makeAppToken(env.users.user);
+
+        const res = await call('GET', '/teams?includeTotal=true', appToken);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            items: { uid: string }[];
+            total: number;
+        };
+        expect(body.items.some((t) => t.uid === team.uid)).toBe(false);
+        // A count over rows the page withholds reports the hidden team.
+        expect(body.total).toBe(body.items.length);
+    });
+
     it('still lists a team to its owner session with the directory off', async () => {
         const { team } = await makeServiceTeam();
         const res = await call('GET', '/teams', env.users.user.token);

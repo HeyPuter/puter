@@ -3345,6 +3345,38 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
+     * Held bytes for several accounts in one grouped read, as `getHeldBytes`
+     * does for one.
+     */
+    async getHeldBytesForUsers(
+        userIds: number[],
+    ): Promise<Map<number, number>> {
+        const out = new Map<number, number>();
+        const unique = [
+            ...new Set(
+                (Array.isArray(userIds) ? userIds : []).filter(
+                    (id): id is number => typeof id === 'number',
+                ),
+            ),
+        ];
+        for (const id of unique) out.set(id, 0);
+
+        for (let offset = 0; offset < unique.length; offset += 200) {
+            const chunk = unique.slice(offset, offset + 200);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = (await this.clients.db.read(
+                `SELECT user_id, COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} ` +
+                    `FROM fsentries WHERE user_id IN (${placeholders}) GROUP BY user_id`,
+                chunk,
+            )) as { user_id: number; totalUsage: number }[];
+            for (const row of rows) {
+                out.set(Number(row.user_id), Number(row.totalUsage ?? 0));
+            }
+        }
+        return out;
+    }
+
+    /**
      * `consistentRead` reads both queries from the primary instead of a replica
      * — used for the exact re-check when a replica-backed read would reject a
      * write, so `curr` and `max` come from the same, uncontestable snapshot.

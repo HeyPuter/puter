@@ -191,6 +191,24 @@ describe('team billing events', () => {
         });
     });
 
+    it('does not re-charge a seat that was already disabled before the delete', async () => {
+        const team = await makeTeam();
+        const a = await provision(team);
+        const b = await provision(team);
+        await service.disableMember(team.uid, owner.id, a.userId);
+        seen.length = 0;
+
+        await service.deleteTeam(team.uid, owner.id);
+
+        // Only one `enabled` will ever close a charge, so only one may open it.
+        const disabled = of('team.account.disabled');
+        expect(disabled).toHaveLength(1);
+        expect(disabled[0].data.user_id).toBe(b.userId);
+
+        // Still both seats: the team is losing two accounts either way.
+        expect(of('team.deleted')[0].data).toMatchObject({ account_count: 2 });
+    });
+
     it('emits account-deleted, which a post-delete listener could not', async () => {
         const team = await makeTeam();
         const seat = await provision(team);

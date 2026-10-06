@@ -522,11 +522,8 @@ export class TeamStore extends PuterStore {
         return rows[0] ?? null;
     }
 
-    /** Members to announce a team share to; bounded, or the send is too. */
     /**
-     * Short-lived, and deliberately only over reads that are not authorization.
-     * A stale entry here costs a notification, never access -- `isMember` and
-     * `getByUid` are left uncached for that reason.
+     * Short-lived, and safe for `getByUid`/`getMembership`: mutations bust it.
      *
      * `jct_user_group.user_id` is ON DELETE CASCADE, so deleting an account
      * changes membership without passing through this store. The TTL is the
@@ -609,15 +606,58 @@ export class TeamStore extends PuterStore {
         return rows.map((r) => Number(r.user_id));
     }
 
-    /** Teams this user belongs to, oldest first. */
-    async listTeamsForUser(userId: number): Promise<TeamRow[]> {
-        const rows = await this.clients.db.read(
+    /** A user's teams, oldest first; `openOnly` is the page an app may see. */
+    async listTeamsForUser(
+        userId: number,
+        opts: {
+            limit?: unknown;
+            cursor?: string;
+            includeTotal?: boolean;
+            openOnly?: boolean;
+        } = {},
+    ): Promise<PageResult<TeamRow>> {
+        const limit =
+            normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
+            MEMBER_PAGE_SIZE;
+        const page = decodeCursor(opts.cursor, 'team cursor');
+        const after = typeof page?.id === 'number' ? page.id : null;
+        const open = opts.openOnly ? ' AND g.`directory_enabled` = 1' : '';
+
+        const rows = (await this.clients.db.read(
             'SELECT g.* FROM `group` g ' +
                 'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
-                `WHERE ug.\`user_id\` = ? AND g.${this.#live()} ORDER BY g.\`id\``,
-            [userId, TEAM_KIND],
-        );
-        return rows as unknown as TeamRow[];
+                `WHERE ug.\`user_id\` = ? AND g.${this.#live()}` +
+                open +
+                (after === null ? '' : ' AND g.`id` > ?') +
+                ' ORDER BY g.`id` LIMIT ?',
+            after === null
+                ? [userId, TEAM_KIND, limit + 1]
+                : [userId, TEAM_KIND, after, limit + 1],
+        )) as unknown as TeamRow[];
+
+        const items = rows.slice(0, limit);
+        const cursor =
+            rows.length > limit
+                ? encodeCursor({ id: items[items.length - 1].id })
+                : undefined;
+
+        let total: number | undefined;
+        if (opts.includeTotal) {
+            const totals = (await this.clients.db.read(
+                'SELECT COUNT(*) AS n FROM `group` g ' +
+                    'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                    `WHERE ug.\`user_id\` = ? AND g.${this.#live()}` +
+                    open,
+                [userId, TEAM_KIND],
+            )) as unknown as Array<{ n: number | string }>;
+            total = Number(totals[0]?.n ?? 0);
+        }
+
+        return {
+            items,
+            ...(cursor ? { cursor } : {}),
+            ...(total === undefined ? {} : { total }),
+        };
     }
 
     /** `orgOwned` decides who pays: 1 team-created, 0 the team owner. */
@@ -778,6 +818,38 @@ export class TeamStore extends PuterStore {
                 entry.reason ?? null,
             ],
         );
+    }
+
+    /** The same rows as `appendAudit`, in one statement per chunk. */
+    async appendAuditMany(
+        entries: Array<{
+            teamId: number;
+            userId: number;
+            actorUserId: number;
+            action: string;
+            reason?: string | null;
+        }>,
+    ): Promise<void> {
+        if (entries.length === 0) return;
+        for (let offset = 0; offset < entries.length; offset += 200) {
+            const chunk = entries.slice(offset, offset + 200);
+            const values = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+            const params = chunk.flatMap((e) => [
+                e.teamId,
+                e.teamId,
+                e.userId,
+                e.userId,
+                e.actorUserId,
+                e.action,
+                e.reason ?? null,
+            ]);
+            await this.clients.db.write(
+                'INSERT INTO `audit_team_membership` ' +
+                    '(`group_id`, `group_id_keep`, `user_id`, `user_id_keep`, ' +
+                    `\`actor_user_id\`, \`action\`, \`reason\`) VALUES ${values}`,
+                params,
+            );
+        }
     }
 
     /** The whole team's audit, newest first, keyset-paginated on `id`. */
