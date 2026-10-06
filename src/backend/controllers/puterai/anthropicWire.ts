@@ -32,10 +32,7 @@
 
 import type { IncomingHttpHeaders } from 'node:http';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    rejectMcpServers,
-    sanitizeCacheControl,
-} from '../../drivers/ai-chat/providers/claude/anthropicPolicy.js';
+import { sanitizeCacheControl } from '../../drivers/ai-chat/providers/claude/anthropicPolicy.js';
 import type {
     ICompleteArguments,
     IChatMessageResult,
@@ -184,10 +181,26 @@ const FILE_SOURCED_BLOCK_TYPES = new Set(['image', 'document']);
 const validateContentBlock = (block: unknown, path: string): void => {
     if (typeof block === 'string') return;
     if (isPlainObject(block) && block.puter_path !== undefined) return;
-    if (!isPlainObject(block) || typeof block.type !== 'string') {
+    if (!isPlainObject(block)) {
         throw badRequest(`${path}: unsupported block type`);
     }
-    if (!ALLOWED_INPUT_BLOCK_TYPES.has(block.type)) {
+    // The OpenAI Responses `input_image` type, and an `image_url`/`video_url`
+    // part with no `type` at all (OpenAI Chat's untyped shape), are
+    // rewritten downstream by `normalizeMediaParts` rather than validated
+    // here — main's driver accepted both. A `video_url`-typed block is the
+    // same part post-rewrite. Anything else with no `type` is still rejected.
+    if (
+        block.type === 'input_image' ||
+        block.type === 'video_url' ||
+        (block.type === undefined &&
+            (block.image_url !== undefined || block.video_url !== undefined))
+    ) {
+        return;
+    }
+    if (
+        typeof block.type !== 'string' ||
+        !ALLOWED_INPUT_BLOCK_TYPES.has(block.type)
+    ) {
         throw badRequest(`${path}: unsupported block type`);
     }
     if (block.type === 'text' && block.text === '') {
@@ -372,7 +385,8 @@ export const parseAnthropicRequest = (
 ): ICompleteArguments => {
     if (!Array.isArray(body.messages))
         throw badRequest('messages: Field required');
-    rejectMcpServers(body);
+    // `mcp_servers` is accepted but never forwarded: the result below picks
+    // named fields rather than spreading `body`, so it's silently dropped.
     const betas = parseBetaHeader(headers['anthropic-beta']);
     rejectThreads(body, betas);
 

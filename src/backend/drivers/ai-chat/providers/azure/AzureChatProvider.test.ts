@@ -345,6 +345,28 @@ describe('AzureChatProvider.complete argument validation', () => {
         expect(result).toEqual({ delegated: 'compaction' });
     });
 
+    it('requestPricing delegates to the Responses sibling, and no-ops without one', async () => {
+        const provider = makeProvider();
+        const args = {
+            model: 'gpt-4o',
+            messages: [],
+            tools: [{ type: 'web_search' }],
+        } as never;
+        const model = { id: 'gpt-4o' } as never;
+        const est = { promptTokenEstimate: 0 };
+
+        expect(provider.requestPricing!(args, model, est)).toEqual({});
+
+        const sibling = {
+            requestPricing: vi.fn().mockReturnValue({ extraCost: 1_400_000 }),
+        };
+        provider.setResponsesProvider(sibling as never);
+        expect(provider.requestPricing!(args, model, est)).toEqual({
+            extraCost: 1_400_000,
+        });
+        expect(sibling.requestPricing).toHaveBeenCalledWith(args, model, est);
+    });
+
     it('checkModeration is not implemented on the Azure deployment', () => {
         expect(() => makeProvider().checkModeration('anything')).toThrow(
             'Method not implemented.',

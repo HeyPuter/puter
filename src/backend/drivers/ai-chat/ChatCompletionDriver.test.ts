@@ -46,17 +46,20 @@ import {
     vi,
 } from 'vitest';
 
+import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { withTestActor } from '../integrationTestUtil.js';
 import { COUNT_TOKENS, ChatCompletionDriver } from './ChatCompletionDriver.js';
+import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import type {
     IChatCompleteResult,
     IChatProvider,
     ICompleteArguments,
 } from './types.js';
+import type { AIChatStream } from './utils/Streaming.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -922,6 +925,34 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         }
     });
 
+    // The driver normalizes every tool before the provider sees it; an
+    // unexempted `web_search_preview` became an unnamed function tool, which
+    // OpenAI rejects and the provider's search pricing no longer recognizes.
+    it('passes web_search_preview through to the provider unchanged', async () => {
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({
+            balance: 100_000_000,
+            held: 0,
+        });
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(() =>
+            driver.complete({
+                model: 'costly',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [{ type: 'web_search_preview' }],
+            }),
+        );
+
+        const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+        expect(passed.tools).toEqual([{ type: 'web_search_preview' }]);
+    });
+
     // A provider that can't report a model's output ceiling used to make the
     // cap arithmetic go negative — `null - approxTokens` is negative, not NaN
     // — so a funded account was told it had insufficient funds.
@@ -1076,6 +1107,153 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
     });
 });
 
+// ── Claude thinking_tokens ──────────────────────────────────────────
+
+describe('ChatCompletionDriver Claude usage.thinking_tokens', () => {
+    const THINKING_MODEL = 'claude-thinking-test';
+
+    const makeClaudeDriver = async () => {
+        vi.spyOn(ClaudeProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: THINKING_MODEL,
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 0, output_tokens: 1000 },
+                max_tokens: 8192,
+            },
+        ] as never);
+        const d = new ChatCompletionDriver(
+            {
+                providers: {
+                    claude: { apiKey: 'k' },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        d.onServerStart();
+        for (let i = 0; i < 200; i++) {
+            const m = await d.models();
+            if (m.some((model) => model.id === THINKING_MODEL)) return d;
+            await new Promise((r) => setTimeout(r, 5));
+        }
+        throw new Error('claude driver model map never populated in test');
+    };
+
+    it('adds thinking_tokens to the non-stream wire usage, priced only off the real output', async () => {
+        const d = await makeClaudeDriver();
+        vi.spyOn(ClaudeProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: { role: 'assistant', content: 'hi' },
+            finish_reason: 'stop',
+            usage: { input_tokens: 0, output_tokens: 233 },
+            usageDetails: {
+                inputTokens: 0,
+                outputTokens: 233,
+                reasoningTokens: 110,
+            },
+        } as never);
+
+        const result = (await withTestActor(() =>
+            d.complete({
+                model: THINKING_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number> };
+
+        expect(result.usage.thinking_tokens).toBe(110);
+        // 233 output tokens at 1000 µ¢ each — not 343 (output + thinking).
+        expect(result.usage.usd_cents).toBeCloseTo((233 * 1000) / 1_000_000);
+    });
+
+    it('adds thinking_tokens to the streamed wire usage, after cost calculation', async () => {
+        const d = await makeClaudeDriver();
+        vi.spyOn(ClaudeProvider.prototype, 'complete').mockResolvedValueOnce({
+            stream: true,
+            finally_fn: async () => {},
+            init_chat_stream: async ({
+                chatStream,
+            }: {
+                chatStream: AIChatStream;
+            }) => {
+                chatStream.setUsageDetails({
+                    inputTokens: 0,
+                    outputTokens: 233,
+                    reasoningTokens: 110,
+                });
+                chatStream.end({ input_tokens: 0, output_tokens: 233 });
+            },
+        } as never);
+
+        const result = (await withTestActor(() =>
+            d.complete({
+                model: THINKING_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+            }),
+        )) as unknown as { stream: Readable };
+
+        const events = await collectStream(result.stream);
+        const usageLine = events.find(
+            (e) => (e as { type: string }).type === 'usage',
+        ) as { usage: Record<string, number> };
+
+        expect(usageLine.usage.thinking_tokens).toBe(110);
+        expect(usageLine.usage.usd_cents).toBeCloseTo((233 * 1000) / 1_000_000);
+    });
+
+    it('sets thinking_tokens to 0 when the model reported no reasoning', async () => {
+        const d = await makeClaudeDriver();
+        vi.spyOn(ClaudeProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: { role: 'assistant', content: 'hi' },
+            finish_reason: 'stop',
+            usage: { input_tokens: 0, output_tokens: 10 },
+            usageDetails: { inputTokens: 0, outputTokens: 10 },
+        } as never);
+
+        const result = (await withTestActor(() =>
+            d.complete({
+                model: THINKING_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number> };
+
+        expect(result.usage.thinking_tokens).toBe(0);
+    });
+
+    it('does not flag usage_limited from a funds cap the real output never reached, even though output+thinking would have', async () => {
+        const d = await makeClaudeDriver();
+        // Affords exactly 300 output tokens at 1000 µ¢ each: above the real
+        // 233 output tokens, below 233 + 110 thinking_tokens (343).
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue(
+            { balance: 300_000, held: 0 },
+        );
+        vi.spyOn(ClaudeProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: { role: 'assistant', content: 'hi' },
+            finish_reason: 'stop',
+            usage: { input_tokens: 0, output_tokens: 233 },
+            usageDetails: {
+                inputTokens: 0,
+                outputTokens: 233,
+                reasoningTokens: 110,
+            },
+        } as never);
+
+        const metadata = await withTestActor(async () => {
+            await d.complete({
+                model: THINKING_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+            });
+            return Context.get('driverMetadata') as
+                | Record<string, unknown>
+                | undefined;
+        });
+
+        expect(metadata?.usage_limited).toBeUndefined();
+    });
+});
+
 // ── Normalisation ───────────────────────────────────────────────────
 
 describe('ChatCompletionDriver.complete normalization', () => {
@@ -1105,6 +1283,35 @@ describe('ChatCompletionDriver.complete normalization', () => {
             content: [{ type: 'text', text: 'just a string' }],
         });
     });
+
+    it.each([
+        ['required', { type: 'any' }],
+        [
+            { type: 'function', function: { name: 'lookup' } },
+            { type: 'tool', name: 'lookup' },
+        ],
+    ])(
+        'normalizes a raw wire-form tool_choice (%j) before it reaches the provider',
+        async (wireToolChoice, normalized) => {
+            const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+            completeSpy.mockResolvedValueOnce({
+                message: { role: 'assistant', content: 'ok' },
+                usage: {},
+                finish_reason: 'stop',
+            } as never);
+
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'fake',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    tool_choice: wireToolChoice,
+                } as never),
+            );
+
+            const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+            expect(passed.tool_choice).toEqual(normalized);
+        },
+    );
 
     it('returns a `normalize_single_message`-shaped message when args.response.normalize is true', async () => {
         const rawMsg = 'plain text reply'; // not in normalized shape

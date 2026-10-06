@@ -694,6 +694,37 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
         });
     });
 
+    it('maps a native tool_use stop to finish_reason=tool_calls, not the wire-level stop', async () => {
+        stubChatComplete({
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'tu_1', name: 'lookup', input: {} },
+                ],
+                stop_reason: 'tool_use',
+            },
+            // A native Claude result always reports `stop` here — the real
+            // reason is read off `message.stop_reason` instead.
+            finish_reason: 'stop',
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+            }),
+            res,
+        );
+
+        const choice = (
+            captured.body as { choices: Array<Record<string, unknown>> }
+        ).choices[0]!;
+        expect(choice.finish_reason).toBe('tool_calls');
+    });
+
     it('omits tool_calls entirely when no content part is a tool_use', async () => {
         stubChatComplete({
             message: {
@@ -912,6 +943,45 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
         expect(captured.ended).toBe(true);
     });
 
+    it('promotes an explicit finish_reason=stop to tool_calls when the run emitted tool calls', async () => {
+        stubChatComplete(
+            streamResult([
+                {
+                    type: 'tool_use',
+                    id: 'tu_1',
+                    name: 'lookup',
+                    input: { q: 1 },
+                },
+                {
+                    type: 'usage',
+                    usage: { prompt_tokens: 3, completion_tokens: 1 },
+                    finish_reason: 'stop',
+                },
+            ]),
+        );
+
+        const { res, captured } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    stream: true,
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+            }),
+            res,
+        );
+        await settleStream();
+
+        const frames = captured.written
+            .join('')
+            .split('\n\n')
+            .filter((f) => f.startsWith('data: ') && !f.includes('[DONE]'))
+            .map((f) => JSON.parse(f.slice(6)));
+        const last = frames[frames.length - 1]!;
+        expect(last.choices[0].finish_reason).toBe('tool_calls');
+    });
+
     it('emits a stream_error frame then [DONE] when the source stream fails', async () => {
         const stream = new Readable({ read() {} });
         stubChatComplete({
@@ -1044,6 +1114,28 @@ describe('PuterAIController.openaiCompletions translation edges', () => {
             (captured.body as { choices: Array<Record<string, unknown>> })
                 .choices[0],
         ).toMatchObject({ text: 'trimmed', finish_reason: 'length' });
+    });
+
+    it('maps a native max_tokens stop to finish_reason=length', async () => {
+        stubChatComplete({
+            message: {
+                role: 'assistant',
+                content: 'trimmed',
+                stop_reason: 'max_tokens',
+            },
+            finish_reason: 'stop',
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiCompletions(
+            makeReq({ body: { model: 'gpt-test', prompt: 'hi' } }),
+            res,
+        );
+
+        expect(
+            (captured.body as { choices: Array<Record<string, unknown>> })
+                .choices[0],
+        ).toMatchObject({ finish_reason: 'length' });
     });
 });
 

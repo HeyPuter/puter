@@ -357,25 +357,6 @@ export const claudeToolPolicy = (
     };
 };
 
-/**
- * `mcp_servers` connects Anthropic to a client-supplied MCP URL with a
- * client-supplied token under our org identity, and it is unpriced — never
- * accepted, whether it arrives as a top-level body field or an `mcp_toolset`
- * tool (the latter is rejected in `claudeToolPolicy`).
- */
-export const rejectMcpServers = (args: Record<string, unknown>): void => {
-    const servers = args.mcp_servers;
-    if (
-        servers !== undefined &&
-        servers !== null &&
-        !(Array.isArray(servers) && servers.length === 0)
-    ) {
-        throw new HttpError(400, 'mcp_servers: not supported', {
-            legacyCode: 'bad_request',
-        });
-    }
-};
-
 // -- org-scoped content blocks ------------------------------------------------
 
 const isOrgScopedBlock = (

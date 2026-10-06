@@ -68,6 +68,7 @@ import type {
     IChatModel,
     IChatProvider,
     ICompleteArguments,
+    UsageDetails,
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
@@ -89,6 +90,7 @@ import {
     normalizeResultToOpenAI,
     shouldPresentAsOpenAI,
 } from './utils/normalizeToOpenAI.js';
+import { isToolChoice, toolChoiceFromWire } from './utils/openaiParams.js';
 import {
     costKeys,
     isFreeModel,
@@ -332,19 +334,26 @@ const streamErrorStatus = (a: ProviderAttempt): number => {
 /**
  * Map an exhausted fallback chain to a single user-facing HttpError.
  *
+ * Every caller except the Anthropic route sees main's statuses and codes here —
+ * a 529 (overloaded) or 404 (model not served) chain still reaches a 400, like
+ * any other upstream failure. The real status rides along in
+ * `fields.upstreamStatus`; `renderAnthropicError` (wireErrors.ts) is the only
+ * renderer that reads it back out, to give Claude Code the 529/404 it expects.
+ *
  * Per-class rules (see also alarm gate in server.ts):
  *
  * - All credit-exhausted → 503 `upstream_credits_exhausted` (alerted)
  * - All rate-limited → 429 `upstream_rate_limited` (alerted, unless every attempt
  *   was on a free model — see `allModelsFree`)
  * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
- * - All overloaded (529 / `overloaded_error`) → 529 `upstream_overloaded` (no
- *   page)
- * - All model-not-found (404) → 404 `upstream_model_unavailable` (no page)
- * - All upstream 5xx → 502 `upstream_provider_unavailable` (no page)
+ * - All overloaded (529 / `overloaded_error`) → 400
+ *   `upstream_provider_unavailable`, `upstreamStatus: 529` (no page)
+ * - All model-not-found (404) → 400 `upstream_bad_request`, `upstreamStatus: 404`
+ *   (no page)
+ * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
  * - All timed out → 504 `upstream_timeout` (no page)
- * - Mixed → 502 `upstream_failed` (no page)
+ * - Mixed → 400 `upstream_failed` (no page)
  */
 const classifyAttempts = (
     attempts: ProviderAttempt[],
@@ -387,19 +396,19 @@ const classifyAttempts = (
         });
     }
     if (attempts.every(isOverloaded)) {
-        return new HttpError(529, 'AI provider overloaded', {
-            legacyCode: 'upstream_overloaded',
-            fields,
+        return new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields: { ...fields, upstreamStatus: 529 },
         });
     }
     if (attempts.every(isModelUnavailable)) {
-        return new HttpError(404, 'Model not available', {
-            legacyCode: 'upstream_model_unavailable',
-            fields,
+        return new HttpError(400, attempts[0].error, {
+            legacyCode: 'upstream_bad_request',
+            fields: { ...fields, upstreamStatus: 404 },
         });
     }
     if (attempts.every(isUpstream5xx)) {
-        return new HttpError(502, 'AI provider unavailable', {
+        return new HttpError(400, 'AI provider unavailable', {
             legacyCode: 'upstream_provider_unavailable',
             fields,
         });
@@ -432,7 +441,7 @@ const classifyAttempts = (
         isAuthFailure(a) ||
         isUpstream5xx(a);
     if (attempts.some(isUpstreamSignal)) {
-        return new HttpError(502, 'All AI providers failed', {
+        return new HttpError(400, 'All AI providers failed', {
             legacyCode: 'upstream_failed',
             fields,
         });
@@ -444,6 +453,23 @@ const classifyAttempts = (
         legacyCode: 'internal_error',
         fields,
     });
+};
+
+// Claude's usage has always carried thinking_tokens. It's a subset of
+// output_tokens, so it's added only after pricing, usd_cents, cost-calculated,
+// and the funds cap all ran off the untouched usage.
+const withClaudeThinkingTokens = (
+    usage: Record<string, number> | undefined,
+    model: IChatModel,
+    details: UsageDetails | null | undefined,
+): void => {
+    if (
+        usage &&
+        model.provider === 'claude' &&
+        usage.thinking_tokens === undefined
+    ) {
+        usage.thinking_tokens = details?.reasoningTokens ?? 0;
+    }
 };
 
 /**
@@ -563,6 +589,13 @@ export class ChatCompletionDriver extends PuterDriver {
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
             normalize_tools_object(args.tools);
+        }
+        // A raw `/drivers/call` caller still sends the OpenAI wire form
+        // ('auto'/'none'/'required', {type:'function', function:{name}}) —
+        // normalize it once here so a provider downstream never spreads a
+        // bare string or an unrecognized shape into its request.
+        if (args.tool_choice !== undefined && !isToolChoice(args.tool_choice)) {
+            args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
         }
 
         // A clear 400 for image/video parts the catalog says the model cannot
@@ -685,6 +718,10 @@ export class ChatCompletionDriver extends PuterDriver {
         // Tracked across the chain so the classifier can tell a chain that
         // only ever touched free models from one that cost the user something.
         let allModelsFree = true;
+        // The Anthropic route sets this so its callers get the vendor's own
+        // 4xx instead of a fallback provider's translation of it; every other
+        // caller keeps falling back on a request-level failure, as main did.
+        const strict = Context.get('strictUpstreamErrors') === true;
 
         // A failed route is remembered briefly so the next request skips it
         // rather than paying its timeout again.
@@ -721,14 +758,24 @@ export class ChatCompletionDriver extends PuterDriver {
             if (isModerationRefusal(e)) throw e;
             // Our own request validation (policy rejection, bad tool shape)
             // is never a route problem — no other provider would accept it
-            // either, so there is nothing a fallback would fix.
-            if (isHttpError(e) && e.statusCode < 500) throw e;
+            // either, so there is nothing a fallback would fix. An empty
+            // Responses-API output is the one exception: it falls back like
+            // any other route-level failure instead of being final.
+            if (
+                isHttpError(e) &&
+                e.statusCode < 500 &&
+                e.legacyCode !== 'bad_response'
+            )
+                throw e;
             const first = recordFailure(model, e);
             // A request-level upstream failure (malformed tools, oversized
-            // prompt) is the caller's request, not the route's fault —
-            // retrying it on a different provider would translate the same
-            // mistake into a different vendor's 400, not fix it.
-            if (!isRouteLevelFailure(first)) throw requestLevelError(first);
+            // prompt) is the caller's request, not the route's fault — for
+            // the Anthropic route, retrying it on a different provider would
+            // translate the same mistake into a different vendor's 400, not
+            // fix it, so it's surfaced immediately. Other callers keep
+            // falling back, matching main.
+            if (strict && !isRouteLevelFailure(first))
+                throw requestLevelError(first);
 
             // Fallback loop — the bucket holds every provider that serves this
             // model, ranked by `compareModelPreference`, so each miss walks one
@@ -785,10 +832,13 @@ export class ChatCompletionDriver extends PuterDriver {
                     // A fallback's own 4xx is a translation gap between
                     // vendors, not the caller's fault — stop climbing the
                     // chain here, but still classify on whichever attempts
-                    // were actually route-level.
+                    // were actually route-level. Non-strict callers keep
+                    // falling back past a request-level failure, as main did.
                     if (
-                        (isHttpError(fbErr) && fbErr.statusCode < 500) ||
-                        !isRouteLevelFailure(attempt)
+                        (isHttpError(fbErr) &&
+                            fbErr.statusCode < 500 &&
+                            fbErr.legacyCode !== 'bad_response') ||
+                        (strict && !isRouteLevelFailure(attempt))
                     ) {
                         console.warn(
                             `[ai-chat] fallback rejected request (${completionId}, ${fallback.provider}:${fallback.id}, ${attempt.status})`,
@@ -802,6 +852,13 @@ export class ChatCompletionDriver extends PuterDriver {
 
         if (!res) {
             await hold.release();
+            // The chain began on the caller's own request-level 4xx and never
+            // recovered — surface that vendor's error rather than a generic
+            // "all routes failed", which would otherwise swallow it once
+            // every route-level attempt in the chain gets filtered out below.
+            if (attempts[0] && !isRouteLevelFailure(attempts[0])) {
+                throw requestLevelError(attempts[0]);
+            }
             const failure = classifyAttempts(
                 attempts.filter(isRouteLevelFailure),
                 { allModelsFree },
@@ -895,6 +952,11 @@ export class ChatCompletionDriver extends PuterDriver {
                         usageDetailsFromUsage(usage, model),
                     );
                 }
+                withClaudeThinkingTokens(
+                    enrichedUsage,
+                    model,
+                    chatStream.usageDetails,
+                );
                 return originalEnd(
                     enrichedUsage!,
                     ranOutOfFunds(usage)
@@ -1013,6 +1075,14 @@ export class ChatCompletionDriver extends PuterDriver {
                 ? { usage_limited: true }
                 : {}),
         });
+
+        if ('usage' in res) {
+            withClaudeThinkingTokens(
+                res.usage,
+                model,
+                (res as IChatMessageResult).usageDetails,
+            );
+        }
 
         // Response-format precedence: an explicit per-call `normalize` wins in
         // both directions; the legacy `response.normalize` (internal

@@ -25,14 +25,21 @@ import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import type {
+    IChatModel,
+    IChatProvider,
+    ICompleteArguments,
+} from '../../types.js';
 import {
     messagesHaveCompaction,
     wantsCompaction,
 } from '../../utils/compaction.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
+import {
+    clampReasoningEffort,
+    openAICompatParams,
+} from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
@@ -107,6 +114,18 @@ export class OpenAiChatProvider implements IChatProvider {
     /** The model key this provider records usage under. */
     meteringModelKey(modelId: string | undefined): string {
         return `openai:${modelId}`;
+    }
+
+    /**
+     * A `web_search` call delegates to the sibling Responses provider (see
+     * `setResponsesProvider`), so its credit hold has to come from there too —
+     * this provider has no web-search pricing of its own.
+     */
+    requestPricing(
+        args: ICompleteArguments,
+        model: IChatModel,
+    ): { inputKey?: string; outputKey?: string; extraCost?: number } {
+        return this.#responsesProvider?.requestPricing?.(args, model) ?? {};
     }
 
     async complete(
@@ -204,12 +223,20 @@ export class OpenAiChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
+        const clampedEffort = clampReasoningEffort(
+            modelUsed.id,
+            requestedReasoningEffort,
+        );
         // gpt-5/gpt-6 are the reasoning-capable families in this catalog;
         // every other model (gpt-4o, gpt-4.1, …) 400s on an unsupported
-        // `reasoning_effort`/`verbosity` param.
-        const supportsReasoningControls = /^gpt-(5|6)([.-]|$)/.test(
-            modelUsed.id,
-        );
+        // `verbosity` param (the effort param itself is handled by the clamp
+        // above, which already drops it for a model matching no row).
+        const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
+        const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
+        // A clamped effort above 'none' puts the model in reasoning mode,
+        // where temperature/top_p steer a sampler that isn't in play.
+        const dropsSamplingParams =
+            clampedEffort !== undefined && clampedEffort !== 'none';
 
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,
@@ -221,7 +248,9 @@ export class OpenAiChatProvider implements IChatProvider {
             ...(max_tokens !== undefined
                 ? { max_completion_tokens: max_tokens }
                 : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...(temperature !== undefined && !dropsSamplingParams
+                ? { temperature }
+                : {}),
             stream: !!stream,
             ...(stream
                 ? {
@@ -229,18 +258,19 @@ export class OpenAiChatProvider implements IChatProvider {
                   }
                 : {}),
             ...openAICompatParams(
-                { ...params, tools: mappedTools, reasoning_effort: undefined },
+                {
+                    ...params,
+                    tools: mappedTools,
+                    reasoning_effort: undefined,
+                    ...(dropsSamplingParams ? { top_p: undefined } : {}),
+                },
                 'chat',
             ),
-            ...(supportsReasoningControls
-                ? {
-                      ...(requestedReasoningEffort
-                          ? { reasoning_effort: requestedReasoningEffort }
-                          : {}),
-                      ...(requestedVerbosity
-                          ? { verbosity: requestedVerbosity }
-                          : {}),
-                  }
+            ...(clampedEffort !== undefined
+                ? { reasoning_effort: clampedEffort }
+                : {}),
+            ...(requestedVerbosity && supportsReasoningFamily && !isCodexModel
+                ? { verbosity: requestedVerbosity }
                 : {}),
         } as unknown as ChatCompletionCreateParams;
 

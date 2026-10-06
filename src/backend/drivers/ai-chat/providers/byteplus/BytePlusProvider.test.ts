@@ -312,6 +312,39 @@ describe('BytePlusProvider.complete request shape', () => {
         expect(args.tool_choice).toBe('auto');
     });
 
+    it('forwards parallel_tool_calls, stop, response_format and reasoning_effort unrestricted', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'seed-2-0-mini-260428',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toBe('required');
+        expect(args.parallel_tool_calls).toBe(true);
+        expect(args.stop).toEqual(['STOP']);
+        expect(args.response_format).toBeDefined();
+        expect(args.reasoning_effort).toBe('high');
+    });
+
     it('forwards Ark-specific custom params (thinking, stop, response_format)', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);

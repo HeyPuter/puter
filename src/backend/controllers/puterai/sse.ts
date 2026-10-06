@@ -27,6 +27,7 @@
 
 import type { Response } from 'express';
 import type { UsageDetails } from '../../drivers/ai-chat/types.js';
+import { promoteStopForToolCalls } from '../../drivers/ai-chat/utils/stopReason.js';
 import { anthropicUsage } from './anthropicWire.js';
 
 // -- SSE transport ------------------------------------------------------------
@@ -384,9 +385,12 @@ export class AnthropicSseWriter {
 
     #finish(ev: Record<string, unknown>): void {
         this.#close();
-        const stopReason =
+        const stopReason = promoteStopForToolCalls(
             (ev.stopReason as string | undefined) ??
-            (this.#sawToolUse ? 'tool_use' : 'end_turn');
+                (this.#sawToolUse ? 'tool_use' : 'end_turn'),
+            this.#sawToolUse,
+            'tool_use',
+        );
         const stopDetails = ev.stopDetails as
             Record<string, unknown> | null | undefined;
         const usageDetails = (ev.usageDetails as UsageDetails | undefined) ?? {

@@ -714,6 +714,7 @@ export const create_chat_stream_handler_responses_api =
         let sawFunctionCall = false;
         let incompleteReason = null;
         let webSearchCalls = 0;
+        let toolUsage = null;
         for await (const chunk of completion) {
             if (chunk.type === 'response.output_text.delta') {
                 textblock.addText(chunk.delta);
@@ -746,6 +747,7 @@ export const create_chat_stream_handler_responses_api =
                 chunk.type === 'response.incomplete'
             ) {
                 last_usage = chunk.response.usage;
+                toolUsage = chunk.response.tool_usage ?? toolUsage;
                 if (
                     chunk.response.status === 'incomplete' &&
                     chunk.response.incomplete_details?.reason ===
@@ -795,7 +797,11 @@ export const create_chat_stream_handler_responses_api =
                 chunk.type === 'response.output_item.done' &&
                 chunk.item?.type === 'web_search_call'
             ) {
-                webSearchCalls++;
+                // Only the search action itself is billed — a page-open or
+                // find probe inside the same web_search_call is free.
+                if ((chunk.item.action?.type ?? 'search') === 'search') {
+                    webSearchCalls++;
+                }
                 continue;
             }
 
@@ -824,7 +830,12 @@ export const create_chat_stream_handler_responses_api =
         // see the sibling handler above, including why usage is reported
         // before the block flushes.
         const usage = last_usage
-            ? usage_calculator({ usage: last_usage, webSearchCalls })
+            ? usage_calculator({
+                  usage: last_usage,
+                  webSearchCalls,
+                  tool_usage: toolUsage,
+                  setUsageCosts: (c) => chatStream.setUsageCosts(c),
+              })
             : undefined;
         chatStream.reportUsage(usage);
         chatStream.setStop({
@@ -928,6 +939,8 @@ export const handle_completion_output = async (
  * @param {(args: {
  *     usage: import('openai/resources/responses/responses.mjs').ResponseUsage;
  *     webSearchCalls?: number;
+ *     tool_usage?: Record<string, unknown>;
+ *     setUsageCosts?: (costs: Record<string, number>) => void;
  * }) => unknown} params.usage_calculator
  * @param {() => Promise<void>} [params.finally_fn]
  * @returns {ReturnType<import('../types').IChatProvider['complete']>}
@@ -1060,8 +1073,12 @@ export const handle_completion_output_responses_api = async ({
 
     delete ret.type;
 
+    // Only the search action itself is billed — a page-open or find probe
+    // inside the same web_search_call is free.
     const webSearchCalls = output.filter(
-        (item) => item?.type === 'web_search_call',
+        (item) =>
+            item?.type === 'web_search_call' &&
+            (item.action?.type ?? 'search') === 'search',
     ).length;
 
     // Metered before moderation, same as the sibling handler above: the
@@ -1072,6 +1089,9 @@ export const handle_completion_output_responses_api = async ({
               ...completion,
               usage: completion.usage,
               webSearchCalls,
+              setUsageCosts: (c) => {
+                  ret.usageCosts = c;
+              },
           })
         : {
               input_tokens: completion.usage.input_tokens,

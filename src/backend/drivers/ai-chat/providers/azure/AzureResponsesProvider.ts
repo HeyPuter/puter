@@ -33,6 +33,7 @@ import { toOpenAiContextManagement } from '../../utils/compaction.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
+    clampReasoningEffort,
     openAICompatParams,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
@@ -42,34 +43,24 @@ import { AZURE_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
-import { AI_WEB_SEARCH_MAX_USES } from '../../../util/aiLimits.js';
 
 const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
     type === 'web_search_20250305' ||
     (typeof type === 'string' && /^web_search_2026/.test(type));
 
-// Same rates as the OpenAI Responses provider — Azure fronts the same
-// upstream models at the same published prices (see that file's comment).
-const WEB_SEARCH_CALL_RATE = 1_000_000;
-const WEB_SEARCH_PREVIEW_NON_REASONING_RATE = 2_500_000;
+// Azure bills one flat rate per web-search request, for every tool variant —
+// unlike OpenAI's own Responses endpoint, which varies by variant and model
+// (see the sibling provider's comment).
+const WEB_SEARCH_CALL_RATE = 1_400_000;
 
-const isReasoningModel = (modelId: string): boolean =>
-    /^gpt-(5|6)([.-]|$)/.test(modelId);
-
-const webSearchCallRate = (
-    tools: unknown[] | undefined,
-    modelId: string,
-): number | undefined => {
+const hasWebSearchTool = (tools: unknown[] | undefined): boolean => {
     const list = (tools ?? []) as Array<Record<string, unknown>>;
-    const hasPreview = list.some((t) => t?.type === 'web_search_preview');
-    const hasOther = list.some(
-        (t) => t?.type === 'web_search' || ANTHROPIC_WEB_SEARCH_TYPE(t?.type),
+    return list.some(
+        (t) =>
+            t?.type === 'web_search' ||
+            t?.type === 'web_search_preview' ||
+            ANTHROPIC_WEB_SEARCH_TYPE(t?.type),
     );
-    if (!hasPreview && !hasOther) return undefined;
-    if (hasPreview && !isReasoningModel(modelId)) {
-        return WEB_SEARCH_PREVIEW_NON_REASONING_RATE;
-    }
-    return WEB_SEARCH_CALL_RATE;
 };
 
 /**
@@ -137,14 +128,19 @@ export class AzureResponsesProvider implements IChatProvider {
         return `azure-openai:${modelId}`;
     }
 
-    /** See the sibling OpenAI Responses provider's note on web search metering. */
+    /**
+     * Sizes the credit hold for a web-search tool: one call's worth, at the
+     * flat Azure rate. OpenAI doesn't bound how many searches a single request
+     * can run — every call is metered at settlement, so the hold only needs to
+     * cover the model actually trying.
+     */
     requestPricing(
         args: ICompleteArguments,
-        model: IChatModel,
+        _model: IChatModel,
     ): { inputKey?: string; outputKey?: string; extraCost?: number } {
-        const rate = webSearchCallRate(args.tools, model.id);
-        if (!rate) return {};
-        return { extraCost: AI_WEB_SEARCH_MAX_USES.default * rate };
+        return hasWebSearchTool(args.tools)
+            ? { extraCost: WEB_SEARCH_CALL_RATE }
+            : {};
     }
 
     async complete({
@@ -243,11 +239,19 @@ export class AzureResponsesProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        // gpt-5/gpt-6 are the reasoning-capable families; every other model
-        // 400s on an unsupported `reasoning`/`verbosity` control.
-        const supportsReasoningControls = /^gpt-(5|6)([.-]|$)/.test(
+        const clampedEffort = clampReasoningEffort(
             modelUsed.id,
+            requestedReasoningEffort,
         );
+        // gpt-5/gpt-6 are the reasoning-capable families; every other model
+        // 400s on an unsupported `verbosity` control (the effort param is
+        // handled by the clamp above).
+        const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
+        const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
+        // A clamped effort above 'none' puts the model in reasoning mode,
+        // where temperature/top_p steer a sampler that isn't in play.
+        const dropsSamplingParams =
+            clampedEffort !== undefined && clampedEffort !== 'none';
 
         // Translate the neutral compaction opt-in (or pass a raw
         // `context_management` payload through) to OpenAI's Responses shape.
@@ -262,23 +266,25 @@ export class AzureResponsesProvider implements IChatProvider {
                 tool_choice,
                 parallel_tool_calls,
                 outputFormat,
-                top_p,
+                ...(dropsSamplingParams ? {} : { top_p }),
             } as ICompleteArguments,
             'responses',
         );
         const mergedText = {
             ...(text ?? {}),
             ...((mapped.text as Record<string, unknown>) ?? {}),
-            ...(supportsReasoningControls && requestedVerbosity !== undefined
+            ...(supportsReasoningFamily &&
+            !isCodexModel &&
+            requestedVerbosity !== undefined
                 ? { verbosity: requestedVerbosity }
                 : {}),
         };
+        // The raw `reasoning` object's own `effort` is never trusted
+        // verbatim — only the clamped value below is.
+        const { effort: _rawEffort, ...reasoningRest } = reasoning ?? {};
         const mergedReasoning = {
-            ...(supportsReasoningControls && reasoning ? reasoning : {}),
-            ...(supportsReasoningControls &&
-            requestedReasoningEffort !== undefined
-                ? { effort: requestedReasoningEffort }
-                : {}),
+            ...(supportsReasoningFamily ? reasoningRest : {}),
+            ...(clampedEffort !== undefined ? { effort: clampedEffort } : {}),
         };
 
         const completionParams: ResponseCreateParams = {
@@ -301,7 +307,9 @@ export class AzureResponsesProvider implements IChatProvider {
             ...(max_tokens !== undefined
                 ? { max_output_tokens: max_tokens }
                 : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...(temperature !== undefined && !dropsSamplingParams
+                ? { temperature }
+                : {}),
             ...(truncation !== undefined ? { truncation } : {}),
             ...(service_tier !== undefined ? { service_tier } : {}),
             ...(stream !== undefined ? { stream: !!stream } : {}),
@@ -315,7 +323,17 @@ export class AzureResponsesProvider implements IChatProvider {
         const completion =
             await this.#openAi.responses.create(completionParams);
         return OpenAiUtil.handle_completion_output_responses_api({
-            usage_calculator: ({ usage, webSearchCalls }) => {
+            usage_calculator: ({
+                usage,
+                webSearchCalls,
+                tool_usage,
+                setUsageCosts,
+            }) => {
+                const numWebSearches: number =
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    (tool_usage as any)?.web_search?.num_requests ??
+                    webSearchCalls ??
+                    0;
                 const trackedUsage: Record<string, number> = {
                     prompt_tokens:
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -328,8 +346,8 @@ export class AzureResponsesProvider implements IChatProvider {
                     cached_tokens:
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         (usage as any).input_tokens_details?.cached_tokens ?? 0,
-                    ...(webSearchCalls
-                        ? { web_search_calls: webSearchCalls }
+                    ...(numWebSearches
+                        ? { web_search_calls: numWebSearches }
                         : {}),
                 };
 
@@ -337,10 +355,13 @@ export class AzureResponsesProvider implements IChatProvider {
                     trackedUsage,
                     modelUsed,
                 );
-                if (webSearchCalls) {
-                    const rate = webSearchCallRate(tools, modelUsed.id) ?? 0;
+                if (numWebSearches) {
                     costsOverrideFromModel.web_search_calls =
-                        webSearchCalls * rate;
+                        numWebSearches * WEB_SEARCH_CALL_RATE;
+                    setUsageCosts?.({
+                        web_search_calls:
+                            costsOverrideFromModel.web_search_calls,
+                    });
                 }
 
                 this.#meteringService.utilRecordUsageObject(

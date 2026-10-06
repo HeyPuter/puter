@@ -80,7 +80,7 @@ export const normalize_tools_object = (tools) => {
             });
         }
 
-        if (tool.type === 'web_search') {
+        if (tool.type === 'web_search' || tool.type === 'web_search_preview') {
             // OpenAI Responses specific
             continue;
         }

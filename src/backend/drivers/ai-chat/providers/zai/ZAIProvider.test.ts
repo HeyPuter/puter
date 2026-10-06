@@ -282,6 +282,39 @@ describe('ZAIProvider.complete request shape', () => {
         expect(args.tool_choice).toBe('auto');
     });
 
+    it('omits tool_choice entirely for a non-auto value, and nothing else out of the compat mapper', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'glm-4.6',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect('tool_choice' in args).toBe(false);
+        expect('parallel_tool_calls' in args).toBe(false);
+        expect('stop' in args).toBe(false);
+        expect('response_format' in args).toBe(false);
+        expect('reasoning_effort' in args).toBe(false);
+    });
+
     it('forwards GLM-specific custom params (thinking, do_sample, stop, request_id, tool_stream, response_format)', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);

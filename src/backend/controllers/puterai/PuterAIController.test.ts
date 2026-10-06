@@ -44,6 +44,7 @@ import {
 } from 'vitest';
 
 import type { Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
 import type { RouteOptions } from '../../core/http/index.js';
 import {
     COUNT_TOKENS,
@@ -402,6 +403,33 @@ describe('PuterAIController.openaiChatCompletions', () => {
                 res,
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('leaves strictUpstreamErrors unset, unlike the Anthropic route', async () => {
+        let seen: unknown;
+        vi.spyOn(
+            server.drivers.aiChat as unknown as ChatCompletionDriver,
+            'complete',
+        ).mockImplementationOnce(() => {
+            seen = Context.get('strictUpstreamErrors');
+            return Promise.resolve({
+                message: { role: 'assistant', content: 'hi' },
+                finish_reason: 'stop',
+            } as never);
+        });
+
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+
+        expect(seen).toBeUndefined();
     });
 
     it('shapes a non-stream completion as an OpenAI chat.completion response', async () => {
@@ -1035,6 +1063,33 @@ describe('PuterAIController.anthropicMessages', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('sets strictUpstreamErrors before calling the driver', async () => {
+        let seen: unknown;
+        vi.spyOn(
+            server.drivers.aiChat as unknown as ChatCompletionDriver,
+            'complete',
+        ).mockImplementationOnce(() => {
+            seen = Context.get('strictUpstreamErrors');
+            return Promise.resolve({
+                message: { role: 'assistant', content: 'hi' },
+                finish_reason: 'stop',
+            } as never);
+        });
+
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+
+        expect(seen).toBe(true);
+    });
+
     it('shapes a non-stream completion as an Anthropic message envelope', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'hi there' },
@@ -1124,24 +1179,29 @@ describe('PuterAIController.anthropicMessages', () => {
         });
     });
 
-    it('rejects `mcp_servers` with 400 "mcp_servers: not supported"', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.anthropicMessages(
-                makeReq({
-                    body: {
-                        model: 'claude-test',
-                        messages: [{ role: 'user', content: 'hi' }],
-                        mcp_servers: [{ type: 'url', url: 'https://evil.example' }],
-                    },
-                    actor: makeUserActor(),
-                }),
-                res,
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 400,
-            message: 'mcp_servers: not supported',
+    it('accepts `mcp_servers` but never forwards it to the driver', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
         });
+        const { res } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    mcp_servers: [{ type: 'url', url: 'https://evil.example' }],
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        const completeArgs = completeSpy.mock.calls[0]![0] as Record<
+            string,
+            unknown
+        >;
+        expect('mcp_servers' in completeArgs).toBe(false);
     });
 
     it('keeps a Claude-Code-style attribution header as its own, unmerged first system block', async () => {

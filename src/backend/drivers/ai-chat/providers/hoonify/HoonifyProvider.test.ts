@@ -339,6 +339,39 @@ describe('HoonifyProvider.complete request shape', () => {
         expect(args.tool_choice).toBe('auto');
     });
 
+    it('forwards only tool_choice out of the compat mapper — stop/outputFormat/reasoning_effort/parallel_tool_calls 400 on Hoonify', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'hoonify:zai-org/glm-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toBe('required');
+        expect('parallel_tool_calls' in args).toBe(false);
+        expect('stop' in args).toBe(false);
+        expect('response_format' in args).toBe(false);
+        expect('reasoning_effort' in args).toBe(false);
+    });
+
     it('forwards the Hoonify-specific custom top_k extension', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);

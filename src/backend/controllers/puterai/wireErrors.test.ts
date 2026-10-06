@@ -128,6 +128,40 @@ describe('renderAnthropicError', () => {
             'AI provider authentication failed',
         );
     });
+
+    it('restores an exhausted outage chain to 502 api_error, with x-should-retry', () => {
+        const err = new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields: { attempts: [] },
+        });
+        const r = renderAnthropicError(err, req);
+        expect(r.status).toBe(502);
+        expect((r.body as { error: { type: string } }).error.type).toBe(
+            'api_error',
+        );
+        expect(r.headers?.['x-should-retry']).toBe('true');
+    });
+
+    it('restores an all-overloaded chain to 529 overloaded_error via upstreamStatus', () => {
+        const err = new HttpError(400, 'AI provider overloaded', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields: { attempts: [], upstreamStatus: 529 },
+        });
+        const r = renderAnthropicError(err, req);
+        expect(r.status).toBe(529);
+        expect((r.body as { error: { type: string } }).error.type).toBe(
+            'overloaded_error',
+        );
+    });
+
+    it('restores a mixed-failure chain to 502', () => {
+        const err = new HttpError(400, 'All AI providers failed', {
+            legacyCode: 'upstream_failed',
+            fields: { attempts: [] },
+        });
+        const r = renderAnthropicError(err, req);
+        expect(r.status).toBe(502);
+    });
 });
 
 describe('renderOpenAIError', () => {
@@ -184,5 +218,14 @@ describe('renderOpenAIError', () => {
     it('scrubs the message on an unexpected (non-HttpError) 500', () => {
         const r = renderOpenAIError(new Error('db password hunter2'), req);
         expect(JSON.stringify(r.body)).not.toContain('hunter2');
+    });
+
+    it('leaves an exhausted outage chain at its flat 400, unlike the Anthropic route', () => {
+        const err = new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields: { attempts: [] },
+        });
+        const r = renderOpenAIError(err, req);
+        expect(r.status).toBe(400);
     });
 });

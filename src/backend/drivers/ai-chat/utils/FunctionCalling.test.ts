@@ -86,9 +86,9 @@ describe('normalize_json_schema', () => {
 
 describe('normalize_tools_object', () => {
     it('keeps OpenAI Responses web_search tools as-is', () => {
-        const tools = [{ type: 'web_search' }];
+        const tools = [{ type: 'web_search' }, { type: 'web_search_preview' }];
         const out = normalize_tools_object(tools);
-        expect(out).toEqual([{ type: 'web_search' }]);
+        expect(out).toEqual([{ type: 'web_search' }, { type: 'web_search_preview' }]);
     });
 
     it('passes an Anthropic server/typed tool through verbatim by its id shape', () => {
