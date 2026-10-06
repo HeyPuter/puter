@@ -22,7 +22,6 @@ import type { Request, RequestHandler, Response } from 'express';
 import crypto from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -77,7 +76,11 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
-import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import {
+    cleanEmail,
+    isBlockedEmail,
+    isStorableEmail,
+} from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
@@ -802,7 +805,7 @@ export class AuthController extends PuterController {
                 throw new HttpError(400, 'email must be a string.', {
                     legacyCode: 'bad_request',
                 });
-            if (!validator.isEmail(body.email))
+            if (!isStorableEmail(body.email))
                 throw new HttpError(
                     400,
                     'Please enter a valid email address.',
@@ -2414,7 +2417,7 @@ export class AuthController extends PuterController {
         if (username) {
             user = await this.stores.user.getByUsername(username);
         } else {
-            if (!validator.isEmail(email))
+            if (!isStorableEmail(email))
                 throw new HttpError(400, 'Invalid email.', {
                     legacyCode: 'bad_request',
                 });
@@ -2808,7 +2811,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        if (!validator.isEmail(new_email)) {
+        if (!isStorableEmail(new_email)) {
             throw new HttpError(400, 'Please enter a valid email address.', {
                 legacyCode: 'bad_request',
             });
@@ -2939,6 +2942,12 @@ export class AuthController extends PuterController {
         }
 
         const newEmail = user.unconfirmed_change_email;
+        // Staged by an earlier request, so gated by whatever ran back then.
+        if (!isStorableEmail(newEmail)) {
+            throw new HttpError(400, 'Please enter a valid email address.', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Re-check nobody claimed the new email meanwhile. Match raw +
         // canonical; block if any real account (confirmed OR
@@ -3053,7 +3062,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'username_already_in_use',
             });
         }
-        if (!email || !validator.isEmail(email)) {
+        if (!email || !isStorableEmail(email)) {
             throw new HttpError(400, 'Please enter a valid email address.', {
                 legacyCode: 'bad_request',
             });

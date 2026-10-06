@@ -18,7 +18,6 @@
  */
 
 import bcrypt from 'bcrypt';
-import validator from 'validator';
 import { v4 as uuidv4 } from 'uuid';
 import {
     USERNAME_MAX_LENGTH,
@@ -56,7 +55,7 @@ import {
     type PageResult,
 } from '../../util/pagination.js';
 import type { UserRow } from '../../stores/user/UserStore';
-import { cleanEmail } from '../../util/email.js';
+import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import {
     generateTemporaryPassword,
     temporaryPasswordExpiry,
@@ -820,18 +819,16 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map(
-                (row): MemberActivityEntry => ({
-                    action: row.action,
-                    reason: row.reason,
-                    created_at: epochSeconds(row.created_at),
-                    username: name(row.user_id_keep),
-                    actor_username: name(row.actor_user_id),
-                    // Only a sign-in carries these; the shape stays uniform.
-                    ip: null,
-                    user_agent: null,
-                }),
-            ),
+            items: page.items.map((row): MemberActivityEntry => ({
+                action: row.action,
+                reason: row.reason,
+                created_at: epochSeconds(row.created_at),
+                username: name(row.user_id_keep),
+                actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
@@ -917,7 +914,7 @@ export class TeamService extends PuterService {
 
         this.#assertUsableUsername(input.username);
         const email = typeof input.email === 'string' ? input.email.trim() : '';
-        if (email && !validator.isEmail(email)) {
+        if (email && !isStorableEmail(email)) {
             throw new HttpError(400, 'Invalid email', {
                 legacyCode: 'bad_request',
             });

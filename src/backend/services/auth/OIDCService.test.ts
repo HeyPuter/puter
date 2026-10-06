@@ -282,6 +282,24 @@ describe('OIDCService.createUserFromOIDC', () => {
         expect(result.error).toMatch(/verify/i);
     });
 
+    it('refuses an address the provider supplied that we would not store', async () => {
+        const result = await runWithContext({ req }, () =>
+            oidc().createUserFromOIDC('microsoft', {
+                sub: 'markup-sub',
+                // A provider we do not run; the claim is input like any other.
+                email: '"<img/src=x/onerror=alert(1)>"@example.com',
+                email_verified: true,
+            }),
+        );
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/email/i);
+        await expect(
+            server.stores.user.getByEmail(
+                '"<img/src=x/onerror=alert(1)>"@example.com',
+            ),
+        ).resolves.toBeFalsy();
+    });
+
     it('refuses to create a fresh account when registration is disabled', async () => {
         const oidcConfig = server.services.oidc.config as {
             disable_user_signup?: boolean;
