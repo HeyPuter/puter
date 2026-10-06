@@ -1318,6 +1318,9 @@ describe('TeamService', () => {
         // The re-sendable path, so the one that made Puter a usable mailer.
         expect(mail.sent[0].html).not.toContain(again.temporaryPassword);
         expect(mail.sent[0].html).not.toContain(first.temporaryPassword);
+        // Its own notice, not a second `created` mail saying nothing new.
+        expect(mail.sent[0].subject).toMatch(/new temporary password/iu);
+        expect(mail.sent[0].html).toMatch(/stopped working/iu);
     });
 
     it('tells a member their account was disabled', async () => {

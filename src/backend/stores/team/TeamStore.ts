@@ -606,22 +606,28 @@ export class TeamStore extends PuterStore {
         return rows.map((r) => Number(r.user_id));
     }
 
-    /** Teams this user belongs to, oldest first. */
-    /** A user's teams, keyset-paginated on `id` per doc/pagination.md. */
+    /** A user's teams, oldest first; `openOnly` is the page an app may see. */
     async listTeamsForUser(
         userId: number,
-        opts: { limit?: unknown; cursor?: string; includeTotal?: boolean } = {},
+        opts: {
+            limit?: unknown;
+            cursor?: string;
+            includeTotal?: boolean;
+            openOnly?: boolean;
+        } = {},
     ): Promise<PageResult<TeamRow>> {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
         const page = decodeCursor(opts.cursor, 'team cursor');
         const after = typeof page?.id === 'number' ? page.id : null;
+        const open = opts.openOnly ? ' AND g.`directory_enabled` = 1' : '';
 
         const rows = (await this.clients.db.read(
             'SELECT g.* FROM `group` g ' +
                 'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
                 `WHERE ug.\`user_id\` = ? AND g.${this.#live()}` +
+                open +
                 (after === null ? '' : ' AND g.`id` > ?') +
                 ' ORDER BY g.`id` LIMIT ?',
             after === null
@@ -640,7 +646,8 @@ export class TeamStore extends PuterStore {
             const totals = (await this.clients.db.read(
                 'SELECT COUNT(*) AS n FROM `group` g ' +
                     'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
-                    `WHERE ug.\`user_id\` = ? AND g.${this.#live()}`,
+                    `WHERE ug.\`user_id\` = ? AND g.${this.#live()}` +
+                    open,
                 [userId, TEAM_KIND],
             )) as unknown as Array<{ n: number | string }>;
             total = Number(totals[0]?.n ?? 0);

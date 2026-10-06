@@ -367,6 +367,21 @@ as you. Choose your own password promptly.</li>
 <p>Puter</p>
         `,
     },
+    team_account_reissued: {
+        subject: 'A new temporary password for your {{team_name}} account',
+        html: `
+<p>Hi there,</p>
+<p>{{team_name}} has issued a new temporary password for your Puter account
+<b>{{username}}</b>. Any temporary password you were given before this one has
+stopped working.</p>
+<p>{{team_name}} will give you the new one. You will be asked to choose your own
+password the first time you sign in; the temporary one stops working then, and
+it expires on its own if unused.</p>
+<p>If you were not expecting this, ask {{team_name}} -- only they can issue it.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     team_account_disabled: {
         subject: 'Your {{team_name}} account has been disabled',
         html: `

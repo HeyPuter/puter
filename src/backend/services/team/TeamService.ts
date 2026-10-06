@@ -28,7 +28,7 @@ import { isReservedUsername } from '../../util/reservedUsernames.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
 import { subscriptionSatisfies } from '../metering/enforcement.js';
 import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
-import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 4;
@@ -639,7 +639,7 @@ export class TeamService extends PuterService {
         let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
         for (;;) {
             // Bounded: a seat costs a mail send, and a full team is 40 of them.
-            const outcomes = await runWithConcurrencyLimit(
+            const outcomes = await runWithConcurrencyLimitSettled(
                 page.items.filter((m) => Number(m.org_owned) === 1),
                 TEARDOWN_CONCURRENCY,
                 (member) =>
@@ -650,7 +650,10 @@ export class TeamService extends PuterService {
                         billing,
                     ),
             );
-            disabled += outcomes.filter(Boolean).length;
+            disabled += outcomes.filter((o) => o.status === 'fulfilled').length;
+            // Settled: a rejection cannot cancel its peers, so finish the page.
+            const failed = outcomes.find((o) => o.status === 'rejected');
+            if (failed) throw failed.reason;
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
                 limit: 200,
@@ -678,13 +681,13 @@ export class TeamService extends PuterService {
         team: TeamRow,
         actorUserId: number,
         billing: TeamBillingContext,
-    ): Promise<boolean> {
+    ): Promise<void> {
         const current = await this.stores.user.getByProperty(
             'id',
             member.user_id,
             { force: true },
         );
-        if (current?.suspended) return true;
+        if (current?.suspended) return;
 
         await this.stores.team.appendAudit({
             teamId: team.id,
@@ -707,7 +710,6 @@ export class TeamService extends PuterService {
 
         // The team notice covers the disabling, so a member is told once.
         await this.#notifyMember(member.user_id, 'team_closed', team);
-        return true;
     }
 
     /** Team owner only. Readable after deletion -- that is the point of it. */
@@ -1048,7 +1050,8 @@ export class TeamService extends PuterService {
         });
         const temporaryPassword =
             await this.#issueTemporaryPassword(targetUserId);
-        await this.#notifyUser(user, 'team_account_created', team);
+        // Its own notice; the created one omits the password just invalidated.
+        await this.#notifyUser(user, 'team_account_reissued', team);
         return { temporaryPassword };
     }
 
