@@ -19,7 +19,10 @@ const createPostgresUniqueError = (): Error & { code: string } => {
 const createStore = (rows: readonly OidcRow[]) => {
     const db = {
         write: vi.fn(
-            async (_sql: string, _params: readonly unknown[]): Promise<void> => {
+            async (
+                _sql: string,
+                _params: readonly unknown[],
+            ): Promise<void> => {
                 throw createPostgresUniqueError();
             },
         ),
@@ -70,5 +73,12 @@ describe('OIDCStore', () => {
             statusCode: 409,
             legacyCode: 'conflict',
         });
+
+        // Neither the other account's id nor the raw provider subject.
+        const error = await store
+            .link(123, 'test-provider', 'subject-1')
+            .catch((e: Error) => e);
+        expect(error.message).not.toContain('456');
+        expect(error.message).not.toContain('subject-1');
     });
 });
