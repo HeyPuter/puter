@@ -27,10 +27,14 @@ import { isReservedUsername } from '../../util/reservedUsernames.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
 import { subscriptionSatisfies } from '../metering/enforcement.js';
 import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 4;
 const PAID_SEAT_CAP = 40;
+
+// Seat teardown is independent per member, so a delete need not be serial.
+const TEARDOWN_CONCURRENCY = 8;
 
 import type {
     EventMap,
@@ -535,10 +539,7 @@ export class TeamService extends PuterService {
         }
     }
 
-    /**
-     * The member list as an app may read it, once the team has opted in. The
-     * page carries only what a colleague already sees through `/members`.
-     */
+    /** The roster an app may read once opted in; that opt-in grants `uuid`. */
     async listDirectory(
         teamUid: string,
         actorUserId: number,
@@ -636,32 +637,12 @@ export class TeamService extends PuterService {
         // Otherwise they keep working, unreachable through a deleted team.
         let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
         for (;;) {
-            for (const member of page.items) {
-                if (Number(member.org_owned) !== 1) continue;
-                await this.stores.team.appendAudit({
-                    teamId: team.id,
-                    userId: member.user_id,
-                    actorUserId,
-                    action: 'disable',
-                    reason: 'team_deleted',
-                });
-                const held = await this.#heldBytes(member.user_id);
-                await this.#suspend(member.user_id);
-                disabled++;
-
-                // Per seat, not one bulk event: the byte charge is per account.
-                this.#emitBilling('team.account.disabled', {
-                    ...billing,
-                    user_id: member.user_id,
-                    user_uuid: member.uuid,
-                    username: member.username,
-                    held_bytes: held,
-                });
-
-                // The team notice covers the disabling, so a member is
-                // told once rather than twice about the same event.
-                await this.#notifyMember(member.user_id, 'team_closed', team);
-            }
+            disabled += await this.#disableSeatsForDelete(
+                page.items.filter((m) => Number(m.org_owned) === 1),
+                team,
+                actorUserId,
+                billing,
+            );
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
                 limit: 200,
@@ -681,6 +662,74 @@ export class TeamService extends PuterService {
             ...billing,
             account_count: disabled,
         });
+    }
+
+    /**
+     * One page of seats, as `disableMember` does one member. Everything that
+     * answers for the whole page -- who is already off, what they hold, the
+     * audit -- goes out once; what is genuinely per account stays per account.
+     * Returns how many of them end up disabled.
+     */
+    async #disableSeatsForDelete(
+        seats: TeamMemberRow[],
+        team: TeamRow,
+        actorUserId: number,
+        billing: TeamBillingContext,
+    ): Promise<number> {
+        if (seats.length === 0) return 0;
+
+        // From the primary: a cached `suspended` would re-charge on a retry.
+        const suspended = await this.stores.user.getSuspendedByIds(
+            seats.map((m) => m.user_id),
+        );
+        const todo = seats.filter((m) => !suspended.get(m.user_id));
+        // Already off, and still accounts the team is losing.
+        if (todo.length === 0) return seats.length;
+
+        const ids = todo.map((m) => m.user_id);
+        const held = await this.stores.fsEntry.getHeldBytesForUsers(ids);
+        const rows = await this.stores.user.getByIds(ids);
+        // Recorded first, so a failed append cannot leave an unlogged suspension.
+        await this.stores.team.appendAuditMany(
+            todo.map((m) => ({
+                teamId: team.id,
+                userId: m.user_id,
+                actorUserId,
+                action: 'disable',
+                reason: 'team_deleted',
+            })),
+        );
+
+        // Bounded: what is left per seat is a write and a mail send.
+        const outcomes = await runWithConcurrencyLimitSettled(
+            todo,
+            TEARDOWN_CONCURRENCY,
+            async (member) => {
+                await this.#suspend(member.user_id);
+
+                // Per seat, not one bulk event: the byte charge is per account.
+                this.#emitBilling('team.account.disabled', {
+                    ...billing,
+                    user_id: member.user_id,
+                    user_uuid: member.uuid,
+                    username: member.username,
+                    held_bytes: held.get(member.user_id) ?? 0,
+                });
+
+                // The team notice covers the disabling, so a member is told once.
+                await this.#notifyUser(
+                    rows.get(member.user_id),
+                    'team_closed',
+                    team,
+                );
+            },
+        );
+
+        const done = outcomes.filter((o) => o.status === 'fulfilled').length;
+        // Settled: a rejection cannot cancel its peers, so finish the page.
+        const failed = outcomes.find((o) => o.status === 'rejected');
+        if (failed) throw failed.reason;
+        return seats.length - todo.length + done;
     }
 
     /** Team owner only. Readable after deletion -- that is the point of it. */
@@ -976,11 +1025,9 @@ export class TeamService extends PuterService {
             action: 'provision',
         });
 
-        // Returned once; forced change on first use is what bounds it.
+        // Not mailed: nobody confirmed the address the owner typed in.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
-        await this.#notifyUser(user, 'team_account_created', team, {
-            temporary_password: temporaryPassword,
-        });
+        await this.#notifyUser(user, 'team_account_created', team);
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -1023,9 +1070,8 @@ export class TeamService extends PuterService {
         });
         const temporaryPassword =
             await this.#issueTemporaryPassword(targetUserId);
-        await this.#notifyUser(user, 'team_account_created', team, {
-            temporary_password: temporaryPassword,
-        });
+        // Its own notice; the created one omits the password just invalidated.
+        await this.#notifyUser(user, 'team_account_reissued', team);
         return { temporaryPassword };
     }
 

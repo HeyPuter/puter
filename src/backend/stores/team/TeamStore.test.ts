@@ -467,8 +467,8 @@ describe('TeamStore', () => {
         await store.addMember(a.uid, member.id, { orgOwned: true });
         await store.addMember(b.uid, member.id, { orgOwned: true });
 
-        const teams = await store.listTeamsForUser(member.id);
-        expect(teams.map((t) => t.uid).sort()).toEqual([a.uid, b.uid].sort());
+        const { items } = await store.listTeamsForUser(member.id);
+        expect(items.map((t) => t.uid).sort()).toEqual([a.uid, b.uid].sort());
     });
 
     it('drops a soft-deleted team from the user\'s list', async () => {
@@ -481,8 +481,39 @@ describe('TeamStore', () => {
         await store.addMember(team.uid, member.id, { orgOwned: true });
         await store.softDelete(team.uid);
 
-        expect(await store.listTeamsForUser(member.id)).toEqual([]);
+        expect((await store.listTeamsForUser(member.id)).items).toEqual([]);
         await expect(store.isMember(team.uid, member.id)).resolves.toBe(false);
+    });
+
+    it('pages the user team list and counts on request', async () => {
+        const member = await makeUser();
+        const made = [];
+        for (let i = 0; i < 3; i++) {
+            const team = await store.create({
+                ownerUserId: owner.id,
+                name: `Paged ${i}`,
+                handle: freeHandle(),
+            });
+            await store.addMember(team.uid, member.id, { orgOwned: true });
+            made.push(team.uid);
+        }
+
+        const first = await store.listTeamsForUser(member.id, {
+            limit: 2,
+            includeTotal: true,
+        });
+        expect(first.items).toHaveLength(2);
+        expect(first.total).toBe(3);
+        expect(first.cursor).toBeTruthy();
+
+        const second = await store.listTeamsForUser(member.id, {
+            cursor: first.cursor,
+        });
+        expect(second.items).toHaveLength(1);
+        expect(second.cursor).toBeUndefined();
+        expect(
+            [...first.items, ...second.items].map((t) => t.uid).sort(),
+        ).toEqual([...made].sort());
     });
 
     it('refuses to add a member to a group that is not a team', async () => {
