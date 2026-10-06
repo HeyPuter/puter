@@ -280,7 +280,8 @@ export const DEFAULT_DAILY_SHARE_LIMIT = 200;
  * Deliverability is the inbox's business, but `a@b` or a pasted sentence must
  * not become a permanent pending share that spent quota.
  */
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+// `"<>` excluded too: legal only in a quoted local part nothing uses.
+const EMAIL_SHAPE = /^[^\s@"<>]+@[^\s@"<>]+\.[^\s@"<>]+$/u;
 
 /**
  * Where "refuse shares from everyone" lives on the user row.

@@ -25,6 +25,8 @@
  * isBlockedEmail('temp@mailinator.com', ['mailinator.com']) === true
  */
 
+import validator from 'validator';
+
 type RuleName = 'dots_dont_matter' | 'remove_subaddressing';
 
 interface Parts {
@@ -101,6 +103,11 @@ export function cleanEmail(email: string): string {
     for (const rule of provider?.rules ?? []) RULES[rule](parts);
 
     return `${parts.local}@${parts.domain}`;
+}
+
+/** Storage gate; `isEmail` alone passes quoted local parts carrying markup. */
+export function isStorableEmail(email: string): boolean {
+    return !/["<>]/u.test(email) && validator.isEmail(email);
 }
 
 /** Strips `+` on any domain. For abuse decisions only, never for identity. */

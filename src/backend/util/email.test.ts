@@ -18,7 +18,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { cleanEmail, isBlockedEmail } from './email.ts';
+import validator from 'validator';
+import { cleanEmail, isBlockedEmail, isStorableEmail } from './email.ts';
 
 describe('cleanEmail', () => {
     it('lowercases the whole address', () => {
@@ -92,5 +93,30 @@ describe('isBlockedEmail', () => {
         expect(
             isBlockedEmail('A.B+tag@MAILINATOR.com', ['mailinator.com']),
         ).toBe(true);
+    });
+});
+
+describe('isStorableEmail', () => {
+    const markup = '"<img/src=x/onerror=alert(1)>"@example.com';
+
+    it('refuses a quoted local part that carries markup', () => {
+        // The reason this gate exists: the library on its own says yes.
+        expect(validator.isEmail(markup)).toBe(true);
+        expect(isStorableEmail(markup)).toBe(false);
+    });
+
+    it('refuses the bare metacharacters too', () => {
+        for (const bad of ['a<b@example.com', 'a>b@example.com', 'a"b@example.com'])
+            expect(isStorableEmail(bad)).toBe(false);
+    });
+
+    it('still accepts addresses people actually have', () => {
+        for (const good of [
+            "o'brien@example.com",
+            'a&b@example.com',
+            'foo.bar+tag@gmail.com',
+            'user_name-1@sub.example.co.uk',
+        ])
+            expect(isStorableEmail(good)).toBe(true);
     });
 });
