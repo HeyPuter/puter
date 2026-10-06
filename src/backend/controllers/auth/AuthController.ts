@@ -3767,6 +3767,12 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        // The same cap the grant and revoke routes apply.
+        if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+            throw new HttpError(400, 'Too many `permissions`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Present but empty must not fall through to checking the user: on their own file every `fs:` scope answers `true`.
         if (
