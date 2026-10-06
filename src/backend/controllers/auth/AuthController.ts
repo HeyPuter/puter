@@ -110,6 +110,7 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import {
     assertCreatablePath,
+    isOwnHomePath,
     fsCreateKindFor,
     MAX_CREATED_ENTRIES_PER_GRANT,
     parseCreateFlag,
@@ -3504,8 +3505,12 @@ export class AuthController extends PuterController {
             return null;
         }
 
-        // Checked only once the path is confirmed missing, so an existing
-        // shared path outside the caller's home is not a new rejection.
+        // Word for word what an existing foreign path answers.
+        if (!isOwnHomePath(path, actor.user!.username!)) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
         assertCreatablePath(path, actor.user!.username!);
 
         const kind =

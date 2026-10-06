@@ -2820,8 +2820,33 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         const p = `/${target.username}/evil-${rand()}`;
         await expect(
             grant({ permission: `fs:${p}:write`, create: true }),
-        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'permission_denied',
+        });
         expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it("refuses a foreign path the same way whether or not it is there", async () => {
+        const missing = `/${target.username}/absent-${rand()}`;
+        const present = `/${target.username}/present-${rand()}`;
+        await server.services.fs.mkdir(target.id, {
+            path: present,
+            createMissingParents: true,
+        });
+
+        const refusal = async (path: string) =>
+            grant({ permission: `fs:${path}:write`, create: true }).then(
+                () => null,
+                (e) => ({
+                    statusCode: e.statusCode,
+                    legacyCode: e.legacyCode,
+                    // The caller's own input is all that may differ.
+                    message: String(e.message).replace(path, '<path>'),
+                }),
+            );
+
+        expect(await refusal(missing)).toEqual(await refusal(present));
     });
 
     it('rejects a path traversal attempt with 400, and creates nothing', async () => {

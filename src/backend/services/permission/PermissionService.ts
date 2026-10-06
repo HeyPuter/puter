@@ -135,11 +135,12 @@ export class PermissionService extends PuterService {
         try {
             return await this.rewritePermission(permission);
         } catch (e) {
-            if (
-                !isHttpError(e) ||
-                e.legacyCode !== 'subject_does_not_exist' ||
-                !actor.user?.username
-            ) {
+            // Every way a foreign path is refused has to read the same.
+            const collapsible =
+                isHttpError(e) &&
+                (e.legacyCode === 'subject_does_not_exist' ||
+                    e.legacyCode === 'forbidden');
+            if (!collapsible || !actor.user?.username) {
                 throw e;
             }
             // Only an fs path can oracle; other subjects are the caller's own.
