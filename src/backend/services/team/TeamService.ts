@@ -1006,11 +1006,9 @@ export class TeamService extends PuterService {
             action: 'provision',
         });
 
-        // Returned once; forced change on first use is what bounds it.
+        // Not mailed: nobody confirmed the address the owner typed in.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
-        await this.#notifyUser(user, 'team_account_created', team, {
-            temporary_password: temporaryPassword,
-        });
+        await this.#notifyUser(user, 'team_account_created', team);
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -1053,9 +1051,7 @@ export class TeamService extends PuterService {
         });
         const temporaryPassword =
             await this.#issueTemporaryPassword(targetUserId);
-        await this.#notifyUser(user, 'team_account_created', team, {
-            temporary_password: temporaryPassword,
-        });
+        await this.#notifyUser(user, 'team_account_created', team);
         return { temporaryPassword };
     }
 

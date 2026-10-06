@@ -1259,7 +1259,7 @@ describe('TeamService', () => {
         return { sent, restore: () => (client.sendRaw = original) };
     };
 
-    it('emails the credential when an address is given', async () => {
+    it('notifies the member without putting the credential in the mail', async () => {
         const { team } = await makeTeam();
         const username = `mail_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -1277,8 +1277,8 @@ describe('TeamService', () => {
         expect(mail.sent).toHaveLength(1);
         expect(mail.sent[0].to).toBe(`${username}@test.local`);
         expect(mail.sent[0].html).toContain(username);
-        // The point of the address: without it this is the only copy.
-        expect(mail.sent[0].html).toContain(created.temporaryPassword);
+        // Nobody confirmed this address; the owner has the credential already.
+        expect(mail.sent[0].html).not.toContain(created.temporaryPassword);
     });
 
     it('sends nothing when no address is given', async () => {
@@ -1294,7 +1294,7 @@ describe('TeamService', () => {
         expect(mail.sent).toHaveLength(0);
     });
 
-    it('emails the fresh credential on re-issue, not the old one', async () => {
+    it('keeps the re-issued credential out of the mail too', async () => {
         const { team } = await makeTeam();
         const username = `re_${Math.random().toString(36).slice(2, 9)}`;
         const first = await service.provisionAccount(team.uid, owner.id, {
@@ -1315,7 +1315,8 @@ describe('TeamService', () => {
         }
 
         expect(mail.sent).toHaveLength(1);
-        expect(mail.sent[0].html).toContain(again.temporaryPassword);
+        // The re-sendable path, so the one that made Puter a usable mailer.
+        expect(mail.sent[0].html).not.toContain(again.temporaryPassword);
         expect(mail.sent[0].html).not.toContain(first.temporaryPassword);
     });
 
