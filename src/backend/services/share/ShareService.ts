@@ -3091,7 +3091,9 @@ export class ShareService extends PuterService {
         const mayReach =
             (await this.stores.user.findEmailOwner(email)) ??
             (await this.stores.user.getByCleanEmail(abuseKey(email)));
-        if (mayReach) await this.#assertNotBlocked(issuerId, mayReach);
+        // Confirmed only: a claim must not decide who may write to an address.
+        if (mayReach?.email_confirmed)
+            await this.#assertNotBlocked(issuerId, mayReach);
 
         // Stored canonicalized, because claiming matches on it: the confirmed
         // address arrives in whatever form the signup normalized to, and an

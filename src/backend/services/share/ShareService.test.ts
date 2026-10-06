@@ -293,6 +293,38 @@ describe('ShareService', () => {
         expect(await canRead(squatter.actor, file.path)).toBe(true);
     });
 
+    it('lets an unconfirmed claim on an address refuse nothing', async () => {
+        const owner = await makeUser();
+        const squatter = await makeUser();
+        await server.stores.user.update(squatter.user.id, {
+            email_confirmed: false,
+        });
+        await server.services.share.setBlockAllSenders(squatter.actor, true);
+        const file = await makeFile(owner.user);
+
+        // Otherwise one unconfirmed row blocks every invite to that mailbox.
+        const result = await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: squatter.email },
+            mode: 'read',
+        });
+        expect(result.pending).toBe(true);
+
+        // Confirming it makes the claim an identity, and the block real.
+        await server.stores.user.update(squatter.user.id, {
+            email_confirmed: true,
+        });
+        await expect(
+            share(owner.actor, {
+                uid: (await makeFile(owner.user)).uuid,
+                recipient: { email: squatter.email },
+                mode: 'read',
+            }),
+        ).rejects.toMatchObject({
+            legacyCode: 'recipient_not_accepting_shares',
+        });
+    });
+
     // `+` is only an alias separator where the domain says so.
     it('does not hand a plus-addressed share to the base account', async () => {
         const owner = await makeUser();
