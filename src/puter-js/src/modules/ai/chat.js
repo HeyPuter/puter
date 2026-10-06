@@ -8,8 +8,9 @@ import { hasTestModeFlag, isPlainObject } from './lib/args.js';
 /** @typedef {import('./types.js').StreamingChatOptions} StreamingChatOptions */
 
 // Parameters copied from the caller's options object onto the driver
-// request. `compaction` (provider-neutral inline-compaction opt-in) and the
-// raw `context_management` escape hatch flow straight through to the driver.
+// request, under the same name on both sides. `compaction` (provider-neutral
+// inline-compaction opt-in) and the raw `context_management` escape hatch
+// flow straight through to the driver.
 const PARAMS_TO_PASS = [
     'tools',
     'response',
@@ -21,7 +22,36 @@ const PARAMS_TO_PASS = [
     'image_config',
     'compaction',
     'context_management',
+    'stopSequences',
+    'outputFormat',
+    'thinking',
+    'streamToolInput',
 ];
+
+// Parameters renamed between the SDK's camelCase option and the driver's
+// existing (pre-camelCase) field name.
+const RENAMED_PARAMS = {
+    toolChoice: 'tool_choice',
+    parallelToolCalls: 'parallel_tool_calls',
+};
+
+/** OpenAI-style `'auto'|'none'|'required'` → the driver's normalized `ToolChoice` object. */
+const TOOL_CHOICE_STRINGS = {
+    auto: { type: 'auto' },
+    none: { type: 'none' },
+    required: { type: 'any' },
+};
+
+/**
+ * Exported only for direct testing — not part of the public `puter.ai`
+ * surface (`index.js` imports `chat` by name, not `*`).
+ *
+ * @param {unknown} toolChoice
+ */
+export const normalizeToolChoice = (toolChoice) =>
+    typeof toolChoice === 'string'
+        ? (TOOL_CHOICE_STRINGS[toolChoice] ?? toolChoice)
+        : toolChoice;
 
 /**
  * @overload
@@ -225,6 +255,14 @@ export async function chat (
         if (userParams[name] !== undefined) {
             requestParams[name] = userParams[name];
         }
+    }
+    for (const [name, wireName] of Object.entries(RENAMED_PARAMS)) {
+        if (userParams[name] !== undefined) {
+            requestParams[wireName] = userParams[name];
+        }
+    }
+    if (requestParams.tool_choice !== undefined) {
+        requestParams.tool_choice = normalizeToolChoice(requestParams.tool_choice);
     }
 
     // Response-format normalization. Both the per-call option and the

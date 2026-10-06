@@ -95,6 +95,23 @@
  * `messages` on the next turn in place of the summarized history.
  * @property {unknown} [context_management] Escape hatch: a provider-native `context_management`
  * payload, passed through untouched. Prefer `compaction` for provider portability.
+ * @property {'auto' | 'none' | 'required' | { type: 'auto' | 'any' | 'none' } | { type: 'tool', name: string }} [toolChoice]
+ * Which tool, if any, the model must call. The plain strings `'auto'`/`'none'`/`'required'` map onto
+ * `{type:'auto'}`/`{type:'none'}`/`{type:'any'}`; pass the object form directly to also name a specific
+ * tool (`{type:'tool', name}`).
+ * @property {boolean} [parallelToolCalls] Whether the model may call more than one tool in a single
+ * turn. Left unset, tool calls run one at a time (the long-standing default).
+ * @property {string[]} [stopSequences] Up to the model's limit of strings; generation stops the moment
+ * one appears in the output.
+ * @property {{ type: 'json_schema', schema: object, name?: string, strict?: boolean }} [outputFormat]
+ * Constrains the response to a JSON schema. `strict` tightens enforcement on providers that support it.
+ * @property {{ type: 'adaptive' | 'enabled' | 'disabled' | 'between_tools', budgetTokens?: number, display?: 'summarized' | 'omitted' | 'updates' } | null} [thinking]
+ * Extended-thinking control. `null` sends no thinking configuration at all (the model's own default);
+ * leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only
+ * applies to `'enabled'`.
+ * @property {boolean} [streamToolInput] Streaming only: emit incremental `tool_use_start` /
+ * `tool_input_delta` chunks as a tool call's arguments are generated, instead of a single `tool_use`
+ * chunk once the call completes.
  */
 
 /**
@@ -102,6 +119,25 @@
  * to.
  *
  * @typedef {ChatOptions & { stream: boolean }} StreamingChatOptions
+ */
+
+/**
+ * Provider-neutral usage breakdown, present on both the non-streaming result and the final streaming
+ * `"usage"` chunk. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens.
+ *
+ * @typedef {Object} UsageDetails
+ * @property {number} inputTokens
+ * @property {number} outputTokens
+ * @property {number} [cacheReadTokens]
+ * @property {number} [cacheWrite5mTokens]
+ * @property {number} [cacheWrite1hTokens]
+ * @property {number} [reasoningTokens]
+ * @property {number} [webSearchRequests]
+ * @property {number} [webFetchRequests]
+ * @property {'fast' | 'standard'} [speed]
+ * @property {string} [serviceTier]
+ * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite1hTokens?: number }>} [iterations]
+ * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).
  */
 
 /**
@@ -119,6 +155,14 @@
  * Inline-compaction artifact, present when the upstream compacted earlier context during this
  * (non-streaming) response. Carries `type:'compaction'` so you can push it straight into `messages` on
  * the next turn in place of the summarized history (same shape as the streaming `compaction` chunk).
+ * @property {string} [stopReason] The native stop reason (Anthropic vocabulary: `end_turn`,
+ * `max_tokens`, `tool_use`, `pause_turn`, `refusal`, …). On a native (non-normalized) Claude result,
+ * `finish_reason` is always `"stop"` on the wire — read `stopReason` for the real value.
+ * @property {string | null} [stopSequence] The stop sequence that ended generation, when one did.
+ * @property {Record<string, unknown> | null} [stopDetails] Extra detail on why generation stopped
+ * (e.g. a refusal classification). Provider-specific.
+ * @property {UsageDetails} [usageDetails] Provider-neutral usage breakdown — prefer this over `usage`
+ * for anything beyond raw billing totals.
  */
 
 /**
@@ -126,21 +170,49 @@
  * discriminator; which other fields are present depends on that `type`.
  *
  * @typedef {Object} ChatResponseChunk
- * @property {string} type The kind of chunk: `"text"`, `"reasoning"`, `"image"`, `"tool_use"`,
- * `"compaction"`, `"extra_content"`, `"usage"`, or `"error"`.
+ * @property {string} type The kind of chunk: `"text"`, `"reasoning"`, `"reasoning_start"`,
+ * `"reasoning_detail"`, `"image"`, `"tool_use"`, `"tool_use_start"`, `"tool_input_delta"`,
+ * `"server_tool"`, `"safeguard_results"`, `"compaction"`, `"extra_content"`, `"usage"`, or `"error"`.
  * @property {string} [text] Text delta. Present on `"text"` chunks.
  * @property {string} [reasoning] Reasoning/thinking delta. Present on `"reasoning"` chunks.
+ * @property {string} [format] Reasoning artifact format (currently only `"anthropic"`). Present on
+ * `"reasoning_start"` chunks — marks the reasoning that follows as replayable (see `detail`).
+ * @property {Record<string, unknown>} [detail] A verbatim, replayable reasoning artifact — a signed
+ * `thinking` block, a `redacted_thinking` block, or an OpenAI Responses `reasoning` item. Present on
+ * `"reasoning_detail"` chunks; push it into `message.reasoning_details` to replay the turn.
  * @property {ImageContent} [image] A generated image. Present on `"image"` chunks from image-capable
  * models.
- * @property {string} [id] Tool call id (`"tool_use"`) or compaction item id (`"compaction"`).
- * @property {string} [name] Tool/function name. Present on `"tool_use"` chunks.
+ * @property {string} [id] Tool call id (`"tool_use"`, `"tool_use_start"`, `"tool_input_delta"`) or
+ * compaction item id (`"compaction"`).
+ * @property {string} [name] Tool/function name. Present on `"tool_use"` and `"tool_use_start"` chunks.
  * @property {unknown} [input] Parsed tool call arguments. Present on `"tool_use"` chunks.
+ * @property {string} [partialJson] An incremental slice of a tool call's JSON arguments, in the order
+ * generated. Present on `"tool_input_delta"` chunks — opt in with `streamToolInput`; concatenate and
+ * parse once the matching `"tool_use"` chunk arrives.
+ * @property {Record<string, unknown>} [block] A server-executed tool call or result block
+ * (`server_tool_use`, `web_search_tool_result`, …), in the upstream's native shape. Present on
+ * `"server_tool"` chunks.
+ * @property {unknown[]} [results] Dangerous-tool-use classifier verdicts, keyed by the `tool_use` id
+ * they judged. Present on `"safeguard_results"` chunks — Claude only, and only when the upstream
+ * actually sent them.
  * @property {string} [encrypted_content] Opaque/encrypted compaction summary. Present on
  * `"compaction"` chunks — the same shape regardless of which provider served the request. Resend it in
  * `messages` on the next turn in place of the summarized history.
  * @property {unknown} [extra_content] Provider-specific extra metadata.
  * @property {Record<string, number>} [usage] Token usage totals. Present on the final `"usage"` chunk.
+ * @property {string} [finish_reason] OpenAI-vocabulary finish reason, derived from `stopReason`.
+ * Present on the final `"usage"` chunk.
+ * @property {string} [stopReason] The native stop reason. Present on the final `"usage"` chunk.
+ * @property {string | null} [stopSequence] The stop sequence that ended generation, when one did.
+ * Present on the final `"usage"` chunk.
+ * @property {Record<string, unknown> | null} [stopDetails] Extra detail on why generation stopped.
+ * Present on the final `"usage"` chunk.
+ * @property {UsageDetails} [usageDetails] Provider-neutral usage breakdown. Present on the final
+ * `"usage"` chunk.
  * @property {string} [message] Error description. Present on `"error"` chunks, which end the stream.
+ * @property {string} [code] The upstream's own error type/code (e.g. `overloaded_error`), when known.
+ * Present on `"error"` chunks.
+ * @property {number} [status] The HTTP status the error maps to. Present on `"error"` chunks.
  */
 
 /**

@@ -23,7 +23,11 @@ import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
-import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import {
+    cleanEmail,
+    isBlockedEmail,
+    isStorableEmail,
+} from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import {
     checkSignupBonus,
@@ -509,6 +513,13 @@ export class OIDCService extends PuterService {
             return {
                 success: false,
                 error: 'Provider did not supply an email address.',
+            };
+        }
+        // A provider we do not run is still just input where this is stored.
+        if (!isStorableEmail(email)) {
+            return {
+                success: false,
+                error: 'Provider supplied an unusable email address.',
             };
         }
 

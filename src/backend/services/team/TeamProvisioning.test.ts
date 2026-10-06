@@ -95,6 +95,25 @@ describe('team account provisioning: home path conflicts', () => {
         ).resolves.toBeNull();
     });
 
+    it('refuses a seat email that could render as markup', async () => {
+        const owner = await makeUser();
+        const team = await makeTeam(owner.id);
+        const username = `tp_${Math.random().toString(36).slice(2, 10)}`;
+
+        // A quoted local part passes `validator.isEmail`; it must not store.
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username,
+                email: '"<img/src=x/onerror=alert(1)>"@example.com',
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // Refused before any write, so the name is still free.
+        await expect(
+            server.stores.user.getByUsername(username, { force: true }),
+        ).resolves.toBeNull();
+    });
+
     it('does not suggest a name whose home path is occupied', async () => {
         const owner = await makeUser();
         await makeTeam(owner.id);

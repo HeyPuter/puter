@@ -161,7 +161,7 @@ export const assertNotUserSession = (
     throw new HttpError(
         403,
         'This API cannot be called with an account session token. ' +
-            'Use an app or worker token, or create an API token from the ' +
+            'Create an API token from the ' +
             'dashboard (Account → API Token).',
         { legacyCode: 'app_or_api_token_required' },
     );

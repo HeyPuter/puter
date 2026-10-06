@@ -22,6 +22,7 @@ import {
     estimateOutputTokens,
     estimatePromptTokens,
     estimateTextTokens,
+    estimateToolTokens,
 } from './usageEstimate.js';
 
 // A ~150KB base64 payload — the shape a client sends video frames in.
@@ -172,6 +173,23 @@ describe('estimatePromptTokens', () => {
     it('is zero for nothing at all', () => {
         expect(estimatePromptTokens([])).toBe(0);
         expect(estimatePromptTokens(undefined)).toBe(0);
+    });
+});
+
+describe('estimateToolTokens', () => {
+    it('is zero for no tools', () => {
+        expect(estimateToolTokens(undefined)).toBe(0);
+        expect(estimateToolTokens([])).toBe(0);
+    });
+
+    it('estimates from the serialized JSON', () => {
+        const tools = [
+            { name: 'lookup', input_schema: { type: 'object' } },
+            { name: 'search', input_schema: { type: 'object' } },
+        ];
+        expect(estimateToolTokens(tools)).toBe(
+            estimateTextTokens(JSON.stringify(tools)),
+        );
     });
 });
 

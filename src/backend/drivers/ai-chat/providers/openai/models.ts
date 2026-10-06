@@ -34,6 +34,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-6.1-sol',
         id: 'gpt-6.1-sol',
+        responsesSampling: 'never',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -58,6 +59,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-6-sol',
         id: 'gpt-6-sol',
+        responsesSampling: 'reasoningDisabled',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -82,6 +84,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-6-luna',
         id: 'gpt-6-luna',
+        responsesSampling: 'reasoningDisabled',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -106,6 +109,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-6-astra',
         id: 'gpt-6-astra',
+        responsesSampling: 'never',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -130,6 +134,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.6-sol',
         id: 'gpt-5.6-sol',
+        responsesSampling: 'reasoningDisabled',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -154,6 +159,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.6-terra',
         id: 'gpt-5.6-terra',
+        responsesSampling: 'reasoningDisabled',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -177,6 +183,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.6-luna',
         id: 'gpt-5.6-luna',
+        responsesSampling: 'reasoningDisabled',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,
@@ -331,6 +338,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
     {
         puterId: 'openai:openai/gpt-5.3-codex',
         id: 'gpt-5.3-codex',
+        responsesSampling: 'never',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,

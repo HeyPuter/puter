@@ -63,12 +63,101 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     tool_call?: boolean;
     responses_api?: boolean;
     responses_api_only?: boolean;
+    /**
+     * Omitted preserves sampling; reasoningDisabled requires explicit effort
+     * none.
+     */
+    responsesSampling?: 'never' | 'reasoningDisabled';
     knowledge?: string;
     release_date?: string;
+    /**
+     * Claude only: this model accepts `role:'system'` messages after the first
+     * non-system message (live-verified per model). Unsupported models 400 on a
+     * mid-conversation system message, so ClaudeProvider folds one into the
+     * leading `system` blocks instead.
+     */
+    midConversationSystem?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PuterMessage = any;
+
+/**
+ * `reasoning_effort` vocabulary, widened to cover Claude's
+ * `output_config.effort`.
+ */
+export type ReasoningEffort =
+    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/** Normalized tool choice, Anthropic vocabulary. */
+export type ToolChoice =
+    | { type: 'auto' }
+    | { type: 'any' }
+    | { type: 'none' }
+    | { type: 'tool'; name: string };
+
+export interface ThinkingConfig {
+    type: 'adaptive' | 'enabled' | 'disabled' | 'between_tools';
+    /** `enabled` only; Claude clamps it below `max_tokens`. */
+    budgetTokens?: number;
+    display?: 'summarized' | 'omitted' | 'updates';
+    /** Claude only (`thinking.block_binding`). */
+    blockBinding?: { prefixMismatchBehavior: 'error' | 'drop_block' };
+}
+
+export interface OutputFormat {
+    type: 'json_schema';
+    schema: Record<string, unknown>;
+    name?: string;
+    strict?: boolean;
+}
+
+export interface CacheControl {
+    type: 'ephemeral';
+    ttl?: '5m' | '1h';
+}
+
+export interface SafeguardRequest {
+    type: 'dangerous_tool_use';
+    classifier_context: Record<string, unknown>;
+}
+
+export type StopReason =
+    | 'end_turn'
+    | 'max_tokens'
+    | 'stop_sequence'
+    | 'tool_use'
+    | 'pause_turn'
+    | 'refusal'
+    | 'model_context_window_exceeded'
+    | (string & {});
+
+/** Provider-neutral usage breakdown. `inputTokens` excludes cache reads/writes. */
+export interface UsageDetails {
+    inputTokens: number;
+    outputTokens: number; // includes reasoning
+    cacheReadTokens?: number;
+    cacheWrite5mTokens?: number;
+    cacheWrite1hTokens?: number;
+    reasoningTokens?: number;
+    webSearchRequests?: number;
+    webFetchRequests?: number;
+    speed?: 'fast' | 'standard';
+    serviceTier?: string;
+    /**
+     * Per-pass breakdown when the upstream ran several passes (compaction,
+     * advisor).
+     */
+    iterations?: Array<{
+        type: string;
+        model?: string;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens?: number;
+        cacheWrite5mTokens?: number;
+        cacheWrite1hTokens?: number;
+    }>;
+}
 
 export interface ICompleteArguments {
     messages: PuterMessage[];
@@ -77,8 +166,35 @@ export interface ICompleteArguments {
     model: string;
     test_mode?: boolean;
     tools?: unknown[];
-    tool_choice?: unknown;
+    /** Normalized tool choice; providers map it to their own wire shape. */
+    tool_choice?: ToolChoice;
     parallel_tool_calls?: boolean;
+    /**
+     * `null` sends no `thinking` field at all (model default). `undefined`
+     * falls back to the legacy derivation from `reasoning_effort`.
+     */
+    thinking?: ThinkingConfig | null;
+    outputFormat?: OutputFormat;
+    stopSequences?: string[];
+    topK?: number;
+    /** Claude only (`output_config.task_budget`). */
+    taskBudget?: { total: number; remaining?: number };
+    /** Claude only: top-level automatic `cache_control`. */
+    cacheControl?: CacheControl;
+    /**
+     * Claude only; forwarded only when the model's catalog entry has
+     * `fast_output_tokens`.
+     */
+    speed?: 'fast' | 'standard';
+    /** Claude only. */
+    safeguards?: SafeguardRequest[];
+    /**
+     * Claude only: the raw `anthropic-beta` header, intersected with an
+     * allowlist.
+     */
+    anthropicBetas?: string[];
+    /** Emit `tool_use_start` / `tool_input_delta` chunks while streaming. */
+    streamToolInput?: boolean;
     include?: unknown[];
     conversation?: unknown;
     /**
@@ -111,7 +227,7 @@ export interface ICompleteArguments {
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
     text?: { verbosity?: 'low' | 'medium' | 'high' | undefined } | undefined;
-    reasoning_effort?: 'low' | 'medium' | 'high' | undefined;
+    reasoning_effort?: ReasoningEffort | undefined;
     verbosity?: 'low' | 'medium' | 'high' | undefined;
     moderation?: boolean;
     custom?: unknown;
@@ -155,6 +271,20 @@ export interface IChatMessageResult {
      * turn in place of the summarized history. See [[ICompleteArguments]].
      */
     compaction?: { type: 'compaction'; id?: string; encrypted_content: string };
+    stopReason?: StopReason;
+    stopSequence?: string | null;
+    stopDetails?: Record<string, unknown> | null;
+    usageDetails?: UsageDetails;
+    /** Claude only. */
+    safeguardResults?: unknown[];
+    /** Claude only. */
+    contextManagement?: Record<string, unknown>;
+    /**
+     * Internal: per-usage-key cost (µ¢) the provider already metered with, so
+     * the driver's reported cost matches the ledger exactly. Stripped before
+     * the result reaches the caller.
+     */
+    usageCosts?: Record<string, number>;
 }
 
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
@@ -179,4 +309,18 @@ export interface IChatProvider {
      * absent.
      */
     meteringModelKey?(modelId: string): string;
+    /**
+     * Request-specific pricing the credit gate must reserve for (web search,
+     * fast mode, the advisor tool), in µ¢, before the AI cost factor.
+     */
+    requestPricing?(
+        args: ICompleteArguments,
+        model: IChatModel,
+        est: { promptTokenEstimate: number },
+    ): { inputKey?: string; outputKey?: string; extraCost?: number };
+    /**
+     * Exact prompt token count, when the vendor offers one (e.g. Claude's
+     * `count_tokens`).
+     */
+    countTokens?(args: ICompleteArguments): Promise<number>;
 }

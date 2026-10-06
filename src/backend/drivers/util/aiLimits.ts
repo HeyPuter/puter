@@ -60,3 +60,18 @@ export const AI_CONCURRENT: DriverConcurrentConfig = {
         },
     },
 };
+
+// -- Claude server-tool clamps ----------------------------------------
+//
+// Applied both when ClaudeProvider builds the request (so Anthropic never
+// sees an unbounded `max_uses`/`max_tokens`) and when it sizes the credit
+// hold (`requestPricing`), so the two always agree on what a tool could cost.
+
+export const AI_WEB_SEARCH_MAX_USES = { default: 10, cap: 20 };
+
+export const AI_ADVISOR = {
+    maxUsesDefault: 3,
+    maxUsesCap: 10,
+    maxTokensDefault: 16_384,
+    maxTokensCap: 32_768,
+};

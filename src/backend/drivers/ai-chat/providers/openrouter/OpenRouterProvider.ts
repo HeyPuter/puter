@@ -24,11 +24,13 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { kv } from '../../../../util/kvSingleton.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import {
     contextLengthRetryParams,
     isContextLengthError,
 } from '../../utils/contextLimit.js';
+import { openAICompatParams } from '../../utils/openaiParams.js';
 import type {
     IChatModel,
     IChatProvider,
@@ -98,14 +100,16 @@ export class OpenRouterProvider implements IChatProvider {
         return modelId;
     }
 
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
+    async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
+        const {
+            messages: rawMessages,
+            stream,
+            model,
+            tools,
+            max_tokens,
+            temperature,
+        } = args;
+        let messages = rawMessages;
         const modelUsed =
             (await this.models()).find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
@@ -133,12 +137,21 @@ export class OpenRouterProvider implements IChatProvider {
 
         const actor = Context.get('actor');
 
+        // OpenRouter is the one OpenAI-family dialect that forwards Anthropic
+        // caching through, so it keeps `cache_control` rather than stripping it.
+        messages = OpenAIUtil.toOpenAIChatMessages(messages, {
+            keepCacheControl: true,
+        });
         messages = await OpenAIUtil.process_input_messages(messages);
+
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
 
         const completionParams = {
             messages,
             model: modelIdForParams,
-            ...(tools ? { tools } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             max_tokens,
             temperature: temperature, // default to 1.0
             stream,
@@ -148,6 +161,10 @@ export class OpenRouterProvider implements IChatProvider {
                   }
                 : {}),
             usage: { include: true },
+            ...openAICompatParams(
+                { ...args, tools: mappedTools },
+                'openrouter',
+            ),
         } as ChatCompletionCreateParams;
 
         let completion;

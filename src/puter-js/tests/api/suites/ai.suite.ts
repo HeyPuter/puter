@@ -191,6 +191,40 @@ export default suite('ai', {
         t.assert.ok(text.length > 0, 'streamed parts should contain text');
     },
 
+    'a streaming chat ends with a usage chunk carrying finish_reason/stopReason; existing text parts are unchanged': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', {
+            model: 'fake',
+            stream: true,
+        });
+        let text = '';
+        let usageChunk:
+            | { type?: string; finish_reason?: string; stopReason?: string }
+            | undefined;
+        for await (const part of stream as AsyncIterable<{
+            type?: string;
+            text?: string;
+            finish_reason?: string;
+            stopReason?: string;
+        }>) {
+            if (part?.text) text += part.text;
+            if (part?.type === 'usage') usageChunk = part;
+        }
+        t.assert.ok(text.length > 0, 'streamed parts should still contain text');
+        t.assert.ok(usageChunk, 'stream should end with a usage chunk');
+        t.assert.equal(usageChunk?.stopReason, 'end_turn');
+        t.assert.equal(usageChunk?.finish_reason, 'stop');
+    },
+
+    'a non-stream chat result carries stopReason': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', { model: 'fake' });
+        t.assert.equal(
+            (result as { stopReason?: string }).stopReason,
+            'end_turn',
+        );
+    },
+
     'chat with the costly model reports token usage': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat(

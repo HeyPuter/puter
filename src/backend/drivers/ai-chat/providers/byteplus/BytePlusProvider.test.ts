@@ -300,16 +300,49 @@ describe('BytePlusProvider.complete request shape', () => {
                 temperature: 0.4,
                 top_p: 0.9,
                 tools,
-                tool_choice: 'auto',
-            }),
+                tool_choice: { type: 'auto' },
+            } as never),
         );
 
         const [args] = createMock.mock.calls[0]!;
         expect(args.max_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
         expect(args.top_p).toBe(0.9);
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
         expect(args.tool_choice).toBe('auto');
+    });
+
+    it('forwards parallel_tool_calls, stop, response_format and reasoning_effort unrestricted', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'seed-2-0-mini-260428',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toBe('required');
+        expect(args.parallel_tool_calls).toBe(true);
+        expect(args.stop).toEqual(['STOP']);
+        expect(args.response_format).toBeDefined();
+        expect(args.reasoning_effort).toBe('high');
     });
 
     it('forwards Ark-specific custom params (thinking, stop, response_format)', async () => {

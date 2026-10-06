@@ -996,6 +996,20 @@ function promptEmailConfirmation(puter, error) {
 }
 
 /**
+ * Chunk types with no text to render — a `ReadableStream` reader (or anything
+ * else that coerces a line to a string) gets `''` instead of the default
+ * `[object Object]`.
+ */
+const SILENT_TOSTRING_CHUNK_TYPES = new Set([
+    'reasoning_start',
+    'reasoning_detail',
+    'tool_use_start',
+    'tool_input_delta',
+    'server_tool',
+    'safeguard_results',
+]);
+
+/**
  * Wrap the engine's parsed NDJSON lines in the driver stream contract: the
  * per-line upgrade/email prompts, `toString()` on text parts, and the `start`
  * adapter that lets the stream feed a `ReadableStream` controller.
@@ -1009,6 +1023,11 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
                 Object.defineProperty(line, 'toString', {
                     enumerable: false,
                     value: () => line.text,
+                });
+            } else if (SILENT_TOSTRING_CHUNK_TYPES.has(line?.type)) {
+                Object.defineProperty(line, 'toString', {
+                    enumerable: false,
+                    value: () => '',
                 });
             }
             yield line;
@@ -1196,6 +1215,7 @@ export {
     dedupe,
     driverCall,
     driverCallEnvelope,
+    driverLineStream,
     fetchUrl,
     isVerificationGateCode,
     parseResponse,

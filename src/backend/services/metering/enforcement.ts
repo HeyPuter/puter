@@ -96,9 +96,13 @@ export const assertActorHasCredits = async (
     if (creditEnforcementExempt(actor, config)) return;
 
     if (!(await metering.hasAnyUsageCached(actor!))) {
-        throw new HttpError(402, 'No usage left for request.', {
-            legacyCode: 'insufficient_funds',
-        });
+        throw new HttpError(
+            402,
+            'No usage left for request. Upgrade at https://puter.com/#billing',
+            {
+                legacyCode: 'insufficient_funds',
+            },
+        );
     }
 };
 
