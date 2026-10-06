@@ -108,6 +108,16 @@ const toAnthropicMediaPart = (part: any): any => {
     return part;
 };
 
+/** A 429 from fast mode's separate quota, not the model's normal limits. */
+const isFastModeRateLimit = (e: unknown): boolean => {
+    const err = e as { status?: unknown; message?: unknown };
+    return (
+        err?.status === 429 &&
+        typeof err.message === 'string' &&
+        /fast mode/i.test(err.message)
+    );
+};
+
 // Models whose current turn rejects a non-default temperature/top_p/top_k
 // outright. Fable 5/5.1, Sonnet 5/5.5, and Opus 4.7+.
 const OMITS_SAMPLING_PARAMS = new Set([
@@ -354,6 +364,23 @@ export class ClaudeProvider implements IChatProvider {
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
+        try {
+            return await this.#completeOnce(args);
+        } catch (e) {
+            // Fast mode has its own quota. Anthropic's advice on that 429 is to
+            // drop `speed` and run at standard speed; doing it here keeps the
+            // request on Claude instead of marking the route unhealthy and
+            // replaying it on a reseller.
+            if (args.speed === 'fast' && isFastModeRateLimit(e)) {
+                return await this.#completeOnce({ ...args, speed: undefined });
+            }
+            throw e;
+        }
+    }
+
+    async #completeOnce(
+        args: ICompleteArguments,
+    ): Promise<IChatCompleteResult> {
         const {
             sdkParams,
             usesBeta,

@@ -2019,6 +2019,51 @@ describe('ClaudeProvider metering', () => {
         expect('fast_input_tokens' in result.usage).toBe(false);
     });
 
+    it('retries at standard speed on Claude when fast mode is rate limited', async () => {
+        const { provider } = makeProvider();
+        const fastLimited = Object.assign(
+            new Error(
+                "This request would exceed your organization's rate limit of 0 fast mode input tokens per minute",
+            ),
+            { status: 429 },
+        );
+        messagesCreateMock.mockRejectedValueOnce(fastLimited).mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 10, output_tokens: 5, speed: 'standard' },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus-5-5',
+                messages: [{ role: 'user', content: 'hi' }],
+                speed: 'fast',
+            }),
+        )) as { usage: Record<string, number> };
+
+        expect(messagesCreateMock).toHaveBeenCalledTimes(2);
+        expect(messagesCreateMock.mock.calls[0]![0].speed).toBe('fast');
+        expect('speed' in messagesCreateMock.mock.calls[1]![0]).toBe(false);
+        expect(result.usage.input_tokens).toBe(10);
+        expect('fast_input_tokens' in result.usage).toBe(false);
+    });
+
+    it('does not retry an ordinary 429 on a fast-mode request', async () => {
+        const { provider } = makeProvider();
+        const limited = Object.assign(new Error('rate limited'), { status: 429 });
+        messagesCreateMock.mockRejectedValueOnce(limited);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'claude-opus-5-5',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    speed: 'fast',
+                }),
+            ),
+        ).rejects.toBe(limited);
+        expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+    });
+
     it('meters web_search_requests at 1,000,000 µ¢ per request', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
