@@ -522,11 +522,8 @@ export class TeamStore extends PuterStore {
         return rows[0] ?? null;
     }
 
-    /** Members to announce a team share to; bounded, or the send is too. */
     /**
-     * Short-lived, and deliberately only over reads that are not authorization.
-     * A stale entry here costs a notification, never access -- `isMember` and
-     * `getByUid` are left uncached for that reason.
+     * Short-lived, and safe for `getByUid`/`getMembership`: mutations bust it.
      *
      * `jct_user_group.user_id` is ON DELETE CASCADE, so deleting an account
      * changes membership without passing through this store. The TTL is the
