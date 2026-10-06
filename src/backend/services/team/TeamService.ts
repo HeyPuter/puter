@@ -28,10 +28,14 @@ import { isReservedUsername } from '../../util/reservedUsernames.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
 import { subscriptionSatisfies } from '../metering/enforcement.js';
 import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 4;
 const PAID_SEAT_CAP = 40;
+
+// Seat teardown is independent per member, so a delete need not be serial.
+const TEARDOWN_CONCURRENCY = 8;
 
 import type {
     EventMap,
@@ -637,32 +641,19 @@ export class TeamService extends PuterService {
         // Otherwise they keep working, unreachable through a deleted team.
         let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
         for (;;) {
-            for (const member of page.items) {
-                if (Number(member.org_owned) !== 1) continue;
-                await this.stores.team.appendAudit({
-                    teamId: team.id,
-                    userId: member.user_id,
-                    actorUserId,
-                    action: 'disable',
-                    reason: 'team_deleted',
-                });
-                const held = await this.#heldBytes(member.user_id);
-                await this.#suspend(member.user_id);
-                disabled++;
-
-                // Per seat, not one bulk event: the byte charge is per account.
-                this.#emitBilling('team.account.disabled', {
-                    ...billing,
-                    user_id: member.user_id,
-                    user_uuid: member.uuid,
-                    username: member.username,
-                    held_bytes: held,
-                });
-
-                // The team notice covers the disabling, so a member is
-                // told once rather than twice about the same event.
-                await this.#notifyMember(member.user_id, 'team_closed', team);
-            }
+            // Bounded: a seat costs a mail send, and a full team is 40 of them.
+            const outcomes = await runWithConcurrencyLimit(
+                page.items.filter((m) => Number(m.org_owned) === 1),
+                TEARDOWN_CONCURRENCY,
+                (member) =>
+                    this.#disableSeatForDelete(
+                        member,
+                        team,
+                        actorUserId,
+                        billing,
+                    ),
+            );
+            disabled += outcomes.filter(Boolean).length;
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
                 limit: 200,
@@ -682,6 +673,44 @@ export class TeamService extends PuterService {
             ...billing,
             account_count: disabled,
         });
+    }
+
+    /** As `disableMember`; a suspended seat is skipped so a retry resumes. */
+    async #disableSeatForDelete(
+        member: TeamMemberRow,
+        team: TeamRow,
+        actorUserId: number,
+        billing: TeamBillingContext,
+    ): Promise<boolean> {
+        const current = await this.stores.user.getByProperty(
+            'id',
+            member.user_id,
+            { force: true },
+        );
+        if (current?.suspended) return true;
+
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: member.user_id,
+            actorUserId,
+            action: 'disable',
+            reason: 'team_deleted',
+        });
+        const held = await this.#heldBytes(member.user_id);
+        await this.#suspend(member.user_id);
+
+        // Per seat, not one bulk event: the byte charge is per account.
+        this.#emitBilling('team.account.disabled', {
+            ...billing,
+            user_id: member.user_id,
+            user_uuid: member.uuid,
+            username: member.username,
+            held_bytes: held,
+        });
+
+        // The team notice covers the disabling, so a member is told once.
+        await this.#notifyMember(member.user_id, 'team_closed', team);
+        return true;
     }
 
     /** Team owner only. Readable after deletion -- that is the point of it. */
@@ -820,18 +849,16 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map(
-                (row): MemberActivityEntry => ({
-                    action: row.action,
-                    reason: row.reason,
-                    created_at: epochSeconds(row.created_at),
-                    username: name(row.user_id_keep),
-                    actor_username: name(row.actor_user_id),
-                    // Only a sign-in carries these; the shape stays uniform.
-                    ip: null,
-                    user_agent: null,
-                }),
-            ),
+            items: page.items.map((row): MemberActivityEntry => ({
+                action: row.action,
+                reason: row.reason,
+                created_at: epochSeconds(row.created_at),
+                username: name(row.user_id_keep),
+                actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
