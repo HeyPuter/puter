@@ -245,11 +245,7 @@ export class TeamController extends PuterController {
         });
     }
 
-    /**
-     * Admits an app actor, like `listTeams` and `listMembers`, once the team
-     * has opted in. Discloses nothing a colleague cannot already read through
-     * `/members`.
-     */
+    /** App actors too, once opted in; carries the `uuid` `/members` hides. */
     @Get('/:uid/directory', {
         subdomain: 'api',
         requireVerified: true,

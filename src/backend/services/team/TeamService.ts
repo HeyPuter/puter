@@ -540,10 +540,7 @@ export class TeamService extends PuterService {
         }
     }
 
-    /**
-     * The member list as an app may read it, once the team has opted in. The
-     * page carries only what a colleague already sees through `/members`.
-     */
+    /** The roster an app may read once opted in; that opt-in grants `uuid`. */
     async listDirectory(
         teamUid: string,
         actorUserId: number,
