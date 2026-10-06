@@ -110,6 +110,13 @@ describe('isStorableEmail', () => {
             expect(isStorableEmail(bad)).toBe(false);
     });
 
+    it('answers for a non-string instead of throwing', () => {
+        // A throw where a public route reaches this is a 500, not a 400.
+        expect(() => validator.isEmail(1 as unknown as string)).toThrow();
+        for (const bad of [1, null, undefined, {}, []])
+            expect(isStorableEmail(bad)).toBe(false);
+    });
+
     it('still accepts addresses people actually have', () => {
         for (const good of [
             "o'brien@example.com",

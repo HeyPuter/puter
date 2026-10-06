@@ -105,9 +105,13 @@ export function cleanEmail(email: string): string {
     return `${parts.local}@${parts.domain}`;
 }
 
-/** Storage gate; `isEmail` alone passes quoted local parts carrying markup. */
-export function isStorableEmail(email: string): boolean {
-    return !/["<>]/u.test(email) && validator.isEmail(email);
+/** Storage gate; `isEmail` alone throws on non-strings and passes quoted parts. */
+export function isStorableEmail(email: unknown): boolean {
+    return (
+        typeof email === 'string' &&
+        !/["<>]/u.test(email) &&
+        validator.isEmail(email)
+    );
 }
 
 /** Strips `+` on any domain. For abuse decisions only, never for identity. */

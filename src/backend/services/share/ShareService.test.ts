@@ -5216,6 +5216,34 @@ describe('ShareService', () => {
             expect(await canRead(actor, file.path)).toBe(true);
         });
 
+        it('refuses the shapes the old invite regex let through', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+
+            // `a,b@x.com` is two recipients to nodemailer; the rest just fail.
+            for (const email of [
+                'a,b@x.com',
+                'a;b@x.com',
+                'a..b@x.com',
+                '.a@x.com',
+                'a@-x.com',
+            ]) {
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: { email },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'email_not_allowed',
+                });
+                expect(
+                    await server.stores.share.listPendingByEmail(email),
+                ).toEqual([]);
+            }
+        });
+
         it('refuses an address that cannot receive the invite', async () => {
             const owner = await makeUser();
             const file = await makeFile(owner.user);

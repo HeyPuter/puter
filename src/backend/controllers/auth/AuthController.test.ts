@@ -6217,6 +6217,34 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('change_email/confirm: refuses to promote a staged address we would not store', async () => {
+        const { user } = await makeUserAndActor();
+        const markup = '"<img/src=x/onerror=alert(1)>"@example.com';
+        const token = uuidv4();
+        // Staged by an earlier build, so gated by whatever ran back then.
+        await server.stores.user.update(user.id, {
+            unconfirmed_change_email: markup,
+            change_email_confirm_token: token,
+        });
+        const linkJwt = server.services.token.sign(
+            'otp',
+            { token, user_id: user.id, purpose: 'change-email' },
+            { expiresIn: '1h' },
+        );
+        const req = makeReq({});
+        (req as unknown as { query: Record<string, string> }).query = {
+            token: linkJwt,
+        };
+        await expect(
+            controller.handleChangeEmailConfirm(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.email).not.toBe(markup);
+    });
+
     it('change_email/confirm: completes the swap when the token matches the staged row', async () => {
         const { user, actor } = await makeUserAndActor();
         const newEmail = `chc_${uniq()}@test.local`;

@@ -33,6 +33,7 @@ import {
     abuseKey,
     cleanEmail,
     isProviderCanonicalized,
+    isStorableEmail,
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
@@ -274,14 +275,6 @@ const RETIRE_CHUNK_SIZE = 100;
 
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
-
-/**
- * The least an address must look like before an invite row is written for it.
- * Deliverability is the inbox's business, but `a@b` or a pasted sentence must
- * not become a permanent pending share that spent quota.
- */
-// `"<>` excluded too: legal only in a quoted local part nothing uses.
-const EMAIL_SHAPE = /^[^\s@"<>]+@[^\s@"<>]+\.[^\s@"<>]+$/u;
 
 /**
  * Where "refuse shares from everyone" lives on the user row.
@@ -3080,7 +3073,7 @@ export class ShareService extends PuterService {
         // send-time check can't do this — by then the row exists whatever
         // happens to the email.
         if (
-            !EMAIL_SHAPE.test(email) ||
+            !isStorableEmail(email) ||
             !(await this.clients.email.validate(email))
         ) {
             throw new HttpError(400, 'invalid recipient email address', {

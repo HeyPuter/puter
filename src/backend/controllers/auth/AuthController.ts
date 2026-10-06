@@ -2942,6 +2942,12 @@ export class AuthController extends PuterController {
         }
 
         const newEmail = user.unconfirmed_change_email;
+        // Staged by an earlier request, so gated by whatever ran back then.
+        if (!isStorableEmail(newEmail)) {
+            throw new HttpError(400, 'Please enter a valid email address.', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Re-check nobody claimed the new email meanwhile. Match raw +
         // canonical; block if any real account (confirmed OR
