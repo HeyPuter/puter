@@ -1,21 +1,24 @@
 ---
 title: Share a File with a Team
-description: "Learn how to share a file with a whole team or with one teammate using Puter.js, so colleagues get access without anyone typing a username."
+description: "Learn how to share files with a user's team using Puter.js, so colleagues can open them without anyone typing a username."
 tags: [teams, fs, auth]
 order: 61
 ---
 
 <div class="info">The Teams API is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Sharing inside a team is the collaborative case most apps reach for: a document
-everyone on the team can edit, or one draft handed to a single colleague. Both
-are [`puter.fs.share()`](/FS/share/) — what changes is who you name.
+On Puter, a user can create a team and add accounts to it. When someone on a
+team uses your app, they often want to share a file with their colleagues, such
+as a document the whole team edits or a draft for one coworker. You can share
+the file with the whole team in one call, or let the user pick a teammate from
+a list.
 
-This carries on from [Add Team Support](/recipes/add-team-support/).
+To read the user's team, see [Add Team Support](/recipes/add-team-support/).
 
 ## Share with the whole team
 
-Name the team by its `uid` and everyone on it gets access:
+To share a file with everyone on a team, call
+[`puter.fs.share()`](/FS/share/) with `{ team }` set to the team's `uid`:
 
 ```js
 const [team] = await puter.teams.list();
@@ -23,26 +26,22 @@ const [team] = await puter.teams.list();
 await puter.fs.share('drafts/proposal.md', { team: team.uid }, 'write');
 ```
 
-**Anyone added to the team later is included too.** That is the reason to prefer
-this over looping over the directory and sharing with each person: a per-person
-loop is a snapshot taken today, a team share keeps up with the team.
+This is one share for the team, so anyone added to the team later gets access
+too. Use the `uid` from [`puter.teams.list()`](/Teams/list/), since it always
+points to the same team.
 
-There is no string form for a team. A bare string is always read as a username or
-an email, so the object form is what tells the two apart:
+To take the team's access back, call [`puter.fs.unshare()`](/FS/unshare/) with
+the same object. Everyone on the team loses access at once:
 
 ```js
-await puter.fs.share('drafts/proposal.md', 'alice', 'write');              // a person
-await puter.fs.share('drafts/proposal.md', { team: team.uid }, 'write');   // the team
+await puter.fs.unshare('drafts/proposal.md', { team: team.uid });
 ```
-
-Use `uid` rather than `handle`. A handle can be renamed, and deleting a team
-releases it for someone else to claim, so today's handle may point somewhere else
-tomorrow. `{ teamHandle }` exists for when the handle is all you have.
 
 ## Share with one teammate
 
-When the file is for one person, let the user pick them instead of typing a
-username. The team directory is the list of candidates:
+To share a file with one colleague, let the user pick them from a list. Get the
+people on the team with [`puter.teams.listDirectory()`](/Teams/listDirectory/)
+and use each `username` as an option:
 
 ```js
 const colleagues = await puter.teams.listDirectory(team.uid);
@@ -52,49 +51,38 @@ for (const { username, uuid } of colleagues) {
 }
 ```
 
-Share by `username` — that is what `share()` accepts for a person:
+Then share with the picked username using
+[`puter.fs.share()`](/FS/share/):
 
 ```js
 await puter.fs.share('drafts/proposal.md', { username: picked }, 'write');
 ```
 
-If you also record who the file went to, store the **`uuid`** next to it. People
-rename themselves, and a row that remembers only `alice` points at nobody the day
-she becomes `alice-r`. The `uuid` does not move.
+If your app saves who it shared the file with, save the `uuid` too. A user can
+change their username, but their `uuid` stays the same.
 
-## When there is no team to share with
+## Fall back to typing a username
 
-`list()` returns an empty array for a user who is not on a team, and
-`listDirectory()` throws `team_not_found` when the owner has not opened the
-directory to apps. Either way there is no picker to show, so fall back to sharing
-by typed username:
+Some users have no team list to pick from. [`puter.teams.list()`](/Teams/list/)
+returns an empty array when the user is not on a team, and
+[`puter.teams.listDirectory()`](/Teams/listDirectory/) rejects with
+`team_not_found` when the team owner has not turned on the directory. In both
+cases, show a field where the user types a username, and share with what they
+type:
 
 ```js
-const [team] = await puter.teams.list().catch(() => []);
-if (!team) return { mode: 'type-a-username' };
+async function getShareOptions() {
+    const [team] = await puter.teams.list();
+    if (!team) return { mode: 'type-a-username' };
 
-try {
-    return { mode: 'pick', colleagues: await puter.teams.listDirectory(team.uid) };
-} catch (e) {
-    if (e.code !== 'team_not_found') throw e;
-    return { mode: 'type-a-username' };   // directory is closed to apps
+    try {
+        const colleagues = await puter.teams.listDirectory(team.uid);
+        return { mode: 'pick', team, colleagues };
+    } catch (e) {
+        if (e.code === 'team_not_found') return { mode: 'type-a-username' };
+        throw e;
+    }
 }
 ```
 
-[Add Team Support](/recipes/add-team-support/) covers telling those cases apart
-when you want to say something more specific about each.
-
-## Notes
-
-- `listDirectory()` carries `uuid`; `listMembers()` gives `username` and nothing
-  else to an app. Use the directory when you need a stable id.
-- The directory leaves out suspended accounts and ones that never signed in, so
-  the picker only offers people who can actually open the file.
-- Membership is always the *person's*, never the app's. An app installed by a
-  member of one team can never read another's.
-- A team share returns one grant, not one per member, and names the team in
-  `holder_team` (`{ uid, name, handle }`). `holder` is a username, so it is
-  `holder_team` you read to tell a team share from a personal one.
-- Withdraw either kind with [`puter.fs.unshare()`](/FS/unshare/), which takes the
-  same recipient shapes; revoking the team share removes access for everyone it
-  reached.
+To share with a typed username, see [Share a File](/recipes/share-a-file/).
