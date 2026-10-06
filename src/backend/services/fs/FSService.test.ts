@@ -5104,6 +5104,14 @@ describe('FSService permission rules', () => {
         );
     });
 
+    it('keeps the sub-scope when it widens a mode', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:see:thumbnail`,
+        );
+
+        expect(higher).toContain(`fs:${file.uuid}:read:thumbnail`);
+    });
+
     it('does not widen the narrowest mode', async () => {
         const higher = await server.services.permission.getHigherPermissions(
             `fs:${file.uuid}:write`,

@@ -526,7 +526,7 @@ export class FSService extends PuterService {
                                 fsPrefix,
                                 fileId,
                                 mode,
-                                ...rest.slice(1),
+                                ...rest,
                             ),
                         );
                     }

@@ -1015,7 +1015,6 @@ export class FSController extends PuterController {
     })
     async statEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const userId = this.#getActorUserId(req);
         const body = this.#toObjectRecord(req.body);
         const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'see');
@@ -1034,8 +1033,10 @@ export class FSController extends PuterController {
         }
         const [subtreeSize, suggestedApps, shareFlags, shares, parentUid] =
             await Promise.all([
+                // The owner's id, not the caller's: the sum is over the
+                // owner's rows, and a recipient would otherwise read 0.
                 entry.isDir && wantsSize
-                    ? this.services.fs.getSubtreeSize(userId, entry.path)
+                    ? this.services.fs.getSubtreeSize(entry.userId, entry.path)
                     : undefined,
                 this.services.suggestedApps.getSuggestedApps(entry),
                 this.services.share.shareFlags(actor, [entry]),
