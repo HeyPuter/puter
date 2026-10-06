@@ -4,7 +4,7 @@
     <script>
         (async () => {
             // (1) Create a directory to watch
-            const dir = `~/${puter.randName()}`;
+            const dir = `./${puter.randName()}`;
             await puter.fs.mkdir(dir);
 
             // (2) Subscribe to everything under it

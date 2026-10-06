@@ -4,7 +4,7 @@
     <script>
         (async () => {
             // (1) A directory to work in. `inbox/` below it does not exist yet.
-            const dir = `~/${puter.randName()}`;
+            const dir = `./${puter.randName()}`;
             await puter.fs.mkdir(dir);
 
             // (2) Subscribe anyway — the subscription anchors on `dir` and
