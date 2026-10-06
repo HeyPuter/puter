@@ -171,6 +171,15 @@ function formatTrialEnd(trialEndsAt) {
     };
 }
 
+// A trial running on part of its plan's usage, and what the paid plan gives.
+// Null when the trial gets the plan's full usage.
+function trialUsageNote(fraction, planName) {
+    if (!(fraction > 0 && fraction < 1)) return null;
+    const share = fraction === 0.5 ? 'half' : `${Math.round(fraction * 100)}%`;
+    const multiple = Math.round((1 / fraction) * 10) / 10;
+    return `Trial includes ${share} of ${planName}'s usage; the paid plan gives you ${multiple}×.`;
+}
+
 const TabHome = {
     id: 'home',
     label: 'Home',
@@ -505,11 +514,16 @@ const TabHome = {
                                 : 'Free trial',
                         )
                         .addClass('trial');
+                    const usage = trialUsageNote(
+                        subscription.trialUsageFraction,
+                        subscription?.offering?.name_en || i18n(planName),
+                    );
                     $note
                         .text(
-                            trialEnds
-                                ? `First charge ${trialEnds.short} unless you cancel.`
-                                : 'Continues as a paid plan when the trial ends.',
+                            (usage ? `${usage} ` : '') +
+                                (trialEnds
+                                    ? `First charge ${trialEnds.short} unless you cancel.`
+                                    : 'Continues as a paid plan when the trial ends.'),
                         )
                         .show();
                 } else {
