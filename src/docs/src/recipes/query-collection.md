@@ -87,7 +87,8 @@ const rows = await puter.kv.list('order:by-customer:alice:*', true);
 
 Since both keys hold the data, you need to make sure every write happens to
 both. Update the duplicate whenever the record changes, and delete it whenever
-the record is deleted.
+the record is deleted. [Keep an Index in Sync](/recipes/keep-an-index-in-sync/)
+shows how.
 
 ## Filter the Rest in Your Code
 
@@ -116,9 +117,12 @@ await puter.kv.list('log:2026-09-09', true);    // one day
 await puter.kv.list('log:2026-09-09T14', true); // one hour
 ```
 
-A listing comes back in ascending key order, so newest first is a `reverse()` on
-the page, or a key built from a counted-down timestamp such as `String(1e13 -
-Date.now())`.
+A listing comes back in ascending key order. For newest first, pass
+`reverse: true` in the options form:
+
+```js
+await puter.kv.list({ pattern: 'log:2026-09-', returnValues: true, reverse: true });
+```
 
 ## Filter by Number
 

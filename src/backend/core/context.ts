@@ -67,6 +67,13 @@ export interface KnownContextFields {
      * receive stops early and is never metered.
      */
     abortSignal: AbortSignal;
+    /**
+     * When true, `ChatCompletionDriver.complete` treats a request-level
+     * upstream 4xx as final instead of falling back to another provider — set
+     * by the Anthropic route, which needs the vendor's own error rather than a
+     * different provider's translation of it.
+     */
+    strictUpstreamErrors: boolean;
 }
 
 // -- Context store ---------------------------------------------------

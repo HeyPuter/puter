@@ -185,6 +185,15 @@ export const estimatePromptTokens = (messages: unknown): number => {
 };
 
 /**
+ * Tokens a tool list is worth, estimated from its serialized JSON. Used only by
+ * `countTokens` when a provider offers no exact count of its own.
+ */
+export const estimateToolTokens = (tools: unknown): number => {
+    if (!Array.isArray(tools) || tools.length === 0) return 0;
+    return estimateTextTokens(JSON.stringify(tools));
+};
+
+/**
  * Tokens a completion we only saw as streamed characters is worth. For a stream
  * that ended without a usage report, this is what it gets billed on.
  */

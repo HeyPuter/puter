@@ -61,7 +61,29 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Requests per 10 s   | 200  | 30   | 20        |
 | Concurrent requests | 20   | 3    | 2         |
 
+| Input                                          | Limit            |
+| ---------------------------------------------- | ---------------- |
+| Text for `txt2speech()`                        | 3,000 characters |
+| Audio for `speech2speech()`                    | 25 MiB           |
+| Image inlined in a chat message                | 5 MB             |
+| File attached to a chat message, Claude models | 30 MB            |
+| File attached to a chat message, OpenAI models | 5 MB             |
+
+An input over its limit is rejected before it reaches the model. OCR input limits are under [OCR](#ocr).
+
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
+
+`/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
+
+Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
+
+| Tool | Limit |
+| ---- | ----- |
+| Web search / web fetch `max_uses` | Defaults to 10 when omitted; capped at 20. |
+| Advisor `max_uses` | Defaults to 3; capped at 10. |
+| Advisor `max_tokens` | Defaults to 16,384; capped at 32,768. |
+
+A web search is metered at a flat per-request rate in addition to the tokens it reads back; an advisor call is metered under the named advisor model's own rates (an advisor model outside the catalog is priced at the most expensive entry, never left unpriced).
 
 ### Image generation
 
@@ -142,6 +164,8 @@ Per minute unless stated:
 | Limit | Value | Scope |
 | ----- | ----- | ----- |
 | Uploads in progress | 10,000 | Per user, all apps |
+| Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
+| Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |
 | Entries in one `/sign` request | 500 | Per request |
 | Part numbers in one `signMultipartParts` | 10,000 | Per request |
@@ -385,6 +409,8 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | Failures in a row before suspension    | 5                              | Per subscription   |
 | `user` token lifetime in the events worker | 15 minutes                 | Per run            |
 
+Failures count as in a row until the handler takes a delivery or an hour passes without another failure; either resets the count to zero.
+
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
 
 #### Handler chains
@@ -432,6 +458,16 @@ Deliveries are billed to the account holding the subscription:
 Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, and gap markers.
 
 When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
+
+### Networking
+
+[`puter.net`](/Networking/) sockets connect through a relay that takes a single-use token. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
+
+| Limit                     | Paid | Free | Anonymous |
+| ------------------------- | ---- | ---- | --------- |
+| Relay tokens per minute   | 60   | 30   | 10        |
+
+The relay checks each token against Puter, at most **300 checks/min** per relay IP.
 
 ### Peer connections
 

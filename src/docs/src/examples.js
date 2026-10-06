@@ -1004,6 +1004,18 @@ const examples = [
                 slug: 'teams-directory',
                 source: '/playground/examples/teams-directory.html',
             },
+            {
+                title: 'Share a file with a team',
+                description: 'Share a file with everyone on a team, including anyone added later, with Puter.js. Run and modify this example directly in your browser.',
+                slug: 'teams-share',
+                source: '/playground/examples/teams-share.html',
+            },
+            {
+                title: 'Show an admin page to the team owner',
+                description: 'Check if the user owns their team to show an admin page with Puter.js teams API. Run and experiment with this example in the playground.',
+                slug: 'teams-owner',
+                source: '/playground/examples/teams-owner.html',
+            },
         ],
     },
     {

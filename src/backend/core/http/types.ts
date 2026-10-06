@@ -78,6 +78,22 @@ export type AccountGateUser = Partial<
     >
 > & { id?: number };
 
+/**
+ * Renders an error into a vendor-compatible wire envelope instead of the
+ * default Puter JSON shape. Set per-route via `RouteOptions.errorRenderer`; the
+ * terminal `errorHandler` middleware uses it when present, for every error that
+ * reaches that route — including gate failures (auth, plan, rate limit) — not
+ * only ones the handler itself throws.
+ */
+export type ErrorRenderer = (
+    err: unknown,
+    req: Request,
+) => {
+    status: number;
+    body: unknown;
+    headers?: Record<string, string | number>;
+};
+
 /** One rate-limit window. See `RouteOptions.rateLimit` for semantics. */
 export interface RouteRateLimit {
     limit: number;
@@ -269,6 +285,13 @@ export interface RouteOptions {
     // responseTimeout?: number;
 
     realMime?: boolean; // for legacy FS controller, see `LegacyFSController#serveFile`
+
+    /**
+     * Render every error this route produces — including gate failures — in a
+     * vendor-compatible wire envelope instead of the default Puter JSON shape.
+     * See [[ErrorRenderer]].
+     */
+    errorRenderer?: ErrorRenderer;
 }
 
 /**

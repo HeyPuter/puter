@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { IChatModel, ModelCost } from '../types.js';
+import type { IChatModel, ModelCost, UsageDetails } from '../types.js';
 
 const CENTS_PER_USD = 100;
 const MTOK = 1_000_000;
@@ -57,12 +57,18 @@ export const costKeys = (
 /**
  * Whether a usage key is priced at the output rate when the model has no rate
  * of its own for it.
+ *
+ * The `_output_tokens` suffix rule covers every prefixed output variant
+ * (`fast_output_tokens`, `advisor_output_tokens`, …) without having to name
+ * each one — a prefixed usage key always carries its own cost-table entry when
+ * the model has one, so this only decides the fallback bucket.
  */
 export const isOutputCostKey = (key: string, outputKey: string): boolean =>
     key === outputKey ||
     key === 'output_tokens' ||
     key === 'completion_tokens' ||
-    key === 'thinking_tokens';
+    key === 'thinking_tokens' ||
+    key.endsWith('_output_tokens');
 
 /**
  * The rate multipliers a request pays given how many input tokens it sent —
@@ -96,6 +102,17 @@ export const trackedInputTokens = (
     let total = 0;
     for (const [key, amount] of Object.entries(trackedUsage)) {
         if (key === 'tokens' || key === 'usd_cents') continue;
+        // Per-call counts (`web_search_requests`, `web_search_calls`) and
+        // advisor-iteration tokens are billed, but neither is part of the
+        // executor prompt the funds cap and long-context threshold are
+        // measured against.
+        if (
+            key.endsWith('_requests') ||
+            key.endsWith('_calls') ||
+            key.startsWith('advisor_')
+        ) {
+            continue;
+        }
         if (isOutputCostKey(key, outputKey)) continue;
         if (typeof amount === 'number' && Number.isFinite(amount)) {
             total += amount;
@@ -115,6 +132,13 @@ export const trackedOutputTokens = (
     const { outputKey } = costKeys(model);
     let total = 0;
     for (const [key, amount] of Object.entries(trackedUsage)) {
+        if (
+            key.endsWith('_requests') ||
+            key.endsWith('_calls') ||
+            key.startsWith('advisor_')
+        ) {
+            continue;
+        }
         if (!isOutputCostKey(key, outputKey)) continue;
         if (typeof amount === 'number' && Number.isFinite(amount)) {
             total += amount;
@@ -137,6 +161,21 @@ export const isFreeModel = (model: IChatModel): boolean => {
     );
     return rates.length > 0 && rates.every(([, rate]) => Number(rate) === 0);
 };
+
+/**
+ * A fallback [[UsageDetails]] for providers that haven't been taught to report
+ * their own (every non-Claude provider, for now). `inputTokens` and
+ * `outputTokens` reuse the same tracked-token accounting the credit gate and
+ * `#computeCost` already agree on, so a provider with no detail of its own
+ * still gets a usable breakdown.
+ */
+export const usageDetailsFromUsage = (
+    usage: Record<string, unknown>,
+    model: IChatModel,
+): UsageDetails => ({
+    inputTokens: trackedInputTokens(usage, model),
+    outputTokens: trackedOutputTokens(usage, model),
+});
 
 /**
  * Prices a tracked-usage object against a model's cost table.

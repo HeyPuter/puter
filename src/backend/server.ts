@@ -989,6 +989,19 @@ export class PuterServer {
             });
         }
 
+        // A route that wants its errors in a vendor-compatible envelope
+        // (the Anthropic/OpenAI-compatible wire surface) stashes its
+        // renderer on `res.locals`, early — before any gate below can
+        // reject the request — so the terminal `errorHandler` picks it up
+        // for every error this route produces, gate failures included.
+        if (opts.errorRenderer) {
+            const { errorRenderer } = opts;
+            mwChain.push((_req, res, next) => {
+                res.locals.errorRenderer = errorRenderer;
+                next();
+            });
+        }
+
         // 1b. Origin gate. Runs before auth, rate limiting, and captcha so an
         // off-origin caller is rejected on the header alone — it never reaches
         // the credential comparison, and it can't burn another request's rate

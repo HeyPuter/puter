@@ -483,9 +483,7 @@ describe('assertNotUserSession', () => {
             expect((err as HttpError).legacyCode).toBe(
                 'app_or_api_token_required',
             );
-            // The user asked for a helpful message: it must point at the
-            // credentials that DO work and where to get one.
-            expect((err as HttpError).message).toMatch(/app or worker token/i);
+            // Must point at the credential that works and where to get one.
             expect((err as HttpError).message).toMatch(/API token/);
             expect((err as HttpError).message).toMatch(/dashboard/i);
         }

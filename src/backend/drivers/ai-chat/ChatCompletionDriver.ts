@@ -68,6 +68,7 @@ import type {
     IChatModel,
     IChatProvider,
     ICompleteArguments,
+    UsageDetails,
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
@@ -89,6 +90,7 @@ import {
     normalizeResultToOpenAI,
     shouldPresentAsOpenAI,
 } from './utils/normalizeToOpenAI.js';
+import { isToolChoice, toolChoiceFromWire } from './utils/openaiParams.js';
 import {
     costKeys,
     isFreeModel,
@@ -96,18 +98,28 @@ import {
     longContextMultipliers,
     trackedInputTokens,
     trackedOutputTokens,
+    usageDetailsFromUsage,
 } from './utils/pricing.js';
 import {
     isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
+import { fromFinishReason } from './utils/stopReason.js';
 import { AIChatStream } from './utils/Streaming.js';
 import {
     estimateOutputTokens,
     estimatePromptTokens,
+    estimateToolTokens,
 } from './utils/usageEstimate.js';
 
 const MAX_ATTEMPTS = 3; // the first attempt plus two fallbacks
+
+/**
+ * Key of the driver's token-count entry point. A symbol rather than a method
+ * name so it stays off the `/drivers/call` surface, which only resolves
+ * string-named methods; the Anthropic route calls it in-process.
+ */
+export const COUNT_TOKENS = Symbol('aiChat.countTokens');
 
 /**
  * How often a streaming completion renews its credit hold. Holds default to a
@@ -134,12 +146,16 @@ const fundsRefusal = (heldByInFlight: boolean): HttpError =>
     heldByInFlight
         ? new HttpError(
               429,
-              'Usage is reserved by requests still running. Retry when they finish.',
+              'Usage is reserved by requests still running. Retry when they finish, or upgrade at https://puter.com/#billing',
               { legacyCode: 'too_many_requests', code: 'credits_reserved' },
           )
-        : new HttpError(402, 'No usage left for request.', {
-              legacyCode: 'insufficient_funds',
-          });
+        : new HttpError(
+              402,
+              'No usage left for request. Upgrade at https://puter.com/#billing',
+              {
+                  legacyCode: 'insufficient_funds',
+              },
+          );
 
 const positiveOrInfinity = (n: unknown): number =>
     typeof n === 'number' && Number.isFinite(n) && n > 0
@@ -170,6 +186,17 @@ type ProviderAttempt = {
     error: string;
     /** The attempt died to a transport timeout rather than an answer. */
     timedOut?: boolean;
+    /**
+     * The vendor's own error type (Anthropic `error.error.type`, OpenAI
+     * `error.type`).
+     */
+    upstreamType?: string;
+    /**
+     * The vendor's own, uncleaned message — kept separate so
+     * `requestLevelError` can surface it verbatim.
+     */
+    upstreamMessage?: string;
+    retryAfter?: string | number;
 };
 
 /**
@@ -190,8 +217,14 @@ const toAttempt = (
         status?: number;
         statusCode?: number;
         code?: string;
-        error?: { code?: string; type?: string; message?: string };
+        error?: {
+            code?: string;
+            type?: string;
+            message?: string;
+            error?: { type?: string; message?: string };
+        };
         message?: string;
+        headers?: Headers | Record<string, string>;
     };
     const message = e?.message ?? (typeof err === 'string' ? err : String(err));
     let status = e?.status ?? e?.statusCode;
@@ -199,6 +232,14 @@ const toAttempt = (
         const m = message.match(/\b(4\d\d|5\d\d)\b/);
         if (m) status = Number(m[1]);
     }
+    // Anthropic nests its own error under `error.error`; OpenAI's is flat.
+    const upstreamType = e?.error?.error?.type ?? e?.error?.type;
+    const upstreamMessage = e?.error?.error?.message ?? e?.error?.message;
+    const headers = e?.headers;
+    const retryAfter =
+        typeof (headers as Headers)?.get === 'function'
+            ? ((headers as Headers).get('retry-after') ?? undefined)
+            : (headers as Record<string, string> | undefined)?.['retry-after'];
     return {
         model: modelId,
         provider: providerId,
@@ -206,6 +247,16 @@ const toAttempt = (
         code: e?.error?.code ?? e?.code,
         error: sanitizeUpstreamMessage(message),
         ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
+        ...(upstreamType !== undefined ? { upstreamType } : {}),
+        ...(upstreamMessage !== undefined
+            ? {
+                  upstreamMessage: sanitizeUpstreamMessage(
+                      upstreamMessage,
+                      1000,
+                  ),
+              }
+            : {}),
+        ...(retryAfter !== undefined ? { retryAfter } : {}),
     };
 };
 
@@ -234,10 +285,14 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  * route is worth marking. A 4xx the upstream returned on the request's own
  * merits (malformed tools, oversized prompt) says nothing about the route and
  * must not take it out of rotation for everyone else. Attempts with no status
- * at all are transport failures — treat them as route problems.
+ * at all are transport failures — treat them as route problems. 404 (the model
+ * isn't served on this route) and 408 (upstream request timeout) are likewise
+ * about the route, not the caller's request.
  */
 const isRouteLevelFailure = (a: ProviderAttempt) =>
     a.status === undefined ||
+    a.status === 404 ||
+    a.status === 408 ||
     isCreditExhaustion(a) ||
     isRateLimit(a) ||
     isAuthFailure(a) ||
@@ -248,7 +303,46 @@ const isRouteLevelFailure = (a: ProviderAttempt) =>
 const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
 
 /**
+ * The error surfaced for a request-level upstream failure (a 4xx that is the
+ * caller's own fault, e.g. a malformed tool or an oversized prompt) — thrown
+ * immediately, with no fallback attempt, since a different provider would only
+ * translate the same mistake into a different vendor's 400.
+ */
+const requestLevelError = (a: ProviderAttempt): HttpError =>
+    new HttpError(400, a.upstreamMessage || a.error, {
+        legacyCode: 'upstream_bad_request',
+        ...(a.upstreamType ? { code: a.upstreamType } : {}),
+        fields: { attempts: [a], upstreamStatus: a.status },
+    });
+
+const isOverloaded = (a: ProviderAttempt) =>
+    a.status === 529 || a.upstreamType === 'overloaded_error';
+
+const isModelUnavailable = (a: ProviderAttempt) => a.status === 404;
+
+/**
+ * The HTTP status an in-band mid-stream error chunk reports — a stream
+ * populator failure never goes through `classifyAttempts` (there is no fallback
+ * once bytes have already reached the client), so it gets its own, narrower
+ * status pick from the same upstream signal.
+ */
+const streamErrorStatus = (a: ProviderAttempt): number => {
+    if (isOverloaded(a)) return 529;
+    if (a.upstreamType === 'rate_limit_error' || isRateLimit(a)) return 429;
+    if (a.upstreamType === 'timeout_error' || a.timedOut) return 504;
+    if (a.status !== undefined && a.status >= 400 && a.status < 500)
+        return a.status;
+    return 500;
+};
+
+/**
  * Map an exhausted fallback chain to a single user-facing HttpError.
+ *
+ * Every caller except the Anthropic route sees main's statuses and codes here —
+ * a 529 (overloaded) or 404 (model not served) chain still reaches a 400, like
+ * any other upstream failure. The real status rides along in
+ * `fields.upstreamStatus`; `renderAnthropicError` (wireErrors.ts) is the only
+ * renderer that reads it back out, to give Claude Code the 529/404 it expects.
  *
  * Per-class rules (see also alarm gate in server.ts):
  *
@@ -256,6 +350,10 @@ const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
  * - All rate-limited → 429 `upstream_rate_limited` (alerted, unless every attempt
  *   was on a free model — see `allModelsFree`)
  * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
+ * - All overloaded (529 / `overloaded_error`) → 400
+ *   `upstream_provider_unavailable`, `upstreamStatus: 529` (no page)
+ * - All model-not-found (404) → 400 `upstream_bad_request`, `upstreamStatus: 404`
+ *   (no page)
  * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
  * - All timed out → 504 `upstream_timeout` (no page)
@@ -280,9 +378,14 @@ const classifyAttempts = (
         });
     }
     if (attempts.every(isRateLimit)) {
+        const retryAfters = attempts
+            .map((a) => Number(a.retryAfter))
+            .filter(Number.isFinite);
         return new HttpError(429, 'AI provider rate limit exceeded', {
             legacyCode: 'upstream_rate_limited',
-            fields,
+            fields: retryAfters.length
+                ? { ...fields, retryAfter: Math.max(...retryAfters) }
+                : fields,
             // A free model getting throttled upstream is the deal we took
             // when we picked it up for nothing: there's no billing at stake
             // and nothing to act on, and the volume tracks traffic. The
@@ -294,6 +397,18 @@ const classifyAttempts = (
         return new HttpError(500, 'AI provider authentication failed', {
             legacyCode: 'upstream_auth_failed',
             fields,
+        });
+    }
+    if (attempts.every(isOverloaded)) {
+        return new HttpError(400, 'AI provider unavailable', {
+            legacyCode: 'upstream_provider_unavailable',
+            fields: { ...fields, upstreamStatus: 529 },
+        });
+    }
+    if (attempts.every(isModelUnavailable)) {
+        return new HttpError(400, attempts[0].error, {
+            legacyCode: 'upstream_bad_request',
+            fields: { ...fields, upstreamStatus: 404 },
         });
     }
     if (attempts.every(isUpstream5xx)) {
@@ -342,6 +457,23 @@ const classifyAttempts = (
         legacyCode: 'internal_error',
         fields,
     });
+};
+
+// Claude's usage has always carried thinking_tokens. It's a subset of
+// output_tokens, so it's added only after pricing, usd_cents, cost-calculated,
+// and the funds cap all ran off the untouched usage.
+const withClaudeThinkingTokens = (
+    usage: Record<string, number> | undefined,
+    model: IChatModel,
+    details: UsageDetails | null | undefined,
+): void => {
+    if (
+        usage &&
+        model.provider === 'claude' &&
+        usage.thinking_tokens === undefined
+    ) {
+        usage.thinking_tokens = details?.reasoningTokens ?? 0;
+    }
 };
 
 /**
@@ -420,7 +552,9 @@ export class ChatCompletionDriver extends PuterDriver {
                     out.push({
                         usageType: `${model.provider}:${model.id}:${costKey}`,
                         ucentsPerUnit: raw,
-                        unit: 'token',
+                        unit: costKey.endsWith('_requests')
+                            ? 'request'
+                            : 'token',
                         source: `driver:aiChat/${model.provider}`,
                         costs_currency: model.costs_currency,
                     });
@@ -459,6 +593,13 @@ export class ChatCompletionDriver extends PuterDriver {
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
             normalize_tools_object(args.tools);
+        }
+        // A raw `/drivers/call` caller still sends the OpenAI wire form
+        // ('auto'/'none'/'required', {type:'function', function:{name}}) —
+        // normalize it once here so a provider downstream never spreads a
+        // bare string or an unrecognized shape into its request.
+        if (args.tool_choice !== undefined && !isToolChoice(args.tool_choice)) {
+            args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
         }
 
         // A clear 400 for image/video parts the catalog says the model cannot
@@ -581,16 +722,24 @@ export class ChatCompletionDriver extends PuterDriver {
         // Tracked across the chain so the classifier can tell a chain that
         // only ever touched free models from one that cost the user something.
         let allModelsFree = true;
+        // The Anthropic route sets this so its callers get the vendor's own
+        // 4xx instead of a fallback provider's translation of it; every other
+        // caller keeps falling back on a request-level failure, as main did.
+        const strict = Context.get('strictUpstreamErrors') === true;
 
         // A failed route is remembered briefly so the next request skips it
         // rather than paying its timeout again.
-        const recordFailure = (failed: IChatModel, err: unknown) => {
+        const recordFailure = (
+            failed: IChatModel,
+            err: unknown,
+        ): ProviderAttempt => {
             const attempt = toAttempt(failed.id, failed.provider!, err);
             attempts.push(attempt);
             if (!isFreeModel(failed)) allModelsFree = false;
             if (isRouteLevelFailure(attempt)) {
                 markRouteUnhealthy(failed.provider!, failed.id);
             }
+            return attempt;
         };
 
         try {
@@ -611,7 +760,26 @@ export class ChatCompletionDriver extends PuterDriver {
             // A withheld completion was still a completion — charged, final,
             // not a route failure worth another (billed) attempt elsewhere.
             if (isModerationRefusal(e)) throw e;
-            recordFailure(model, e);
+            // Our own request validation (policy rejection, bad tool shape)
+            // is never a route problem — no other provider would accept it
+            // either, so there is nothing a fallback would fix. An empty
+            // Responses-API output is the one exception: it falls back like
+            // any other route-level failure instead of being final.
+            if (
+                isHttpError(e) &&
+                e.statusCode < 500 &&
+                e.legacyCode !== 'bad_response'
+            )
+                throw e;
+            const first = recordFailure(model, e);
+            // A request-level upstream failure (malformed tools, oversized
+            // prompt) is the caller's request, not the route's fault — for
+            // the Anthropic route, retrying it on a different provider would
+            // translate the same mistake into a different vendor's 400, not
+            // fix it, so it's surfaced immediately. Other callers keep
+            // falling back, matching main.
+            if (strict && !isRouteLevelFailure(first))
+                throw requestLevelError(first);
 
             // Fallback loop — the bucket holds every provider that serves this
             // model, ranked by `compareModelPreference`, so each miss walks one
@@ -657,19 +825,48 @@ export class ChatCompletionDriver extends PuterDriver {
                     });
                     model = fallback;
                     lastError = null;
+                    console.warn(
+                        `[ai-chat] fallback served (${completionId}, ${first.provider}:${first.model} -> ${fallback.provider}:${fallback.id}, first ${first.status ?? 'none'}${first.upstreamType ? `/${first.upstreamType}` : ''})`,
+                    );
                 } catch (fbErr) {
                     await hold.release();
                     hold = NO_CREDIT_HOLD;
                     if (isModerationRefusal(fbErr)) throw fbErr;
+                    const attempt = recordFailure(fallback, fbErr);
+                    // A fallback's own 4xx is a translation gap between
+                    // vendors, not the caller's fault — stop climbing the
+                    // chain here, but still classify on whichever attempts
+                    // were actually route-level. Non-strict callers keep
+                    // falling back past a request-level failure, as main did.
+                    if (
+                        (isHttpError(fbErr) &&
+                            fbErr.statusCode < 500 &&
+                            fbErr.legacyCode !== 'bad_response') ||
+                        (strict && !isRouteLevelFailure(attempt))
+                    ) {
+                        console.warn(
+                            `[ai-chat] fallback rejected request (${completionId}, ${fallback.provider}:${fallback.id}, ${attempt.status})`,
+                        );
+                        break;
+                    }
                     lastError = fbErr as Error;
-                    recordFailure(fallback, fbErr);
                 }
             }
         }
 
         if (!res) {
             await hold.release();
-            const failure = classifyAttempts(attempts, { allModelsFree });
+            // The chain began on the caller's own request-level 4xx and never
+            // recovered — surface that vendor's error rather than a generic
+            // "all routes failed", which would otherwise swallow it once
+            // every route-level attempt in the chain gets filtered out below.
+            if (attempts[0] && !isRouteLevelFailure(attempts[0])) {
+                throw requestLevelError(attempts[0]);
+            }
+            const failure = classifyAttempts(
+                attempts.filter(isRouteLevelFailure),
+                { allModelsFree },
+            );
             // A deduped alarm shows only its latest occurrence, so each
             // request's per-route failures are logged here, under its trace.
             if (!failure.noAlarm) {
@@ -694,7 +891,10 @@ export class ChatCompletionDriver extends PuterDriver {
         // handler pipes it to the HTTP response as chunked NDJSON.
         if ('init_chat_stream' in res && res.init_chat_stream) {
             const passthrough = new PassThrough();
-            const chatStream = new AIChatStream({ stream: passthrough });
+            const chatStream = new AIChatStream({
+                stream: passthrough,
+                streamToolInput: !!args.streamToolInput,
+            });
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
 
@@ -710,9 +910,12 @@ export class ChatCompletionDriver extends PuterDriver {
             // meter after this call (e.g. Claude) don't pick up `usd_cents`.
             const originalEnd = chatStream.end.bind(chatStream);
             chatStream.end = (usage?: Record<string, number>) => {
+                // Read before `originalEnd` writes the wire line — the
+                // provider sets it (if at all) any time before `end()`.
+                const usageCosts = chatStream.usageCosts ?? undefined;
                 const enrichedUsage = usage ? { ...usage } : usage;
                 if (enrichedUsage) {
-                    this.#injectUsdCents(enrichedUsage, model);
+                    this.#injectUsdCents(enrichedUsage, model, usageCosts);
                 }
                 this.clients.event.emit(
                     'ai.prompt.complete',
@@ -734,8 +937,30 @@ export class ChatCompletionDriver extends PuterDriver {
                         usage,
                         model,
                         intendedProvider,
+                        usageCosts,
                     });
                 }
+                // Fill in sensible defaults when the provider reported no
+                // stop/usage-detail shape of its own, so every stream ends
+                // with the same fields regardless of which provider served
+                // it.
+                if (!chatStream.stop) {
+                    chatStream.setStop({
+                        reason: ranOutOfFunds(usage)
+                            ? 'max_tokens'
+                            : 'end_turn',
+                    });
+                }
+                if (usage && !chatStream.usageDetails) {
+                    chatStream.setUsageDetails(
+                        usageDetailsFromUsage(usage, model),
+                    );
+                }
+                withClaudeThinkingTokens(
+                    enrichedUsage,
+                    model,
+                    chatStream.usageDetails,
+                );
                 return originalEnd(
                     enrichedUsage!,
                     ranOutOfFunds(usage)
@@ -758,12 +983,17 @@ export class ChatCompletionDriver extends PuterDriver {
                     await init({ chatStream });
                 } catch (e) {
                     if (!chatStream.aborted) {
+                        const attempt = toAttempt(model.id, model.provider!, e);
                         passthrough.write(
                             `${JSON.stringify({
                                 type: 'error',
                                 message: sanitizeUpstreamMessage(
                                     e instanceof Error ? e.message : String(e),
                                 ),
+                                ...(attempt.upstreamType
+                                    ? { code: attempt.upstreamType }
+                                    : {}),
+                                status: streamErrorStatus(attempt),
                             })}\n`,
                         );
                     }
@@ -825,14 +1055,16 @@ export class ChatCompletionDriver extends PuterDriver {
             {},
         );
 
+        const usageCosts = (res as IChatMessageResult).usageCosts;
         if ('usage' in res && res.usage) {
-            this.#injectUsdCents(res.usage, model);
+            this.#injectUsdCents(res.usage, model, usageCosts);
             this.#emitCostCalculated({
                 completionId,
                 username,
                 usage: res.usage,
                 model,
                 intendedProvider,
+                usageCosts,
             });
         }
 
@@ -848,6 +1080,14 @@ export class ChatCompletionDriver extends PuterDriver {
                 : {}),
         });
 
+        if ('usage' in res) {
+            withClaudeThinkingTokens(
+                res.usage,
+                model,
+                (res as IChatMessageResult).usageDetails,
+            );
+        }
+
         // Response-format precedence: an explicit per-call `normalize` wins in
         // both directions; the legacy `response.normalize` (internal
         // block-format normalization) applies only when the new flag is
@@ -857,6 +1097,26 @@ export class ChatCompletionDriver extends PuterDriver {
         if ('message' in res && res.message) {
             // `'message' in res` doesn't narrow the result union for TS.
             const messageRes = res as IChatMessageResult;
+            // Fill in a stop reason and usage breakdown when the provider
+            // didn't set its own, so every non-stream result carries the
+            // same shape regardless of which provider served it.
+            if (messageRes.stopReason === undefined) {
+                const nativeStop = (
+                    messageRes.message as Record<string, unknown> | undefined
+                )?.stop_reason;
+                messageRes.stopReason =
+                    typeof nativeStop === 'string' && nativeStop !== ''
+                        ? nativeStop
+                        : fromFinishReason(messageRes.finish_reason);
+            }
+            if (messageRes.usageDetails === undefined && messageRes.usage) {
+                messageRes.usageDetails = usageDetailsFromUsage(
+                    messageRes.usage,
+                    model,
+                );
+            }
+            // Internal-only; never reaches the caller.
+            delete messageRes.usageCosts;
             if (shouldPresentAsOpenAI(args, model.release_date)) {
                 return {
                     ...normalizeResultToOpenAI(messageRes),
@@ -883,12 +1143,77 @@ export class ChatCompletionDriver extends PuterDriver {
         return { ...(res as IChatMessageResult), via_ai_chat_service: true };
     }
 
+    /**
+     * Exact prompt token count for a request that will never be sent — no
+     * credit gate, no metering, no fallback. Resolves the model and normalizes
+     * messages/tools the same way `complete()` does, then prefers the
+     * provider's own counter (Claude's `count_tokens`) over the driver's
+     * estimate.
+     */
+    async [COUNT_TOKENS](
+        args: ICompleteArguments,
+    ): Promise<{ input_tokens: number }> {
+        let intendedProvider = args.provider || '';
+        if (!args.model && !intendedProvider) {
+            intendedProvider = 'azure-openai';
+        }
+        if (
+            !args.model &&
+            intendedProvider &&
+            this.#providers[intendedProvider]
+        ) {
+            args.model = this.#providers[intendedProvider].getDefaultModel();
+        }
+
+        const model = this.#resolveModel(args.model, intendedProvider);
+        if (!model) {
+            throw new HttpError(400, `Model not found: ${args.model}`, {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        args.messages = normalizeMediaParts(normalize_messages(args.messages));
+        if (args.tools) {
+            normalize_tools_object(args.tools);
+        }
+
+        const provider = this.#providers[model.provider!];
+        if (!provider) {
+            throw new HttpError(
+                500,
+                `No provider found for model ${model.id}`,
+                { legacyCode: 'internal_error' },
+            );
+        }
+
+        const requestArgs: ICompleteArguments = {
+            ...args,
+            model: model.id,
+            provider: model.provider,
+        };
+
+        if (provider.countTokens) {
+            return { input_tokens: await provider.countTokens(requestArgs) };
+        }
+        return {
+            input_tokens:
+                estimatePromptTokens(requestArgs.messages ?? []) +
+                estimateToolTokens(requestArgs.tools),
+        };
+    }
+
     // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
     // Shape-agnostic: multiplies every usage key by its matching rate in
     // `model.costs`. Returns `null` when cost data is unavailable.
+    //
+    // `usageCosts`, when given, carries the provider's own per-key µ¢ cost
+    // (set from `chatStream.usageCosts` / `res.usageCosts`) — used verbatim
+    // for that key so the ledger and the reported cost match exactly instead
+    // of being recomputed off this model's cost table.
     #computeCost(
         usage: Record<string, number>,
         model: IChatModel,
+        usageCosts?: Record<string, number>,
     ): {
         inputKey: string;
         outputKey: string;
@@ -926,6 +1251,19 @@ export class ChatCompletionDriver extends PuterDriver {
 
             if (key === 'usd_cents') continue;
             if (key === 'tokens') continue;
+
+            const override = usageCosts?.[key];
+            if (typeof override === 'number' && Number.isFinite(override)) {
+                sawAnyRate = true;
+                if (isOutputKey(key)) outputMicroCents += override;
+                else inputMicroCents += override;
+                continue;
+            }
+            // Advisor usage is priced at the advisor model's own rates
+            // (metered separately, under `claude:<advisor>`), never off this
+            // (executor) model's cost table — without an override there is
+            // simply nothing to price it at here.
+            if (key.startsWith('advisor_')) continue;
 
             // thinking_tokens → output rate fallback
             let rate = costs[key];
@@ -1019,7 +1357,19 @@ export class ChatCompletionDriver extends PuterDriver {
     ): Promise<{ hold: CreditHold; fundsCap?: number }> {
         const metering = this.services.metering;
         const { promptTokenEstimate, requestedMaxTokens } = estimates;
-        const { inputKey, outputKey } = costKeys(model);
+        // A provider can name its own cost keys for this request (Claude's
+        // fast-mode rate card) and size an extra reservation the per-token
+        // math can't see (a web-search/advisor tool that could run several
+        // times before the model answers) — the same clamps it applies when
+        // building the request, so the hold and the request agree.
+        const pricing =
+            this.#providers[model.provider!]?.requestPricing?.(args, model, {
+                promptTokenEstimate,
+            }) ?? {};
+        const { inputKey: defaultInputKey, outputKey: defaultOutputKey } =
+            costKeys(model);
+        const inputKey = pricing.inputKey ?? defaultInputKey;
+        const outputKey = pricing.outputKey ?? defaultOutputKey;
         // A prompt estimated past a long-context threshold pays the raised
         // rates on input and output alike.
         const multipliers = longContextMultipliers(model, promptTokenEstimate);
@@ -1039,8 +1389,9 @@ export class ChatCompletionDriver extends PuterDriver {
             multipliers.output *
             costFactor;
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
+        const extras = (pricing.extraCost ?? 0) * costFactor;
         const minimumCredits = Number(model.minimumCredits || 1);
-        const needed = Math.max(approximateInputCost, minimumCredits);
+        const needed = Math.max(approximateInputCost + extras, minimumCredits);
 
         // One read of the balance and its holds serves the whole gate: the
         // affordability check here and the output cap below, net of holds,
@@ -1067,7 +1418,7 @@ export class ChatCompletionDriver extends PuterDriver {
         let fundsCap: number | undefined;
         if (outputTokenCost > 0) {
             const affordableOutputTokens = (credits: number): number =>
-                (credits - approximateInputCost) / outputTokenCost;
+                (credits - approximateInputCost - extras) / outputTokenCost;
             // What the request would get with money no object.
             const limit = Math.min(
                 requestedMaxTokens ?? Number.POSITIVE_INFINITY,
@@ -1112,7 +1463,9 @@ export class ChatCompletionDriver extends PuterDriver {
         // prompt estimate stands alone. Already factored, so it's held through
         // the plain service rather than scaled a second time.
         const worstCaseCost =
-            approximateInputCost + (args.max_tokens ?? 0) * outputTokenCost;
+            approximateInputCost +
+            extras +
+            (args.max_tokens ?? 0) * outputTokenCost;
         const hold = await this.services.metering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
@@ -1208,14 +1561,18 @@ export class ChatCompletionDriver extends PuterDriver {
     // Add `usd_cents` to the usage object. Skips if the provider already
     // set an authoritative value (e.g. OpenRouter's `usage.cost`).
     // Sets `null` when cost data is unavailable for the model.
-    #injectUsdCents(usage: Record<string, number>, model: IChatModel): void {
+    #injectUsdCents(
+        usage: Record<string, number>,
+        model: IChatModel,
+        usageCosts?: Record<string, number>,
+    ): void {
         if (
             typeof usage.usd_cents === 'number' &&
             Number.isFinite(usage.usd_cents)
         ) {
             return;
         }
-        const cost = this.#computeCost(usage, model);
+        const cost = this.#computeCost(usage, model, usageCosts);
         if (!cost) {
             (usage as Record<string, number | null>).usd_cents = null;
             return;
@@ -1232,11 +1589,18 @@ export class ChatCompletionDriver extends PuterDriver {
         usage: Record<string, number>;
         model: IChatModel;
         intendedProvider: string;
+        usageCosts?: Record<string, number>;
     }) {
-        const { completionId, username, usage, model, intendedProvider } =
-            params;
+        const {
+            completionId,
+            username,
+            usage,
+            model,
+            intendedProvider,
+            usageCosts,
+        } = params;
 
-        const cost = this.#computeCost(usage, model);
+        const cost = this.#computeCost(usage, model, usageCosts);
         const { inputKey, outputKey } = costKeys(model);
         const inputTokens = cost?.inputTokens ?? 0;
         const outputTokens = cost?.outputTokens ?? 0;
