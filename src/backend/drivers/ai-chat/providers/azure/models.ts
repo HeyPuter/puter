@@ -328,6 +328,7 @@ export const AZURE_MODELS: IChatModel[] = [
         // Costs mirror openai gpt-5.3-codex.
         puterId: 'azure:openai/gpt-5.3-codex',
         id: 'gpt-5.3-codex',
+        responsesSampling: 'never',
         modalities: { input: ['text', 'image'], output: ['text'] },
         open_weights: false,
         tool_call: true,

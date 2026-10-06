@@ -63,6 +63,11 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     tool_call?: boolean;
     responses_api?: boolean;
     responses_api_only?: boolean;
+    /**
+     * Omitted preserves sampling; reasoningDisabled requires explicit effort
+     * none.
+     */
+    responsesSampling?: 'never' | 'reasoningDisabled';
     knowledge?: string;
     release_date?: string;
     /**
