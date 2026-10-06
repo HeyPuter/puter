@@ -146,12 +146,16 @@ const fundsRefusal = (heldByInFlight: boolean): HttpError =>
     heldByInFlight
         ? new HttpError(
               429,
-              'Usage is reserved by requests still running. Retry when they finish.',
+              'Usage is reserved by requests still running. Retry when they finish, or upgrade at https://puter.com/#billing',
               { legacyCode: 'too_many_requests', code: 'credits_reserved' },
           )
-        : new HttpError(402, 'No usage left for request.', {
-              legacyCode: 'insufficient_funds',
-          });
+        : new HttpError(
+              402,
+              'No usage left for request. Upgrade at https://puter.com/#billing',
+              {
+                  legacyCode: 'insufficient_funds',
+              },
+          );
 
 const positiveOrInfinity = (n: unknown): number =>
     typeof n === 'number' && Number.isFinite(n) && n > 0
