@@ -412,6 +412,60 @@ describe('PermissionService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 404 });
         });
 
+        it('answers the same for a foreign path that exists and one that does not', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const other = await makeUserActor();
+            const otherName = other.actor.user!.username!;
+
+            // One path that really is there, and one that is not.
+            const real = `/${otherName}/real-${uuidv4()}`;
+            const absent = `/${otherName}/nope-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO fsentries (uuid, parent_uid, user_id, name, path, is_dir, size, created, accessed, modified) ' +
+                    'VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    uuidv4(),
+                    other.user.id,
+                    real.split('/').pop(),
+                    real,
+                    1,
+                    0,
+                    Date.now(),
+                    Date.now(),
+                    Date.now(),
+                ],
+            );
+
+            const attempt = (path: string) =>
+                runWithContext({ actor }, () =>
+                    permService.grantUserAppPermission(
+                        actor,
+                        app.uid,
+                        `fs:${path}:read`,
+                    ),
+                );
+
+            const existing = await attempt(real).then(
+                () => null,
+                (e) => e,
+            );
+            const missing = await attempt(absent).then(
+                () => null,
+                (e) => e,
+            );
+
+            // Both refused, identically: the difference would be the oracle.
+            expect(existing).toMatchObject({
+                statusCode: 403,
+                legacyCode: 'permission_denied',
+            });
+            expect(missing).toMatchObject({
+                statusCode: 403,
+                legacyCode: 'permission_denied',
+            });
+        });
+
         it('persists a user→app grant and is idempotent', async () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);

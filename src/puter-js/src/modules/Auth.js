@@ -533,9 +533,12 @@ export class AuthModule extends PuterModule {
         // Unchecked, an expired token resolves to an error body typed as a user.
         if (!resp.ok) {
             const body = await resp.json().catch(() => ({}));
+            // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
             throw {
                 status: resp.status,
-                message: body?.message ?? body?.error ?? 'Unauthorized',
+                message: body?.message ?? body?.error
+                    ?? `whoami failed with status ${resp.status}`,
+                ...(body?.code ? { code: body.code } : {}),
             };
         }
         return await resp.json();

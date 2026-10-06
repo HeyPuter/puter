@@ -3776,7 +3776,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        // The same cap the grant and revoke routes apply.
+        // As grant and revoke; `puter.perms.check` splits a longer list.
         if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
             throw new HttpError(400, 'Too many `permissions`', {
                 legacyCode: 'bad_request',
@@ -5131,16 +5131,19 @@ export class AuthController extends PuterController {
             allow: true,
             message: null,
         };
+        // Same shape as the OIDC path: a gate that did not run is not a pass.
+        const meta: { listener_failed?: boolean } = {};
         try {
             await this.clients.event?.emitAndWait(
                 'email.validate',
                 validateEvent,
-                {},
+                meta,
             );
         } catch (e) {
             console.warn('[email-validate] hook failed:', e);
+            meta.listener_failed = true;
         }
-        if (!validateEvent.allow) {
+        if (meta.listener_failed || !validateEvent.allow) {
             throw new HttpError(
                 400,
                 validateEvent.message ??

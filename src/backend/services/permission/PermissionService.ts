@@ -153,6 +153,29 @@ export class PermissionService extends PuterService {
         }
     }
 
+    /** A foreign path that resolved must answer like one that didn't. */
+    async #assertReachableFsPath(
+        actor: Actor,
+        asked: string,
+        rewritten: string,
+    ): Promise<void> {
+        const parsed = parseFsPathPermission(asked);
+        if (!parsed || !actor.user?.username) return;
+        if (isOwnHomePath(parsed.path, actor.user.username)) return;
+
+        const parts = PermissionUtil.split(rewritten);
+        const fsIndex = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
+        const uid = parts[fsIndex + 1];
+        if (!uid || uid.startsWith('/')) return;
+
+        if (await this.check(actor, PermissionUtil.join('fs', uid, 'see'))) {
+            return;
+        }
+        throw new HttpError(403, `permission_denied: ${asked}`, {
+            legacyCode: 'permission_denied',
+        });
+    }
+
     async rewritePermission(permission: string): Promise<string> {
         for (const rewriter of this.rewriters) {
             if (!rewriter.matches(permission)) continue;
@@ -1415,8 +1438,10 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         const grantedAs = this.#recordsSource(permission) ? permission : null;
+        const askedFor = permission;
         permission = await this.#rewriteForUserAppWrite(actor, permission);
         this.assertGrantableFsPermission(permission);
+        await this.#assertReachableFsPath(actor, askedFor, permission);
         // Checked after the rewrite, because the rewrite is what decides how
         // wide the row actually is: `fs:/deep/path:read` collapses to
         // `fs:<uuid>:read`. Reject here rather than let an oversized string
