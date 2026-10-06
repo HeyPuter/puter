@@ -638,22 +638,12 @@ export class TeamService extends PuterService {
         // Otherwise they keep working, unreachable through a deleted team.
         let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
         for (;;) {
-            // Bounded: a seat costs a mail send, and a full team is 40 of them.
-            const outcomes = await runWithConcurrencyLimitSettled(
+            disabled += await this.#disableSeatsForDelete(
                 page.items.filter((m) => Number(m.org_owned) === 1),
-                TEARDOWN_CONCURRENCY,
-                (member) =>
-                    this.#disableSeatForDelete(
-                        member,
-                        team,
-                        actorUserId,
-                        billing,
-                    ),
+                team,
+                actorUserId,
+                billing,
             );
-            disabled += outcomes.filter((o) => o.status === 'fulfilled').length;
-            // Settled: a rejection cannot cancel its peers, so finish the page.
-            const failed = outcomes.find((o) => o.status === 'rejected');
-            if (failed) throw failed.reason;
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
                 limit: 200,
@@ -675,41 +665,72 @@ export class TeamService extends PuterService {
         });
     }
 
-    /** As `disableMember`; a suspended seat is skipped so a retry resumes. */
-    async #disableSeatForDelete(
-        member: TeamMemberRow,
+    /**
+     * One page of seats, as `disableMember` does one member. Everything that
+     * answers for the whole page -- who is already off, what they hold, the
+     * audit -- goes out once; what is genuinely per account stays per account.
+     * Returns how many of them end up disabled.
+     */
+    async #disableSeatsForDelete(
+        seats: TeamMemberRow[],
         team: TeamRow,
         actorUserId: number,
         billing: TeamBillingContext,
-    ): Promise<void> {
-        const current = await this.stores.user.getByProperty(
-            'id',
-            member.user_id,
-            { force: true },
+    ): Promise<number> {
+        if (seats.length === 0) return 0;
+
+        // From the primary: a cached `suspended` would re-charge on a retry.
+        const suspended = await this.stores.user.getSuspendedByIds(
+            seats.map((m) => m.user_id),
         );
-        if (current?.suspended) return;
+        const todo = seats.filter((m) => !suspended.get(m.user_id));
+        // Already off, and still accounts the team is losing.
+        if (todo.length === 0) return seats.length;
 
-        await this.stores.team.appendAudit({
-            teamId: team.id,
-            userId: member.user_id,
-            actorUserId,
-            action: 'disable',
-            reason: 'team_deleted',
-        });
-        const held = await this.#heldBytes(member.user_id);
-        await this.#suspend(member.user_id);
+        const ids = todo.map((m) => m.user_id);
+        const held = await this.stores.fsEntry.getHeldBytesForUsers(ids);
+        const rows = await this.stores.user.getByIds(ids);
+        // Recorded first, so a failed append cannot leave an unlogged suspension.
+        await this.stores.team.appendAuditMany(
+            todo.map((m) => ({
+                teamId: team.id,
+                userId: m.user_id,
+                actorUserId,
+                action: 'disable',
+                reason: 'team_deleted',
+            })),
+        );
 
-        // Per seat, not one bulk event: the byte charge is per account.
-        this.#emitBilling('team.account.disabled', {
-            ...billing,
-            user_id: member.user_id,
-            user_uuid: member.uuid,
-            username: member.username,
-            held_bytes: held,
-        });
+        // Bounded: what is left per seat is a write and a mail send.
+        const outcomes = await runWithConcurrencyLimitSettled(
+            todo,
+            TEARDOWN_CONCURRENCY,
+            async (member) => {
+                await this.#suspend(member.user_id);
 
-        // The team notice covers the disabling, so a member is told once.
-        await this.#notifyMember(member.user_id, 'team_closed', team);
+                // Per seat, not one bulk event: the byte charge is per account.
+                this.#emitBilling('team.account.disabled', {
+                    ...billing,
+                    user_id: member.user_id,
+                    user_uuid: member.uuid,
+                    username: member.username,
+                    held_bytes: held.get(member.user_id) ?? 0,
+                });
+
+                // The team notice covers the disabling, so a member is told once.
+                await this.#notifyUser(
+                    rows.get(member.user_id),
+                    'team_closed',
+                    team,
+                );
+            },
+        );
+
+        const done = outcomes.filter((o) => o.status === 'fulfilled').length;
+        // Settled: a rejection cannot cancel its peers, so finish the page.
+        const failed = outcomes.find((o) => o.status === 'rejected');
+        if (failed) throw failed.reason;
+        return seats.length - todo.length + done;
     }
 
     /** Team owner only. Readable after deletion -- that is the point of it. */

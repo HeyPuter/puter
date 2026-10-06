@@ -820,6 +820,38 @@ export class TeamStore extends PuterStore {
         );
     }
 
+    /** The same rows as `appendAudit`, in one statement per chunk. */
+    async appendAuditMany(
+        entries: Array<{
+            teamId: number;
+            userId: number;
+            actorUserId: number;
+            action: string;
+            reason?: string | null;
+        }>,
+    ): Promise<void> {
+        if (entries.length === 0) return;
+        for (let offset = 0; offset < entries.length; offset += 200) {
+            const chunk = entries.slice(offset, offset + 200);
+            const values = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+            const params = chunk.flatMap((e) => [
+                e.teamId,
+                e.teamId,
+                e.userId,
+                e.userId,
+                e.actorUserId,
+                e.action,
+                e.reason ?? null,
+            ]);
+            await this.clients.db.write(
+                'INSERT INTO `audit_team_membership` ' +
+                    '(`group_id`, `group_id_keep`, `user_id`, `user_id_keep`, ' +
+                    `\`actor_user_id\`, \`action\`, \`reason\`) VALUES ${values}`,
+                params,
+            );
+        }
+    }
+
     /** The whole team's audit, newest first, keyset-paginated on `id`. */
     async listAudit(
         teamId: number,
