@@ -940,9 +940,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1399,8 +1397,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1962,10 +1959,12 @@ export class LegacyFSController extends PuterController {
         // claiming a root dir is the app itself asking, and a token is not it.
         const callerApp = isAppActor(actor) ? actor.effectiveApp : null;
         if (callerApp?.uid !== appUid) {
+            // `reason` separates this from a refusal a grant could lift, so a
+            // client does not spend a consent prompt on a grant that cannot work.
             throw new HttpError(
                 403,
                 'Only the app itself may request its root dir',
-                { legacyCode: 'forbidden' },
+                { legacyCode: 'forbidden', fields: { reason: 'app_mismatch' } },
             );
         }
         const userId = this.#getActorUserId(req);
@@ -2001,10 +2000,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
