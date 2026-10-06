@@ -48,26 +48,45 @@ in the folder is public, so write only what the user means to publish.
 
 ## Let the User Pick a Name
 
+The site name becomes the site's address, and users type names with spaces,
+capitals and accents. A name can use lowercase letters, digits and hyphens. It
+cannot start or end with a hyphen, and it can be at most 64 characters long.
+Turn what the user typed into a valid name before you call
+[`puter.hosting.create()`](/Hosting/create/):
+
+```js
+function toSiteName (text) {
+    return text
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')    // é -> e
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .slice(0, 64)
+        .replace(/^-+|-+$/g, '');
+}
+
+toSiteName("Grace's Portfolio!");    // 'grace-s-portfolio'
+toSiteName('Café Menu 2026');        // 'cafe-menu-2026'
+```
+
+Show the result as the user types, so they see the address before they publish.
+
 Site names are shared by every Puter user, so the name the user wants may
-already be taken. In that case [`puter.hosting.create()`](/Hosting/create/)
-rejects with a `conflict` error. Catch it to ask the user for another name, or
-let [`puter.randName()`](/Utils/randName/) pick one nobody has:
+already be taken. Some names, such as `www` and `api`, are reserved. In these
+cases [`puter.hosting.create()`](/Hosting/create/) rejects with a `conflict` or
+`subdomain_reserved` error. Catch it to ask the user for another name, or let
+[`puter.randName()`](/Utils/randName/) pick one nobody has:
 
 ```js
 async function createSite (dir, name) {
     try {
-        return await puter.hosting.create(name, dir);
+        return await puter.hosting.create(toSiteName(name) || puter.randName(), dir);
     } catch (e) {
-        if (e?.code !== 'conflict') throw e;
+        if (e?.code !== 'conflict' && e?.code !== 'subdomain_reserved') throw e;
         return await puter.hosting.create(puter.randName(), dir);
     }
 }
 ```
-
-A name can use lowercase letters, digits and hyphens, and cannot start or end
-with a hyphen. Check these
-rules in your name field before calling
-[`puter.hosting.create()`](/Hosting/create/).
 
 ## Remember Which Site Belongs to Which Project
 

@@ -42,50 +42,89 @@ router.get('/forecast', async ({ request }) => {
 ```
 
 The worker's source file stays private in your Puter account. Calling the
-worker's URL only runs its routes and never returns the file, so the key is not
-visible to callers. Keep it out of anything you publish, though, such as a
-public Git repository or a response the worker sends.
+worker's URL only runs its routes and never returns the file, so callers cannot
+see the key. Keep the key out of anything you publish yourself, such as a public
+Git repository.
 
-## Return a New Response
+## Deploy the Worker
 
-The route above builds a new `Response` from the API's answer instead of
-returning `res` itself. The worker adds a CORS header to every response so your
-app can read it, and the headers of a response from `fetch()` cannot be changed.
-Unless the API already sent a CORS header, returning `res` as it is makes the
-route fail with a `500`.
+Deploy the worker to get its URL, such as `https://forecast-proxy.puter.work`.
+The [Workers deployment guide](/Workers/#deployment) covers each way to deploy.
 
-Copying only the body, the status and the content type also keeps the API's
-other headers, such as cookies or account details, away from the browser.
+## Call It From Your App
 
-## Only Forward What You Expect
+Call the worker's URL with `fetch()`, the same way you would call the API
+directly:
 
-The worker decides which API, which path and which parameters are used. The
-caller only fills in `city`. Never take the full URL, the path or the headers
-from the request, because the worker would then send your key with any request a
-stranger asks for.
+```js
+const API = 'https://forecast-proxy.puter.work';
 
-If the API takes a fixed set of values, check them before the call:
+const res = await fetch(`${API}/forecast?city=${encodeURIComponent('Paris')}`);
+const forecast = await res.json();
+```
+
+Your app's code now has no key in it, and every call to the API goes through
+the worker.
+
+## Check What the Caller Sends
+
+The caller only chooses `city`. The API's address and the key are written in
+the worker, so a caller cannot use your key to call anything else.
+
+To let the caller choose more, such as the units, read the value and check it
+before you add it to the request:
 
 ```js
 const UNITS = ['metric', 'imperial'];
 
-const units = new URL(request.url).searchParams.get('units') ?? 'metric';
-if (!UNITS.includes(units)) {
-    return new Response('units must be metric or imperial', { status: 400 });
-}
-url.searchParams.set('units', units);
+router.get('/forecast', async ({ request }) => {
+    const params = new URL(request.url).searchParams;
+
+    const city = params.get('city');
+    if (!city) {
+        return new Response('city is required', { status: 400 });
+    }
+
+    const units = params.get('units') ?? 'metric';
+    if (!UNITS.includes(units)) {
+        return new Response('units must be metric or imperial', { status: 400 });
+    }
+
+    const url = new URL('https://api.example.com/v1/forecast');
+    url.searchParams.set('city', city);
+    url.searchParams.set('units', units);
+
+    const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+    });
+
+    return new Response(res.body, {
+        status: res.status,
+        headers: { 'Content-Type': res.headers.get('Content-Type') ?? 'text/plain' },
+    });
+});
 ```
 
-## Require Sign-In and Limit Use
+## Limit How Often the Key Is Used
 
 Anyone who knows the worker's URL can call it, and each call spends your key.
-Calling it with [`puter.workers.exec()`](/Workers/exec/) gives the route a
-`user`, so it can turn away callers who are not signed in and count how often
-each user calls.
+You can limit calls per visitor or per signed-in user.
+
+To limit each visitor without asking them to sign in, count calls by IP address.
+[Add a contact form](/recipes/add-contact-form/#limit-how-often-a-visitor-can-send)
+shows a complete worker that does this.
+
+To limit each user, have your users sign in with their Puter account. Call the
+worker with [`puter.workers.exec()`](/Workers/exec/) instead of `fetch()`. If the
+user is not signed in yet, Puter.js opens the Puter sign-in window first. The
+request then carries the user's session, and the route gets a `user` for them.
+The route can answer `401` to callers without a `user`, and count each user's
+calls.
 
 Here is the complete worker with a limit of 100 calls per user per day. The
-count is kept in your own [key-value store](/KV/) with `me.puter`, so users
-cannot reset it:
+count is kept in your own [key-value store](/KV/) with `me.puter`, which is
+Puter.js signed in to your account as the worker's owner, so users cannot reset
+it:
 
 ```js
 const API_KEY = 'sk_live_your_key_here';
@@ -140,25 +179,16 @@ router.get('/forecast', async ({ request, user }) => {
 });
 ```
 
-`getCaller()` looks the user up, because a request with a made-up token still
-gets a `user` and only fails once it is used. Each user gets one counter per day.
-[`puter.kv.incr()`](/KV/incr/) starts a missing counter at 0, and
-[`puter.kv.expire()`](/KV/expire/) removes it two days later so old counters do
-not pile up.
+The `getCaller()` helper looks the user up, because a request with a made-up
+token still gets a `user` and only fails once it is used. Each user gets one
+counter per day. The [`incr()`](/KV/incr/) method starts a missing counter at 0,
+and [`expire()`](/KV/expire/) deletes it two days later, so your store only
+keeps recent counters.
 
-## Deploy the Worker
-
-Deploy the worker to get its URL, such as `https://forecast-proxy.puter.work`.
-The [Workers deployment guide](/Workers/#deployment) covers each way to deploy.
-
-## Call It From Your App
-
-Call the worker with [`puter.workers.exec()`](/Workers/exec/), so the request
-carries the signed-in user:
+In your app, call the worker with [`puter.workers.exec()`](/Workers/exec/) and
+show the message when the limit is reached:
 
 ```js
-const API = 'https://forecast-proxy.puter.work';
-
 const res = await puter.workers.exec(`${API}/forecast?city=${encodeURIComponent('Paris')}`);
 
 if (res.ok) {
@@ -167,6 +197,3 @@ if (res.ok) {
     alert(await res.text());    // 'daily limit reached, try again tomorrow'
 }
 ```
-
-Your app's code now has no key in it, and every call to the API goes through
-the worker.

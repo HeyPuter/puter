@@ -5,13 +5,13 @@ tags: [hosting, fs]
 order: 58
 ---
 
-A one-page site is a single `index.html`. As soon as a site has a few pages, an
-about page, a blog and some images, you need to decide where each file goes and
-how the pages link to each other and to the shared files.
+[Add Website Publishing](/recipes/add-website-publishing/) puts a single
+`index.html` online. Most sites have more than one page, such as an about page
+and a blog, plus some images. Then you need to decide where each file goes and how the pages
+link to each other and to the shared files.
 
-A site on Puter serves a folder as it is, like any static host. This recipe
-covers how its paths map to URLs, how to write links that work from every
-page, and what the site shows for a page that does not exist.
+A site on Puter serves its folder as it is, like any static host, so the folder
+layout decides the URLs.
 
 ## Lay Out the Folder
 
@@ -49,8 +49,8 @@ it.
 
 ## Write the Files
 
-Write each page with [`puter.fs.write()`](/FS/write/). `createMissingParents`
-makes the folders as it goes:
+Write each page with [`puter.fs.write()`](/FS/write/). The
+`createMissingParents` option creates any folder that does not exist yet:
 
 ```js
 const dir = 'my-site';
@@ -100,7 +100,7 @@ is read from the site's root, so it points to the same file from every page.
 
 A link without the `/`, such as `assets/style.css`, is read from the page's
 own address instead, and that address depends on how the visitor got there.
-`/about/` and `/about` both show `about/index.html`, but the browser treats them
+Both `/about/` and `/about` show `about/index.html`, but the browser treats them
 as different folders:
 
 | Page address | `assets/style.css` loads | `/assets/style.css` loads |
@@ -136,38 +136,3 @@ keeps working and shows the default 404 page. See
 
 For a single-page app, such as one built with React Router, point the 404 rule
 at `/index.html` with `"status": 200` instead, so every path loads the app.
-
-## Choose Which Folder Is Published
-
-When your code runs as a Puter app, a path that does not start with `/` or `~`,
-such as `my-site`, points into the app's own folder in the user's account.
-[`puter.fs.write()`](/FS/write/) and
-[`puter.hosting.create()`](/Hosting/create/) read paths the same way, so a site
-created with `'my-site'` serves the folder you just wrote.
-
-To publish a folder somewhere else in the user's account, pass a full path.
-Your app needs write access to a folder outside its own before it can publish
-it, which [`puter.perms.request()`](/Perms/request/) asks the user for. It
-resolves to the folder's full path:
-
-```js
-const documents = await puter.perms.request('folder', { name: 'Documents', access: 'write' });
-
-if (documents) {
-    await puter.hosting.create('grace-portfolio', `${documents}/my-site`);
-}
-```
-
-[`puter.hosting.create()`](/Hosting/create/) also takes an object,
-`{ subdomain, root_dir }`. Its `root_dir` is not read from the app's folder, so
-it must always be a full path:
-
-```js
-await puter.hosting.create({ subdomain: 'grace-portfolio', root_dir: `${documents}/my-site` });
-```
-
-See [Ask for access](/recipes/perms-ask-for-access/) for the other folders an
-app can ask for.
-
-Everything in the published folder is public, including files you add later,
-so do not publish a folder that holds anything private.

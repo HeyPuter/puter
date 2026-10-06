@@ -1,18 +1,19 @@
 ---
-title: Return Clear Errors from a Worker
-description: "Learn how to check the input to a Puter.js serverless worker and answer with the right status code, so your app knows what went wrong."
+title: Handle Errors in a Worker
+description: "Learn how to handle errors in a Puter.js serverless worker, so your app can show users what went wrong."
 tags: [workers]
 order: 41
 ---
 
-When something goes wrong in a [serverless worker](/Workers/), the caller should
-learn what happened from the response: a `400` when the input is bad, a `401`
-when nobody is signed in, a `404` when the thing they asked for is not there.
-Your app can then show a useful message instead of a generic failure.
+Some requests to your [serverless worker](/Workers/) will fail. A user sends an
+empty form, their session has expired, or a service the worker calls is down.
+Your app needs to know which of these happened, so it can show the user the
+right message.
 
-A worker only does part of this on its own. This recipe covers what the
-[`router`](/Workers/router/) does when a handler fails, and how to answer with
-your own errors instead.
+A worker tells the caller what went wrong with the HTTP status code and the
+response body. It answers `400` for bad input, `401` when the user is not signed
+in, and `404` when the thing they asked for does not exist. The sections below
+show how to return these errors from a worker, and how to read them in your app.
 
 ## What Happens When a Handler Throws
 
@@ -24,8 +25,8 @@ That has two problems. The caller cannot tell a bad request apart from a bug in
 your code, because both are `500`. And the error text can show details of your
 code, or of a service the worker calls, to anyone calling the URL.
 
-The most common cause is reading the body. `request.json()` throws when the body
-is empty or is not valid JSON:
+The most common cause is reading the body. The `request.json()` method throws
+when the body is empty or is not valid JSON:
 
 ```js
 router.post('/notes', async ({ request }) => {
@@ -34,7 +35,7 @@ router.post('/notes', async ({ request }) => {
 });
 ```
 
-## Answer With Your Own Errors
+## Return Your Own Errors
 
 Give every error the same shape, so your app only has to read it one way. A
 small helper builds the response:
@@ -82,11 +83,12 @@ Check the type as well as the value. A body like `{ "text": 42 }` or
 
 ## Check the User's Session
 
-`user` is set whenever the request has a `puter-auth` header, and the header is
-not checked until you use it. A request with a wrong or expired token still gets
-a `user`, and the first call made with it rejects.
+When your app calls the worker with [`puter.workers.exec()`](/Workers/exec/),
+the request carries the user's Puter session, and the route gets a `user`. The
+route gets a `user` even when the session is wrong or expired, because the
+session is not checked until you use it. The first call made with it rejects.
 
-To answer `401` for that case, look up the user in a `try` block:
+To answer `401` in that case too, look up the user in a `try` block:
 
 ```js
 async function getCaller(user) {
@@ -108,10 +110,11 @@ router.get('/me', async ({ user }) => {
 });
 ```
 
-## Catch What You Did Not Expect
+## Catch Errors From Other Services
 
-A call to another service can still fail in ways you cannot check up front. Wrap
-that part and send the caller a short message instead of the raw error:
+A call to another service can fail in ways you cannot check up front. Wrap that
+call in a `try` block and send the caller a short message instead of the raw
+error:
 
 ```js
 router.post('/summary', async ({ request, user }) => {
@@ -139,15 +142,15 @@ router.post('/summary', async ({ request, user }) => {
 });
 ```
 
-`502` tells the caller the worker itself is fine but something it depends on is
+A `502` tells the caller that the worker is fine but a service it depends on is
 not, so trying again later may work.
 
-## Answer Paths You Do Not Serve
+## Return JSON for Unknown Paths
 
-A request to a path no route matches gets a `404` with a plain-text body, and so
-does a request with a method you registered no route for. To keep the JSON shape
-for these too, add a wildcard route for each method you use, at the end of the
-file after every other route:
+A request to a path that no route matches gets a `404` with a plain-text body,
+and so does a request with a method that has no route. To return the same JSON
+shape for these too, add a wildcard route for each method you use, at the end of
+the file after every other route:
 
 ```js
 router.get('/*path', async () => error(404, 'not found'));
@@ -159,8 +162,9 @@ would answer every request.
 
 ## Read the Error in Your App
 
-[`puter.workers.exec()`](/Workers/exec/) works like `fetch()`: it resolves for
-every status code, so a `400` is not thrown. Check `res.ok` and read the message:
+The [`puter.workers.exec()`](/Workers/exec/) method works like `fetch()`. It
+resolves for every status code, so a `400` is not thrown. Check `res.ok` and
+read the message:
 
 ```js
 const res = await puter.workers.exec('https://notes-api.puter.work/notes', {
