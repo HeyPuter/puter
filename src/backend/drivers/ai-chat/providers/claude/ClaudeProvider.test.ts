@@ -342,6 +342,22 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(messagesCreateMock).not.toHaveBeenCalled();
     });
 
+    it('never forwards mcp_servers — sdkParams is an explicit field list', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                mcp_servers: [{ type: 'url', url: 'https://evil.example' }],
+            } as never),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect('mcp_servers' in args).toBe(false);
+    });
+
     it('leaves tool_use arguments that merely look like a file block alone', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -642,6 +658,36 @@ describe('ClaudeProvider.complete request shape', () => {
 
         const [args] = messagesCreateMock.mock.calls[0]!;
         expect(args.tool_choice).toEqual({ type: 'none' });
+    });
+
+    it('normalizes a raw wire-form tool_choice instead of spreading it verbatim', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+                // A bare 'auto' string, as a raw `/drivers/call` caller on
+                // the old OpenAI wire form would still send.
+                tool_choice: 'auto' as never,
+                parallel_tool_calls: false,
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        // Spreading the raw string would have produced character-indexed
+        // keys ({0:'a', 1:'u', ...}) instead of a real tool_choice object.
+        expect(args.tool_choice).toEqual({
+            type: 'auto',
+            disable_parallel_tool_use: true,
+        });
     });
 
     it('forwards max_tokens 0 instead of substituting the model default', async () => {
@@ -1322,6 +1368,28 @@ describe('ClaudeProvider.complete non-stream output', () => {
         expect(overrides.cache_read_input_tokens).toBe(
             10 * Number(haiku.costs.cache_read_input_tokens),
         );
+    });
+
+    it('reports finish_reason "stop" on the wire even for a tool_use stop, with the real reason in stopReason', async () => {
+        const { provider } = makeProvider();
+        const msg = {
+            content: [
+                { type: 'tool_use', id: 'tu_1', name: 'lookup', input: {} },
+            ],
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 10, output_tokens: 5 },
+        };
+        messagesCreateMock.mockResolvedValueOnce(msg);
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { finish_reason: string; stopReason: string };
+
+        expect(result.finish_reason).toBe('stop');
+        expect(result.stopReason).toBe('tool_use');
     });
 
     it('meters fable 5.1 cache reads at its reduced rate, not the 0.1x used elsewhere', async () => {

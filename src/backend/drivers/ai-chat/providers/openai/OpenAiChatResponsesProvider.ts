@@ -33,6 +33,7 @@ import { toOpenAiContextManagement } from '../../utils/compaction.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
+    clampReasoningEffort,
     openAICompatParams,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
@@ -42,7 +43,6 @@ import { OPEN_AI_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
-import { AI_WEB_SEARCH_MAX_USES } from '../../../util/aiLimits.js';
 
 const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
     type === 'web_search_20250305' ||
@@ -134,17 +134,17 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     }
 
     /**
-     * Sizes the credit hold for a web-search tool: assumes up to
-     * `AI_WEB_SEARCH_MAX_USES.default` calls at whichever rate the tool variant
-     * and model imply.
+     * Sizes the credit hold for a web-search tool: one call's worth, at
+     * whichever rate the tool variant and model imply. OpenAI doesn't bound how
+     * many searches a single request can run — every call is metered at
+     * settlement, so the hold only needs to cover the model actually trying.
      */
     requestPricing(
         args: ICompleteArguments,
         model: IChatModel,
     ): { inputKey?: string; outputKey?: string; extraCost?: number } {
         const rate = webSearchCallRate(args.tools, model.id);
-        if (!rate) return {};
-        return { extraCost: AI_WEB_SEARCH_MAX_USES.default * rate };
+        return rate ? { extraCost: rate } : {};
     }
 
     async complete({
@@ -247,11 +247,19 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        // gpt-5/gpt-6 are the reasoning-capable families in this catalog;
-        // every other model 400s on an unsupported `reasoning`/`verbosity`.
-        const supportsReasoningControls = /^gpt-(5|6)([.-]|$)/.test(
+        const clampedEffort = clampReasoningEffort(
             modelUsed.id,
+            requestedReasoningEffort,
         );
+        // gpt-5/gpt-6 are the reasoning-capable families in this catalog;
+        // every other model 400s on an unsupported `verbosity` (the effort
+        // param is handled by the clamp above).
+        const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
+        const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
+        // A clamped effort above 'none' puts the model in reasoning mode,
+        // where temperature/top_p steer a sampler that isn't in play.
+        const dropsSamplingParams =
+            clampedEffort !== undefined && clampedEffort !== 'none';
 
         // Translate the neutral compaction opt-in (or pass a raw
         // `context_management` payload through) to OpenAI's Responses shape.
@@ -266,7 +274,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                 tool_choice,
                 parallel_tool_calls,
                 outputFormat,
-                top_p,
+                ...(dropsSamplingParams ? {} : { top_p }),
             } as ICompleteArguments,
             'responses',
         );
@@ -278,16 +286,18 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         const mergedText = {
             ...(text ?? {}),
             ...((mapped.text as Record<string, unknown>) ?? {}),
-            ...(supportsReasoningControls && requestedVerbosity !== undefined
+            ...(supportsReasoningFamily &&
+            !isCodexModel &&
+            requestedVerbosity !== undefined
                 ? { verbosity: requestedVerbosity }
                 : {}),
         };
+        // The raw `reasoning` object's own `effort` is never trusted
+        // verbatim — only the clamped value below is.
+        const { effort: _rawEffort, ...reasoningRest } = reasoning ?? {};
         const mergedReasoning = {
-            ...(supportsReasoningControls && reasoning ? reasoning : {}),
-            ...(supportsReasoningControls &&
-            requestedReasoningEffort !== undefined
-                ? { effort: requestedReasoningEffort }
-                : {}),
+            ...(supportsReasoningFamily ? reasoningRest : {}),
+            ...(clampedEffort !== undefined ? { effort: clampedEffort } : {}),
         };
 
         const completionParams: ResponseCreateParams = {
@@ -310,7 +320,9 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             ...(max_tokens !== undefined
                 ? { max_output_tokens: max_tokens }
                 : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...(temperature !== undefined && !dropsSamplingParams
+                ? { temperature }
+                : {}),
             ...(truncation !== undefined ? { truncation } : {}),
             ...(service_tier !== undefined ? { service_tier } : {}),
             ...(stream !== undefined ? { stream: !!stream } : {}),
@@ -324,7 +336,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         const completion =
             await this.#openAi.responses.create(completionParams);
         return OpenAiUtil.handle_completion_output_responses_api({
-            usage_calculator: ({ usage, webSearchCalls }) => {
+            usage_calculator: ({ usage, webSearchCalls, setUsageCosts }) => {
                 const cachedTokens =
                     (usage as any).input_tokens_details?.cached_tokens ?? 0;
                 // GPT-5.6 and later bill cache writes at 1.25x input. They're
@@ -360,6 +372,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                     const rate = webSearchCallRate(tools, modelUsed.id) ?? 0;
                     costsOverrideFromModel.web_search_calls =
                         webSearchCalls * rate;
+                    setUsageCosts?.({
+                        web_search_calls:
+                            costsOverrideFromModel.web_search_calls,
+                    });
                 }
 
                 this.#meteringService.utilRecordUsageObject(

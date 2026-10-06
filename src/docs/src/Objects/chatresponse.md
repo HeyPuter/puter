@@ -44,7 +44,7 @@ Anthropic models are the main source of both cases. Their stop reasons map as fo
 
 Because unmapped values pass through, treat `finish_reason` as an open set: branch on the four OpenAI values you care about and handle anything else as vendor-specific rather than assuming it means `stop`.
 
-`finish_reason` is now the real mapped value for a native (non-normalized) Claude result too — it used to be hardcoded to `"stop"`.
+A native (non-normalized) Claude result always reports `finish_reason: "stop"` on the wire — read `stopReason` below for the real Anthropic value.
 
 #### `normalized` (Boolean)
 
@@ -66,7 +66,7 @@ Extra detail on why generation stopped (e.g. a refusal classification). Provider
 
 A provider-neutral usage breakdown, present alongside `usage` on every result. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens. Fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWrite5mTokens`, `cacheWrite1hTokens`, `reasoningTokens`, `webSearchRequests`, `webFetchRequests`, `speed` (`"fast"` or `"standard"`), `serviceTier`, and `iterations` (a per-pass breakdown when the upstream ran several passes, e.g. compaction or an advisor sub-call).
 
-Prefer `usageDetails` over `usage` for anything beyond the raw billing totals — in particular, Claude's `usage` no longer carries a `thinking_tokens` key (it was double-counted on top of `output_tokens`, which already includes it); the informational count is `usageDetails.reasoningTokens` instead.
+Prefer `usageDetails` over `usage` for anything beyond the raw billing totals. Claude's `usage.thinking_tokens` is informational: it's included in `output_tokens` and not billed separately — `usageDetails.reasoningTokens` carries the same count.
 
 #### `usage` (Object)
 

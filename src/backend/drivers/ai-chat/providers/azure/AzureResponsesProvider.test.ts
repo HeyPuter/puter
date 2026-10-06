@@ -407,7 +407,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         ['previous_response_id', 'resp_1'],
         ['conversation', 'conv_1'],
         ['prompt', { id: 'pmpt_1' }],
-        ['background', false],
+        ['background', true],
     ])('rejects %s (OpenAI-held state) without calling upstream', async (field, value) => {
         const provider = makeProvider();
         await expect(
@@ -420,6 +420,20 @@ describe('AzureResponsesProvider.complete request shape', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(responsesCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('accepts background:false — a synchronous response, same as omitting it', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(okResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'hi' }],
+                background: false,
+            } as never),
+        );
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect('background' in args).toBe(false);
     });
 
     it('omits tool_choice/parallel_tool_calls when no tool is sent', async () => {
@@ -480,7 +494,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         responsesCreateMock.mockResolvedValueOnce(okResponse);
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5.3-codex',
+                model: 'gpt-5.4',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning: { effort: 'high' },
                 verbosity: 'high',
@@ -506,6 +520,40 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect('verbosity' in grokArgs).toBe(false);
         expect('reasoning' in grokArgs).toBe(false);
         expect('text' in grokArgs).toBe(false);
+    });
+
+    it('keeps the reasoning effort but drops verbosity for a -codex model', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(okResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning: { effort: 'high' },
+                verbosity: 'high',
+            } as never),
+        );
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect(args.reasoning).toEqual({ effort: 'high' });
+        expect('text' in args).toBe(false);
+    });
+
+    it('omits temperature/top_p once a reasoning effort above none is clamped in', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(okResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.4',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+                temperature: 0.5,
+                top_p: 0.9,
+            } as never),
+        );
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect('temperature' in args).toBe(false);
+        expect('top_p' in args).toBe(false);
+        expect(args.reasoning).toEqual({ effort: 'high' });
     });
 });
 
@@ -580,7 +628,7 @@ describe('AzureResponsesProvider usage accounting', () => {
         });
     });
 
-    it('requestPricing sizes a web_search hold and meters web_search_call items', async () => {
+    it('requestPricing sizes a one-call web_search hold at the flat Azure rate, and meters web_search_call items at it', async () => {
         const provider = makeProvider();
         const model = AZURE_MODELS.find((m) => m.id === 'gpt-5.3-codex')!;
         expect(
@@ -593,7 +641,7 @@ describe('AzureResponsesProvider usage accounting', () => {
                 model,
                 { promptTokenEstimate: 0 },
             ).extraCost,
-        ).toBe(10 * 1_000_000);
+        ).toBe(1_400_000);
 
         responsesCreateMock.mockResolvedValueOnce({
             output: [
@@ -612,7 +660,30 @@ describe('AzureResponsesProvider usage accounting', () => {
         );
         const [usage, , , overrides] = recordSpy.mock.calls[0]!;
         expect(usage.web_search_calls).toBe(1);
-        expect(overrides.web_search_calls).toBe(1_000_000);
+        expect(overrides.web_search_calls).toBe(1_400_000);
+    });
+
+    it('bills num_requests from tool_usage over a counted web_search_call item', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [
+                { type: 'web_search_call', id: 'ws_1' },
+                { role: 'assistant' },
+            ],
+            tool_usage: { web_search: { num_requests: 3 } },
+            output_text: 'found it',
+            usage: { input_tokens: 10, output_tokens: 5 },
+        });
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'search' }],
+                tools: [{ type: 'web_search' }],
+            }),
+        );
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.web_search_calls).toBe(3);
+        expect(overrides.web_search_calls).toBe(3 * 1_400_000);
     });
 });
 

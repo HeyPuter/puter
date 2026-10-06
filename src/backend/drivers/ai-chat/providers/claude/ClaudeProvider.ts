@@ -41,8 +41,8 @@ import {
     parseDataUri,
     unsupportedMediaTextPart,
 } from '../../utils/mediaParts.js';
+import { isToolChoice, toolChoiceFromWire } from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
-import { toFinishReason } from '../../utils/stopReason.js';
 import type {
     AIChatStream,
     AIChatTextStream,
@@ -61,7 +61,6 @@ import {
     hasExtendedCacheTtl,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
-    rejectMcpServers,
     rejectOrgScopedBlocks,
     resolveAdvisorModel,
     sanitizeCacheControl,
@@ -469,7 +468,9 @@ export class ClaudeProvider implements IChatProvider {
             return {
                 message: msg,
                 usage: { ...usage.executor, ...(usage.advisor ?? {}) },
-                finish_reason: toFinishReason(nativeMsg.stop_reason) ?? 'stop',
+                // Native Claude results report `stop` on the wire, like main —
+                // read `stopReason` below for the real Anthropic value.
+                finish_reason: 'stop',
                 stopReason: nativeMsg.stop_reason ?? undefined,
                 stopSequence: nativeMsg.stop_sequence ?? null,
                 ...(nativeMsg.stop_details
@@ -539,7 +540,8 @@ export class ClaudeProvider implements IChatProvider {
         args: ICompleteArguments,
         opts: { forCountTokens?: boolean } = {},
     ) {
-        rejectMcpServers(args as unknown as Record<string, unknown>);
+        // `mcp_servers` is never forwarded: `sdkParams` below is an explicit
+        // field list, so an `args.mcp_servers` a caller set is just dropped.
         rejectOrgScopedBlocks(args.messages);
         validateContextManagementEdits(args.context_management);
 
@@ -1131,7 +1133,16 @@ export class ClaudeProvider implements IChatProvider {
 
     #buildToolChoice(tools: unknown[] | undefined, args: ICompleteArguments) {
         if (!tools || tools.length === 0) return undefined;
-        const tc = args.tool_choice ?? { type: 'auto' as const };
+        // A raw `/drivers/call` caller can still hand this a wire-form
+        // tool_choice (a bare 'auto' string, say) rather than the normalized
+        // shape — spreading that below would be malformed.
+        const rawChoice = args.tool_choice;
+        const tc =
+            (isToolChoice(rawChoice)
+                ? rawChoice
+                : rawChoice !== undefined
+                  ? toolChoiceFromWire(rawChoice, 'chat')
+                  : undefined) ?? ({ type: 'auto' } as const);
         const disable =
             args.parallel_tool_calls === undefined
                 ? true

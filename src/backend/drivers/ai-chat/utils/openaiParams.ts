@@ -26,7 +26,12 @@
  */
 
 import { HttpError } from '../../../core/http/HttpError.js';
-import type { ICompleteArguments, OutputFormat, ToolChoice } from '../types.js';
+import type {
+    ICompleteArguments,
+    OutputFormat,
+    ReasoningEffort,
+    ToolChoice,
+} from '../types.js';
 
 export type OpenAIDialect = 'chat' | 'responses' | 'openrouter';
 
@@ -52,6 +57,18 @@ export const toolChoiceToWire = (
             return undefined;
     }
 };
+
+const TOOL_CHOICE_TYPES = new Set(['auto', 'any', 'none', 'tool']);
+
+/**
+ * Whether a value is already a normalized `ToolChoice` rather than a raw wire
+ * form (`'auto'`, `{type:'function', function:{name}}`, …) a direct
+ * `/drivers/call` caller might still send.
+ */
+export const isToolChoice = (value: unknown): value is ToolChoice =>
+    !!value &&
+    typeof value === 'object' &&
+    TOOL_CHOICE_TYPES.has((value as { type?: unknown }).type as string);
 
 /** The wire `tool_choice` a request carried → normalized `ToolChoice`. */
 export const toolChoiceFromWire = (
@@ -133,6 +150,86 @@ export const outputFormatFromResponsesText = (
     };
 };
 
+// -- gpt-5/6 reasoning_effort clamp ------------------------------------------
+
+/** `none < minimal < low < medium < high < xhigh < max`. */
+const REASONING_LADDER: readonly ReasoningEffort[] = [
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+];
+
+/** First matching row wins; sourced from the OpenAI model pages. */
+const REASONING_EFFORT_TABLE: {
+    pattern: RegExp;
+    allowed: readonly ReasoningEffort[];
+}[] = [
+    {
+        pattern: /^gpt-6-astra|^gpt-6\.1-sol/,
+        allowed: ['low', 'medium', 'high', 'xhigh', 'max'],
+    },
+    {
+        pattern: /^gpt-(6|5\.6)[.-]/,
+        allowed: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+    },
+    {
+        pattern: /^gpt-5(\.\d+)?-pro/,
+        allowed: ['medium', 'high', 'xhigh'],
+    },
+    {
+        pattern: /^gpt-5(\.\d+)?-codex/,
+        allowed: ['low', 'medium', 'high', 'xhigh'],
+    },
+    {
+        pattern: /^gpt-5\.1([.-]|$)/,
+        allowed: ['none', 'low', 'medium', 'high'],
+    },
+    {
+        pattern: /^gpt-5\.\d/,
+        allowed: ['none', 'low', 'medium', 'high', 'xhigh'],
+    },
+    {
+        pattern: /^gpt-5([.-]|$)/,
+        allowed: ['minimal', 'low', 'medium', 'high'],
+    },
+];
+
+/**
+ * Clamps a requested `reasoning_effort` to the nearest value `modelId` actually
+ * accepts, on the ladder above — ties round down. An effort string outside the
+ * ladder, or a model matching none of the rows (no reasoning controls at all),
+ * drops the param instead of guessing at a value the upstream might 400 on.
+ */
+export const clampReasoningEffort = (
+    modelId: string,
+    effort: string | undefined,
+): ReasoningEffort | undefined => {
+    const targetIndex = REASONING_LADDER.indexOf(effort as ReasoningEffort);
+    if (targetIndex === -1) return undefined;
+    const row = REASONING_EFFORT_TABLE.find(({ pattern }) =>
+        pattern.test(modelId),
+    );
+    if (!row) return undefined;
+
+    let best: ReasoningEffort | undefined;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    let bestIndex = Number.POSITIVE_INFINITY;
+    for (const candidate of row.allowed) {
+        const index = REASONING_LADDER.indexOf(candidate);
+        const diff = Math.abs(index - targetIndex);
+        if (diff < bestDiff || (diff === bestDiff && index < bestIndex)) {
+            best = candidate;
+            bestDiff = diff;
+            bestIndex = index;
+        }
+    }
+    return best;
+};
+
 // -- the combined per-dialect mapper -----------------------------------------
 
 /**
@@ -146,15 +243,25 @@ export const outputFormatFromResponsesText = (
  * `args.tools` must be the tool list actually being sent: `tool_choice` and
  * `parallel_tool_calls` are only emitted alongside tools, since Chat
  * Completions rejects either one in a request without them.
+ *
+ * `opts.toolChoiceAutoOnly` drops a non-`auto` `tool_choice` instead of
+ * forwarding it, for providers that 400 on anything else. `opts.only` keeps
+ * just the named keys — for a provider that only wants this mapper for one or
+ * two fields and builds the rest of its request itself.
  */
 export const openAICompatParams = (
     args: ICompleteArguments,
     dialect: OpenAIDialect,
+    opts: { only?: string[]; toolChoiceAutoOnly?: boolean } = {},
 ): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
 
     const hasTools = Array.isArray(args.tools) && args.tools.length > 0;
-    if (hasTools && args.tool_choice !== undefined) {
+    if (
+        hasTools &&
+        args.tool_choice !== undefined &&
+        (!opts.toolChoiceAutoOnly || args.tool_choice.type === 'auto')
+    ) {
         const wire = toolChoiceToWire(args.tool_choice, dialect);
         if (wire !== undefined) out.tool_choice = wire;
     }
@@ -189,6 +296,12 @@ export const openAICompatParams = (
         }
     }
 
+    if (opts.only) {
+        for (const key of Object.keys(out)) {
+            if (!opts.only.includes(key)) delete out[key];
+        }
+    }
+
     return out;
 };
 
@@ -205,12 +318,18 @@ const STATEFUL_RESPONSES_FIELDS = [
  * Rejects the Responses fields that point at OpenAI-held, org-scoped state
  * (stored responses, conversations, dashboard prompts, background runs).
  * Enforced in the providers too, since `/drivers/call` reaches them directly.
+ *
+ * `background` is the one field accepted at its default: `background: false`
+ * just asks for a synchronous response, same as omitting it, so only a truthy
+ * value is rejected. The others reject on anything but absent/`null`.
  */
 export const rejectStatefulResponsesFields = (
     args: Record<string, unknown>,
 ): void => {
-    const field = STATEFUL_RESPONSES_FIELDS.find(
-        (key) => args[key] !== undefined && args[key] !== null,
+    const field = STATEFUL_RESPONSES_FIELDS.find((key) =>
+        key === 'background'
+            ? !!args[key]
+            : args[key] !== undefined && args[key] !== null,
     );
     if (field) {
         throw new HttpError(400, `\`${field}\` is not supported`, {

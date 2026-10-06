@@ -46,21 +46,48 @@ export const anthropicRequestId = (): string =>
     `req_${(Context.get('requestId') ?? '').replaceAll('-', '')}`;
 
 /**
+ * An exhausted outage chain (`classifyAttempts`) reaches every renderer as a
+ * 400, like main — `upstreamStatus` is where the real status rides.
+ */
+const OUTAGE_LEGACY_CODES = new Set([
+    'upstream_provider_unavailable',
+    'upstream_failed',
+]);
+
+/**
  * `classifyAttempts`/`requestLevelError` (ChatCompletionDriver.ts) wrap an
  * upstream 4xx in our own 400 `upstream_bad_request` so the caller sees a
  * stable shape; unwrap it back to the upstream's own status when we have one,
  * so e.g. an upstream 413 still reads as 413. 422 is excluded: it isn't one of
  * the status codes either vendor's client expects back.
+ *
+ * `outageAs5xx` additionally restores an outage chain to the status Claude
+ * Code's own gateway expects — 529 when the chain was all-overloaded, 502
+ * otherwise. Only the Anthropic route opts in; every other caller keeps main's
+ * flat 400.
  */
-const effectiveStatus = (http: HttpError): number => {
+const effectiveStatus = (
+    http: HttpError,
+    opts: { outageAs5xx?: boolean } = {},
+): number => {
     const upstream = Number(http.fields?.upstreamStatus);
-    return http.legacyCode === 'upstream_bad_request' &&
+    if (
+        http.legacyCode === 'upstream_bad_request' &&
         Number.isFinite(upstream) &&
         upstream >= 400 &&
         upstream < 500 &&
         upstream !== 422
-        ? upstream
-        : http.statusCode;
+    ) {
+        return upstream;
+    }
+    if (
+        opts.outageAs5xx &&
+        typeof http.legacyCode === 'string' &&
+        OUTAGE_LEGACY_CODES.has(http.legacyCode)
+    ) {
+        return upstream === 529 ? 529 : 502;
+    }
+    return http.statusCode;
 };
 
 const retryAfterFor = (
@@ -101,7 +128,7 @@ const ANTHROPIC_KNOWN_TYPES = new Set(Object.values(ANTHROPIC_TYPES));
  */
 export const renderAnthropicError: ErrorRenderer = (err, _req: Request) => {
     const http = toHttpError(err);
-    const status = effectiveStatus(http);
+    const status = effectiveStatus(http, { outageAs5xx: true });
     const type =
         (http.code && ANTHROPIC_KNOWN_TYPES.has(http.code)
             ? http.code

@@ -421,6 +421,22 @@ describe('AnthropicSseWriter', () => {
         );
     });
 
+    it('promotes an explicit stopReason of end_turn to tool_use when a tool_use was seen', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use', id: 't1', name: 'a', input: {} });
+        writer.onChunk({
+            type: 'usage',
+            stopReason: 'end_turn',
+            usageDetails: {},
+        });
+        const delta = events(written).find((e) => e.event === 'message_delta')!;
+        expect(
+            (delta.data as { delta: { stop_reason: string } }).delta
+                .stop_reason,
+        ).toBe('tool_use');
+    });
+
     it('an in-band error chunk writes event: error with no message_delta/message_stop, then ends', () => {
         const { res, written, ended } = makeRes();
         const sse = startSse(res);

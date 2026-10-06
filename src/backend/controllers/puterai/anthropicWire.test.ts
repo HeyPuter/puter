@@ -214,6 +214,47 @@ describe('validateMessages', () => {
         );
     });
 
+    it('allows an OpenAI Responses input_image block — rewritten downstream', () => {
+        const message = {
+            role: 'user',
+            content: [
+                { type: 'input_image', image_url: 'https://x/img.png' },
+            ],
+        };
+        expect(validateMessages([message])).toEqual([message]);
+    });
+
+    it('allows a video_url block, typed or untyped — rewritten downstream', () => {
+        const typed = {
+            role: 'user',
+            content: [
+                { type: 'video_url', video_url: { url: 'https://x/v.mp4' } },
+            ],
+        };
+        const untyped = {
+            role: 'user',
+            content: [{ video_url: 'https://x/v.mp4' }],
+        };
+        expect(validateMessages([typed])).toEqual([typed]);
+        expect(validateMessages([untyped])).toEqual([untyped]);
+    });
+
+    it('allows an untyped image_url block — OpenAI Chat\'s untyped shape', () => {
+        const message = {
+            role: 'user',
+            content: [{ image_url: 'https://x/img.png' }],
+        };
+        expect(validateMessages([message])).toEqual([message]);
+    });
+
+    it('still rejects a block with no type and no recognized media shape', () => {
+        expect(() =>
+            validateMessages([
+                { role: 'user', content: [{ bogus: true }] },
+            ]),
+        ).toThrowError('messages.0.content.0: unsupported block type');
+    });
+
     it('allows an internal puter_path part with no type', () => {
         const message = {
             role: 'user',
@@ -247,13 +288,12 @@ describe('parseAnthropicRequest', () => {
         );
     });
 
-    it('rejects `mcp_servers`', () => {
-        expect(() =>
-            parseAnthropicRequest(
-                { messages: [], mcp_servers: [{ type: 'url', url: 'x' }] },
-                headers,
-            ),
-        ).toThrowError('mcp_servers: not supported');
+    it('parses successfully with mcp_servers present, and drops it from the result', () => {
+        const result = parseAnthropicRequest(
+            { messages: [], mcp_servers: [{ type: 'url', url: 'x' }] },
+            headers,
+        );
+        expect('mcp_servers' in result).toBe(false);
     });
 
     it('rejects a body.thread with the exact Unexpected-value(s) message', () => {

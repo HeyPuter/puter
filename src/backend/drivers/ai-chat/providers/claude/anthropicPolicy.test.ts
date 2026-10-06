@@ -33,7 +33,6 @@ import {
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     priciestModel,
-    rejectMcpServers,
     rejectOrgScopedBlocks,
     resolveAdvisorModel,
     sanitizeCacheControl,
@@ -205,22 +204,6 @@ describe('resolveAdvisorModel / priciestModel', () => {
 
     it('priciestModel picks the highest output_tokens rate', () => {
         expect(priciestModel(models).id).toBe('claude-opus-5-5');
-    });
-});
-
-// -- mcp_servers ------------------------------------------------------------
-
-describe('rejectMcpServers', () => {
-    it('throws 400 when mcp_servers is a non-empty array', () => {
-        expect(() => rejectMcpServers({ mcp_servers: [{ url: 'x' }] })).toThrowError(
-            expect.objectContaining({ statusCode: 400, legacyCode: 'bad_request' }),
-        );
-    });
-
-    it('allows an absent or empty mcp_servers', () => {
-        expect(() => rejectMcpServers({})).not.toThrow();
-        expect(() => rejectMcpServers({ mcp_servers: [] })).not.toThrow();
-        expect(() => rejectMcpServers({ mcp_servers: undefined })).not.toThrow();
     });
 });
 

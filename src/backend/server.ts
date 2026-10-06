@@ -827,9 +827,6 @@ export class PuterServer {
                         ['upstream_auth_failed', 'warning'],
                         // A vendor account is dry — everything through it fails until someone tops up.
                         ['upstream_credits_exhausted', 'warning'],
-                        // Every route for a requested model 404'd — worth a
-                        // quiet signal even though it's exposed as a 4xx.
-                        ['upstream_model_unavailable', 'info'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);

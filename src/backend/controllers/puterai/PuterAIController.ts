@@ -42,6 +42,10 @@ import {
     rejectStatefulResponsesFields,
     toolChoiceFromWire,
 } from '../../drivers/ai-chat/utils/openaiParams.js';
+import {
+    promoteStopForToolCalls,
+    toFinishReason,
+} from '../../drivers/ai-chat/utils/stopReason.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterController } from '../types.js';
@@ -553,8 +557,11 @@ export class PuterAIController extends PuterController {
                         if (errored) return;
                         sendChunk(
                             {},
-                            finishReason ??
-                                (sawToolCalls ? 'tool_calls' : 'stop'),
+                            promoteStopForToolCalls(
+                                finishReason ?? 'stop',
+                                sawToolCalls,
+                                'tool_calls',
+                            ),
                             usageDetails
                                 ? { usage: openaiUsage(usageDetails) }
                                 : {},
@@ -605,9 +612,7 @@ export class PuterAIController extends PuterController {
                         ...(toolCalls ? { tool_calls: toolCalls } : {}),
                     },
                     logprobs: null,
-                    finish_reason:
-                        (messageResult.finish_reason as string | undefined) ??
-                        'stop',
+                    finish_reason: wireFinishReason(messageResult),
                 },
             ],
             usage: openaiUsage(
@@ -751,9 +756,7 @@ export class PuterAIController extends PuterController {
                     ),
                     index: 0,
                     logprobs: null,
-                    finish_reason:
-                        (messageResult.finish_reason as string | undefined) ??
-                        'stop',
+                    finish_reason: wireFinishReason(messageResult),
                 },
             ],
             usage: openaiUsage(
@@ -1204,6 +1207,10 @@ export class PuterAIController extends PuterController {
         res.setHeader('request-id', requestId);
 
         const messageId = `msg_${randomId()}`;
+        // The Anthropic route needs the vendor's own 4xx, not a fallback
+        // provider's translation of it — unlike puter.js / OpenAI-compat
+        // callers, which keep falling back on a request-level failure.
+        Context.set('strictUpstreamErrors', true);
         const result = await this.#complete(res, args);
         const effectiveModel = args.model || '';
 
@@ -1378,6 +1385,23 @@ const finiteMaxTokens = (v: unknown): { max_tokens: number } | undefined => {
     if (v === undefined) return undefined;
     const n = Number(v);
     return Number.isFinite(n) ? { max_tokens: n } : undefined;
+};
+
+/**
+ * A non-stream completion's OpenAI-wire `finish_reason`. Claude's native
+ * `message.stop_reason` reports the real reason (`finish_reason` itself is
+ * always `stop` on the wire, like main); other providers already set
+ * `finish_reason` to the right value, so this falls through to it.
+ */
+const wireFinishReason = (
+    r: Extract<IChatCompleteResult, { message?: unknown }>,
+): string => {
+    const s = (r.message as Record<string, unknown> | undefined)?.stop_reason;
+    return (
+        toFinishReason(typeof s === 'string' ? s : undefined) ??
+        (r.finish_reason as string | undefined) ??
+        'stop'
+    );
 };
 
 /**

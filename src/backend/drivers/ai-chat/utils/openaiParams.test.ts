@@ -21,11 +21,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { ICompleteArguments } from '../types.js';
 import {
+    clampReasoningEffort,
     openAICompatParams,
     outputFormatFromResponseFormat,
     outputFormatFromResponsesText,
     outputFormatToResponseFormat,
     outputFormatToResponsesText,
+    rejectStatefulResponsesFields,
     toolChoiceFromWire,
     toolChoiceToWire,
 } from './openaiParams.js';
@@ -237,5 +239,95 @@ describe('openAICompatParams', () => {
 
     it('returns an empty object when nothing in args needs mapping', () => {
         expect(openAICompatParams(args({}), 'chat')).toEqual({});
+    });
+
+    it('keeps only the named keys when opts.only is set', () => {
+        const out = openAICompatParams(
+            args({
+                tools: [{ type: 'function', function: { name: 'lookup' } }],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            }),
+            'chat',
+            { only: ['tool_choice'] },
+        );
+        expect(out).toEqual({ tool_choice: 'required' });
+    });
+
+    it('drops a non-auto tool_choice when toolChoiceAutoOnly is set, keeps auto', () => {
+        const toolArgs = (tool_choice: ICompleteArguments['tool_choice']) =>
+            args({
+                tools: [{ type: 'function', function: { name: 'lookup' } }],
+                tool_choice,
+            });
+        expect(
+            openAICompatParams(toolArgs({ type: 'any' }), 'chat', {
+                toolChoiceAutoOnly: true,
+            }),
+        ).toEqual({});
+        expect(
+            openAICompatParams(toolArgs({ type: 'auto' }), 'chat', {
+                toolChoiceAutoOnly: true,
+            }),
+        ).toEqual({ tool_choice: 'auto' });
+    });
+});
+
+// -- clampReasoningEffort ----------------------------------------------
+
+describe('clampReasoningEffort', () => {
+    it.each([
+        ['gpt-5.1', 'minimal', 'none'],
+        ['gpt-5-nano', 'none', 'minimal'],
+        ['gpt-5-pro', 'low', 'medium'],
+        ['gpt-5.5', 'max', 'xhigh'],
+        ['gpt-5', 'high', 'high'],
+        ['gpt-6-astra-1', 'none', 'low'],
+    ] as const)(
+        'clamps %s requesting %s to %s',
+        (modelId, requested, expected) => {
+            expect(clampReasoningEffort(modelId, requested)).toBe(expected);
+        },
+    );
+
+    it('drops an unrecognized effort string', () => {
+        expect(clampReasoningEffort('gpt-5', 'ultra')).toBeUndefined();
+    });
+
+    it('drops the param for a model with no reasoning controls at all', () => {
+        expect(clampReasoningEffort('gpt-4o', 'high')).toBeUndefined();
+    });
+
+    it('drops the param when no effort was requested', () => {
+        expect(clampReasoningEffort('gpt-5', undefined)).toBeUndefined();
+    });
+});
+
+// -- rejectStatefulResponsesFields --------------------------------------
+
+describe('rejectStatefulResponsesFields', () => {
+    it('accepts background:false, the same as omitting it', () => {
+        expect(() =>
+            rejectStatefulResponsesFields({ background: false }),
+        ).not.toThrow();
+        expect(() => rejectStatefulResponsesFields({})).not.toThrow();
+    });
+
+    it('rejects a truthy background', () => {
+        expect(() =>
+            rejectStatefulResponsesFields({ background: true }),
+        ).toThrow(/background/);
+    });
+
+    it('still rejects the other stateful fields on any non-null value', () => {
+        expect(() =>
+            rejectStatefulResponsesFields({ previous_response_id: 'resp_1' }),
+        ).toThrow(/previous_response_id/);
     });
 });

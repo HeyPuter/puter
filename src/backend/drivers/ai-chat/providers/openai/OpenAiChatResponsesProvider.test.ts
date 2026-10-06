@@ -493,6 +493,22 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         },
     );
 
+    it('drops verbosity but keeps the clamped reasoning effort for a -codex model', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(baseResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+                verbosity: 'high',
+            } as never),
+        );
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect(args.reasoning).toEqual({ effort: 'high' });
+        expect(args).not.toHaveProperty('text');
+    });
+
     it('preserves nested GPT-6 controls and gives flat options precedence', async () => {
         const { provider } = makeProvider();
         const reasoning = { effort: 'medium', summary: 'auto' };
@@ -971,7 +987,7 @@ describe('OpenAiResponsesChatProvider.checkModeration', () => {
 // -- Web search metering -----------------------------------------
 
 describe('OpenAiResponsesChatProvider web_search metering', () => {
-    it('requestPricing sizes a hold for a web_search tool at $10/1k calls', () => {
+    it('requestPricing sizes a hold for one call at $10/1k calls — OpenAI meters every call at settlement', () => {
         const { provider } = makeProvider();
         const model = OPEN_AI_MODELS.find((m) => m.id === 'gpt-5.6-sol')!;
         const pricing = provider.requestPricing!(
@@ -983,11 +999,10 @@ describe('OpenAiResponsesChatProvider web_search metering', () => {
             model,
             { promptTokenEstimate: 0 },
         );
-        // 10 assumed calls (AI_WEB_SEARCH_MAX_USES.default) at 1,000,000 µ¢.
-        expect(pricing.extraCost).toBe(10 * 1_000_000);
+        expect(pricing.extraCost).toBe(1_000_000);
     });
 
-    it('requestPricing sizes a web_search_preview hold at $25/1k on a non-reasoning model', () => {
+    it('requestPricing sizes a one-call web_search_preview hold at $25/1k on a non-reasoning model', () => {
         const { provider } = makeProvider();
         const model = OPEN_AI_MODELS.find((m) => m.id === 'gpt-4o')!;
         const pricing = provider.requestPricing!(
@@ -999,7 +1014,7 @@ describe('OpenAiResponsesChatProvider web_search metering', () => {
             model,
             { promptTokenEstimate: 0 },
         );
-        expect(pricing.extraCost).toBe(10 * 2_500_000);
+        expect(pricing.extraCost).toBe(2_500_000);
     });
 
     it('requestPricing returns no extra cost without a web-search tool', () => {
@@ -1073,6 +1088,137 @@ describe('OpenAiResponsesChatProvider web_search metering', () => {
         const [usage, , , overrides] = recordSpy.mock.calls[0]!;
         expect(usage.web_search_calls).toBe(1);
         expect(overrides.web_search_calls).toBe(1 * 1_000_000);
+    });
+
+    it('carries the web-search cost into usageCosts, so the wire usd_cents reflects it (non-stream)', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [
+                { type: 'web_search_call', id: 'ws_1', status: 'completed' },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'found it',
+            usage: { input_tokens: 10, output_tokens: 5 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.6-sol',
+                messages: [{ role: 'user', content: 'search' }],
+                tools: [{ type: 'web_search' }],
+            }),
+        )) as { usageCosts?: Record<string, number> };
+
+        // 1,000,000 µ¢ = exactly 1 cent.
+        expect(result.usageCosts?.web_search_calls).toBe(1_000_000);
+    });
+
+    it('carries the web-search cost into chatStream.usageCosts on the stream path', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockReturnValueOnce(
+            asAsyncIterable([
+                {
+                    type: 'response.output_item.done',
+                    item: { type: 'web_search_call', id: 'ws_1' },
+                },
+                { type: 'response.output_text.delta', delta: 'hi' },
+                {
+                    type: 'response.completed',
+                    response: { usage: { input_tokens: 10, output_tokens: 5 } },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.6-sol',
+                messages: [{ role: 'user', content: 'search' }],
+                tools: [{ type: 'web_search' }],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        expect(harness.chatStream.usageCosts?.web_search_calls).toBe(1_000_000);
+    });
+
+    it('does not bill an open_page action inside a web_search_call (non-stream)', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [
+                {
+                    type: 'web_search_call',
+                    id: 'ws_1',
+                    status: 'completed',
+                    action: { type: 'open_page' },
+                },
+                { type: 'web_search_call', id: 'ws_2', status: 'completed' },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'found it',
+            usage: { input_tokens: 10, output_tokens: 5 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.6-sol',
+                messages: [{ role: 'user', content: 'search' }],
+                tools: [{ type: 'web_search' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.web_search_calls).toBe(1);
+        expect(overrides.web_search_calls).toBe(1_000_000);
+    });
+
+    it('does not bill an open_page action inside a web_search_call (stream)', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockReturnValueOnce(
+            asAsyncIterable([
+                {
+                    type: 'response.output_item.done',
+                    item: {
+                        type: 'web_search_call',
+                        id: 'ws_1',
+                        action: { type: 'open_page' },
+                    },
+                },
+                {
+                    type: 'response.output_item.done',
+                    item: { type: 'web_search_call', id: 'ws_2' },
+                },
+                { type: 'response.output_text.delta', delta: 'hi' },
+                {
+                    type: 'response.completed',
+                    response: { usage: { input_tokens: 10, output_tokens: 5 } },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.6-sol',
+                messages: [{ role: 'user', content: 'search' }],
+                tools: [{ type: 'web_search' }],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.web_search_calls).toBe(1);
+        expect(overrides.web_search_calls).toBe(1_000_000);
     });
 });
 

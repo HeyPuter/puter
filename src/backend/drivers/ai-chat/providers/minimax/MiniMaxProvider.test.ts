@@ -237,6 +237,39 @@ describe('MiniMaxProvider.complete request shape', () => {
         expect(args.top_p).toBe(0.9);
     });
 
+    it('forwards only tool_choice out of the compat mapper', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'minimax-m2.7',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toBe('required');
+        expect('parallel_tool_calls' in args).toBe(false);
+        expect('stop' in args).toBe(false);
+        expect('response_format' in args).toBe(false);
+        expect('reasoning_effort' in args).toBe(false);
+    });
+
     it('clamps oversized max_tokens to the MiniMax completion limit', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);

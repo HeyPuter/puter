@@ -58,3 +58,28 @@ export const fromFinishReason = (
     }
     return FINISH_TO_STOP[finishReason] ?? finishReason;
 };
+
+/**
+ * Some providers report a bare `stop` / `end_turn` even on a turn that produced
+ * tool calls — promote it to the tool-call vocabulary so a caller watching
+ * `finish_reason`/`stop_reason` doesn't miss them. Any other reason (`length`,
+ * `content_filter`, a provider-specific value) passes through.
+ */
+export function promoteStopForToolCalls(
+    reason: string,
+    sawToolCalls: boolean,
+    toolCallReason: string,
+): string;
+export function promoteStopForToolCalls(
+    reason: string | undefined,
+    sawToolCalls: boolean,
+    toolCallReason: string,
+): string | undefined;
+export function promoteStopForToolCalls(
+    reason: string | undefined,
+    sawToolCalls: boolean,
+    toolCallReason: string,
+): string | undefined {
+    if (!sawToolCalls) return reason;
+    return reason === 'stop' || reason === 'end_turn' ? toolCallReason : reason;
+}

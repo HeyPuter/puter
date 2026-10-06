@@ -182,6 +182,7 @@ export class MetaProvider implements IChatProvider {
             ...openAICompatParams(
                 { ...params, tools: mappedTools, reasoning_effort: undefined },
                 'chat',
+                { toolChoiceAutoOnly: true },
             ),
             // Reasoning tokens come out of this same budget, so a tight cap
             // returns `content: null` with `finish_reason: 'length'`.

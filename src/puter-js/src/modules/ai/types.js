@@ -156,7 +156,8 @@
  * (non-streaming) response. Carries `type:'compaction'` so you can push it straight into `messages` on
  * the next turn in place of the summarized history (same shape as the streaming `compaction` chunk).
  * @property {string} [stopReason] The native stop reason (Anthropic vocabulary: `end_turn`,
- * `max_tokens`, `tool_use`, `pause_turn`, `refusal`, …), alongside the OpenAI-mapped `finish_reason`.
+ * `max_tokens`, `tool_use`, `pause_turn`, `refusal`, …). On a native (non-normalized) Claude result,
+ * `finish_reason` is always `"stop"` on the wire — read `stopReason` for the real value.
  * @property {string | null} [stopSequence] The stop sequence that ended generation, when one did.
  * @property {Record<string, unknown> | null} [stopDetails] Extra detail on why generation stopped
  * (e.g. a refusal classification). Provider-specific.
