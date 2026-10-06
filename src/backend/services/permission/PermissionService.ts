@@ -142,8 +142,9 @@ export class PermissionService extends PuterService {
             ) {
                 throw e;
             }
+            // Only an fs path can oracle; other subjects are the caller's own.
             const parsed = parseFsPathPermission(permission);
-            if (parsed && isOwnHomePath(parsed.path, actor.user.username)) {
+            if (!parsed || isOwnHomePath(parsed.path, actor.user.username)) {
                 throw e;
             }
             throw new HttpError(403, `permission_denied: ${permission}`, {
