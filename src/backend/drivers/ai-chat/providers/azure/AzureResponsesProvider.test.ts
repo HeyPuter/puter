@@ -230,9 +230,55 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.model).toBe('gpt-5.3-codex');
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
-        expect(args.temperature).toBe(0.3);
+        expect(args).not.toHaveProperty('temperature');
         expect(args.user).toBe('puter-u42');
         expect(args.safety_identifier).toBe(args.user);
+    });
+
+    it.each([
+        'gpt-5.3-codex',
+        'openai/gpt-5.3-codex',
+        undefined,
+        'unknown-model',
+    ])('completes without unsupported sampling for %s', async (model) => {
+        const provider = makeProvider();
+        responsesCreateMock.mockImplementationOnce(async (args) => {
+            expect(args).not.toHaveProperty('temperature');
+            expect(args).not.toHaveProperty('top_p');
+            expect(args.include).toEqual(['file_search_call.results']);
+            return okResponse;
+        });
+        const result = await withTestActor(() =>
+            provider.complete({
+                model,
+                messages: [{ role: 'user', content: 'hello' }],
+                temperature: 0,
+                top_p: 0.9,
+                include: [
+                    'message.output_text.logprobs',
+                    'file_search_call.results',
+                ],
+            }),
+        );
+        expect(result.message?.content).toBe(okResponse.output_text);
+        expect(responsesCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves zero sampling values for unrestricted models', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(okResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: 'hello' }],
+                temperature: 0,
+                top_p: 0,
+            }),
+        );
+        expect(responsesCreateMock.mock.lastCall![0]).toMatchObject({
+            temperature: 0,
+            top_p: 0,
+        });
     });
 
     it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
@@ -398,7 +444,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.prompt_cache_key).toBe('key-1');
         expect(args.prompt_cache_retention).toBe('24h');
         expect(args.store).toBe(true);
-        expect(args.top_p).toBe(0.9);
+        expect(args).not.toHaveProperty('top_p');
         expect(args.truncation).toBe('auto');
         expect(args.service_tier).toBe('default');
     });

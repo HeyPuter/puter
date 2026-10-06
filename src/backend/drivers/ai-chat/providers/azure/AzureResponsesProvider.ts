@@ -38,6 +38,7 @@ import {
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
+import { responseSamplingParams } from '../../utils/responseSampling.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
@@ -248,10 +249,6 @@ export class AzureResponsesProvider implements IChatProvider {
         // handled by the clamp above).
         const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
         const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
-        // A clamped effort above 'none' puts the model in reasoning mode,
-        // where temperature/top_p steer a sampler that isn't in play.
-        const dropsSamplingParams =
-            clampedEffort !== undefined && clampedEffort !== 'none';
 
         // Translate the neutral compaction opt-in (or pass a raw
         // `context_management` payload through) to OpenAI's Responses shape.
@@ -266,7 +263,6 @@ export class AzureResponsesProvider implements IChatProvider {
                 tool_choice,
                 parallel_tool_calls,
                 outputFormat,
-                ...(dropsSamplingParams ? {} : { top_p }),
             } as ICompleteArguments,
             'responses',
         );
@@ -293,7 +289,11 @@ export class AzureResponsesProvider implements IChatProvider {
             input: messages,
             model: modelUsed.id,
             ...(mappedTools?.length ? { tools: mappedTools } : {}),
-            ...(include !== undefined ? { include } : {}),
+            ...responseSamplingParams(
+                modelUsed,
+                { temperature, top_p, include },
+                clampedEffort,
+            ),
             ...(contextManagement !== undefined
                 ? { context_management: contextManagement }
                 : {}),
@@ -306,9 +306,6 @@ export class AzureResponsesProvider implements IChatProvider {
             ...(store !== undefined ? { store } : {}),
             ...(max_tokens !== undefined
                 ? { max_output_tokens: max_tokens }
-                : {}),
-            ...(temperature !== undefined && !dropsSamplingParams
-                ? { temperature }
                 : {}),
             ...(truncation !== undefined ? { truncation } : {}),
             ...(service_tier !== undefined ? { service_tier } : {}),

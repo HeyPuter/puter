@@ -317,7 +317,153 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         // Responses API takes `input`, not `messages`.
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
-        expect(args.temperature).toBe(0.4);
+        expect(args).not.toHaveProperty('temperature');
+    });
+
+    it.each([
+        'gpt-5.6-sol',
+        'gpt-5.6-terra',
+        'gpt-5.6-luna',
+        'gpt-6-sol',
+        'gpt-6-luna',
+        'gpt-6-astra',
+        'gpt-6.1-sol',
+        'gpt-5.6',
+        'openai/gpt-5.6',
+        'openai/gpt-5.6-luna',
+        'openai/gpt-6-astra',
+        undefined,
+        'unknown-model',
+    ])(
+        'completes with unsupported sampling options omitted for %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            responsesCreateMock.mockImplementationOnce(async (args) => {
+                expect(args).not.toHaveProperty('temperature');
+                expect(args).not.toHaveProperty('top_p');
+                expect(args.include).toEqual(['file_search_call.results']);
+                return baseResponse;
+            });
+
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hello' }],
+                    temperature: 0,
+                    top_p: 0.9,
+                    include: [
+                        'message.output_text.logprobs',
+                        'file_search_call.results',
+                    ],
+                }),
+            );
+            expect(result.message?.content).toBe('hi');
+            expect(responsesCreateMock).toHaveBeenCalledTimes(1);
+            expect(recordSpy).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each(['gpt-5.6-luna', 'gpt-6-luna'])(
+        'preserves sampling with reasoning disabled for %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            responsesCreateMock.mockResolvedValue(baseResponse);
+            for (const controls of [
+                { reasoning: { effort: 'none' } },
+                { reasoning: { effort: 'high' }, reasoning_effort: 'none' },
+            ]) {
+                await withTestActor(() =>
+                    provider.complete({
+                        model: `openai/${model}`,
+                        messages: [{ role: 'user', content: 'hello' }],
+                        temperature: 0,
+                        top_p: 0,
+                        include: ['message.output_text.logprobs'],
+                        ...controls,
+                    } as never),
+                );
+                expect(responsesCreateMock.mock.lastCall![0]).toMatchObject({
+                    reasoning: { effort: 'none' },
+                    temperature: 0,
+                    top_p: 0,
+                    include: ['message.output_text.logprobs'],
+                });
+            }
+        },
+    );
+
+    it('omits sampling when flat reasoning overrides nested none', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(baseResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hello' }],
+                reasoning: { effort: 'none' },
+                reasoning_effort: 'high',
+                temperature: 0.4,
+                top_p: 0.9,
+            } as never),
+        );
+        const [args] = responsesCreateMock.mock.lastCall!;
+        expect(args.reasoning).toEqual({ effort: 'high' });
+        expect(args).not.toHaveProperty('temperature');
+        expect(args).not.toHaveProperty('top_p');
+    });
+
+    it.each([
+        {
+            model: 'gpt-6-luna',
+            requestedEffort: 'minimal',
+            sentEffort: 'none',
+            sampling: true,
+        },
+        {
+            model: 'gpt-6-astra',
+            requestedEffort: 'none',
+            sentEffort: 'low',
+            sampling: false,
+        },
+    ] as const)(
+        'filters sampling using the clamped effort for $model',
+        async ({ model, requestedEffort, sentEffort, sampling }) => {
+            const { provider } = makeProvider();
+            responsesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hello' }],
+                    reasoning_effort: requestedEffort,
+                    temperature: 0.4,
+                    top_p: 0.9,
+                }),
+            );
+            const [args] = responsesCreateMock.mock.lastCall!;
+            expect(args.reasoning).toEqual({ effort: sentEffort });
+            if (sampling) {
+                expect(args).toMatchObject({ temperature: 0.4, top_p: 0.9 });
+            } else {
+                expect(args).not.toHaveProperty('temperature');
+                expect(args).not.toHaveProperty('top_p');
+            }
+        },
+    );
+
+    it('preserves sampling for models without a restriction', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(baseResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4.1',
+                messages: [{ role: 'user', content: 'hello' }],
+                temperature: 0,
+                top_p: 0,
+            }),
+        );
+        expect(responsesCreateMock.mock.lastCall![0]).toMatchObject({
+            temperature: 0,
+            top_p: 0,
+        });
     });
 
     it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
@@ -408,7 +554,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(args.parallel_tool_calls).toBe(false);
         expect(args.include).toEqual(['file_search_call.results']);
         expect(args.store).toBe(true);
-        expect(args.top_p).toBe(0.9);
+        expect(args).not.toHaveProperty('top_p');
         expect(args.truncation).toBe('auto');
         expect(args.service_tier).toBe('default');
     });
