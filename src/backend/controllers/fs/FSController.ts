@@ -1031,11 +1031,15 @@ export class FSController extends PuterController {
                 legacyCode: 'too_many_requests',
             });
         }
+        // Over the owner's rows, so only for a caller who could list them.
+        const mayReadSize =
+            entry.isDir &&
+            wantsSize &&
+            (await this.#canAccess(actor, entry.path, 'list'));
+
         const [subtreeSize, suggestedApps, shareFlags, shares, parentUid] =
             await Promise.all([
-                // The owner's id, not the caller's: the sum is over the
-                // owner's rows, and a recipient would otherwise read 0.
-                entry.isDir && wantsSize
+                mayReadSize
                     ? this.services.fs.getSubtreeSize(entry.userId, entry.path)
                     : undefined,
                 this.services.suggestedApps.getSuggestedApps(entry),
@@ -1833,16 +1837,12 @@ export class FSController extends PuterController {
         );
     }
 
-    async #assertAccess(
-        actor: Actor,
-        path: string,
-        mode: 'see' | 'list' | 'read' | 'write',
-    ) {
+    #aclDescriptor(path: string) {
         const fsService = this.services.fs;
         let ancestorsCache: Promise<
             Array<{ uid: string; path: string }>
         > | null = null;
-        const descriptor = {
+        return {
             path,
             resolveAncestors() {
                 if (!ancestorsCache) {
@@ -1851,6 +1851,23 @@ export class FSController extends PuterController {
                 return ancestorsCache;
             },
         };
+    }
+
+    /** As `#assertAccess`, but for what to include rather than what to serve. */
+    async #canAccess(
+        actor: Actor,
+        path: string,
+        mode: 'see' | 'list' | 'read' | 'write',
+    ): Promise<boolean> {
+        return this.services.acl.check(actor, this.#aclDescriptor(path), mode);
+    }
+
+    async #assertAccess(
+        actor: Actor,
+        path: string,
+        mode: 'see' | 'list' | 'read' | 'write',
+    ) {
+        const descriptor = this.#aclDescriptor(path);
         const allowed = await this.services.acl.check(actor, descriptor, mode);
         if (allowed) return;
         const safe = (await this.services.acl.getSafeAclError(
