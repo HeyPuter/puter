@@ -111,16 +111,25 @@ export class TeamController extends PuterController {
     async listTeams(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
         await this.#requireTeamsAvailable(req, userId);
-        const teams = await this.stores.team.listTeamsForUser(userId);
+        const page = await this.stores.team.listTeamsForUser(userId, {
+            limit: req.query.limit,
+            cursor:
+                typeof req.query.cursor === 'string'
+                    ? req.query.cursor
+                    : undefined,
+            includeTotal: req.query.includeTotal === 'true',
+        });
         // An app only sees a team whose owner opened the directory to apps;
         // a team that hasn't is indistinguishable from no team at all.
         const visible = isAccountContext(req.actor)
-            ? teams
-            : teams.filter((t) => this.services.team.isDirectoryOpen(t));
+            ? page.items
+            : page.items.filter((t) => this.services.team.isDirectoryOpen(t));
         res.json({
             items: visible.map((t) =>
                 toClientTeam(t, t.owner_user_id === userId),
             ),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total === undefined ? {} : { total: page.total }),
         });
     }
 

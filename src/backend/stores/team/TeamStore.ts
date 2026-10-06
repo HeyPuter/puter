@@ -610,14 +610,50 @@ export class TeamStore extends PuterStore {
     }
 
     /** Teams this user belongs to, oldest first. */
-    async listTeamsForUser(userId: number): Promise<TeamRow[]> {
-        const rows = await this.clients.db.read(
+    /** A user's teams, keyset-paginated on `id` per doc/pagination.md. */
+    async listTeamsForUser(
+        userId: number,
+        opts: { limit?: unknown; cursor?: string; includeTotal?: boolean } = {},
+    ): Promise<PageResult<TeamRow>> {
+        const limit =
+            normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
+            MEMBER_PAGE_SIZE;
+        const page = decodeCursor(opts.cursor, 'team cursor');
+        const after = typeof page?.id === 'number' ? page.id : null;
+
+        const rows = (await this.clients.db.read(
             'SELECT g.* FROM `group` g ' +
                 'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
-                `WHERE ug.\`user_id\` = ? AND g.${this.#live()} ORDER BY g.\`id\``,
-            [userId, TEAM_KIND],
-        );
-        return rows as unknown as TeamRow[];
+                `WHERE ug.\`user_id\` = ? AND g.${this.#live()}` +
+                (after === null ? '' : ' AND g.`id` > ?') +
+                ' ORDER BY g.`id` LIMIT ?',
+            after === null
+                ? [userId, TEAM_KIND, limit + 1]
+                : [userId, TEAM_KIND, after, limit + 1],
+        )) as unknown as TeamRow[];
+
+        const items = rows.slice(0, limit);
+        const cursor =
+            rows.length > limit
+                ? encodeCursor({ id: items[items.length - 1].id })
+                : undefined;
+
+        let total: number | undefined;
+        if (opts.includeTotal) {
+            const totals = (await this.clients.db.read(
+                'SELECT COUNT(*) AS n FROM `group` g ' +
+                    'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                    `WHERE ug.\`user_id\` = ? AND g.${this.#live()}`,
+                [userId, TEAM_KIND],
+            )) as unknown as Array<{ n: number | string }>;
+            total = Number(totals[0]?.n ?? 0);
+        }
+
+        return {
+            items,
+            ...(cursor ? { cursor } : {}),
+            ...(total === undefined ? {} : { total }),
+        };
     }
 
     /** `orgOwned` decides who pays: 1 team-created, 0 the team owner. */
