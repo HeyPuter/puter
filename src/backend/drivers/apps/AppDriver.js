@@ -337,6 +337,13 @@ export class AppDriver extends PuterDriver {
         return this.#toClient(app, actor, { ...params, stats });
     }
 
+    /**
+     * Paged app listing. Unlike `/query/app`, which answers only for apps named
+     * by the caller and so must not confirm ones it may not see, this is the
+     * listing surface a launcher reads: `protected` apps are filtered by the
+     * permission check below, and everything else is listable by design. Narrow
+     * it with `predicate: ['user-can-edit']` to the caller's own.
+     */
     async select(args = {}) {
         const { predicate, params = {} } = args;
         const actor = this.#requireActor();
