@@ -3751,8 +3751,8 @@ export class FSService extends PuterService {
                 throw new HttpError(404, 'File contents are missing', {
                     legacyCode: 'subject_does_not_exist',
                     cause: err,
+                    // No path: a recipient addresses this entry by uuid.
                     fields: {
-                        path: entry.path,
                         uid: entry.uuid,
                     },
                 });
@@ -5045,8 +5045,8 @@ export class FSService extends PuterService {
                 throw new HttpError(404, 'File contents are missing', {
                     legacyCode: 'subject_does_not_exist',
                     cause: err,
+                    // No path: a recipient addresses this entry by uuid.
                     fields: {
-                        path: source.path,
                         uid: source.uuid,
                     },
                 });
