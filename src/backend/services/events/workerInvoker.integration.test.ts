@@ -39,6 +39,7 @@ import {
     describe,
     expect,
     it,
+    type MockInstance,
     vi,
 } from 'vitest';
 import {
@@ -314,6 +315,17 @@ const heldForMs = async (subId: string): Promise<number> => {
     );
     return Number(score) - Date.now();
 };
+
+/**
+ * Wait until `count` failed attempts have had their holds written. A future
+ * score alone can't tell a hold from the in-flight claim's lease.
+ */
+const holdsWritten = (deferred: MockInstance, count: number): Promise<void> =>
+    waitUntil(() =>
+        expect(
+            deferred.mock.settledResults.filter((r) => r.type === 'fulfilled'),
+        ).toHaveLength(count),
+    );
 
 beforeAll(async () => {
     // Started first: the dispatcher's address is config, so it has to be known
@@ -623,6 +635,7 @@ describe('what each answer does to the delivery', () => {
     it('holds one it could not answer, for longer each time', async () => {
         answer = 500;
         const subId = await subscribe();
+        const deferred = vi.spyOn(pending(), 'deferAfterFailure');
         // Freeze the clock so every hold is read against the same instant it
         // was written from.
         jump(0);
@@ -636,9 +649,7 @@ describe('what each answer does to the delivery', () => {
             attempt < EVENTS_CONSECUTIVE_FAILURES;
             attempt++
         ) {
-            await waitUntil(async () =>
-                expect(await heldForMs(subId)).toBeGreaterThan(0),
-            );
+            await holdsWritten(deferred, attempt);
             waits.push(await heldForMs(subId));
 
             // Nothing may take it while it is held.
@@ -661,6 +672,7 @@ describe('what each answer does to the delivery', () => {
             ),
         );
         expect(calls).toHaveLength(EVENTS_CONSECUTIVE_FAILURES);
+        deferred.mockRestore();
     });
 
     it('tells the developer their handler stopped working', async () => {
@@ -782,6 +794,7 @@ describe('with no events worker to address', () => {
         // Unpublished after the fact: the app's set now hashes to nothing, so
         // there is no script to name and nowhere to send the delivery.
         await env.server.stores.eventHandler.remove(appUid, HANDLER);
+        const deferred = vi.spyOn(pending(), 'deferAfterFailure');
 
         try {
             await touch('unresolved.txt');
@@ -790,9 +803,7 @@ describe('with no events worker to address', () => {
                 attempt < EVENTS_CONSECUTIVE_FAILURES;
                 attempt++
             ) {
-                await waitUntil(async () =>
-                    expect(await heldForMs(subId)).toBeGreaterThan(0),
-                );
+                await holdsWritten(deferred, attempt);
                 jump(deliveryBackoffMs(attempt) + 50);
                 await events().sweepPending();
             }
@@ -805,6 +816,7 @@ describe('with no events worker to address', () => {
             // Nothing was ever called: there was nowhere to call.
             expect(calls).toEqual([]);
         } finally {
+            deferred.mockRestore();
             await env.server.stores.eventHandler.publish({
                 appUid,
                 name: HANDLER,
