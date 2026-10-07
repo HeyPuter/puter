@@ -432,17 +432,16 @@ export class ACLService extends PuterService {
             }
         }
 
-        if (!already) {
-            const newPerm =
-                mode === MANAGE_PERM_PREFIX
-                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
-                    : PermissionUtil.join('fs', uid, mode);
-            await this.services.permission.grantUserGroupPermission(
-                issuer,
-                groupUid,
-                newPerm,
-            );
-        }
+        // Unconditional, as before: see `#setUserUserLocked`.
+        const newPerm =
+            mode === MANAGE_PERM_PREFIX
+                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                : PermissionUtil.join('fs', uid, mode);
+        await this.services.permission.grantUserGroupPermission(
+            issuer,
+            groupUid,
+            newPerm,
+        );
 
         // One mode per node per issuer/holder — higher modes supersede lower.
         for (const perm of superseded) {
@@ -592,17 +591,17 @@ export class ACLService extends PuterService {
             }
         }
 
-        if (!already) {
-            const newPerm =
-                mode === MANAGE_PERM_PREFIX
-                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
-                    : PermissionUtil.join('fs', uid, mode);
-            await this.services.permission.grantUserUserPermission(
-                issuer,
-                username,
-                newPerm,
-            );
-        }
+        // Unconditional, as before: the read above can be a stale replica,
+        // and skipping the grant on it would revoke with nothing put back.
+        const newPerm =
+            mode === MANAGE_PERM_PREFIX
+                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                : PermissionUtil.join('fs', uid, mode);
+        await this.services.permission.grantUserUserPermission(
+            issuer,
+            username,
+            newPerm,
+        );
 
         // Revoke any other modes on the same node (ACL enforces one mode per
         // node per issuer/holder — higher modes supersede lower).

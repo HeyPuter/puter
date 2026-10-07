@@ -230,14 +230,14 @@ export const entryPermissions = (uuid: string): string[] => [
     `manage:fs:${uuid}`,
 ];
 
-/**
- * The permission a share of `mode` actually grants — which is what authority to
- * issue that share has to be measured against.
- */
 /** `see` says a node is there; `list` is what says what is inside it. */
 const showsContents = (mode: unknown): boolean =>
     ['list', 'read', 'write', MANAGE_PERM_PREFIX].includes(String(mode));
 
+/**
+ * The permission a share of `mode` actually grants — which is what authority to
+ * issue that share has to be measured against.
+ */
 export const entryPermissionForMode = (
     uuid: string,
     mode: AclMode | string,
@@ -956,11 +956,7 @@ export class ShareService extends PuterService {
             indexed || (await this.#hasGrantFrom(entry, holder.id, issuerId));
         // Not new reach, so not the share budget -- but still a write.
         const releaseQuota = hadAccess
-            ? await this.#reserveDailyQuota(issuerId, {
-                  scope: 'remode',
-                  limit: this.#remodeLimit(),
-                  code: 'share_daily_limit_reached',
-              })
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -2824,7 +2820,7 @@ export class ShareService extends PuterService {
         // Moving an existing link to another mode is not new reach.
         const existing = await this.stores.share.getAnyone(entry.id);
         const releaseQuota = existing
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
         try {
             const row = await this.stores.share.upsertAnyone({
@@ -2904,7 +2900,7 @@ export class ShareService extends PuterService {
             userActor,
         );
         const releaseQuota = hadAccess
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -3116,7 +3112,7 @@ export class ShareService extends PuterService {
                 Number(row.issuer_user_id) === issuerId,
         );
         const releaseQuota = already
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -3575,13 +3571,14 @@ export class ShareService extends PuterService {
         return this.services.acl.check(actor, this.#descriptorFor(entry), mode);
     }
 
-    /**
-     * Take a slot out of today's budget, returning the release for it.
-     *
-     * The increment is the check: it is atomic, so concurrent callers get
-     * distinct numbers and only those at or under the limit proceed. Counting
-     * first and writing after would let them all read the same count and pass.
-     */
+    /** Re-issuing an existing share: its own budget, not the share one. */
+    #reserveRemodeQuota(userId: number): Promise<() => Promise<void>> {
+        return this.#reserveDailyQuota(userId, {
+            scope: 'remode',
+            limit: this.#remodeLimit(),
+        });
+    }
+
     /** Mode changes get their own, looser budget; they are not new reach. */
     #remodeLimit(): number {
         const configured = this.config.share_remode_daily_limit;
@@ -3590,6 +3587,13 @@ export class ShareService extends PuterService {
         return base * 10;
     }
 
+    /**
+     * Take a slot out of today's budget, returning the release for it.
+     *
+     * The increment is the check: it is atomic, so concurrent callers get
+     * distinct numbers and only those at or under the limit proceed. Counting
+     * first and writing after would let them all read the same count and pass.
+     */
     async #reserveDailyQuota(
         userId: number,
         opts: { scope?: string; limit?: number; code?: string } = {},

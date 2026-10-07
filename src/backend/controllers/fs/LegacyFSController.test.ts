@@ -1837,13 +1837,16 @@ describe('LegacyFSController.move', () => {
         // The move landed in the owner's trash, but the recipient is told so
         // in masked form — the owner's real layout stays theirs.
         const body = captured.body as { moved: { uid: string; path: string } };
+        const suffix = ` (${body.moved.uid.slice(0, 8)})`;
+        // Renamed on the way in, always, so the name cannot report on what the
+        // Trash already holds; `original_name` keeps the real one.
         expect(body.moved.path).toBe(
-            `/${ownerName}/${body.moved.uid}/note.txt`,
+            `/${ownerName}/${body.moved.uid}/note${suffix}.txt`,
         );
         const moved = await server.stores.fsEntry.getEntryByUuid(
             body.moved.uid,
         );
-        expect(moved!.path).toBe(`/${ownerName}/Trash/note.txt`);
+        expect(moved!.path).toBe(`/${ownerName}/Trash/note${suffix}.txt`);
     });
 
     it('refuses a share recipient moving an item into their own trash', async () => {

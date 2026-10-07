@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { dirname as pathDirname } from 'node:path/posix';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor.js';
@@ -273,9 +274,28 @@ describe('ShareService: deleting a shared item', () => {
                 destinationParent: trash,
             }),
         );
-        // Deduped rather than refused, so the collision says nothing.
         expect(moved.path.startsWith(`${trash.path}/`)).toBe(true);
-        expect(moved.name).not.toBe(file.name);
+
+        // A move with no collision must look the same, or the name answers.
+        const { file: second } = await makeDirWithFile(owner.user);
+        await share(owner.actor, {
+            uid: (await dirAt(pathDirname(second.path))).uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'write',
+        });
+        const clean = await runWithContext({ actor: recipient.actor }, () =>
+            server.services.fs.move(recipient.user.id, {
+                source: second,
+                destinationParent: trash,
+            }),
+        );
+        const shape = (n: string, orig: string) =>
+            n
+                .replace(orig.replace(/\.txt$/u, ''), '<stem>')
+                .replace(/\([0-9a-f]{8}\)/u, '(<uid>)');
+        expect(shape(moved.name, file.name)).toBe(
+            shape(clean.name, second.name),
+        );
     });
 
     it('does not hand access back when the item leaves Trash', async () => {

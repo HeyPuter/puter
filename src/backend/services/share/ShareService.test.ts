@@ -1153,6 +1153,37 @@ describe('ShareService', () => {
                 server.services.share.listSharedByMe(actor, opts),
             );
 
+        it('still finds a row written before the owner was recorded', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // What a writer that predates the column leaves behind.
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL',
+            );
+
+            const listed = await listSharedByMe(owner.actor, {
+                includeTotal: true,
+            });
+            expect(
+                listed.items.map((r) => r.holder?.username),
+            ).toContain(third.user.username);
+            expect(listed.total).toBeGreaterThanOrEqual(2);
+        });
+
         it("includes a delegate's share on an item the caller owns", async () => {
             const owner = await makeUser();
             const delegate = await makeUser();

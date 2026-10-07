@@ -122,13 +122,12 @@ export class ShareStore extends PuterStore {
      * which is the only place those are visible, since the permission tables
      * are keyed issuer to holder.
      *
-     * Two reads rather than one `OR` spanning the join, which no index can
-     * serve. The issued half is a pure range scan on `idx_share_issuer`. The
-     * delegated half probes `idx_share_fsentry` per owned node and sorts what
-     * it finds — bounded by how many shares exist on the user's nodes, which
-     * delegates alone can create. Unclaimed invites are included (an invite is
-     * something the user sent); the legacy invite rows that name no node are
-     * not.
+     * Separate reads rather than one `OR`, which no index can serve. Each is a
+     * range scan: the issued half on `idx_share_issuer`, the delegated half on
+     * `idx_share_entry_owner`, and a third covering rows written before that
+     * column existed, which is empty once none remain. Unclaimed invites are
+     * included (an invite is something the user sent); the legacy invite rows
+     * that name no node are not.
      *
      * `appUid` narrows to one app's grants; `null` asks for the ones no app
      * issued, and omitting it asks for every app.
@@ -141,7 +140,9 @@ export class ShareStore extends PuterStore {
         const afterId = this.#afterId(cursor);
         const own = this.#appFilter(appUid, '`data`');
 
-        const [issued, delegated] = await Promise.all([
+        const joined = this.#appFilter(appUid, '`share`.`data`');
+
+        const [issued, delegated, unrecorded] = await Promise.all([
             this.clients.db.read(
                 'SELECT * FROM `share` WHERE `issuer_user_id` = ? AND ' +
                     '`fsentry_id` IS NOT NULL AND `id` > ?' +
@@ -156,12 +157,24 @@ export class ShareStore extends PuterStore {
                     ' ORDER BY `id` LIMIT ?',
                 [userId, userId, afterId, ...own.params, size + 1],
             ),
+            // Rows a writer that predates the column left behind -- a pod not
+            // yet rolled, say. Indexed on the NULL, and empty once none remain.
+            this.clients.db.read(
+                'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ? ' +
+                    'AND `share`.`id` > ?' +
+                    joined.sql +
+                    ' ORDER BY `share`.`id` LIMIT ?',
+                [userId, userId, afterId, ...joined.params, size + 1],
+            ),
         ]);
 
         // The halves are disjoint and each ordered by id, so merging them and
         // cutting at `size` is the true next page: whatever either half lost to
         // its own limit sorts after the cut and returns on the following one.
-        const merged = [...issued, ...delegated].sort(
+        const merged = [...issued, ...delegated, ...unrecorded].sort(
             (a, b) => Number(a.id) - Number(b.id),
         );
         const hasMore = merged.length > size;
@@ -182,7 +195,8 @@ export class ShareStore extends PuterStore {
      */
     async countOutbound(userId, { appUid } = {}) {
         const own = this.#appFilter(appUid, '`data`');
-        const [issued, delegated] = await Promise.all([
+        const joined = this.#appFilter(appUid, '`share`.`data`');
+        const [issued, delegated, unrecorded] = await Promise.all([
             this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
                     '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL' +
@@ -195,8 +209,21 @@ export class ShareStore extends PuterStore {
                     own.sql,
                 [userId, userId, ...own.params],
             ),
+            // As `listOutbound`: rows written before the column existed.
+            this.clients.db.read(
+                'SELECT COUNT(*) AS `count` FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?' +
+                    joined.sql,
+                [userId, userId, ...joined.params],
+            ),
         ]);
-        return Number(issued[0]?.count ?? 0) + Number(delegated[0]?.count ?? 0);
+        return (
+            Number(issued[0]?.count ?? 0) +
+            Number(delegated[0]?.count ?? 0) +
+            Number(unrecorded[0]?.count ?? 0)
+        );
     }
 
     /**
@@ -233,6 +260,8 @@ export class ShareStore extends PuterStore {
                 userId,
                 userId,
                 userId,
+                userId,
+                userId,
                 ...(after === null ? [] : [after]),
                 size + 1,
             ],
@@ -259,7 +288,7 @@ export class ShareStore extends PuterStore {
             'SELECT COUNT(*) AS `count` FROM (SELECT DISTINCT `app_uid` FROM (' +
                 this.#outboundAppsSql() +
                 ') AS `outbound`) AS `apps`',
-            [userId, userId, userId],
+            [userId, userId, userId, userId, userId],
         );
         return Number(rows[0]?.count ?? 0);
     }
@@ -1149,18 +1178,26 @@ export class ShareStore extends PuterStore {
 
     /**
      * Both outbound halves projected onto their issuing app. Takes the same
-     * three bound user ids as `listOutbound`, in that order.
+     * five bound user ids as `listOutbound`, in that order.
      */
     #outboundAppsSql() {
         const own = this.clients.db.nullCoalesce(
             this.#issuedByAppExpr('`data`'),
             "''",
         );
+        const joined = this.clients.db.nullCoalesce(
+            this.#issuedByAppExpr('`share`.`data`'),
+            "''",
+        );
         return (
             `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
             '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL UNION ALL ' +
             `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
-            '`entry_owner_user_id` = ? AND `issuer_user_id` <> ?'
+            '`entry_owner_user_id` = ? AND `issuer_user_id` <> ? UNION ALL ' +
+            `SELECT ${joined} AS \`app_uid\` FROM \`share\` JOIN \`fsentries\` ` +
+            'ON `fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+            '`share`.`entry_owner_user_id` IS NULL AND ' +
+            '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?'
         );
     }
 

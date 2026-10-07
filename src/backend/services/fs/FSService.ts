@@ -4690,6 +4690,12 @@ export class FSService extends PuterService {
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
+        // Always, not only on a collision, or the name answers it instead.
+        if (intoSomeoneElsesTrash) {
+            const ext = pathPosix.extname(name);
+            const stem = ext ? name.slice(0, -ext.length) : name;
+            name = `${stem} (${source.uuid.slice(0, 8)})${ext}`;
+        }
         const pathIn = (entryName: string) =>
             destinationParent.path === '/'
                 ? `/${entryName}`

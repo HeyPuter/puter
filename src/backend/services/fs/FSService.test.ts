@@ -4647,7 +4647,11 @@ describe('FSService restructuring a shared tree', () => {
             }),
         );
 
-        expect(moved.path).toBe(`${owner.home}/Trash/${file.uuid}`);
+        // Renamed on the way in, always, so the name cannot report on what
+        // the Trash already holds; `original_name` keeps the real one.
+        expect(moved.path).toBe(
+            `${owner.home}/Trash/${file.uuid} (${file.uuid.slice(0, 8)})`,
+        );
         expect(moved.userId).toBe(owner.userId);
         expect(await stillThere(file.path)).toBe(false);
     });
