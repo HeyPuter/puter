@@ -71,6 +71,8 @@ const SEND_REASON_MESSAGES = {
         "You've used all of your phone verification attempts. Email support@puter.com for assistance.",
     device_unverifiable:
         "We couldn't verify your device. Please email support@puter.com for assistance.",
+    phone_virtual_number:
+        "This number can't be used for verification. Please use a mobile number, or verify with a card instead.",
 };
 
 // Seconds the "Re-send code" link stays disabled after a send.
