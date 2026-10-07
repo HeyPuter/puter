@@ -298,6 +298,15 @@ describe('SystemKVStore', () => {
             const result = await target.del({ key: 'never-existed' }, opts);
             expect(result.res).toBe(true);
         });
+
+        it('rejects a key over 1024 bytes as a client error', async () => {
+            await expect(
+                target.del({ key: 'a'.repeat(1025) }, opts),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        });
     });
 
     describe('batchDel', () => {
@@ -551,6 +560,31 @@ describe('SystemKVStore', () => {
             expect(envelope.cursor).toBeUndefined();
         });
 
+        it('returns an empty page when offset ends exactly at the last key', async () => {
+            // A backend may close the last page without a continuation key
+            // even though the limit is what stopped it.
+            const real = server.clients.dynamo.query.bind(
+                server.clients.dynamo,
+            );
+            const query = vi
+                .spyOn(server.clients.dynamo, 'query')
+                .mockImplementation(async (...args) => {
+                    const response = await real(...args);
+                    if (args[6]?.select === 'COUNT')
+                        delete response.LastEvaluatedKey;
+                    return response;
+                });
+            try {
+                const result = await target.list(
+                    { as: 'keys', offset: 3, limit: 5 },
+                    opts,
+                );
+                expect(result.res).toEqual({ items: [] });
+            } finally {
+                query.mockRestore();
+            }
+        });
+
         it('rejects offset combined with cursor', async () => {
             const page = (await target.list({ limit: 1 }, opts)).res as {
                 cursor?: string;
@@ -684,6 +718,30 @@ describe('SystemKVStore', () => {
             expect(mine.res).toBeNull();
             expect(theirs.res).toBe(2);
         });
+
+        it('keeps deleting past the first page of a large namespace', async () => {
+            // Four values this size don't fit in one query page.
+            const big = 'x'.repeat(350 * 1024);
+            for (const key of ['big1', 'big2', 'big3', 'big4']) {
+                await target.set({ key, value: big }, opts);
+            }
+            await target.flush(opts);
+            expect((await target.list({ as: 'keys' }, opts)).res).toEqual([]);
+        });
+
+        it('rejects when a delete fails rather than reporting success', async () => {
+            await target.set({ key: 'f1', value: 1 }, opts);
+            const batchDel = vi
+                .spyOn(server.clients.dynamo, 'batchDel')
+                .mockRejectedValueOnce(new Error('batch write failed'));
+            try {
+                await expect(target.flush(opts)).rejects.toThrow(
+                    'batch write failed',
+                );
+            } finally {
+                batchDel.mockRestore();
+            }
+        });
     });
 
     describe('expireAt / expire', () => {
@@ -748,6 +806,54 @@ describe('SystemKVStore', () => {
                 opts,
             );
             expect(result.res).toMatchObject({ hits: 5 });
+        });
+
+        it.each([
+            ['a numeric string', '5'],
+            ['a non-numeric string', 'abc'],
+            ['null', null],
+            ['a boolean', true],
+        ])(
+            'decr rejects %s as an amount, as incr does',
+            async (_label, amount) => {
+                for (const op of ['incr', 'decr'] as const) {
+                    await expect(
+                        target[op](
+                            {
+                                key: 'badAmount',
+                                pathAndAmountMap: {
+                                    '': amount as unknown as number,
+                                },
+                            },
+                            opts,
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'bad_request',
+                    });
+                }
+                expect(
+                    (await target.get({ key: 'badAmount' }, opts)).res,
+                ).toBeNull();
+            },
+        );
+
+        it('decr rejects a missing pathAndAmountMap as a client error', async () => {
+            await expect(
+                target.decr(
+                    {
+                        key: 'noMap',
+                        pathAndAmountMap: undefined as unknown as Record<
+                            string,
+                            number
+                        >,
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
         });
 
         it('increments nested paths and creates intermediate maps', async () => {
@@ -4141,6 +4247,26 @@ describe('SystemKVStore', () => {
                 { namespace: namespaceOf(actor), key: 'emptyStringTtl' },
             );
             expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('batchPut rejects a non-numeric expireAt', async () => {
+            await expect(
+                target.batchPut(
+                    {
+                        items: [
+                            {
+                                key: 'bpBadTtl',
+                                value: 'v',
+                                expireAt: 'abc' as unknown as number,
+                            },
+                        ],
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
         });
 
         it.each([

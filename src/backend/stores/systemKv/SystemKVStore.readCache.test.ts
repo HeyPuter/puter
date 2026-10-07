@@ -314,6 +314,26 @@ describe('SystemKVStore read cache', () => {
             expect(result.res).toEqual([null, null]);
         });
 
+        it('serves nothing after a flush whose delete failed partway', async () => {
+            await warm('a', 1);
+            await warm('b', 2);
+            // The rows go, then the batch reports an error anyway.
+            const real = server.clients.dynamo.batchDel.bind(
+                server.clients.dynamo,
+            );
+            vi.spyOn(server.clients.dynamo, 'batchDel').mockImplementationOnce(
+                async (params) => {
+                    await real(params);
+                    throw new Error('batch write failed');
+                },
+            );
+            await expect(target.flush(opts)).rejects.toThrow(
+                'batch write failed',
+            );
+            const result = await target.get({ key: ['a', 'b'] }, opts);
+            expect(result.res).toEqual([null, null]);
+        });
+
         it('keeps reads off the cache for a window, then lets it fill again', async () => {
             await warm('k', 'old');
             await target.set({ key: 'k', value: 'new' }, opts);

@@ -17,6 +17,11 @@ import {
 import { createTestUser, setupTestServer } from '../../testUtil.ts';
 import { KV_COSTS } from './costs.ts';
 import type { KVStoreDriver } from './KVStoreDriver.ts';
+import {
+    KV_MAX_BATCH_PUT_ITEMS,
+    KV_MAX_GET_KEYS,
+    KV_MAX_LIST_LIMIT,
+} from './limits.ts';
 
 describe('KVStoreDriver', () => {
     let server: PuterServer;
@@ -429,6 +434,67 @@ describe('KVStoreDriver', () => {
             );
             expect(mine).toBeNull();
             expect(theirs).toBe(2);
+        });
+    });
+
+    describe('per-call caps', () => {
+        const keysUpTo = (count: number) =>
+            Array.from({ length: count }, (_, i) => `k${i}`);
+
+        it('reads an array of keys up to the cap and rejects one past it', async () => {
+            const atCap = await inCtx(() =>
+                target.get({ key: keysUpTo(KV_MAX_GET_KEYS) }),
+            );
+            expect(atCap).toHaveLength(KV_MAX_GET_KEYS);
+            await expect(
+                inCtx(() => target.get({ key: keysUpTo(KV_MAX_GET_KEYS + 1) })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        });
+
+        it('rejects a batchPut past the cap without writing any of it', async () => {
+            const items = keysUpTo(KV_MAX_BATCH_PUT_ITEMS + 1).map((key) => ({
+                key,
+                value: 1,
+            }));
+            await expect(
+                inCtx(() => target.batchPut({ items })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(await inCtx(() => target.list({ as: 'keys' }))).toEqual([]);
+        });
+
+        it('lowers a list limit past the cap to the cap', async () => {
+            const keys = keysUpTo(KV_MAX_BATCH_PUT_ITEMS + 1);
+            const first = (await inCtx(async () => {
+                await target.batchPut({
+                    items: keys
+                        .slice(0, KV_MAX_BATCH_PUT_ITEMS)
+                        .map((key) => ({ key, value: 1 })),
+                });
+                await target.set({ key: keys.at(-1)!, value: 1 });
+                return target.list({
+                    as: 'keys',
+                    limit: KV_MAX_LIST_LIMIT + 500,
+                });
+            })) as { items: string[]; cursor?: string };
+            expect(first.items).toHaveLength(KV_MAX_LIST_LIMIT);
+            expect(typeof first.cursor).toBe('string');
+
+            const rest = (await inCtx(() =>
+                target.list({
+                    as: 'keys',
+                    limit: KV_MAX_LIST_LIMIT,
+                    cursor: first.cursor,
+                }),
+            )) as { items: string[]; cursor?: string };
+            expect([...first.items, ...rest.items].sort()).toEqual(
+                [...keys].sort(),
+            );
         });
     });
 
@@ -1665,6 +1731,11 @@ describe('KVStoreDriver', () => {
 
             const keys = await inCtx(() => target.list({ as: 'keys' }));
             expect(keys).toEqual(expect.arrayContaining(['keep', 'drop']));
+            // A total is a metered count over the whole namespace, not part
+            // of naming the keys.
+            await expect(
+                inCtx(() => target.list({ as: 'keys', includeTotal: true })),
+            ).rejects.toMatchObject({ statusCode: 402 });
 
             await expect(
                 inCtx(() => target.del({ key: 'drop' })),

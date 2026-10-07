@@ -34,7 +34,13 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import type { KVOpts, KVUsage } from '../../stores/systemKv/SystemKVStore.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
+import { normalizeLimit } from '../../util/pagination.js';
 import { KV_COSTS } from './costs.js';
+import {
+    KV_MAX_BATCH_PUT_ITEMS,
+    KV_MAX_GET_KEYS,
+    KV_MAX_LIST_LIMIT,
+} from './limits.js';
 
 /**
  * Every KV method's argument object, as far as option resolution cares: the
@@ -323,6 +329,14 @@ export class KVStoreDriver extends PuterDriver {
             }); // legacyCode for backward compatibility with old error handling in controllers
         }
 
+        if (Array.isArray(key) && key.length > KV_MAX_GET_KEYS) {
+            throw new HttpError(
+                400,
+                `kv: get accepts at most ${KV_MAX_GET_KEYS} keys per call`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+
         const opts = await this.#opts('get', args);
 
         if (Array.isArray(key)) {
@@ -381,6 +395,13 @@ export class KVStoreDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             }); // legacyCode for backward compatibility with old error handling in controllers
         }
+        if (items.length > KV_MAX_BATCH_PUT_ITEMS) {
+            throw new HttpError(
+                400,
+                `kv: a batch write accepts at most ${KV_MAX_BATCH_PUT_ITEMS} items per call`,
+                { legacyCode: 'bad_request' },
+            );
+        }
 
         const coerced = items.map((item) => ({
             key: this.#coerceKey(item.key),
@@ -437,8 +458,9 @@ export class KVStoreDriver extends PuterDriver {
         const opts = await this.#opts('list', args);
         // Naming what it holds is how an account with nothing left decides what
         // to delete, so the keys stay readable. Reading the values back out is
-        // the same egress every other read is turned away for.
-        if (args.as !== 'keys') {
+        // the same egress every other read is turned away for, and a total is
+        // a count over the whole namespace that naming keys doesn't need.
+        if (args.as !== 'keys' || args.includeTotal) {
             await assertActorHasCredits(
                 this.services.metering,
                 opts.actor,
@@ -448,7 +470,10 @@ export class KVStoreDriver extends PuterDriver {
         const { res, usage } = await this.stores.kv.list(
             {
                 as: args.as,
-                limit: args.limit,
+                limit: normalizeLimit(args.limit, {
+                    cap: KV_MAX_LIST_LIMIT,
+                    label: 'kv: limit',
+                }),
                 cursor: args.cursor,
                 pattern: args.pattern,
                 offset: args.offset,
