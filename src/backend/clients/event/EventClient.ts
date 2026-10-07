@@ -92,7 +92,7 @@ export class EventClient extends PuterClient {
      *
      * Listeners run sequentially in the order they're registered so an earlier
      * handler's mutation is visible to later ones. A listener that throws is
-     * logged (same as `emit`) and the chain continues.
+     * logged and the chain continues, with `meta.listener_failed` set.
      */
     async emitAndWait<T extends keyof EventMap>(
         key: T,
@@ -114,10 +114,15 @@ export class EventClient extends PuterClient {
                     extensionListeners || [],
                 );
                 if (!listeners) continue;
+                // A wildcard listener observes the event; it does not implement it.
+                const isExact = matchKey === key;
                 for (const listener of listeners) {
                     try {
                         await listener(key, data, meta);
                     } catch (e) {
+                        // The chain continues, but the caller is told: a hook
+                        // that could not run is not a hook that approved.
+                        if (isExact) meta.listener_failed = true;
                         console.error(
                             'Error in event listener for event',
                             key,

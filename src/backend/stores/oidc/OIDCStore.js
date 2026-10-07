@@ -76,9 +76,16 @@ export class OIDCStore extends PuterStore {
         const existing = await this.getByProviderSub(provider, providerSub);
         if (!existing) return;
         if (existing.user_id !== userId) {
+            // The caller is told there is a conflict, not whose.
+            console.warn('[oidc] link conflict', {
+                provider,
+                providerSub,
+                boundTo: existing.user_id,
+                userId,
+            });
             throw new HttpError(
                 409,
-                `OIDC link conflict: (${provider}, ${providerSub}) already bound to user ${existing.user_id}`,
+                `This ${provider} identity is already linked to another account`,
                 { legacyCode: 'conflict' },
             );
         }

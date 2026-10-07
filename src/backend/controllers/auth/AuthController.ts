@@ -18,6 +18,7 @@
  */
 
 import bcrypt from 'bcrypt';
+import type { EventMetadata } from '../../clients/event/types.js';
 import type { Request, RequestHandler, Response } from 'express';
 import crypto from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
@@ -109,6 +110,7 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import {
     assertCreatablePath,
+    isOwnHomePath,
     fsCreateKindFor,
     MAX_CREATED_ENTRIES_PER_GRANT,
     parseCreateFlag,
@@ -982,16 +984,19 @@ export class AuthController extends PuterController {
             // the code they quote support leads straight to their trail.
             trail_id: undefined as string | undefined,
         };
+        const validateMeta: EventMetadata = {};
         try {
             await this.clients.event?.emitAndWait(
                 'puter.signup.validate',
                 validateEvent,
-                {},
+                validateMeta,
             );
         } catch (e) {
             console.warn('[signup] validate hook failed:', e);
+            validateMeta.listener_failed = true;
         }
-        if (!validateEvent.allow) {
+        // A check that could not run is not a check that passed.
+        if (validateMeta.listener_failed || !validateEvent.allow) {
             // Pass the trail id back to a blocked user as the Request Code (when
             // the harness stamped one), embedded in the message so the existing
             // signup-block UI surfaces it without a GUI change.
@@ -3520,8 +3525,12 @@ export class AuthController extends PuterController {
             return null;
         }
 
-        // Checked only once the path is confirmed missing, so an existing
-        // shared path outside the caller's home is not a new rejection.
+        // Word for word what an existing foreign path answers.
+        if (!isOwnHomePath(path, actor.user!.username!)) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
         assertCreatablePath(path, actor.user!.username!);
 
         const kind =
@@ -3638,6 +3647,7 @@ export class AuthController extends PuterController {
                 // resolves to. Once a path is created, `grantUserAppPermission`
                 // re-runs the identical rewrite and check itself.
                 await this.services.permission.assertUserAppPermissionWritable(
+                    req.actor!,
                     entry,
                 );
             }
@@ -3788,6 +3798,12 @@ export class AuthController extends PuterController {
         const { permissions, app_uid } = req.body ?? {};
         if (!Array.isArray(permissions)) {
             throw new HttpError(400, 'Missing or invalid `permissions` array', {
+                legacyCode: 'bad_request',
+            });
+        }
+        // As grant and revoke; `puter.perms.check` splits a longer list.
+        if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+            throw new HttpError(400, 'Too many `permissions`', {
                 legacyCode: 'bad_request',
             });
         }
@@ -5140,16 +5156,19 @@ export class AuthController extends PuterController {
             allow: true,
             message: null,
         };
+        // Same shape as the OIDC path: a gate that did not run is not a pass.
+        const meta: { listener_failed?: boolean } = {};
         try {
             await this.clients.event?.emitAndWait(
                 'email.validate',
                 validateEvent,
-                {},
+                meta,
             );
         } catch (e) {
             console.warn('[email-validate] hook failed:', e);
+            meta.listener_failed = true;
         }
-        if (!validateEvent.allow) {
+        if (meta.listener_failed || !validateEvent.allow) {
             throw new HttpError(
                 400,
                 validateEvent.message ??

@@ -475,6 +475,25 @@ export class PermissionStore extends PuterStore {
     }
 
     /**
+     * The grants an account issued, as flat-view refs. Read before the account
+     * row goes: the SQL rows cascade with it, the holders' flat entries do
+     * not.
+     */
+    async listUserUserPermRefsIssuedBy(
+        issuerUserId: number,
+    ): Promise<FlatPermRef[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT `holder_user_id`, `permission` FROM `user_to_user_permissions` ' +
+                'WHERE `issuer_user_id` = ?',
+            [issuerUserId],
+        )) as Array<{ holder_user_id: number; permission: string }>;
+        return rows.map((row) => ({
+            holderUserId: row.holder_user_id,
+            permission: row.permission,
+        }));
+    }
+
+    /**
      * Delete every user-to-user grant at or beneath `permission`, clearing the
      * flat KV view too, and return the rows removed so the caller can audit
      * them and bust caches.

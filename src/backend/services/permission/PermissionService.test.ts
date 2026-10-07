@@ -23,6 +23,7 @@ import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { kv } from '../../util/kvSingleton.js';
 import { PermissionService } from './PermissionService.js';
 
@@ -409,6 +410,60 @@ describe('PermissionService (integration)', () => {
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('answers the same for a foreign path that exists and one that does not', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const other = await makeUserActor();
+            const otherName = other.actor.user!.username!;
+
+            // One path that really is there, and one that is not.
+            const real = `/${otherName}/real-${uuidv4()}`;
+            const absent = `/${otherName}/nope-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO fsentries (uuid, parent_uid, user_id, name, path, is_dir, size, created, accessed, modified) ' +
+                    'VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    uuidv4(),
+                    other.user.id,
+                    real.split('/').pop(),
+                    real,
+                    1,
+                    0,
+                    Date.now(),
+                    Date.now(),
+                    Date.now(),
+                ],
+            );
+
+            const attempt = (path: string) =>
+                runWithContext({ actor }, () =>
+                    permService.grantUserAppPermission(
+                        actor,
+                        app.uid,
+                        `fs:${path}:read`,
+                    ),
+                );
+
+            const existing = await attempt(real).then(
+                () => null,
+                (e) => e,
+            );
+            const missing = await attempt(absent).then(
+                () => null,
+                (e) => e,
+            );
+
+            // Both refused, identically: the difference would be the oracle.
+            expect(existing).toMatchObject({
+                statusCode: 403,
+                legacyCode: 'permission_denied',
+            });
+            expect(missing).toMatchObject({
+                statusCode: 403,
+                legacyCode: 'permission_denied',
+            });
         });
 
         it('persists a user→app grant and is idempotent', async () => {
@@ -844,6 +899,209 @@ describe('PermissionService (integration)', () => {
             );
 
             expect(await permService.check(appActor, permission)).toBe(true);
+        });
+    });
+
+    describe('fs path rewrite does not oracle existence', () => {
+        it('answers the same for a foreign path that exists and one that does not', async () => {
+            const { user: prober, actor: proberActor } = await makeUserActor();
+            const { user: victim } = await makeUserActor();
+            const { user: recipient } = await makeUserActor();
+            for (const u of [prober, victim]) {
+                await generateDefaultFsentries(
+                    server.clients.db,
+                    server.stores.user,
+                    u as never,
+                );
+            }
+
+            const real = `fs:/${victim.username}/Documents:read`;
+            const absent = `fs:/${victim.username}/no-such-${uuidv4()}:read`;
+
+            const outcome = async (permission: string) => {
+                try {
+                    await runWithContext({ actor: proberActor }, () =>
+                        permService.grantUserUserPermission(
+                            proberActor,
+                            recipient.username,
+                            permission,
+                        ),
+                    );
+                    return 'granted';
+                } catch (e) {
+                    const err = e as {
+                        statusCode?: number;
+                        legacyCode?: string;
+                    };
+                    return `${err.statusCode}:${err.legacyCode}`;
+                }
+            };
+
+            const [onReal, onAbsent] = [
+                await outcome(real),
+                await outcome(absent),
+            ];
+            expect(onAbsent).toBe(onReal);
+            expect(onReal).toBe('403:permission_denied');
+        });
+
+        it('still says so for a missing path in the caller own home', async () => {
+            const { user, actor } = await makeUserActor();
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                user as never,
+            );
+
+            await expect(
+                permService.rewritePermissionForActor(
+                    actor,
+                    `fs:/${user.username}/no-such-${uuidv4()}:read`,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 404,
+                legacyCode: 'subject_does_not_exist',
+            });
+        });
+    });
+
+    // The flat view must hold the holder's own grant and nothing broader that
+    // the issuer happens to hold above it.
+    describe('flat warm scope', () => {
+        it('warms the granted row, not the wider permission the issuer holds', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: holder, actor: holderActor } = await makeUserActor();
+
+            const resource = `zztest:warm-${uuidv4()}`;
+            const granted = `${resource}:ii:read`;
+
+            // The issuer holds the whole resource and may hand out pieces of it.
+            for (const held of [resource, `manage:${granted}`]) {
+                await server.stores.permission.setFlatUserPerm(
+                    issuer.id,
+                    held,
+                    {
+                        permission: held,
+                        deleted: false,
+                        issuer_user_id: issuer.id,
+                    } as never,
+                );
+            }
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    holder.username,
+                    granted,
+                ),
+            );
+
+            const written: string[] = [];
+            const store = server.stores.permission;
+            const realSetFlat = store.setFlatUserPerm.bind(store);
+            const setFlat = vi
+                .spyOn(store, 'setFlatUserPerm')
+                .mockImplementation(async (userId, perm, value, opts) => {
+                    if (userId === holder.id) written.push(perm);
+                    return realSetFlat(userId, perm, value, opts);
+                });
+
+            // Force the miss the warm runs on.
+            await store.delFlatUserPerms([
+                { holderUserId: holder.id, permission: granted },
+            ]);
+
+            await runWithContext({ actor: holderActor }, () =>
+                permService.validateUserPerms({
+                    actor: holderActor,
+                    permissions: [granted],
+                }),
+            );
+            await vi.waitFor(() => expect(written.length).toBeGreaterThan(0));
+            setFlat.mockRestore();
+
+            // The issuer's wider `resource` must not land under the holder.
+            expect([...new Set(written)]).toEqual([granted]);
+            const [wider] = await store.getFlatUserPerms(holder.id, [resource]);
+            expect(wider?.permission).toBeUndefined();
+        });
+    });
+
+    // The fs variant the ticket describes: `fs-access-levels` puts
+    // `manage:fs:<id>` in the higher set for `fs:<id>:read`, so a delegate who
+    // holds the manage terminates the issuer scan with it as the leaf.
+    describe('flat warm scope (fs delegate)', () => {
+        it('never warms the delegate manage under the holder', async () => {
+            const { user: owner, actor: ownerActor } = await makeUserActor();
+            const { user: delegate, actor: delegateActor } =
+                await makeUserActor();
+            const { user: holder, actor: holderActor } = await makeUserActor();
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                owner as never,
+            );
+
+            const dir = `/${owner.username}/shared-${uuidv4().slice(0, 8)}`;
+            await server.services.fs.mkdir(owner.id, {
+                path: dir,
+                createMissingParents: true,
+            });
+            const entry = await server.stores.fsEntry.getEntryByPath(dir);
+            const manage = `manage:fs:${entry!.uuid}`;
+            const read = `fs:${entry!.uuid}:read`;
+
+            // The owner delegates management; the delegate hands out a read.
+            await runWithContext({ actor: ownerActor }, () =>
+                permService.grantUserUserPermission(
+                    ownerActor,
+                    delegate.username,
+                    manage,
+                ),
+            );
+            await runWithContext({ actor: delegateActor }, () =>
+                permService.grantUserUserPermission(
+                    delegateActor,
+                    holder.username,
+                    read,
+                ),
+            );
+
+            const written: string[] = [];
+            const store = server.stores.permission;
+            const realSetFlat = store.setFlatUserPerm.bind(store);
+            const setFlat = vi
+                .spyOn(store, 'setFlatUserPerm')
+                .mockImplementation(async (userId, perm, value, opts) => {
+                    if (userId === holder.id) written.push(perm);
+                    return realSetFlat(userId, perm, value, opts);
+                });
+
+            // Force the miss the warm runs on.
+            await store.delFlatUserPerms([
+                { holderUserId: holder.id, permission: read },
+            ]);
+
+            await runWithContext({ actor: holderActor }, () =>
+                permService.validateUserPerms({
+                    actor: holderActor,
+                    permissions: [read],
+                }),
+            );
+            await vi.waitFor(() => expect(written.length).toBeGreaterThan(0));
+            setFlat.mockRestore();
+
+            expect(written).not.toContain(manage);
+            const [escalated] = await store.getFlatUserPerms(holder.id, [
+                manage,
+            ]);
+            expect(escalated?.permission).toBeUndefined();
+
+            // So a read holder still cannot re-share the entry.
+            await expect(
+                runWithContext({ actor: holderActor }, () =>
+                    permService.canManagePermission(holderActor, read),
+                ),
+            ).resolves.toBe(false);
         });
     });
 

@@ -916,7 +916,11 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
-export type EventMetadata = { from_outside?: boolean };
+export type EventMetadata = {
+    from_outside?: boolean;
+    /** Set by `emitAndWait` when a listener threw, so a verdict hook can refuse. */
+    listener_failed?: boolean;
+};
 export type EventListener<K extends EventKey = EventKey> = (
     key: K,
     data: EventMap[K],

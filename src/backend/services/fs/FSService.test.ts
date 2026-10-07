@@ -2845,7 +2845,8 @@ describe('FSService reads', () => {
         const error = await caught(() => fs.readContent(entry));
         expect(error.statusCode).toBe(404);
         expect(error.legacyCode).toBe('subject_does_not_exist');
-        expect(error.fields).toEqual({ path: entry.path, uid: entry.uuid });
+        // A shared entry is addressed by uuid, not the owner's real path.
+        expect(error.fields).toEqual({ uid: entry.uuid });
         expect(await entryAt(user, '/Documents/ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
@@ -3269,17 +3270,18 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             .tryHardRead;
         const tryHardReadSpy = vi
             .spyOn(db, 'tryHardRead')
-            .mockImplementation(async (query: string, params: unknown[] = []) => {
-                if (
-                    query.includes('WHERE uuid = ? LIMIT 1') &&
-                    params[0] === entry.uuid
-                ) {
-                    return staleRows;
-                }
-                return originalTryHardRead.call(db, query, params);
-            });
+            .mockImplementation(
+                async (query: string, params: unknown[] = []) => {
+                    if (
+                        query.includes('WHERE uuid = ? LIMIT 1') &&
+                        params[0] === entry.uuid
+                    ) {
+                        return staleRows;
+                    }
+                    return originalTryHardRead.call(db, query, params);
+                },
+            );
         try {
-
             const renamed = await fs.rename(
                 user.userId,
                 entry,
@@ -3289,7 +3291,6 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             expect(renamed.path).toBe(
                 `${user.home}/Documents/stale-rename-2.txt`,
             );
-
         } finally {
             tryHardReadSpy.mockRestore();
         }
@@ -4129,6 +4130,7 @@ describe('FSService copy', () => {
         );
         expect(error.statusCode).toBe(404);
         expect(error.legacyCode).toBe('subject_does_not_exist');
+        expect(error.fields).toEqual({ uid: source.uuid });
         expect(await entryAt(user, '/Documents/cp-ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
@@ -4159,9 +4161,7 @@ describe('FSService copy event dispatch', () => {
             eventsServer.stores.user,
             created,
         );
-        const refreshed = (await eventsServer.stores.user.getById(
-            created.id,
-        ))!;
+        const refreshed = (await eventsServer.stores.user.getById(created.id))!;
         user = {
             userId: refreshed.id,
             username: refreshed.username,
@@ -4263,9 +4263,7 @@ describe('FSService copy event dispatch', () => {
                 path: copy.path,
             });
             expect(
-                dispatched[0].ancestors.some(
-                    (a) => a.uid === destination.uid,
-                ),
+                dispatched[0].ancestors.some((a) => a.uid === destination.uid),
             ).toBe(true);
         } finally {
             restore();
@@ -4333,8 +4331,9 @@ describe('FSService copy event dispatch', () => {
             const nested = dispatched.find((d) =>
                 d.path.endsWith('/cpev2-copy/sub/b.txt'),
             )!;
-            const destinationChain =
-                await eventsFs.getAncestorChain(destination.path);
+            const destinationChain = await eventsFs.getAncestorChain(
+                destination.path,
+            );
             expect(nested.ancestors.map((a) => a.path)).toEqual([
                 `${user.home}/Desktop/cpev2-copy/sub/b.txt`,
                 `${user.home}/Desktop/cpev2-copy/sub`,
@@ -5103,6 +5102,14 @@ describe('FSService permission rules', () => {
                 `manage:fs:${file.uuid}`,
             ]),
         );
+    });
+
+    it('keeps the sub-scope when it widens a mode', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:see:thumbnail`,
+        );
+
+        expect(higher).toContain(`fs:${file.uuid}:read:thumbnail`);
     });
 
     it('does not widen the narrowest mode', async () => {
