@@ -1,9 +1,8 @@
+import { looksLikeUid } from '../utils/getAbsolutePathForApp.js';
 import { parseOperationArgs } from './scaffold.js';
 import stat from './stat.js';
 
 /** @typedef {import('../types.js').GetShareLinkOptions} GetShareLinkOptions */
-
-const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 /**
  * @typedef {{
@@ -44,7 +43,7 @@ const getShareLinkImpl = async function (...args) {
     const item = typeof options.item === 'string' ? options.item : undefined;
     const uid = options.uid !== undefined
         ? String(options.uid)
-        : (item !== undefined && UUID.test(item) ? item : undefined);
+        : (looksLikeUid(item) ? item : undefined);
     const path = uid === undefined ? (options.path ?? item) : undefined;
     if ( uid === undefined && (typeof path !== 'string' || path === '') ) {
         return fail({ message: 'getShareLink() needs a path or a uid.', code: 'field_missing' });
