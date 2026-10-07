@@ -56,7 +56,7 @@ const statImpl = async function (...args) {
     // Generate cache key based on path or uid
     let cacheKey;
     if ( options.path ) {
-        cacheKey = `item:${ options.path}`;
+        cacheKey = puter.fsCacheKey('item', options.path);
     }
 
     if ( options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize && !options.returnShares ) {

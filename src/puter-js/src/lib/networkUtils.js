@@ -496,9 +496,10 @@ const VERIFICATION_GATE_CODES = new Set([
 /** Whether an error code names one of those gates. */
 const isVerificationGateCode = (code) => VERIFICATION_GATE_CODES.has(code);
 
-// Single-flighted verification prompt: concurrent gated requests share one
-// GUI dialog rather than stacking windows.
-let pendingVerificationGate = null;
+// Single-flighted per gate: concurrent requests behind the *same* gate share
+// one dialog, while a different gate gets its own — sharing across gates hands
+// one gate's answer to another, which then replays and fails without asking.
+const pendingVerificationGates = new Map();
 
 /**
  * Drive the hosting GUI's verification flow for a 403 `*_required` gate code.
@@ -513,8 +514,10 @@ let pendingVerificationGate = null;
  */
 async function resolveVerificationGate(code, factors) {
     if (globalThis.puter?.env !== 'app') return { verified: false };
-    if (!pendingVerificationGate) {
-        pendingVerificationGate = (async () => {
+    const key = `${code}:${Array.isArray(factors) ? factors.join(',') : ''}`;
+    let pending = pendingVerificationGates.get(key);
+    if (!pending) {
+        pending = (async () => {
             try {
                 const verified = await puter.ui.requestVerificationGate(
                     code,
@@ -524,11 +527,12 @@ async function resolveVerificationGate(code, factors) {
             } catch (e) {
                 return { verified: false };
             } finally {
-                pendingVerificationGate = null;
+                pendingVerificationGates.delete(key);
             }
         })();
+        pendingVerificationGates.set(key, pending);
     }
-    return pendingVerificationGate;
+    return pending;
 }
 
 /**
@@ -665,11 +669,13 @@ async function classifyRetry(outcome, ctx) {
         return null;
     }
 
-    // permission denied (200 success:false) — one-shot, any method, no backoff.
+    // permission denied (403) — one-shot, any method, no backoff. The envelope
+    // this used to read, a 200 carrying `success:false`, is not one the API
+    // sends; a refusal arrives as the status.
     if (
         ctx.permission &&
-        parsed?.success === false &&
-        parsed?.error?.code === 'permission_denied'
+        status === 403 &&
+        [parsed?.code, parsed?.error?.code].includes('permission_denied')
     ) {
         if (!ctx.done.has('permission')) {
             const perm = await resolvePermission(ctx.permission);

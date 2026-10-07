@@ -75,6 +75,29 @@ describe('verification gate on a filesystem request', () => {
         expect(requests).toHaveLength(2);
     });
 
+    it('asks for each gate, rather than sharing one answer between them', async () => {
+        const emailGate = {
+            status: 403,
+            body: {
+                code: 'email_confirmation_required',
+                message: 'Please confirm your email to continue',
+            },
+        };
+        // Two requests, two different gates, in flight together.
+        installFakeXHR([emailGate, gate, ok, ok]);
+        await Promise.all([send(), send()]);
+
+        const asked = puter.ui.requestVerificationGate.mock.calls.map(
+            (c) => c[0],
+        );
+        expect(new Set(asked)).toEqual(
+            new Set([
+                'email_confirmation_required',
+                'phone_verification_required',
+            ]),
+        );
+    });
+
     it('rejects with the refusal unchanged when the user backs out', async () => {
         puter.ui.requestVerificationGate.mockResolvedValue(false);
         const requests = installFakeXHR([gate]);

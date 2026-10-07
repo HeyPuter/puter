@@ -726,11 +726,8 @@ describe('driver permission-grant replay (regression)', () => {
         const xhrs = installFakeXHR(
             sequence(
                 respond({
-                    status: 200,
-                    body: {
-                        success: false,
-                        error: { code: 'permission_denied' },
-                    },
+                    status: 403,
+                    body: { error: { code: 'permission_denied' } },
                 }),
                 respond({ status: 200, body: { success: true, result: 'ok' } }),
             ),
@@ -767,8 +764,8 @@ describe('driver permission-grant replay (regression)', () => {
         const requestPermission = vi.fn(async () => ({ granted: true }));
         globalThis.puter = { ui: { requestPermission } };
         const denied = respond({
-            status: 200,
-            body: { success: false, error: { code: 'permission_denied' } },
+            status: 403,
+            body: { error: { code: 'permission_denied' } },
         });
         const xhrs = installFakeXHR(sequence(denied, denied, denied));
         const spec = {

@@ -1092,8 +1092,24 @@ export class Puter {
      *
      * @internal
      */
+    /** Cache key for `kind` at `path`, scoped to the identity it was read as. */
+    fsCacheKey = function (kind, path) {
+        return `${kind}:${this.APIOrigin}:${this.authToken}:${path}`;
+    };
+
+    /** Nothing read as one identity may answer for the next. */
+    _dropIdentityCaches = function () {
+        this.whoami = undefined;
+        try {
+            this._cache.flushall();
+        } catch (e) {
+            // A cache we cannot clear must not stop the sign-out.
+        }
+    };
+
     _clearAuthToken = function () {
         this.authToken = null;
+        this._dropIdentityCaches();
         if (this.env === 'web' || this.env === 'app') {
             this.storeSessionToken_(null);
             try {
@@ -1875,7 +1891,7 @@ export class Puter {
         let public_path = `/${username}/Public`;
 
         // item:Home
-        if (!puter._cache.get(`item:${home_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', home_path))) {
             console.log(
                 `/${username} item is not cached, refetching cache`,
             );
@@ -1883,7 +1899,7 @@ export class Puter {
             warm(puter.fs.stat(home_path));
         }
         // item:Desktop
-        if (!puter._cache.get(`item:${desktop_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', desktop_path))) {
             console.log(
                 `/${username}/Desktop item is not cached, refetching cache`,
             );
@@ -1891,7 +1907,7 @@ export class Puter {
             warm(puter.fs.stat(desktop_path));
         }
         // item:Documents
-        if (!puter._cache.get(`item:${documents_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', documents_path))) {
             console.log(
                 `/${username}/Documents item is not cached, refetching cache`,
             );
@@ -1899,7 +1915,7 @@ export class Puter {
             warm(puter.fs.stat(documents_path));
         }
         // item:Public
-        if (!puter._cache.get(`item:${public_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', public_path))) {
             console.log(
                 `/${username}/Public item is not cached, refetching cache`,
             );
@@ -1908,13 +1924,13 @@ export class Puter {
         }
 
         // readdir:Home
-        if (!puter._cache.get(`readdir:${home_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', home_path))) {
             console.log(`/${username} is not cached, refetching cache`);
             // fetch home
             warm(puter.fs.readdir(home_path));
         }
         // readdir:Desktop
-        if (!puter._cache.get(`readdir:${desktop_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', desktop_path))) {
             console.log(
                 `/${username}/Desktop is not cached, refetching cache`,
             );
@@ -1922,7 +1938,7 @@ export class Puter {
             warm(puter.fs.readdir(desktop_path));
         }
         // readdir:Documents
-        if (!puter._cache.get(`readdir:${documents_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', documents_path))) {
             console.log(
                 `/${username}/Documents is not cached, refetching cache`,
             );
@@ -1930,7 +1946,7 @@ export class Puter {
             warm(puter.fs.readdir(documents_path));
         }
         // readdir:Public
-        if (!puter._cache.get(`readdir:${public_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', public_path))) {
             console.log(
                 `/${username}/Public is not cached, refetching cache`,
             );

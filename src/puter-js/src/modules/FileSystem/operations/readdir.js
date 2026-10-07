@@ -67,7 +67,7 @@ const requestOnce = function (options, pageParams) {
             // set each individual item's cache
             const entries = Array.isArray(normalized) ? normalized : (normalized?.items ?? []);
             for ( const item of entries ) {
-                puter._cache.set(`item:${ item.path}`, item);
+                puter._cache.set(puter.fsCacheKey('item', item.path), item);
             }
             return normalized;
         },
@@ -104,7 +104,7 @@ const readdirPaged = async function (options) {
     // listings are never cached (they'd collide with the direct listing).
     let cacheKey;
     if ( options.path && unbound && ! options.recursive ) {
-        cacheKey = `readdir:${ options.path}`;
+        cacheKey = puter.fsCacheKey('readdir', options.path);
     }
 
     if ( options.consistency === 'eventual' && cacheKey ) {
