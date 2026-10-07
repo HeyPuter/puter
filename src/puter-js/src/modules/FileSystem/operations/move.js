@@ -1,5 +1,5 @@
 import path from 'path-browserify';
-import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import { getAbsolutePathOrUidForApp, looksLikeUid } from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 import stat from './stat.js';
 
@@ -8,9 +8,9 @@ import stat from './stat.js';
 
 /**
  * Moves a file or directory to another location. Relative paths resolve
- * against the app's root directory. When `destination` is a directory the item
- * is moved into it under the same name; otherwise the last path component is
- * used as the new name.
+ * against the app's root directory; a UID-shaped string is read as a uid. When
+ * `destination` is a directory the item is moved into it under the same name;
+ * otherwise the last path component is used as the new name.
  *
  * @type {{
  *   (options: MoveOptions): Promise<FSItem>,
@@ -26,19 +26,24 @@ import stat from './stat.js';
 const move = defineOperation({
     positional: ['source', 'destination'],
     async request (options) {
-        const source = getAbsolutePathForApp(options.source);
-        let destination = getAbsolutePathForApp(options.destination);
+        const source = getAbsolutePathOrUidForApp(options.source);
+        let destination = getAbsolutePathOrUidForApp(options.destination);
         let newName = firstDefined(options, 'newName', 'new_name');
 
-        if ( ! newName ) {
-            // Whether the destination names a directory to move into, or the
-            // new path of the item itself.
+        // A path destination is either a directory to move into or the item's
+        // new path; a uid can only be a directory, so it needs no lookup.
+        if ( ! newName && ! looksLikeUid(destination) ) {
             let destinationIsDir = false;
             try {
                 const destStats = await stat.call(this, destination);
                 destinationIsDir = Boolean(destStats.is_dir);
             } catch (e) {
-                // Destination doesn't exist — treat it as the new path.
+                // Only a missing destination is a new path. A denied or failed
+                // lookup must not turn the move into a rename.
+                if ( e?.code !== 'subject_does_not_exist' ) {
+                    if ( typeof options.error === 'function' ) options.error(e);
+                    throw e;
+                }
             }
             if ( ! destinationIsDir ) {
                 newName = path.basename(destination);

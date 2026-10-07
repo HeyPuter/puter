@@ -18,11 +18,15 @@ puter.fs.move(options)
 
 #### `source` (String) (Required)
 
-The path to the file or directory to move.
+The path or UID of the file or directory to move.
 
 #### `destination` (String) (Required)
 
-The path to the destination directory. If destination is a directory then the file or directory will be moved into that directory using the same name as the source file or directory. If the destination is a file, we overwrite if overwrite is `true`, otherwise we error.
+The path to the destination directory, or the item's new path. If destination is a directory then the file or directory will be moved into that directory using the same name as the source file or directory. Otherwise the item is moved into the destination's parent directory under its last path component; if a file is already there, we overwrite if overwrite is `true`, otherwise we error. A UID can be given in place of a path, and must name a directory.
+
+Relative paths resolve against the app's root directory. A relative name that looks like a UID is read as one; prefix it with `./` to address a file by that name.
+
+Without `newName`, the destination is looked up first to tell the two cases apart. If that lookup fails for any reason other than the destination not existing (for example, access is denied), the promise rejects with that error.
 
 #### `options` (Object) (Optional)
 

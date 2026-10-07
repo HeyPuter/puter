@@ -348,6 +348,22 @@ export default suite('fs', {
         t.assert.deepEqual(rel, ['a', 'a/b', 'a/b/deep.txt', 'top.txt']);
     },
 
+    'readdir recursive with limit resolves to a page': async (t) => {
+        const base = `${home(t)}/fs-suite-recursive-limit`;
+        await t.puter.fs.write(`${base}/a/one.txt`, '1', {
+            createMissingParents: true,
+        });
+        await t.puter.fs.write(`${base}/two.txt`, '2');
+        const page = await t.puter.fs.readdir({
+            path: base,
+            recursive: true,
+            limit: 1,
+        });
+        t.assert.equal(Array.isArray(page), false);
+        t.assert.equal(page.items.length, 1);
+        t.assert.equal(typeof page.cursor, 'string');
+    },
+
     'copy duplicates a file': async (t) => {
         const src = `${home(t)}/fs-suite-copy-src.txt`;
         const dstDir = `${home(t)}/fs-suite-copy-dst`;
@@ -424,6 +440,67 @@ export default suite('fs', {
         await t.puter.fs.move(src, dst);
         const blob = await t.puter.fs.read(dst);
         t.assert.equal(await blob.text(), 'move+rename');
+    },
+
+    'move into a directory addressed by uid': async (t) => {
+        const src = `${home(t)}/fs-suite-move-to-uid-src.txt`;
+        const dir = await t.puter.fs.mkdir(
+            `${home(t)}/fs-suite-move-to-uid-dst`,
+        );
+        await t.puter.fs.write(src, 'into uid dir');
+        await t.puter.fs.move(src, dir.uid);
+        const blob = await t.puter.fs.read(
+            `${home(t)}/fs-suite-move-to-uid-dst/fs-suite-move-to-uid-src.txt`,
+        );
+        t.assert.equal(await blob.text(), 'into uid dir');
+    },
+
+    'read, copy, move and delete take a uid in place of a path': async (t) => {
+        const file = await t.puter.fs.write(
+            `${home(t)}/fs-suite-uid-selector.txt`,
+            'by uid',
+        );
+        const dir = await t.puter.fs.mkdir(
+            `${home(t)}/fs-suite-uid-selector-dir`,
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(file.uid)).text(),
+            'by uid',
+        );
+        await t.puter.fs.copy(file.uid, dir.uid, { newName: 'copied.txt' });
+        await t.puter.fs.move(file.uid, dir.uid, { newName: 'moved.txt' });
+        const names = (
+            await t.puter.fs.readdir(`${home(t)}/fs-suite-uid-selector-dir`)
+        )
+            .map((e) => e.name)
+            .sort();
+        t.assert.deepEqual(names, ['copied.txt', 'moved.txt']);
+        await t.puter.fs.delete(file.uid);
+        await t.assert.rejects(
+            () => t.puter.fs.stat({ uid: file.uid }),
+            'deleted by uid',
+        );
+    },
+
+    'a UID-shaped relative name resolves as a path': async (t) => {
+        const dirName = '6a1f3c2e-8b4d-4e5f-9a6b-7c8d9e0f1a2b';
+        const fileName = '7b2e4d3f-9c5e-4f60-8b7c-8d9e0f1a2b3c';
+        const dir = await t.puter.fs.mkdir(dirName);
+        t.assert.equal(dir.path, `${home(t)}/${dirName}`);
+        await t.puter.fs.write(`${dirName}/inner.txt`, 'inner');
+        const entries = await t.puter.fs.readdir(dirName);
+        t.assert.deepEqual(
+            entries.map((e) => e.name),
+            ['inner.txt'],
+        );
+        t.assert.equal((await t.puter.fs.stat(dirName)).uid, dir.uid);
+
+        await t.puter.fs.write(`${home(t)}/${fileName}`, 'uid-shaped name');
+        t.assert.equal((await t.puter.fs.stat(fileName)).name, fileName);
+        // Methods that also take a uid read a bare UID-shaped string as one,
+        // so the relative name needs `./`.
+        const blob = await t.puter.fs.read(`./${fileName}`);
+        t.assert.equal(await blob.text(), 'uid-shaped name');
     },
 
     'rename addresses the item by uid': async (t) => {
@@ -1389,6 +1466,24 @@ export default suite('fs', {
         const byUid = await t.puter.fs.stat({ uid: written.uid });
         t.assert.equal(byUid.name, 'fs-suite-stat-by-uid.txt');
         t.assert.equal(byUid.uid, written.uid);
+    },
+
+    'eventual stat by uid returns the entry for that uid': async (t) => {
+        const a = await t.puter.fs.write(
+            `${home(t)}/fs-suite-stat-uid-a.txt`,
+            'a',
+        );
+        const b = await t.puter.fs.write(
+            `${home(t)}/fs-suite-stat-uid-b.txt`,
+            'b',
+        );
+        await t.puter.fs.stat({ uid: a.uid });
+        const info = await t.puter.fs.stat({
+            uid: b.uid,
+            consistency: 'eventual',
+        });
+        t.assert.equal(info.uid, b.uid);
+        t.assert.equal(info.name, 'fs-suite-stat-uid-b.txt');
     },
 
     'stat with eventual consistency serves the cached entry': async (t) => {

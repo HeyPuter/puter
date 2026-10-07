@@ -1,15 +1,18 @@
 import path from 'path-browserify';
 
+const reLooksLikeUUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/**
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+export const looksLikeUid = (value) =>
+    typeof value === 'string' && reLooksLikeUUID.test(value);
+
 const getAbsolutePathForApp = (relativePath, puter = globalThis.puter) => {
     // preserve previous behavior for falsy values when env is gui
     if ( puter.env === 'gui' && !relativePath )
     {
-        return relativePath;
-    }
-
-    const reLooksLikeUUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-    const isUUID = reLooksLikeUUID.test(relativePath);
-    if ( isUUID ) {
         return relativePath;
     }
 
@@ -31,5 +34,17 @@ const getAbsolutePathForApp = (relativePath, puter = globalThis.puter) => {
 
     return relativePath;
 };
+
+/**
+ * For request fields the backend reads as either a path or a uid: a
+ * UID-shaped string is sent as-is (a uid), anything else is resolved as a
+ * path. A relative name that looks like a UID needs a `./` prefix.
+ *
+ * @param {string} pathOrUid
+ * @param {unknown} [puter]
+ * @returns {string}
+ */
+export const getAbsolutePathOrUidForApp = (pathOrUid, puter = globalThis.puter) =>
+    looksLikeUid(pathOrUid) ? pathOrUid : getAbsolutePathForApp(pathOrUid, puter);
 
 export default getAbsolutePathForApp;
