@@ -46,7 +46,7 @@ Your own app reads and writes the entry normally. Writing the same key again wit
 
 #### `items` (Array) (batch only)
 
-An array of `{ key, value, expireAt? }` objects, set in a single request. Each `key` is required and follows the same **1 KB** key / **400 KB** value limits. You can pass the array directly (`set([...])`) or wrapped in an object (`set({ items: [...] })`).
+An array of `{ key, value, expireAt? }` objects, set in a single request. At most **1,000** items per call; a larger batch is rejected with `bad_request` and nothing is written. Each `key` is required and follows the same **1 KB** key / **400 KB** value limits. You can pass the array directly (`set([...])`) or wrapped in an object (`set({ items: [...] })`).
 
 You may also pass a single object instead of positional arguments: `set({ key, value, expireAt })`.
 
