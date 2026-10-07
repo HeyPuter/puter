@@ -336,6 +336,9 @@ export type EventMap = {
         // the abuse extension cap card-verification setups per device (across
         // accounts) before any Stripe SetupIntent is created.
         device_fingerprint: string | null;
+        // 'trial' when the card is being added for a free trial; null for the
+        // verification gates.
+        purpose?: string | null;
         enabled: boolean | null;
         // Set false by the extension to refuse this setup (e.g. the per-device
         // setup-velocity cap); `reason` carries the opaque code. Stays true
