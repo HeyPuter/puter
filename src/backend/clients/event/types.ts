@@ -304,6 +304,9 @@ export type EventMap = {
         device_fingerprint: string | null;
         allowed: boolean;
         reason: string | null;
+        // With `allowed` false, offer the card fallback in place of SMS. Only
+        // honored while the fallback is on; otherwise the send proceeds.
+        card_fallback_instead?: boolean;
         [key: string]: unknown;
     };
     // Fire-and-forget signal that a code was actually sent — the abuse
@@ -314,6 +317,9 @@ export type EventMap = {
         user_uid: string;
         phone: string;
         device_fingerprint: string | null;
+        // Browser-signals dispatch id the client sent with this request, or
+        // null when it sent none.
+        dispatch_id: string | null;
     };
     'user.phone-verified': {
         user_id: number;
@@ -333,6 +339,9 @@ export type EventMap = {
         // the abuse extension cap card-verification setups per device (across
         // accounts) before any Stripe SetupIntent is created.
         device_fingerprint: string | null;
+        // 'trial' when the card is being added for a free trial; null for the
+        // verification gates.
+        purpose?: string | null;
         enabled: boolean | null;
         // Set false by the extension to refuse this setup (e.g. the per-device
         // setup-velocity cap); `reason` carries the opaque code. Stays true
