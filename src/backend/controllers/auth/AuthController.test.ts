@@ -4621,6 +4621,29 @@ describe('AuthController.handleCardVerificationSetup', () => {
         expect(res.body).toMatchObject({ card_verified: true });
     });
 
+    it('lets a free trial add a card even with one already on file', async () => {
+        const { actor } = await makeUserAndActor({
+            card_fingerprint: 'fp_existing',
+        });
+        const res = makeRes();
+        let purpose: unknown;
+        await withCardSetupOverride(
+            (data) => {
+                purpose = data.purpose;
+                data.enabled = true;
+                data.client_secret = 'seti_trial';
+                data.publishable_key = 'pk_test';
+            },
+            () =>
+                controller.handleCardVerificationSetup(
+                    makeReq({ purpose: 'trial' }, { actor }),
+                    res,
+                ),
+        );
+        expect(purpose).toBe('trial');
+        expect(res.body).toMatchObject({ client_secret: 'seti_trial' });
+    });
+
     it('starts the flow for an account that was never asked and never verified', async () => {
         // A route requiring a verified card (`requireCardVerified`) sends a
         // user here with the gate clear and no card on file. Answering

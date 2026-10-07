@@ -2171,7 +2171,10 @@ export class AuthController extends PuterController {
         // Phone normally comes first, but the fallback lets a phone-gated user
         // in once they've exhausted SMS attempts.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (hasVerifiedCard(user) && !fallbackEligible) {
+        // A free trial may ask for a card of its own even when one is already
+        // verified, so it doesn't stop here.
+        const purpose = req.body?.purpose === 'trial' ? 'trial' : null;
+        if (hasVerifiedCard(user) && !fallbackEligible && purpose !== 'trial') {
             res.json({ card_verified: true });
             return;
         }
@@ -2190,6 +2193,7 @@ export class AuthController extends PuterController {
             user_uid: user.uuid,
             ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
             device_fingerprint: req.deviceFingerprint ?? null,
+            purpose,
             enabled: null as boolean | null,
             allowed: true,
             reason: null as string | null,
