@@ -4235,6 +4235,7 @@ export class AuthController extends PuterController {
                         index_url: a.index_url ?? null,
                         owner_user_id: a.owner_user_id ?? null,
                         name: a.name ?? null,
+                        godmode: isGodmodeApp(app),
                     },
                     user_id: req.actor!.user?.id ?? null,
                 } as never,
