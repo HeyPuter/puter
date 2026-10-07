@@ -30,14 +30,15 @@ export class KVModule extends PuterModule {
     guiCache;
 
     /**
-     * The maximum allowed key size, in bytes (`1 KB`).
+     * The maximum allowed key size, in UTF-8 bytes (`1 KB`).
      *
      * @readonly
      */
     MAX_KEY_SIZE = MAX_KEY_SIZE;
 
     /**
-     * The maximum allowed value size, in bytes (`400 KB`).
+     * The maximum allowed value size, in UTF-8 bytes of the value's JSON
+     * encoding (`400 KB`).
      *
      * @readonly
      */

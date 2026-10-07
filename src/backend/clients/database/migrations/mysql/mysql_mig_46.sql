@@ -15,38 +15,35 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- The owner of the shared entry, recorded on the share row. Mirrors SQLite
--- migration 0092. Guarded like mysql_mig_45, because there is no per-file
--- applied-state tracking and a replay must do nothing.
+-- Recompute `clean_email` for Apple's domains: dots are significant there, so
+-- rows written while they were stripped still collapse two mailboxes into one.
+-- Only rows still holding exactly what the old rule produced, so a NULL or a
+-- legacy un-lowercased value is left alone -- rewriting those would fold `+tag`
+-- or case into a key another row already owns. Restores dots and nothing else.
 
-DROP PROCEDURE IF EXISTS _puter_add_share_entry_owner;
-DELIMITER //
-CREATE PROCEDURE _puter_add_share_entry_owner()
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND COLUMN_NAME = 'entry_owner_user_id'
-  ) THEN
-    ALTER TABLE `share` ADD COLUMN `entry_owner_user_id` BIGINT DEFAULT NULL;
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND INDEX_NAME = 'idx_share_entry_owner'
-  ) THEN
-    ALTER TABLE `share` ADD INDEX `idx_share_entry_owner` (`entry_owner_user_id`, `id`);
-  END IF;
-END//
-DELIMITER ;
+UPDATE `user`
+SET `clean_email` = CONCAT(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(`email`), '@', 1), '+', 1), '@', SUBSTRING_INDEX(LOWER(`email`), '@', -1))
+WHERE `email` IS NOT NULL
+  AND LOCATE('@', `email`) > 1
+  AND (
+        LOWER(`email`) LIKE '%@icloud.com'
+     OR LOWER(`email`) LIKE '%@me.com'
+     OR LOWER(`email`) LIKE '%@mac.com'
+  )
+  AND `clean_email` = CONCAT(REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(`email`), '@', 1), '+', 1), '.', ''), '@', SUBSTRING_INDEX(LOWER(`email`), '@', -1))
+  AND `clean_email` <> CONCAT(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(`email`), '@', 1), '+', 1), '@', SUBSTRING_INDEX(LOWER(`email`), '@', -1));
 
-CALL _puter_add_share_entry_owner();
-
-DROP PROCEDURE IF EXISTS _puter_add_share_entry_owner;
-
-UPDATE `share` JOIN `fsentries` ON `fsentries`.`id` = `share`.`fsentry_id`
-SET `share`.`entry_owner_user_id` = `fsentries`.`user_id`
-WHERE `share`.`fsentry_id` IS NOT NULL
-  AND `share`.`entry_owner_user_id` IS NULL;
+-- The same collapse decided who a pending invite belongs to, so the holder
+-- of the undotted address claims invites addressed to the dotted one. The
+-- typed address rides along as `invitedAddress` whenever it differed.
+UPDATE `share`
+SET `recipient_email` = CONCAT(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))), '@', 1), '+', 1), '@', SUBSTRING_INDEX(LOWER(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))), '@', -1))
+WHERE JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress')) IS NOT NULL
+  AND LOCATE('@', JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))) > 1
+  AND (
+        LOWER(`recipient_email`) LIKE '%@icloud.com'
+     OR LOWER(`recipient_email`) LIKE '%@me.com'
+     OR LOWER(`recipient_email`) LIKE '%@mac.com'
+  )
+  AND `recipient_email` = CONCAT(REPLACE(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))), '@', 1), '+', 1), '.', ''), '@', SUBSTRING_INDEX(LOWER(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))), '@', -1))
+  AND `recipient_email` <> CONCAT(SUBSTRING_INDEX(SUBSTRING_INDEX(LOWER(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))), '@', 1), '+', 1), '@', SUBSTRING_INDEX(LOWER(JSON_UNQUOTE(JSON_EXTRACT(`data`, '$.invitedAddress'))), '@', -1));

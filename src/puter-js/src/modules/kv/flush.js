@@ -26,6 +26,7 @@ const flushDriverCall = (puter, args) =>
  */
 export async function flush (optConfigOrCallback, ...rest) {
     const { puter } = this;
+    this.guiCache.invalidateAll();
 
     if ( isObject(optConfigOrCallback) && rest.length === 0 ) {
         const input = optConfigOrCallback;

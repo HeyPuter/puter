@@ -35,6 +35,7 @@ import type {
 import { isHttpUrl, toBase64DataUri } from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
     '/9j/': 'image/jpeg',
@@ -199,11 +200,7 @@ export class GeminiImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
+            throw insufficientCreditsError();
         }
 
         // --- API call ---

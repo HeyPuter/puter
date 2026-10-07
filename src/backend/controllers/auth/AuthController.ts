@@ -77,6 +77,7 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import {
     cleanEmail,
     isBlockedEmail,
@@ -1188,12 +1189,21 @@ export class AuthController extends PuterController {
                 // Lost the race to another signup between the re-check above and
                 // this insert. The index is the only thing that can see that, so
                 // translate it into the answer the pre-check would have given.
-                if (!isOwnedEmailConflict(e)) throw e;
-                throw new HttpError(
-                    400,
-                    'This email already exists in our database. Please use another one.',
-                    { legacyCode: 'bad_request' },
-                );
+                if (isOwnedEmailConflict(e)) {
+                    throw new HttpError(
+                        400,
+                        'This email already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                if (await this.#isUsernameTaken(e, body.username)) {
+                    throw new HttpError(
+                        400,
+                        'This username already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                throw e;
             }
 
             // Add to default group
@@ -4158,17 +4168,7 @@ export class AuthController extends PuterController {
         // A desktop launch of a godmode app gets a full-access token tied to
         // this session. Origin lookups (sign-in popups for pages outside the
         // desktop) keep getting an ordinary app token.
-        if (!resolvedFromOrigin && isGodmodeApp(app)) {
-            const { token, expiresAt } =
-                await this.services.auth.getGodmodeAppToken(req.actor!, app);
-            res.json({
-                token,
-                app_uid,
-                godmode: true,
-                expires_at: expiresAt,
-            });
-            return;
-        }
+        const godmode = !resolvedFromOrigin && isGodmodeApp(app);
 
         const userPermGrantPromise =
             this.services.permission.grantUserAppPermission(
@@ -4179,10 +4179,15 @@ export class AuthController extends PuterController {
                 {},
             );
 
-        const tokenPromise = this.services.auth.getUserAppToken(
-            req.actor!,
-            app_uid,
-        );
+        const tokenPromise: Promise<{ token: string; expiresAt?: number }> =
+            godmode
+                ? this.services.auth.getGodmodeAppToken(req.actor!, app)
+                : (async () => ({
+                      token: await this.services.auth.getUserAppToken(
+                          req.actor!,
+                          app_uid,
+                      ),
+                  }))();
 
         const missingFSPathPromise = (async () => {
             // Ensure the app's per-user AppData directory exists.
@@ -4206,7 +4211,7 @@ export class AuthController extends PuterController {
             }
         })();
 
-        const [, token] = await Promise.all([
+        const [, { token, expiresAt }] = await Promise.all([
             userPermGrantPromise,
             tokenPromise,
             missingFSPathPromise,
@@ -4230,6 +4235,7 @@ export class AuthController extends PuterController {
                         index_url: a.index_url ?? null,
                         owner_user_id: a.owner_user_id ?? null,
                         name: a.name ?? null,
+                        godmode: isGodmodeApp(app),
                     },
                     user_id: req.actor!.user?.id ?? null,
                 } as never,
@@ -4239,7 +4245,11 @@ export class AuthController extends PuterController {
             // Fine if failed
         }
 
-        res.json({ token, app_uid });
+        res.json(
+            godmode
+                ? { token, app_uid, godmode: true, expires_at: expiresAt }
+                : { token, app_uid },
+        );
     }
 
     @Post('/auth/check-app', {
@@ -5090,6 +5100,17 @@ export class AuthController extends PuterController {
                 );
         } while (await this.stores.user.getByUsername(username));
         return username;
+    }
+
+    /**
+     * Whether a failed user write lost `username` to a concurrent one. The
+     * primary is read because the winner may not have replicated yet.
+     */
+    async #isUsernameTaken(err: unknown, username: string): Promise<boolean> {
+        if (!isUniqueViolation(err)) return false;
+        return Boolean(
+            await this.stores.user.getByUsername(username, { force: true }),
+        );
     }
 
     /**

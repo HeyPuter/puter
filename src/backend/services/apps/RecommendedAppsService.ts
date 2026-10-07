@@ -38,6 +38,8 @@ export const RECOMMENDED_APP_NAMES = [
     'word-processor',
     'presentation',
     'pdf-editor',
+    'terminal',
+    'dev-center',
     'cap-table',
     'invoices',
     'crm',

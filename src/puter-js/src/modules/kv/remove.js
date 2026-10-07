@@ -42,6 +42,7 @@ export async function remove (key, ...pathsAndOptConfig) {
     if ( paths.some((path) => typeof path !== 'string') ) {
         throw { message: 'All paths must be strings', code: 'paths_invalid' };
     }
+    this.guiCache.invalidate(key);
 
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'remove', argNames: ['key', 'paths'], puter: this.puter })({ key, paths, optConfig });
 }

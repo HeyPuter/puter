@@ -21,7 +21,7 @@
 import path from 'node:path';
 import { transform } from 'esbuild';
 import { loadEnv } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 const isCi = process.env.CI === 'true';
 const backendDir = __dirname;
@@ -36,6 +36,13 @@ const repoRoot = path.resolve(backendDir, '../..');
 const isPgmockMode =
     (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase() === 'postgres';
 const pgmockTimeoutMs = 600_000;
+
+// Tests that always boot pgmock regardless of PUTER_TEST_DB_ENGINE. Too slow
+// for CI; run locally or via `npm run test:backend:postgres`.
+const postgresOnlyTests = [
+    'src/backend/clients/database/PostgresDatabaseClient.integration.test.ts',
+    'src/backend/services/appIcon/AppIconService.test.ts',
+];
 
 // Vite 8's oxc transform leaves TC39 stage-3 decorators in place
 // (used by `@Controller`/`@Post`), so they reach Node verbatim and
@@ -117,6 +124,10 @@ export default defineConfig(({ mode }) => ({
             // The worker runtimes ship as a preamble rather than as their own
             // package, so their unit tests run with the backend's.
             'src/worker/**/*.test.{js,ts}',
+        ],
+        exclude: [
+            ...configDefaults.exclude,
+            ...(isCi && !isPgmockMode ? postgresOnlyTests : []),
         ],
         // Root is the repo root so that the file transformer (which
         // applies `lowerDecoratorsPlugin`) sees both src/backend and

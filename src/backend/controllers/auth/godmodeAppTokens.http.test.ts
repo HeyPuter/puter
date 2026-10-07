@@ -221,6 +221,38 @@ describe('godmode app tokens', () => {
         expect(row?.app?.name).toBe('dev-center');
     });
 
+    it('installs the app like any other launch, and uninstalls the same way', async () => {
+        const { uid } = await makeApp();
+        const app = await env.server.stores.app.getByUid(uid);
+        const installed = () =>
+            env.server.stores.permission.hasUserAppPerm(
+                userId,
+                app!.id,
+                'flag:app-is-authenticated',
+            );
+
+        const { token } = await mint(env.users.user.token, uid);
+        expect(await installed()).toBe(true);
+        expect(
+            await env.server.stores.fsEntry.getEntryByPath(
+                `/${env.users.user.username}/AppData/${uid}`,
+            ),
+        ).toBeTruthy();
+
+        // What the desktop's uninstall does: drop the grants, then the app's sessions.
+        const revoked = await call(
+            'POST',
+            '/auth/revoke-user-app',
+            env.users.user.token,
+            { app_uid: uid, permission: '*' },
+        );
+        expect(revoked.status).toBe(200);
+        expect(await installed()).toBe(false);
+
+        await env.server.services.auth.revokeSession(decode(token!).session_uid!);
+        expect(await live(token!)).toBe(false);
+    });
+
     it('dies with the desktop session that minted it', async () => {
         const desktop = await newDesktopSession();
         const { token } = await mint(desktop.gui_token);

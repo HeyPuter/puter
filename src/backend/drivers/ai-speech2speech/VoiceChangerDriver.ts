@@ -20,6 +20,7 @@
 import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
@@ -208,9 +209,7 @@ export class VoiceChangerDriver extends PuterDriver {
             estimatedCost,
         );
         if (!hold) {
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
+            throw insufficientCreditsError();
         }
 
         try {

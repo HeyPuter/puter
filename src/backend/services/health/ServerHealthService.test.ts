@@ -194,6 +194,36 @@ describe('ServerHealthService.addCheck', () => {
             ok: false,
             failed: ['hangs'],
         });
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('"hangs" failed'),
+            expect.objectContaining({
+                message:
+                    'Health check timed out (event loop blocked up to 0ms)',
+            }),
+        );
+        service.onServerShutdown();
+    });
+
+    it('says how long the event loop was blocked when a check times out', async () => {
+        const { service } = makeService();
+        service.addCheck('stalls', async () => {
+            // Let the watch timer arm, then jump the clock with no ticks in
+            // between: a 3s blocked loop.
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            vi.setSystemTime(Date.now() + 3000);
+            await new Promise(() => {});
+        });
+        service.onServerStart();
+
+        await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS + 1);
+        await vi.advanceTimersByTimeAsync(4001);
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('"stalls" failed'),
+            expect.objectContaining({
+                message:
+                    'Health check timed out (event loop blocked up to 3000ms)',
+            }),
+        );
         service.onServerShutdown();
     });
 });

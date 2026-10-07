@@ -205,6 +205,44 @@ describe('move', () => {
             create_missing_parents: true,
         });
     });
+
+    it('treats a missing destination as the new path', async () => {
+        FakeXHR.respondWith = (body, xhr) => {
+            if ( ! xhr.url.endsWith('/stat') ) return { success: true };
+            xhr.status = 404;
+            return { message: 'Subject does not exist', code: 'subject_does_not_exist' };
+        };
+        await fs.move('/a/file.txt', '/b/renamed.txt');
+        expect(lastRequest().url).toBe('https://api.test/move');
+        expect(lastBody()).toMatchObject({ destination: '/b', new_name: 'renamed.txt' });
+    });
+
+    it('rejects without moving when the destination lookup is denied', async () => {
+        const denied = { message: 'Access denied', code: 'access_denied' };
+        FakeXHR.respondWith = (body, xhr) => {
+            xhr.status = 403;
+            return denied;
+        };
+        const error = vi.fn();
+        await expect(fs.move('/a/file.txt', '/b/hidden', undefined, undefined, error))
+            .rejects.toEqual(denied);
+        expect(error).toHaveBeenCalledWith(denied);
+        expect(FakeXHR.requests.map(xhr => xhr.url)).toEqual(['https://api.test/stat']);
+    });
+
+    it('moves into a uid destination without a lookup', async () => {
+        const dirUid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+        await fs.move('/a/file.txt', dirUid);
+        expect(FakeXHR.requests).toHaveLength(1);
+        expect(lastBody()).toMatchObject({ source: '/a/file.txt', destination: dirUid });
+        expect(lastBody().new_name).toBeUndefined();
+    });
+
+    it('sends a uid source through unchanged', async () => {
+        const uid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+        await fs.move({ source: uid, destination: '/b', newName: 'x.txt' });
+        expect(lastBody()).toMatchObject({ source: uid, destination: '/b' });
+    });
 });
 
 describe('mkdir', () => {
@@ -219,6 +257,12 @@ describe('mkdir', () => {
             create_missing_parents: false,
             original_client_socket_id: 'socket-1',
         });
+    });
+
+    it('resolves a UID-shaped relative name as a path', async () => {
+        const name = '0f8fad5b-d9cb-469f-a165-70867728950e';
+        await fs.mkdir(name);
+        expect(lastBody()).toMatchObject({ parent: '~', path: name });
     });
 
     it('mkdir(path, options) applies the options', async () => {
@@ -282,6 +326,14 @@ describe('read', () => {
     it('read(path, options) forwards the byte range', async () => {
         await fs.read('/a/file.txt', { offset: 4, byte_count: 8 });
         expect(lastRequest().url).toBe('https://api.test/read?file=%2Fa%2Ffile.txt&offset=4&byte_count=8');
+    });
+
+    it('reads by uid, and by path when a UID-shaped name has a ./ prefix', async () => {
+        const uid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+        await fs.read(uid);
+        expect(lastRequest().url).toBe(`https://api.test/read?file=${uid}`);
+        await fs.read(`./${uid}`);
+        expect(lastRequest().url).toBe(`https://api.test/read?file=%7E%2F${uid}`);
     });
 
     it('opts back into HTTP caching with { cache: true }', async () => {
@@ -493,6 +545,22 @@ describe('stat', () => {
         const item = await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
         expect(FakeXHR.requests).toHaveLength(1);
         expect(item.is_shared).toBe(false);
+    });
+
+    it('does not serve one uid\'s cached entry for another uid', async () => {
+        FakeXHR.respondWith = body => ({ uid: body.uid, name: `${body.uid}.txt`, is_dir: false });
+        await fs.stat({ uid: 'uid-a' });
+        FakeXHR.requests = [];
+        const item = await fs.stat({ uid: 'uid-b', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+        expect(item.uid).toBe('uid-b');
+    });
+
+    it('resolves a UID-shaped relative path as a path', async () => {
+        const name = '0f8fad5b-d9cb-469f-a165-70867728950e';
+        await fs.stat(name);
+        expect(lastBody().path).toBe(`~/${name}`);
+        expect(lastBody().uid).toBeUndefined();
     });
 
     it('keeps a share-carrying result out of the cache', async () => {

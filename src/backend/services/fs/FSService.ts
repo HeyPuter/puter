@@ -4690,10 +4690,11 @@ export class FSService extends PuterService {
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
-        const targetPath =
+        const pathIn = (entryName: string) =>
             destinationParent.path === '/'
-                ? `/${name}`
-                : `${destinationParent.path}/${name}`;
+                ? `/${entryName}`
+                : `${destinationParent.path}/${entryName}`;
+        const targetPath = pathIn(name);
         // Ahead of the overwrite below. A deduped name keeps the parent, so it
         // is covered too.
         this.#assertAppDataRootsStay(source.path, targetPath);
@@ -4705,32 +4706,15 @@ export class FSService extends PuterService {
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (collision && collision.uuid !== source.uuid) {
-            if (input.overwrite) {
-                await this.remove(userId, {
-                    entry: collision,
-                    recursive: true,
-                });
-            } else if (input.dedupeName || intoSomeoneElsesTrash) {
-                name = await this.#findDedupedName(destinationParent, name);
-            } else {
-                // v1 wire contract: clients (the GUI's move/paste flows among
-                // them) key on `item_with_same_name_exists` + `entry_name` to
-                // offer a replace/skip prompt.
-                throw new HttpError(
-                    409,
-                    `An entry already exists at ${targetPath}`,
-                    {
-                        legacyCode: 'item_with_same_name_exists',
-                        fields: { entry_name: name },
-                    },
-                );
-            }
+            name = await this.#resolveMoveCollision(
+                userId,
+                collision,
+                destinationParent,
+                name,
+                input,
+                { intoSomeoneElsesTrash },
+            );
         }
-
-        const finalPath =
-            destinationParent.path === '/'
-                ? `/${name}`
-                : `${destinationParent.path}/${name}`;
 
         let metadataPatch: string | null | undefined;
         if (newMetadata === null) metadataPatch = null;
@@ -4749,14 +4733,42 @@ export class FSService extends PuterService {
             );
         }
 
-        const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
-            name,
-            path: finalPath,
-            userId: newOwnerId,
-            parentId: destinationParent.id,
-            parentUid: destinationParent.uuid,
-            ...(metadataPatch !== undefined ? { metadata: metadataPatch } : {}),
-        });
+        const applyMove = (entryName: string) =>
+            this.stores.fsEntry.updateEntry(source.uuid, {
+                name: entryName,
+                path: pathIn(entryName),
+                userId: newOwnerId,
+                parentId: destinationParent.id,
+                parentUid: destinationParent.uuid,
+                ...(metadataPatch !== undefined
+                    ? { metadata: metadataPatch }
+                    : {}),
+            });
+
+        let updated: FSEntry;
+        try {
+            updated = await applyMove(name);
+        } catch (err) {
+            // The name was taken after the probe above: a concurrent move, or
+            // an occupant the replica hadn't seen yet. Resolve it as if the
+            // probe had found it, then try once more.
+            if (!this.#isUniqueViolation(err)) throw err;
+            const raced = await this.stores.fsEntry.getEntryByPath(
+                pathIn(name),
+                { useTryHardRead: true },
+            );
+            if (raced && raced.uuid !== source.uuid) {
+                name = await this.#resolveMoveCollision(
+                    userId,
+                    raced,
+                    destinationParent,
+                    name,
+                    input,
+                );
+            }
+            updated = await applyMove(name);
+        }
+        const finalPath = pathIn(name);
 
         if (source.isDir && source.path !== finalPath) {
             await this.stores.fsEntry.updatePathPrefixForUser(
@@ -4792,6 +4804,43 @@ export class FSService extends PuterService {
             await this.services.share.onEntryTrashed(updated);
         }
         return updated;
+    }
+
+    /**
+     * Clear the way for a move whose name is held by `occupant`: replace it,
+     * pick a deduped name, or refuse. Returns the name to move to.
+     */
+    async #resolveMoveCollision(
+        userId: number,
+        occupant: FSEntry,
+        destinationParent: FSEntry,
+        name: string,
+        input: { overwrite?: boolean; dedupeName?: boolean },
+        opts: { intoSomeoneElsesTrash?: boolean } = {},
+    ): Promise<string> {
+        // Ahead of `overwrite`: authorized here without write, so a collision
+        // must neither answer for the contents nor destroy one.
+        if (opts.intoSomeoneElsesTrash) {
+            return this.#findDedupedName(destinationParent, name);
+        }
+        if (input.overwrite) {
+            await this.remove(userId, { entry: occupant, recursive: true });
+            return name;
+        }
+        if (input.dedupeName) {
+            return this.#findDedupedName(destinationParent, name);
+        }
+        // v1 wire contract: clients (the GUI's move/paste flows among them)
+        // key on `item_with_same_name_exists` + `entry_name` to offer a
+        // replace/skip prompt.
+        throw new HttpError(
+            409,
+            `An entry already exists at ${occupant.path}`,
+            {
+                legacyCode: 'item_with_same_name_exists',
+                fields: { entry_name: name },
+            },
+        );
     }
 
     /**

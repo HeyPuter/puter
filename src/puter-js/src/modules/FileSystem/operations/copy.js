@@ -1,4 +1,4 @@
-import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import { getAbsolutePathOrUidForApp } from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 
 /** @typedef {import('../types.js').CopyOptions} CopyOptions */
@@ -6,8 +6,8 @@ import { defineOperation, firstDefined } from './scaffold.js';
 
 /**
  * Copies a file or directory to another location. Relative paths resolve
- * against the app's root directory. When `destination` is a directory the item
- * is copied into it under the same name.
+ * against the app's root directory; a UID-shaped string is read as a uid. When
+ * `destination` is a directory the item is copied into it under the same name.
  *
  * @type {{
  *   (options: CopyOptions): Promise<FSItem>,
@@ -29,8 +29,8 @@ const copy = defineOperation({
                 // No socket at all for a client that opted out (`puter.socketEnabled`).
                 original_client_socket_id: this.socket?.id,
                 socket_id: this.socket?.id,
-                source: getAbsolutePathForApp(options.source),
-                destination: getAbsolutePathForApp(options.destination),
+                source: getAbsolutePathOrUidForApp(options.source),
+                destination: getAbsolutePathOrUidForApp(options.destination),
                 overwrite: options.overwrite,
                 new_name: firstDefined(options, 'newName', 'new_name'),
                 // if user is copying an item to where its source is, change the name so there is no conflict

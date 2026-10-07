@@ -28,7 +28,10 @@ import { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
-import { assertActorHasCredits } from '../../services/metering/enforcement.js';
+import {
+    assertActorHasCredits,
+    insufficientCreditsError,
+} from '../../services/metering/enforcement.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { PuterDriver } from '../types.js';
 import {
@@ -410,10 +413,7 @@ export class OCRDriver extends PuterDriver {
             usageType,
             cost,
         );
-        if (!hold)
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
+        if (!hold) throw insufficientCreditsError();
         return hold;
     }
 

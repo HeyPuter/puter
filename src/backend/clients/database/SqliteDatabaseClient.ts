@@ -120,7 +120,8 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [83, ['0088_apps-index-url.sql']],
     [84, ['0089_team-require-2fa.sql']],
     [85, ['0090_user-app-permission-index.sql']],
-    [86, ['0092_share-entry-owner.sql']],
+    [86, ['0091_icloud-dot-significance.sql']],
+    [87, ['0092_share-entry-owner.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

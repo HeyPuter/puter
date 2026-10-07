@@ -137,6 +137,17 @@ A key or value over its size limit is rejected. A number out of range is not rej
 
 A path such as `a.b.c` may chain at most 31 levels, and one call's paths at most 1,500 segments together. All of a call's paths go into one write of limited size, so in practice a call fits about 140 short paths (about 60 for `incr` and `decr`), fewer when the paths are long. A value nests at most 32 levels deep: the stored value is the first level, and each object or array inside it, or path segment above it, adds one, so `{ a: { b: 1 } }` stored with `set()` is 3 levels deep and written by `update()` at `x.y` is 5; `add()` counts the list it appends to as one more. Past any of these, the call rejects with `bad_request`.
 
+Each call is also capped, the same for every account:
+
+| Per call                    | Limit |
+| --------------------------- | ----- |
+| Keys in one `get()`         | 1,000 |
+| Items in one batch `set()`  | 1,000 |
+| `limit` on `list()`         | 1,000 |
+| `offset` on `list()`        | 5,000 |
+
+A `get()` or batch `set()` over its cap, or an `offset` over 5,000, is rejected with `bad_request` and nothing is read or written. A `limit` over 1,000 is lowered to 1,000, and the page's `cursor` picks up from there.
+
 ### Filesystem
 
 Per minute unless stated:

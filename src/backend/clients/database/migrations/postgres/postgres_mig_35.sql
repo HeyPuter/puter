@@ -15,18 +15,35 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- The owner of the shared entry, recorded on the share row. Mirrors SQLite
--- migration 0092. Guarded like mysql_mig_45, because there is no per-file
--- applied-state tracking and a replay must do nothing.
+-- Recompute `clean_email` for Apple's domains: dots are significant there, so
+-- rows written while they were stripped still collapse two mailboxes into one.
+-- Only rows still holding exactly what the old rule produced, so a NULL or a
+-- legacy un-lowercased value is left alone -- rewriting those would fold `+tag`
+-- or case into a key another row already owns. Restores dots and nothing else.
 
-ALTER TABLE "share" ADD COLUMN IF NOT EXISTS entry_owner_user_id BIGINT DEFAULT NULL;
+UPDATE "user"
+SET clean_email = (split_part(split_part(lower(email), '@', 1), '+', 1) || '@' || split_part(lower(email), '@', 2))
+WHERE email IS NOT NULL
+  AND position('@' in email) > 1
+  AND (
+        lower(email) LIKE '%@icloud.com'
+     OR lower(email) LIKE '%@me.com'
+     OR lower(email) LIKE '%@mac.com'
+  )
+  AND clean_email = (replace(split_part(split_part(lower(email), '@', 1), '+', 1), '.', '') || '@' || split_part(lower(email), '@', 2))
+  AND clean_email IS DISTINCT FROM (split_part(split_part(lower(email), '@', 1), '+', 1) || '@' || split_part(lower(email), '@', 2));
 
-CREATE INDEX IF NOT EXISTS idx_share_entry_owner
-    ON "share" (entry_owner_user_id, id);
-
+-- The same collapse decided who a pending invite belongs to, so the holder
+-- of the undotted address claims invites addressed to the dotted one. The
+-- typed address rides along as `invitedAddress` whenever it differed.
 UPDATE "share"
-SET entry_owner_user_id = f.user_id
-FROM fsentries f
-WHERE f.id = "share".fsentry_id
-  AND "share".fsentry_id IS NOT NULL
-  AND "share".entry_owner_user_id IS NULL;
+SET recipient_email = (split_part(split_part(lower((data->>'invitedAddress')), '@', 1), '+', 1) || '@' || split_part(lower((data->>'invitedAddress')), '@', 2))
+WHERE (data->>'invitedAddress') IS NOT NULL
+  AND position('@' in (data->>'invitedAddress')) > 1
+  AND (
+        lower(recipient_email) LIKE '%@icloud.com'
+     OR lower(recipient_email) LIKE '%@me.com'
+     OR lower(recipient_email) LIKE '%@mac.com'
+  )
+  AND recipient_email = (replace(split_part(split_part(lower((data->>'invitedAddress')), '@', 1), '+', 1), '.', '') || '@' || split_part(lower((data->>'invitedAddress')), '@', 2))
+  AND recipient_email IS DISTINCT FROM (split_part(split_part(lower((data->>'invitedAddress')), '@', 1), '+', 1) || '@' || split_part(lower((data->>'invitedAddress')), '@', 2));
