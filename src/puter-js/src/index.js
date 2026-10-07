@@ -1195,6 +1195,12 @@ export class Puter {
                 // ensures the message came from the actual embedder.
                 await new Promise((resolve, reject) => {
                     const expectedSource = globalThis.parent;
+                    let timer = null;
+                    const stop = () => {
+                        globalThis.removeEventListener?.('message', onToken);
+                        if (timer) clearTimeout(timer);
+                        timer = null;
+                    };
                     const onToken = (event) => {
                         if (event.origin !== this.defaultGUIOrigin) return;
                         if (
@@ -1203,17 +1209,14 @@ export class Puter {
                         )
                             return;
                         if (event.data?.msg !== 'puter.token') return;
-                        globalThis.removeEventListener('message', onToken);
+                        stop();
                         resolve();
                     };
                     globalThis.addEventListener?.('message', onToken);
                     // Give the user a generous window to re-auth.
-                    setTimeout(
+                    timer = setTimeout(
                         () => {
-                            globalThis.removeEventListener?.(
-                                'message',
-                                onToken,
-                            );
+                            stop();
                             reject(new Error('reauth_timeout'));
                         },
                         5 * 60 * 1000,
@@ -2002,8 +2005,9 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
-            // Inside the desktop, only the embedding desktop hands out tokens.
-            if (puter.env === 'app' && event.source !== globalThis.parent) {
+            // Only the embedder hands a token to this handler; `signIn` and
+            // the consent dialog each pin their own popup for the rest.
+            if (event.source !== globalThis.parent) {
                 return;
             }
             // Set the authToken property

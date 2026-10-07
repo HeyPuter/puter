@@ -114,8 +114,11 @@ const readdirPaged = async function (options) {
         }
     }
 
-    // Requests made with the same parameters share one backend call.
+    // Requests made with the same parameters share one backend call. Origin
+    // and token included, as `os/user.js` does: two identities must not share.
     const deduplicationKey = 'fs:readdir:' + JSON.stringify({
+        apiOrigin: this.APIOrigin,
+        authToken: this.authToken,
         path: options.path,
         uid: options.uid,
         no_thumbs: options.no_thumbs,

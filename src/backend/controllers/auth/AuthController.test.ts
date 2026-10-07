@@ -2424,6 +2424,67 @@ describe('AuthController grant flows', () => {
         expect(await storedPermissions()).not.toContain(shortPermission);
     });
 
+    it('grant-user-app: the granting flag is not visible to work running beside it', async () => {
+        const { user: issuer, actor: issuerActor } = await makeUserAndActor();
+        const app = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `conc-${uuidv4()}`,
+                title: 'Concurrency app',
+                index_url: `https://conc-${uuidv4()}.test/`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `conc-${uuidv4()}`;
+        let release: () => void;
+        let entered: () => void;
+        const held = new Promise<void>((r) => {
+            release = r;
+        });
+        const reached = new Promise<void>((r) => {
+            entered = r;
+        });
+        let seenDuring: unknown;
+        // Parks the grant's rewrite, so the flag is set while it is parked.
+        server.services.permission.registerRewriter({
+            id: `test-slow-${prefix}`,
+            matches: (permission: string) =>
+                permission.startsWith(`${prefix}:`),
+            rewrite: async () => {
+                seenDuring = Context.get('is_grant_user_app_permission');
+                entered();
+                await held;
+                return `fs:${uuidv4()}:write`;
+            },
+        });
+
+        await inCtx(issuerActor, async () => {
+            const granting = controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission: `${prefix}:${app.uid}:write`,
+                    },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            );
+            // Read while the rewrite above is parked, so the window is open.
+            await reached;
+            const beside = Context.get('is_grant_user_app_permission');
+            release();
+            await granting;
+
+            expect(seenDuring).toBe(true);
+            expect(beside).toBeFalsy();
+        });
+    });
+
     it('revoke-user-app: undoes a grant whose rewrite only resolves while granting', async () => {
         // `app-root-dir:<uid>:<mode>` is a pseudo-permission: its rewriter
         // resolves it to a real `fs:<root_uid>:<mode>` only while a user-app

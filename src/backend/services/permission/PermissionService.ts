@@ -25,7 +25,7 @@ import {
     isSystemActor,
     userRelatedActor,
 } from '../../core/actor';
-import { Context, runWithContext } from '../../core/context';
+import { Context, runInDerivedContext } from '../../core/context';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { isOwnHomePath, parseFsPathPermission } from './fsPathPermission.js';
 import { isMissingParentViolation } from '../../util/dbError.js';
@@ -1385,22 +1385,12 @@ export class PermissionService extends PuterService {
         actor: Actor,
         permission: string,
     ): Promise<string> {
-        // A caller outside a request scope (an internal job, a direct unit
-        // test) still needs the flag set, or its write resolves differently
-        // from the paired one — and `Context.set` has nothing to set it on.
-        // An empty scope reads the same as no scope, every other lookup still
-        // missing, so this only makes the flag settable.
-        if (!Context.current()) {
-            return runWithContext({}, () =>
-                this.#rewriteForUserAppWrite(actor, permission),
-            );
-        }
-        Context.set('is_grant_user_app_permission', true);
-        try {
-            return await this.rewritePermissionForActor(actor, permission);
-        } finally {
-            Context.set('is_grant_user_app_permission', false);
-        }
+        // In a scope of its own: the flag says "this call is writing the row",
+        // and a request-wide one is also read by whatever runs beside it.
+        return runInDerivedContext(() => {
+            Context.set('is_grant_user_app_permission', true);
+            return this.rewritePermissionForActor(actor, permission);
+        });
     }
 
     /** See `PermissionRewriter.recordSource`. */

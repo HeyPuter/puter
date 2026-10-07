@@ -153,6 +153,19 @@ export class Context {
 // -- Internal: used by the request-context middleware -----------------
 
 /**
+ * Run `fn` in a scope that starts as a copy of the current one, so what it
+ * writes is invisible both to the caller and to anything running beside it.
+ */
+export const runInDerivedContext = <T>(fn: () => T): T => {
+    const parent = als.getStore();
+    const store: ContextStore = {
+        known: { ...(parent?.known ?? {}) },
+        extra: new Map(parent?.extra ?? []),
+    };
+    return als.run(store, fn);
+};
+
+/**
  * Run `fn` inside a new context scope. Used by the request-context middleware
  * to wrap the remainder of the middleware/handler chain.
  */
