@@ -1052,6 +1052,64 @@ describe('FSController.searchEntries', () => {
         expect(results.some((r) => r.name === needle)).toBe(true);
     });
 
+    it('returns entries without storage internals', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const needle = `snoleak-${Math.random().toString(36).slice(2, 8)}`;
+        const { fsEntry } = await server.services.fs.write(actor.user!.id!, {
+            fileMetadata: {
+                path: `/${username}/Documents/${needle}.txt`,
+                size: 1,
+            },
+            fileContent: 'x',
+        });
+        await server.services.fs.updateEntryThumbnail(
+            actor.user!.id!,
+            fsEntry.uuid,
+            'stored-thumbnail-key',
+        );
+
+        // Stands in for the thumbnail extension, which swaps the stored
+        // value for a signed URL.
+        const emitAndWait = vi
+            .spyOn(server.clients.event, 'emitAndWait')
+            .mockImplementation((async (key: string, data: unknown) => {
+                if (key === 'thumbnail.read') {
+                    (data as { thumbnail: string }).thumbnail = 'signed-url';
+                }
+            }) as never);
+        const { res, captured } = makeRes();
+        try {
+            await withActor(actor, () =>
+                controller.searchEntries(
+                    makeReq({ body: { query: needle }, actor }),
+                    res,
+                ),
+            );
+        } finally {
+            emitAndWait.mockRestore();
+        }
+        const [result] = captured.body as Array<Record<string, unknown>>;
+        expect(result).toMatchObject({
+            name: `${needle}.txt`,
+            isDir: false,
+            isShared: false,
+            thumbnail: 'signed-url',
+        });
+        for (const field of [
+            'id',
+            'userId',
+            'parentId',
+            'bucket',
+            'bucketRegion',
+            'publicToken',
+            'fileRequestToken',
+            'associatedAppId',
+        ]) {
+            expect(result).not.toHaveProperty(field);
+        }
+    });
+
     it('scopes app-under-user actors to their AppData root', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;

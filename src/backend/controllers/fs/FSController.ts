@@ -1430,7 +1430,7 @@ export class FSController extends PuterController {
             limit ?? 200,
             this.#appDataScopeForActor(actor),
         );
-        res.json(results);
+        res.json(await this.#toReaddirEntries(actor, results));
     }
 
     @Get('/read', {

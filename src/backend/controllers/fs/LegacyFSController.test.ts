@@ -2144,7 +2144,7 @@ describe('LegacyFSController.sign', () => {
         expect(body.signatures[0]?.path).toBe(target);
     });
 
-    it('skips items with neither uid nor path and pushes an empty object', async () => {
+    it('reports an item with neither uid nor path as a 400 in its slot', async () => {
         const { actor } = await makeUser();
         const { res, captured } = makeRes();
         await withActor(actor, () =>
@@ -2155,7 +2155,63 @@ describe('LegacyFSController.sign', () => {
         );
         const body = captured.body as { signatures: Array<unknown> };
         expect(body.signatures).toHaveLength(1);
-        expect(body.signatures[0]).toEqual({});
+        expect(body.signatures[0]).toEqual({
+            error: true,
+            status: 400,
+            code: 'bad_request',
+            message: 'Item needs a `uid` or `path`',
+        });
+    });
+
+    it('reports each failed item in place and signs the rest', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/sign-mixed`;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+        const { actor: other } = await makeUser();
+        const othersFile = `/${other.user!.username!}/Documents/theirs`;
+        await withActor(other, () =>
+            controller.mkdir(
+                makeReq({ body: { path: othersFile }, actor: other }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.sign(
+                makeReq({
+                    body: {
+                        items: [
+                            { path: `/${username}/Documents/missing` },
+                            { path: target },
+                            { path: othersFile },
+                        ],
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const notFound = {
+            error: true,
+            status: 404,
+            code: 'subject_does_not_exist',
+            message: 'Subject does not exist',
+        };
+        const [missing, signed, unreadable] = (
+            captured.body as { signatures: Array<Record<string, unknown>> }
+        ).signatures;
+        expect(missing).toEqual(notFound);
+        expect(signed).toMatchObject({ path: target });
+        expect(signed).not.toHaveProperty('error');
+        // Same answer as a missing entry: nothing here says it exists.
+        expect(unreadable).toEqual(notFound);
     });
 
     it('rejects with 404 when app_uid is supplied but the app does not exist', async () => {
@@ -3658,7 +3714,7 @@ describe('LegacyFSController.search fallback fields', () => {
 // ── /sign app sandbox + write downgrade ─────────────────────────────
 
 describe('LegacyFSController.sign app sandbox + write downgrade', () => {
-    it('rejects an app trying to sign a path outside its AppData root with empty signature entries', async () => {
+    it("reports a path outside an app's AppData root as not found", async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         // Build an app-under-user actor whose AppData root is the test app.
@@ -3690,8 +3746,15 @@ describe('LegacyFSController.sign app sandbox + write downgrade', () => {
             ),
         );
         const body = captured.body as { signatures: unknown[] };
-        // Items outside the app sandbox are silently skipped → {}.
-        expect(body.signatures).toEqual([{}]);
+        // Reported exactly like an entry that doesn't exist.
+        expect(body.signatures).toEqual([
+            {
+                error: true,
+                status: 404,
+                code: 'subject_does_not_exist',
+                message: 'Subject does not exist',
+            },
+        ]);
     });
 });
 

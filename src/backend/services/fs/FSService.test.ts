@@ -765,6 +765,48 @@ describe('FSService storage allowance', () => {
         expect(error.legacyCode).toBe('storage_limit_reached');
     });
 
+    it('removes the uploaded object when the measured size is over the allowance', async () => {
+        const user = await quotaUser(64);
+        const uploadFromServer = vi.spyOn(
+            limitedServer.stores.s3Object,
+            'uploadFromServer',
+        );
+        let error: HttpError;
+        let uploadCall: Parameters<typeof uploadFromServer>;
+        try {
+            // A stream declared at 0 bytes passes the up-front check; only the
+            // size measured after the upload is over.
+            error = await caught(() =>
+                limitedFs.write(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/understated.bin`,
+                        size: 0,
+                    },
+                    fileContent: Readable.from([Buffer.alloc(100, 1)]),
+                }),
+            );
+            uploadCall = uploadFromServer.mock.calls[0]!;
+        } finally {
+            uploadFromServer.mockRestore();
+        }
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+
+        const [upload, region] = uploadCall;
+        await expect(
+            limitedServer.stores.s3Object.headObjectSize(
+                upload.bucket,
+                upload.objectKey,
+                region,
+            ),
+        ).rejects.toBeDefined();
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/understated.bin`,
+            ),
+        ).toBeNull();
+    });
+
     it('lets a per-request override raise the ceiling', async () => {
         const user = await quotaUser(64);
         await expect(
@@ -3396,6 +3438,28 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         expect(await entryAt(user, '/Documents/a/b')).toBeNull();
     });
 
+    it('rejects a shortcut whose parent is a file', async () => {
+        const target = await writeFile(
+            user,
+            `${user.home}/Documents/sc-target3.txt`,
+            'x',
+        );
+        const parent = await writeFile(
+            user,
+            `${user.home}/Documents/sc-file-parent.txt`,
+            'x',
+        );
+
+        const error = await caught(() =>
+            fs.mkshortcut(user.userId, { parent, name: 'sc', target }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(error.legacyCode).toBe('dest_is_not_a_directory');
+        expect(
+            await entryAt(user, '/Documents/sc-file-parent.txt/sc'),
+        ).toBeNull();
+    });
+
     it('rejects a thumbnail update without an entry identifier', async () => {
         const error = await caught(() =>
             fs.updateEntryThumbnail(user.userId, '', 'data:image/png;base64,A'),
@@ -3510,6 +3574,42 @@ describe('FSService remove', () => {
                 file.bucketRegion!,
             ),
         ).rejects.toMatchObject({ name: 'NoSuchKey' });
+    });
+
+    it('emits one removal event per entry in a recursive delete', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/tree-events`,
+        });
+        const file = await writeFile(
+            user,
+            `${user.home}/Documents/tree-events/a.txt`,
+            'x',
+        );
+        const sub = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/tree-events/sub`,
+        });
+        const nested = await writeFile(
+            user,
+            `${user.home}/Documents/tree-events/sub/b.txt`,
+            'y',
+        );
+
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const removed: string[] = [];
+        try {
+            await fs.remove(user.userId, { entry: dir, recursive: true });
+            for (const [key, data] of emit.mock.calls) {
+                if (key === 'fs.remove.node') {
+                    removed.push((data as { entry: FSEntry }).entry.uuid);
+                }
+            }
+        } finally {
+            emit.mockRestore();
+        }
+
+        expect(removed.sort()).toEqual(
+            [dir.uuid, file.uuid, sub.uuid, nested.uuid].sort(),
+        );
     });
 
     it('empties a directory but keeps it when descendantsOnly is set', async () => {

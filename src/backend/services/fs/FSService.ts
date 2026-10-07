@@ -1603,6 +1603,19 @@ export class FSService extends PuterService {
         }
     }
 
+    // Best effort: the caller is already failing the write.
+    async #deleteUploadedObject(
+        bucket: string,
+        objectKey: string,
+        region: string,
+    ): Promise<void> {
+        try {
+            await this.stores.s3Object.deleteObject(bucket, objectKey, region);
+        } catch (error) {
+            console.error('prodfsv2 failed to clean up upload object', error);
+        }
+    }
+
     async #cleanupPreparedBatchUploads(
         preparedBatch: PreparedBatchWrite,
         uploadedItems: UploadedBatchWriteItem[],
@@ -3456,12 +3469,25 @@ export class FSService extends PuterService {
             }
         }
         if (uploadedSize > normalizedInput.size) {
-            await this.#assertStorageAllowance(
-                storageOwner,
-                uploadedSize,
-                existingSize,
-                ownerAllowanceMax,
-            );
+            try {
+                await this.#assertStorageAllowance(
+                    storageOwner,
+                    uploadedSize,
+                    existingSize,
+                    ownerAllowanceMax,
+                );
+            } catch (error) {
+                // An overwrite already replaced the existing entry's object
+                // under its own key, so only a new object is ours to remove.
+                if (!existingEntry) {
+                    await this.#deleteUploadedObject(
+                        normalizedInput.bucket,
+                        objectKey,
+                        normalizedInput.bucketRegion,
+                    );
+                }
+                throw error;
+            }
         }
         normalizedInput.size = uploadedSize;
         const contentHashSha256 = uploadBody.finalizeContentHashSha256
@@ -4070,6 +4096,11 @@ export class FSService extends PuterService {
             dedupeName?: boolean;
         },
     ): Promise<FSEntry> {
+        if (!input.parent.isDir) {
+            throw new HttpError(400, 'Parent is not a directory', {
+                legacyCode: 'dest_is_not_a_directory',
+            });
+        }
         let name = input.name;
         this.#assertUsableName(name);
         const childPath =
@@ -4476,8 +4507,6 @@ export class FSService extends PuterService {
             };
             group.keys.push(child.uuid);
             grouped.set(groupKey, group);
-            // Fire individual removal events so thumbnail extension can clean up.
-            this.#emitRemoveEvent(child);
         }
         await Promise.allSettled(
             Array.from(grouped.values()).map((group) =>

@@ -83,6 +83,7 @@ import {
     FS_SIGNED_CONCURRENT,
     FS_SIGNED_READ_LIMIT,
     FS_SIGNED_WRITE_LIMIT,
+    FS_SIGNED_WRITE_MAX_PARTS,
     FS_STAT_LIMIT,
 } from './limits.js';
 import {
@@ -144,6 +145,30 @@ function resolveBatchRef(raw: string, refs: Map<string, string>): string {
     // Rejects non-normalized results, so `$ref/../x` can't escape.
     return normalizeAbsolutePath(base + rest);
 }
+
+type SignItemError = {
+    error: true;
+    status: number;
+    code: string;
+    message: string;
+};
+
+// Unexpected failures are reported without their message, which may carry
+// internals.
+const toSignItemError = (err: unknown): SignItemError =>
+    err instanceof HttpError
+        ? {
+              error: true,
+              status: err.statusCode,
+              code: err.legacyCode ?? err.code ?? 'internal_error',
+              message: err.message,
+          }
+        : {
+              error: true,
+              status: 500,
+              code: 'internal_error',
+              message: 'Could not sign this item',
+          };
 
 const malformedMultipart = (err: unknown): HttpError =>
     err instanceof HttpError
@@ -1363,8 +1388,9 @@ export class LegacyFSController extends PuterController {
 
     /**
      * POST /sign Body: `{ items: [{ uid?, path?, action }], app_uid? }`.
-     * Returns `{ signatures: [...], token? }`. Apps may only sign files under
-     * their own AppData subtree.
+     * Returns `{ signatures: [...], token? }`, one per item in order; an item
+     * that can't be signed is `{ error: true, status, code, message }`. Apps
+     * may only sign files under their own AppData subtree.
      */
     sign = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1396,9 +1422,8 @@ export class LegacyFSController extends PuterController {
             appDataRoot = `/${username}/AppData/${appUid}`;
         }
 
-        type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
-        const result: { signatures: SignedOrEmpty[]; token?: string } = {
+        type SignedOrError = (SignedFile & { path?: string }) | SignItemError;
+        const result: { signatures: SignedOrError[]; token?: string } = {
             signatures: [],
         };
 
@@ -1424,7 +1449,13 @@ export class LegacyFSController extends PuterController {
             const action =
                 typeof item.action === 'string' ? item.action : 'read';
             if (!uid && !path) {
-                result.signatures.push({});
+                result.signatures.push(
+                    toSignItemError(
+                        new HttpError(400, 'Item needs a `uid` or `path`', {
+                            legacyCode: 'bad_request',
+                        }),
+                    ),
+                );
                 continue;
             }
             try {
@@ -1433,14 +1464,15 @@ export class LegacyFSController extends PuterController {
                     path,
                 });
 
-                // App-sandbox check.
+                // App-sandbox check. Reported like a missing entry, as an app
+                // actor's ACL denials are, so it can't probe paths outside.
                 const withinAppRoot = appDataRoot
                     ? entry.path === appDataRoot ||
                       entry.path.startsWith(`${appDataRoot}/`)
                     : true;
                 if (!withinAppRoot) {
-                    throw new HttpError(403, 'Forbidden', {
-                        legacyCode: 'forbidden',
+                    throw new HttpError(404, 'Subject does not exist', {
+                        legacyCode: 'subject_does_not_exist',
                     });
                 }
 
@@ -1497,9 +1529,8 @@ export class LegacyFSController extends PuterController {
                         path: maskEntryPath(entry),
                     });
                 }
-            } catch {
-                // Silently skip unresolvable items.
-                result.signatures.push({});
+            } catch (err) {
+                result.signatures.push(toSignItemError(err));
             }
         }
 
@@ -2159,76 +2190,78 @@ export class LegacyFSController extends PuterController {
         userId: number,
         targetPath: string,
     ): Promise<{ fsEntry: import('../../stores/fs/FSEntry.js').FSEntry }> {
-        // Parse the first `file` part via busboy and stream it into write.
-        const { Readable: NodeReadable } = await import('node:stream');
+        // Streams the first `file` part into write; other parts are ignored.
         return new Promise((resolve, reject) => {
-            const bb = Busboy({ headers: req.headers });
+            let bb: ReturnType<typeof Busboy>;
+            try {
+                bb = Busboy({
+                    headers: req.headers,
+                    limits: { files: 1, parts: FS_SIGNED_WRITE_MAX_PARTS },
+                });
+            } catch (err) {
+                // Missing boundary or unparseable content-type.
+                reject(malformedMultipart(err));
+                return;
+            }
             let dispatched = false;
-            let writePromise: Promise<unknown> | null = null;
-            let size = 0;
+            let partsExceeded = false;
 
-            bb.on('field', () => {
-                // Fields are ignored — only the file stream matters here.
+            bb.on('partsLimit', () => {
+                partsExceeded = true;
             });
-            bb.on('file', (_fieldName, fileStream, info) => {
-                if (dispatched) {
-                    fileStream.resume();
-                    return;
-                }
+            bb.on('file', async (_fieldName, fileStream, info) => {
                 dispatched = true;
-                const passthrough = new NodeReadable({
-                    read() {
-                        // no-op; data pushed from the busboy file stream.
-                    },
-                });
-                fileStream.on('data', (chunk: Buffer) => {
-                    size += chunk.length;
-                    passthrough.push(chunk);
-                });
-                fileStream.on('end', () => passthrough.push(null));
-                fileStream.on('error', (err: Error) =>
-                    passthrough.destroy(err),
-                );
-
+                // write() only listens once it starts reading; a body that
+                // fails before then must not surface as an unhandled 'error'.
+                // write() still sees the failure through the destroyed stream.
+                fileStream.on('error', () => {});
                 const contentType =
                     info && typeof info.mimeType === 'string'
                         ? info.mimeType
                         : undefined;
-                writePromise = this.services.fs
-                    .write(userId, {
+                try {
+                    // The part itself is the upload body, so a slow store
+                    // upload holds back the request instead of buffering it.
+                    const response = await this.services.fs.write(userId, {
                         fileMetadata: {
                             path: targetPath,
                             size: 0, // real size accumulates as stream drains
                             ...(contentType ? { contentType } : {}),
                             overwrite: true,
                         },
-                        fileContent: passthrough,
-                    })
-                    .then((response) => {
-                        resolve({ fsEntry: response.fsEntry });
-                    })
-                    .catch(reject);
+                        fileContent: fileStream,
+                    });
+                    resolve({ fsEntry: response.fsEntry });
+                } catch (err) {
+                    // Let the parser reach the end of the body.
+                    fileStream.resume();
+                    reject(err);
+                }
             });
             bb.on('close', () => {
-                if (!dispatched) {
-                    reject(
-                        new HttpError(400, 'No file uploaded', {
-                            legacyCode: 'bad_request',
-                        }),
-                    );
-                    return;
-                }
-                if (!writePromise) {
-                    reject(
-                        new HttpError(500, 'Write did not dispatch', {
-                            legacyCode: 'internal_error',
-                        }),
-                    );
-                }
-                // size is logged only; fsService.write handles quota/size.
-                void size;
+                if (dispatched) return;
+                reject(
+                    partsExceeded
+                        ? new HttpError(
+                              413,
+                              `Too many parts before the file (max ${FS_SIGNED_WRITE_MAX_PARTS})`,
+                              { legacyCode: 'too_large' as never },
+                          )
+                        : new HttpError(400, 'No file uploaded', {
+                              legacyCode: 'bad_request',
+                          }),
+                );
             });
-            bb.on('error', (err) => reject(err));
+            bb.on('error', (err) => reject(malformedMultipart(err)));
+            // A client that disconnects mid-body never lets busboy close, and
+            // the write would wait on the rest of the file forever.
+            const abort = (err: Error) => {
+                bb.destroy(err);
+                reject(malformedMultipart(err));
+            };
+            req.on('error', abort);
+            req.on('aborted', () => abort(new Error('Request aborted')));
+
             req.pipe(bb);
         });
     }

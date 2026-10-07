@@ -30,6 +30,7 @@ import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { LegacyFSController } from './LegacyFSController.js';
+import { FS_SIGNED_WRITE_MAX_PARTS } from './limits.js';
 
 // Second suite for the v1 FS shim: the signed-URL routes, the multipart
 // `/batch` parser, and the small inline handlers registered straight onto
@@ -1353,6 +1354,205 @@ describe('LegacyFSController.writeFile operations', () => {
             statusCode: 400,
             message: 'No file uploaded',
         });
+    });
+
+    // A multipart request whose body is produced lazily, so a test can see
+    // how much of it the handler has pulled.
+    const streamedReq = (
+        body: () => AsyncGenerator<Buffer>,
+        init: { actor: Actor; query: Record<string, unknown> },
+    ): Request => {
+        const req = Readable.from(body()) as unknown as Request;
+        Object.assign(req, {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${streamBoundary}`,
+            },
+            query: init.query,
+            body: {},
+            actor: init.actor,
+        });
+        return req;
+    };
+    const streamBoundary = '----writeFileStreamBoundary';
+    const fileHeader = (name: string) =>
+        Buffer.from(
+            `--${streamBoundary}\r\n` +
+                `Content-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+                'Content-Type: application/octet-stream\r\n\r\n',
+        );
+
+    it('streams the file part no faster than the store takes it', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/backpressure.bin`;
+        await writeFileEntry(actor, path, 'x');
+        const { query } = await signedFor(path);
+
+        const chunk = Buffer.alloc(64 * 1024, 7);
+        const chunkCount = 128;
+        let pulled = 0;
+        async function* body() {
+            yield fileHeader('backpressure.bin');
+            for (let i = 0; i < chunkCount; i++) {
+                pulled++;
+                yield chunk;
+            }
+            yield Buffer.from(`\r\n--${streamBoundary}--\r\n`);
+        }
+
+        // Holds the store upload until released, as a slow upstream would.
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const uploadFromServer = vi
+            .spyOn(server.stores.s3Object, 'uploadFromServer')
+            .mockImplementation(async (input) => {
+                await released;
+                for await (const _ of input.body as Readable) {
+                    // drain
+                }
+            });
+        const { res, captured } = makeRes();
+        try {
+            const done = withActor(actor, () =>
+                controller.writeFile(
+                    streamedReq(body, {
+                        actor,
+                        query: { ...query, operation: 'write' },
+                    }),
+                    res,
+                ),
+            );
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(pulled).toBeLessThan(chunkCount / 2);
+
+            release();
+            await done;
+        } finally {
+            uploadFromServer.mockRestore();
+        }
+        expect(pulled).toBe(chunkCount);
+        expect(captured.body).toMatchObject({ path });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(path, {
+                skipCache: true,
+            }))!.size,
+        ).toBe(chunk.length * chunkCount);
+    });
+
+    it('reads the rest of the body when the write fails before uploading', async () => {
+        const { actor, username } = await makeUser();
+        const dir = `/${username}/Documents`;
+        // A folder where the file would land fails the write up front.
+        await server.services.fs.mkdir(actor.user!.id!, {
+            path: `${dir}/taken`,
+        });
+        const { query } = await signedFor(dir);
+
+        const chunk = Buffer.alloc(64 * 1024, 7);
+        const chunkCount = 128;
+        let pulled = 0;
+        async function* body() {
+            yield fileHeader('taken');
+            for (let i = 0; i < chunkCount; i++) {
+                pulled++;
+                yield chunk;
+            }
+            yield Buffer.from(`\r\n--${streamBoundary}--\r\n`);
+        }
+        const req = streamedReq(body, {
+            actor,
+            query: { ...query, operation: 'write' },
+        });
+        (req as unknown as { body: unknown }).body = { name: 'taken' };
+        const ended = new Promise((resolve) => req.on('end', resolve));
+
+        await expect(
+            withActor(actor, () => controller.writeFile(req, makeRes().res)),
+        ).rejects.toMatchObject({ statusCode: 409 });
+        await ended;
+        expect(pulled).toBe(chunkCount);
+    });
+
+    it('rejects a multipart write with no boundary as a 400', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/no-boundary.txt`;
+        await writeFileEntry(actor, path, 'x');
+        const { query } = await signedFor(path);
+        const req = Readable.from([Buffer.from('')]) as unknown as Request;
+        Object.assign(req, {
+            headers: { 'content-type': 'multipart/form-data' },
+            query: { ...query, operation: 'write' },
+            body: {},
+            actor,
+        });
+        await expect(
+            withActor(actor, () => controller.writeFile(req, makeRes().res)),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('rejects a write whose file comes after too many other parts', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/many-parts.txt`;
+        await writeFileEntry(actor, path, 'original');
+        const { query } = await signedFor(path);
+        const fields: MultipartPart[] = Array.from(
+            { length: FS_SIGNED_WRITE_MAX_PARTS },
+            (_, i) => ({ kind: 'field', name: `f${i}`, value: 'x' }),
+        );
+        await expect(
+            withActor(actor, () =>
+                controller.writeFile(
+                    multipartReq(
+                        [
+                            ...fields,
+                            {
+                                kind: 'file',
+                                name: 'file',
+                                filename: 'late.txt',
+                                content: 'late',
+                            },
+                        ],
+                        { actor, query: { ...query, operation: 'write' } },
+                    ),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 413 });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(path, {
+                skipCache: true,
+            }))!.size,
+        ).toBe('original'.length);
+    });
+
+    it('fails the write when the client drops mid-file', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/dropped.bin`;
+        await writeFileEntry(actor, path, 'original');
+        const { query } = await signedFor(path);
+
+        async function* body() {
+            yield fileHeader('dropped.bin');
+            yield Buffer.alloc(1024, 1);
+            throw new Error('socket hang up');
+        }
+        await expect(
+            withActor(actor, () =>
+                controller.writeFile(
+                    streamedReq(body, {
+                        actor,
+                        query: { ...query, operation: 'write' },
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(path, {
+                skipCache: true,
+            }))!.size,
+        ).toBe('original'.length);
     });
 
     it('rejects a signed write when the owning account is suspended', async () => {

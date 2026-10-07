@@ -33,8 +33,11 @@ Pre-existing snake_case params stay for compatibility.
 
 ## Backward compatibility
 
-Requests without pagination params keep returning the full result in the
-legacy shape (bare array) forever — old clients never break.
+Requests without pagination params keep returning the legacy shape (bare
+array) forever — old clients never break. The bare array is still bounded by
+the endpoint's cap (readdir: 10,000 entries) and carries no cursor, so a
+listing past the cap comes back cut short with nothing to say so. Callers that
+can exceed it page with `cursor`; puter.js does this for them.
 
 The envelope trigger depends on the endpoint's history:
 

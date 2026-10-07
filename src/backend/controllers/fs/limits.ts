@@ -230,6 +230,12 @@ export const FS_BATCH_CONCURRENT = userConcurrent('fs:batch', 5, 2, 2);
 // is a broken image rather than a slow one — so the ceiling clears a burst of
 // real page loads and only catches something looping.
 
+/**
+ * Parts a signed `/writeFile` body may carry before its file. Only the first
+ * file part is written (streamed, not buffered); other fields are ignored.
+ */
+export const FS_SIGNED_WRITE_MAX_PARTS = 256;
+
 export const FS_SIGNED_READ_LIMIT = networkWindow('fs:signed-read', 3_000);
 export const FS_SIGNED_WRITE_LIMIT = networkWindow('fs:signed-write', 600);
 export const FS_SIGNED_CONCURRENT: NonNullable<RouteOptions['concurrent']> = {

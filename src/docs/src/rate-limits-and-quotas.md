@@ -181,6 +181,7 @@ Per minute unless stated:
 | Entries in one `/sign` request | 500 | Per request |
 | Part numbers in one `signMultipartParts` | 10,000 | Per request |
 | Legacy `/batch` request | 256 multipart parts (fields and files combined) or 256 JSON operations, 64 files, 100 MiB per file, 1 MiB per field, 256 MiB in total | Per request |
+| Signed-URL write (`write_url`) request | 256 multipart parts before the file; only the first file is written | Per request |
 | Signed-URL reads | 3,000/min | Per network |
 | Signed-URL writes | 600/min | Per network |
 | Signed-URL concurrent requests | 60 | Per network |
@@ -189,7 +190,7 @@ Per minute unless stated:
 
 Non-write operations (mkdir/shortcut/move/delete) inside a legacy `/batch` request also count against the Mutations limits above.
 
-A request over one of the per-request caps fails as a whole before any item is processed, with `400 bad_request` (`413` for legacy `/batch`). `puter.fs.upload()` already splits larger uploads into requests of 500.
+A request over one of the per-request caps fails as a whole before any item is processed, with `400 bad_request` (`413` for legacy `/batch` and signed-URL writes). `puter.fs.upload()` already splits larger uploads into requests of 500.
 
 An upload is in progress from `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) until it completes, is cancelled, or expires. The count includes uploads by collaborators into the account's folders. Over the limit, new uploads fail with `429 too_many_requests` until some finish.
 
