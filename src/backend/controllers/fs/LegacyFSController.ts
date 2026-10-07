@@ -682,6 +682,7 @@ export class LegacyFSController extends PuterController {
                 limit,
                 cursor:
                     typeof body.cursor === 'string' ? body.cursor : undefined,
+                offset: Number.isFinite(offset) ? offset : undefined,
                 sortBy,
                 sortOrder,
             });

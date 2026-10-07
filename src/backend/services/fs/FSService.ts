@@ -3637,6 +3637,7 @@ export class FSService extends PuterService {
         options: {
             limit?: number;
             cursor?: string | null;
+            offset?: number;
             sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
             sortOrder?: 'asc' | 'desc' | null;
         } = {},
@@ -3659,6 +3660,7 @@ export class FSService extends PuterService {
         options: {
             limit?: number;
             cursor?: string | null;
+            offset?: number;
             maxDepth: number;
             sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
             sortOrder?: 'asc' | 'desc' | null;

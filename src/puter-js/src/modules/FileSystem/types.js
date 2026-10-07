@@ -126,7 +126,7 @@
  * @property {boolean} [recursive] Whether to also list the contents of subdirectories. Defaults to
  * `false`.
  * @property {number} [depth] How many levels to descend when `recursive` is `true`. Defaults to
- * unlimited.
+ * `10`, which is also the maximum.
  */
 
 /**

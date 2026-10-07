@@ -28,6 +28,7 @@ import {
     decodeCursor,
     encodeCursor,
     normalizeLimit,
+    normalizeOffset,
 } from '../../util/pagination.js';
 import type { puterStores } from '../index.js';
 import { PuterStore } from '../types.js';
@@ -2618,12 +2619,14 @@ export class FSEntryStore extends PuterStore {
         options: {
             limit?: number;
             cursor?: string | null;
+            offset?: number;
             sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
             sortOrder?: 'asc' | 'desc' | null;
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
             { v: unknown; id: number; s?: string; o?: string } | undefined;
+        const offset = this.#pageOffset(options.offset, payload);
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2666,14 +2669,14 @@ export class FSEntryStore extends PuterStore {
             : '';
         const params: unknown[] = payload
             ? [parentUid, payload.v, payload.v, payload.id, limit + 1]
-            : [parentUid, limit + 1];
+            : [parentUid, limit + 1, ...(offset ? [offset] : [])];
 
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()}
              FROM fsentries
              WHERE parent_uid = ? ${seek}
              ORDER BY ${sortExpr} ${dir}, id ${dir}
-             LIMIT ?`,
+             LIMIT ?${offset ? ' OFFSET ?' : ''}`,
             params,
         )) as unknown as FSEntryRow[];
 
@@ -2732,6 +2735,18 @@ export class FSEntryStore extends PuterStore {
     // the LIKE escape char so `%` and `_` in user paths aren't treated as wildcards.
     // Uses `!` as the LIKE escape character — both MySQL and SQLite treat `!` as
     // a plain character inside string literals, so no dialect-specific quoting.
+    // Offset applies to a first page only; a cursor already says where to
+    // resume.
+    #pageOffset(offset: unknown, cursorPayload: unknown): number | undefined {
+        const normalized = normalizeOffset(offset);
+        if (cursorPayload && normalized !== undefined) {
+            throw new HttpError(400, 'cursor and offset cannot be combined', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return normalized;
+    }
+
     #escapeLikePattern(value: string): string {
         return value.replace(/([!%_])/g, '!$1');
     }
@@ -2799,6 +2814,7 @@ export class FSEntryStore extends PuterStore {
         options: {
             limit?: number;
             cursor?: string | null;
+            offset?: number;
             maxDepth: number;
             sortBy?: DescendantSortField | null;
             sortOrder?: 'asc' | 'desc' | null;
@@ -2824,6 +2840,7 @@ export class FSEntryStore extends PuterStore {
             rawPayload && rawPayload.v === undefined
                 ? { v: rawPayload.p, s: 'name', o: 'asc' }
                 : rawPayload;
+        const offset = this.#pageOffset(options.offset, payload);
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2867,6 +2884,7 @@ export class FSEntryStore extends PuterStore {
             maxSlashes,
             ...seekParams,
             limit + 1,
+            ...(offset ? [offset] : []),
         ];
 
         const rows = (await this.clients.db.read(
@@ -2875,7 +2893,7 @@ export class FSEntryStore extends PuterStore {
              WHERE user_id = ? AND path LIKE ? ESCAPE '!'
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
              ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
-             LIMIT ?`,
+             LIMIT ?${offset ? ' OFFSET ?' : ''}`,
             params,
         )) as unknown as FSEntryRow[];
 

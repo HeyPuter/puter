@@ -1362,6 +1362,14 @@ describe('LegacyFSController.readdir', () => {
         });
         expect(Array.isArray(bare)).toBe(true);
         expect((bare as unknown[]).length).toBe(2);
+
+        const offsetPage = (await readdir({
+            path: `/${username}/Documents`,
+            limit: 2,
+            offset: 1,
+            cursor: null,
+        })) as { items: Array<{ name: string }> };
+        expect(offsetPage.items.map((e) => e.name)).toEqual(['p2', 'p3']);
     });
 });
 

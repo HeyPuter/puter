@@ -1298,6 +1298,7 @@ export class FSController extends PuterController {
                         typeof body.cursor === 'string'
                             ? body.cursor
                             : undefined,
+                    offset,
                     maxDepth,
                     sortBy,
                     sortOrder,
@@ -1324,6 +1325,7 @@ export class FSController extends PuterController {
                 limit,
                 cursor:
                     typeof body.cursor === 'string' ? body.cursor : undefined,
+                offset,
                 sortBy,
                 sortOrder,
             });

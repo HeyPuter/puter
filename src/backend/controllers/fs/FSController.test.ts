@@ -1870,6 +1870,38 @@ describe('FSController.readdirEntries pagination', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('starts a page at `offset` and continues from its cursor', async () => {
+        const { actor, path } = await makeDocs(['a', 'b', 'c', 'd']);
+        const first = (await readdir(actor, {
+            path,
+            limit: 2,
+            offset: 1,
+            cursor: null,
+        })) as { items: Array<{ name: string }>; cursor?: string };
+        expect(first.items.map((e) => e.name)).toEqual(['b', 'c']);
+        const second = (await readdir(actor, {
+            path,
+            limit: 2,
+            cursor: first.cursor,
+        })) as { items: Array<{ name: string }>; cursor?: string };
+        expect(second.items.map((e) => e.name)).toEqual(['d']);
+
+        await expect(
+            withActor(actor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: { path, offset: 1, cursor: first.cursor },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'cursor and offset cannot be combined',
+        });
+    });
+
     it('reports total with includeTotal', async () => {
         const { actor, path } = await makeDocs(['a', 'b', 'c']);
         const page = (await readdir(actor, {
@@ -2007,6 +2039,20 @@ describe('FSController.readdirEntries recursive', () => {
                 seen.map((path) => ({ path })),
             ),
         ).toEqual(['l1a', 'l1a/l2a', 'l1a/l2a/l3a', 'l1a/l2a/l3a/l4a', 'l1b']);
+    });
+
+    it('skips `offset` entries of a recursive listing', async () => {
+        const { actor, base } = await makeTree();
+        const page = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            offset: 2,
+        })) as { items: Array<{ path: string }> };
+        expect(page.items.map((e) => e.path.slice(base.length + 1))).toEqual([
+            'l1a/l2a/l3a',
+            'l1a/l2a/l3a/l4a',
+            'l1b',
+        ]);
     });
 
     it('sorts a recursive listing, paging in the same order', async () => {
