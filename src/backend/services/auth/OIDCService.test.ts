@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { cleanEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import {
@@ -388,6 +389,31 @@ describe('OIDCService.createUserFromOIDC', () => {
 
         expect(result.success).toBe(false);
         expect(result.raced).toBe(true);
+    });
+
+    it('does not resolve a dotted Apple address onto its undotted namesake', async () => {
+        const stem = `js${crypto.randomBytes(4).toString('hex')}`;
+        const victim = `${stem}@icloud.com`;
+        const attacker = `${stem.slice(0, 2)}.${stem.slice(2)}@icloud.com`;
+
+        await server.stores.user.create({
+            username: `v-${crypto.randomBytes(4).toString('hex')}`,
+            uuid: crypto.randomUUID(),
+            password: 'hashed',
+            email: victim,
+            clean_email: cleanEmail(victim),
+            email_confirmed: true,
+        });
+
+        // Apple allocates the exact string, so these are two mailboxes.
+        expect(cleanEmail(attacker)).not.toBe(cleanEmail(victim));
+        await expect(
+            oidc().findUserByEmail(attacker, { force: true }),
+        ).resolves.toBeNull();
+
+        // The undotted spelling is still the account it names.
+        const found = await oidc().findUserByEmail(victim, { force: true });
+        expect(found?.email).toBe(victim);
     });
 
     it('leaves no orphan account behind when the identity was linked first', async () => {

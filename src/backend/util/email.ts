@@ -46,7 +46,8 @@ const RULES: Record<RuleName, (p: Parts) => void> = {
 /** Rules each provider's semantics allow. Unlisted domains get none. */
 const PROVIDERS: Record<string, { rules: RuleName[] }> = {
     gmail: { rules: ['dots_dont_matter', 'remove_subaddressing'] },
-    icloud: { rules: ['dots_dont_matter', 'remove_subaddressing'] },
+    // Dots are significant at Apple: `j.smith@` and `jsmith@` are two mailboxes.
+    icloud: { rules: ['remove_subaddressing'] },
     outlook: { rules: ['remove_subaddressing'] },
     proton: { rules: ['remove_subaddressing'] },
     fastmail: { rules: ['remove_subaddressing'] },
