@@ -4337,6 +4337,7 @@ describe('LegacyFSController.batch name validation', () => {
             expect(
                 await server.stores.fsEntry.listDescendantsByPath(
                     `/${username}/Documents`,
+                    { limit: 1, order: 'asc' },
                 ),
             ).toHaveLength(0);
         },
@@ -4374,6 +4375,7 @@ describe('LegacyFSController.batch name validation', () => {
             expect(
                 await server.stores.fsEntry.listDescendantsByPath(
                     `/${username}/Documents`,
+                    { limit: 1, order: 'asc' },
                 ),
             ).toHaveLength(0);
         },

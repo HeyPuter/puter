@@ -863,6 +863,93 @@ describe('FSEntryStore entry creation', () => {
         });
         expect(child.path).toBe(`/root-child-${user.username}`);
     });
+
+    it('inserts rows under known parents and returns them in input order', async () => {
+        const owner = await makeUser();
+        const parent = (await store.getEntryByPath(`${owner.home}/Documents`))!;
+        const write = vi.spyOn(server.clients.db, 'write');
+        let entries: FSEntry[];
+        let inserts: number;
+        try {
+            entries = await store.insertEntries([
+                {
+                    uuid: uuidv4(),
+                    parent,
+                    name: 'ins-file.txt',
+                    kind: 'file',
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                    size: 7,
+                    metadata: '{"k":1}',
+                    immutable: true,
+                    isPublic: true,
+                },
+                { uuid: uuidv4(), parent, name: 'ins-dir', kind: 'directory' },
+                {
+                    uuid: uuidv4(),
+                    parent,
+                    name: 'ins-link',
+                    kind: 'shortcut',
+                    shortcutTo: parent.id,
+                },
+                {
+                    uuid: uuidv4(),
+                    parent,
+                    name: 'ins-sym',
+                    kind: 'symlink',
+                    symlinkPath: parent.path,
+                },
+                {
+                    uuid: uuidv4(),
+                    parent,
+                    name: 'ins-empty',
+                    kind: 'empty-file',
+                    // Ignored: only a file row carries storage columns.
+                    bucket: 'puter-local',
+                    size: 3,
+                },
+            ]);
+            inserts = write.mock.calls.filter(([sql]) =>
+                String(sql).includes('INSERT'),
+            ).length;
+        } finally {
+            write.mockRestore();
+        }
+        expect(inserts).toBe(1);
+
+        const [file, dir, shortcut, symlink, empty] = entries;
+        for (const entry of entries) {
+            expect(entry).toMatchObject({
+                userId: owner.userId,
+                parentId: parent.id,
+                parentUid: parent.uuid,
+            });
+            expect(entry.path).toBe(`${parent.path}/${entry.name}`);
+        }
+        expect(file).toMatchObject({
+            name: 'ins-file.txt',
+            isDir: false,
+            bucket: 'puter-local',
+            bucketRegion: 'us-west-2',
+            size: 7,
+            metadata: '{"k":1}',
+            immutable: true,
+            isPublic: true,
+        });
+        expect(dir).toMatchObject({ isDir: true, bucket: null });
+        expect(shortcut).toMatchObject({
+            isShortcut: true,
+            shortcutTo: parent.id,
+        });
+        expect(symlink).toMatchObject({
+            isSymlink: true,
+            symlinkPath: parent.path,
+        });
+        expect(empty).toMatchObject({ isDir: false, bucket: null, size: 0 });
+        await expect(
+            store.getEntryByPath(`${parent.path}/ins-dir`, { skipCache: true }),
+        ).resolves.toMatchObject({ uuid: dir!.uuid });
+    });
 });
 
 describe('FSEntryStore timestamps and updates', () => {
@@ -1217,7 +1304,10 @@ describe('FSEntryStore listing and pagination', () => {
     });
 
     it('lists and counts descendants, refusing to walk from root', async () => {
-        const descendants = await store.listDescendantsByPath(parent.path);
+        const descendants = await store.listDescendantsByPath(parent.path, {
+            limit: 100,
+            order: 'asc',
+        });
         expect(descendants.map((entry) => entry.name).sort()).toEqual([
             'a.txt',
             'b.txt',
@@ -1229,11 +1319,57 @@ describe('FSEntryStore listing and pagination', () => {
             store.countDescendantsByPath(user.userId, parent.path),
         ).resolves.toBe(5);
 
-        const rootList = await caught(() => store.listDescendantsByPath('/'));
+        const rootList = await caught(() =>
+            store.listDescendantsByPath('/', { limit: 100, order: 'asc' }),
+        );
         expect(rootList.statusCode).toBe(400);
         await expect(
             store.countDescendantsByPath(user.userId, '/'),
         ).resolves.toBe(0);
+    });
+
+    it('pages descendants by path, either direction, whoever owns them', async () => {
+        const other = await makeUser();
+        // A row from another account under this tree still belongs to it.
+        await store.insertEntries([
+            {
+                uuid: uuidv4(),
+                parent: {
+                    ...(await store.getEntryByPath(`${parent.path}/sub`))!,
+                    userId: other.userId,
+                },
+                name: 'foreign.txt',
+                kind: 'empty-file',
+            },
+        ]);
+        const walk = async (order: 'asc' | 'desc') => {
+            const seen: string[] = [];
+            let after: { path: string; id: number } | null = null;
+            for (;;) {
+                const page = await store.listDescendantsByPath(parent.path, {
+                    limit: 2,
+                    order,
+                    after,
+                });
+                expect(page.length).toBeLessThanOrEqual(2);
+                if (page.length === 0) break;
+                seen.push(...page.map((e) => e.path.slice(parent.path.length)));
+                const last = page[page.length - 1]!;
+                after = { path: last.path, id: last.id };
+            }
+            return seen;
+        };
+
+        const ascending = [
+            '/a.txt',
+            '/b.txt',
+            '/c.txt',
+            '/sub',
+            '/sub/deep.txt',
+            '/sub/foreign.txt',
+        ];
+        await expect(walk('asc')).resolves.toEqual(ascending);
+        await expect(walk('desc')).resolves.toEqual([...ascending].reverse());
     });
 
     it('limits a descendant page by depth and pages it by path', async () => {

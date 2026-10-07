@@ -34,6 +34,7 @@ import { PuterStore } from '../types.js';
 import {
     FSEntry,
     FSEntryCreateInput,
+    FSEntryInsertInput,
     FSEntrySubdomain,
     PendingUploadCreateInput,
     PendingUploadSession,
@@ -2510,6 +2511,86 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
+     * Insert rows whose parents already exist, a chunk per statement, and read
+     * them back from the primary. Returns the entries in input order. Rows are
+     * owned by their parent's owner, as `createNonFileEntry` does.
+     */
+    async insertEntries(inputs: FSEntryInsertInput[]): Promise<FSEntry[]> {
+        if (inputs.length === 0) return [];
+        const now = Math.floor(Date.now() / 1000);
+        const bool = (value: boolean) => this.clients.db.booleanValue(value);
+        const created = new Map<string, FSEntry>();
+        for (const chunk of this.#chunk(inputs, BULK_QUERY_CHUNK_SIZE)) {
+            const values: unknown[] = [];
+            for (const input of chunk) {
+                const parentPath = this.#normalizePath(input.parent.path);
+                const isFile = input.kind === 'file';
+                values.push(
+                    input.uuid,
+                    input.parent.userId,
+                    input.parent.id,
+                    input.parent.uuid,
+                    input.name,
+                    parentPath === '/'
+                        ? `/${input.name}`
+                        : `${parentPath}/${input.name}`,
+                    bool(input.kind === 'directory'),
+                    bool(input.kind === 'shortcut'),
+                    input.shortcutTo ?? null,
+                    bool(input.kind === 'symlink'),
+                    input.symlinkPath ?? null,
+                    input.associatedAppId ?? null,
+                    input.metadata ?? null,
+                    input.thumbnail ?? null,
+                    bool(Boolean(input.immutable)),
+                    input.isPublic === undefined || input.isPublic === null
+                        ? null
+                        : bool(input.isPublic),
+                    isFile ? (input.bucket ?? null) : null,
+                    isFile ? (input.bucketRegion ?? null) : null,
+                    now,
+                    now,
+                    now,
+                    isFile ? (input.size ?? 0) : 0,
+                );
+            }
+            const placeholders = chunk
+                .map(
+                    () =>
+                        '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                )
+                .join(', ');
+            await this.clients.db.write(
+                `INSERT INTO fsentries (
+                    uuid, user_id, parent_id, parent_uid, name, path,
+                    is_dir, is_shortcut, shortcut_to, is_symlink, symlink_path,
+                    associated_app_id, metadata, thumbnail, immutable, is_public,
+                    bucket, bucket_region, created, modified, accessed, size
+                ) VALUES ${placeholders}`,
+                values,
+            );
+            const rows = (await this.clients.db.pread(
+                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid IN (${chunk.map(() => '?').join(', ')})`,
+                chunk.map((input) => input.uuid),
+            )) as unknown as FSEntryRow[];
+            const entries = rows.map((row) => this.#mapFSEntryRow(row));
+            await Promise.all(
+                entries.map((entry) => this.#writeEntryToCache(entry)),
+            );
+            for (const entry of entries) created.set(entry.uuid, entry);
+        }
+        return inputs.map((input) => {
+            const entry = created.get(input.uuid);
+            if (!entry) {
+                throw new HttpError(500, 'Failed to read created entry', {
+                    legacyCode: 'internal_error',
+                });
+            }
+            return entry;
+        });
+    }
+
+    /**
      * Update accessed/modified/created timestamps in place. Used by `touch` for
      * entries that already exist.
      */
@@ -2736,10 +2817,24 @@ export class FSEntryStore extends PuterStore {
         return value.replace(/([!%_])/g, '!$1');
     }
 
-    // All descendants of a directory path (recursive). Paths in fsentries are
-    // absolute and don't carry a trailing slash, so the prefix pattern is
-    // `${prefix}/%`, served by `idx_fsentries_path`.
-    async listDescendantsByPath(pathPrefix: string): Promise<FSEntry[]> {
+    /**
+     * One page of the descendants of a directory path, in path order. Paths in
+     * fsentries are absolute with no trailing slash, so the prefix pattern is
+     * `${prefix}/%`, served by `idx_fsentries_path`.
+     *
+     * Keyset-paged on (path, id): pass the last row of a page as `after` for
+     * the next one, so a caller that deletes as it goes, or reads a lagging
+     * replica, still sees each row once. A directory sorts before everything
+     * under it, so `asc` reaches it first and `desc` last.
+     */
+    async listDescendantsByPath(
+        pathPrefix: string,
+        options: {
+            limit: number;
+            order: 'asc' | 'desc';
+            after?: { path: string; id: number } | null;
+        },
+    ): Promise<FSEntry[]> {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') {
             // Refuse to list all user entries this way — caller must mean something else.
@@ -2748,6 +2843,12 @@ export class FSEntryStore extends PuterStore {
             });
         }
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const dir = options.order === 'desc' ? 'DESC' : 'ASC';
+        const cmp = options.order === 'desc' ? '<' : '>';
+        const after = options.after;
+        const seek = after
+            ? `AND (path ${cmp} ? OR (path = ? AND id ${cmp} ?))`
+            : '';
         // Everything under the prefix, whoever owns it. A subtree is meant to
         // have one owner, but rows written before that was enforced don't, and
         // `AND user_id = ?` would leave those behind when the caller deletes
@@ -2755,8 +2856,15 @@ export class FSEntryStore extends PuterStore {
         // them. `idx_fsentries_path` leads on `path`, so the access path is
         // unchanged.
         const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path LIKE ? ESCAPE '!' ORDER BY path ASC`,
-            [likePattern],
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE path LIKE ? ESCAPE '!' ${seek}
+             ORDER BY path ${dir}, id ${dir}
+             LIMIT ?`,
+            [
+                likePattern,
+                ...(after ? [after.path, after.path, after.id] : []),
+                Math.max(1, Math.floor(options.limit)),
+            ],
         )) as unknown as FSEntryRow[];
         return rows.map((row) => this.#mapFSEntryRow(row));
     }

@@ -3418,6 +3418,42 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
     });
 });
 
+/**
+ * Run `fn` with a tree page of `size` rows, recording how many rows each
+ * descendant listing returned and how many fsentries inserts were issued.
+ */
+const withTreePages = async <T>(
+    size: number,
+    fn: () => Promise<T>,
+): Promise<{ result: T; pageSizes: number[]; inserts: number }> => {
+    const service = fs.constructor as unknown as { TREE_PAGE_SIZE: number };
+    const previous = service.TREE_PAGE_SIZE;
+    service.TREE_PAGE_SIZE = size;
+    const pageSizes: number[] = [];
+    const original = server.stores.fsEntry.listDescendantsByPath.bind(
+        server.stores.fsEntry,
+    );
+    const list = vi
+        .spyOn(server.stores.fsEntry, 'listDescendantsByPath')
+        .mockImplementation(async (...args) => {
+            const page = await original(...args);
+            pageSizes.push(page.length);
+            return page;
+        });
+    const write = vi.spyOn(server.clients.db, 'write');
+    try {
+        const result = await fn();
+        const inserts = write.mock.calls.filter(([sql]) =>
+            /INSERT\b[\s\S]*\bfsentries\b/i.test(String(sql)),
+        ).length;
+        return { result, pageSizes, inserts };
+    } finally {
+        service.TREE_PAGE_SIZE = previous;
+        list.mockRestore();
+        write.mockRestore();
+    }
+};
+
 describe('FSService remove', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -3534,6 +3570,47 @@ describe('FSService remove', () => {
         });
         await fs.remove(user.userId, { entry: dir });
         expect(await entryAt(user, '/Documents/emptydir')).toBeNull();
+    });
+
+    it('deletes a tree larger than a page, one page at a time', async () => {
+        const root = `${user.home}/Documents/tree-paged-rm`;
+        const files: FSEntry[] = [];
+        for (const path of [
+            'a.txt',
+            'b.txt',
+            'sub/c.txt',
+            'sub/deeper/d.txt',
+            'sub/deeper/e.txt',
+            'z/f.txt',
+        ]) {
+            files.push(
+                await writeFile(user, `${root}/${path}`, path, {
+                    createMissingParents: true,
+                }),
+            );
+        }
+        const dir = (await entryAt(user, '/Documents/tree-paged-rm'))!;
+
+        const { pageSizes } = await withTreePages(2, () =>
+            fs.remove(user.userId, { entry: dir, recursive: true }),
+        );
+
+        // 9 descendants: 6 files and 3 directories.
+        expect(pageSizes.every((size) => size <= 2)).toBe(true);
+        expect(pageSizes.reduce((sum, size) => sum + size, 0)).toBe(9);
+        const remaining = (await server.clients.db.read(
+            'SELECT COUNT(*) AS c FROM fsentries WHERE path = ? OR path LIKE ?',
+            [root, `${root}/%`],
+        )) as Array<{ c: number }>;
+        expect(Number(remaining[0]?.c)).toBe(0);
+        for (const file of files) {
+            await expect(
+                server.stores.s3Object.getObjectStream(
+                    { bucket: file.bucket!, objectKey: file.uuid },
+                    file.bucketRegion!,
+                ),
+            ).rejects.toMatchObject({ name: 'NoSuchKey' });
+        }
     });
 
     it('wipes every entry a user owns', async () => {
@@ -4068,6 +4145,110 @@ describe('FSService copy', () => {
         const copiedLeaf = await entryAt(user, '/Desktop/cpdir-copy/sub/b.txt');
         expect(copiedLeaf).not.toBeNull();
         expect(await readBack(copiedLeaf!)).toBe('b');
+    });
+
+    it('copies a tree larger than a page with an insert per level, not per entry', async () => {
+        const root = `${user.home}/Documents/tree-paged-cp`;
+        const paths = [
+            ...Array.from({ length: 12 }, (_, i) => `f${i}.txt`),
+            'sub/a.txt',
+            'sub/b.txt',
+            'sub/deeper/c.txt',
+        ];
+        for (const path of paths) {
+            await writeFile(user, `${root}/${path}`, `body of ${path}`, {
+                createMissingParents: true,
+            });
+        }
+        await fs.touch(user.userId, { path: `${root}/sub/empty.txt` });
+        const source = (await entryAt(user, '/Documents/tree-paged-cp'))!;
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        const { pageSizes, inserts } = await withTreePages(5, () =>
+            fs.copy(user.userId, { source, destinationParent: destination }),
+        );
+
+        // 18 descendants: 16 files and 2 directories, in 4 pages.
+        expect(pageSizes).toEqual([5, 5, 5, 3]);
+        // The new root, then at most a directory level and a leaf batch per page.
+        expect(inserts).toBeLessThanOrEqual(1 + 4 * 2);
+        for (const path of paths) {
+            const copied = await entryAt(
+                user,
+                `/Desktop/tree-paged-cp/${path}`,
+            );
+            expect(copied).not.toBeNull();
+            expect(await readBack(copied!)).toBe(`body of ${path}`);
+        }
+        const empty = await entryAt(
+            user,
+            '/Desktop/tree-paged-cp/sub/empty.txt',
+        );
+        expect(empty).toMatchObject({ size: 0, bucket: null });
+        const deeper = await entryAt(user, '/Desktop/tree-paged-cp/sub/deeper');
+        expect(deeper).toMatchObject({
+            isDir: true,
+            parentUid: (await entryAt(user, '/Desktop/tree-paged-cp/sub'))!
+                .uuid,
+        });
+    });
+
+    it('removes the objects a page copied when another in it fails', async () => {
+        const root = `${user.home}/Documents/tree-cp-fail`;
+        for (const path of ['a.txt', 'b.txt', 'c.txt']) {
+            await writeFile(user, `${root}/${path}`, path, {
+                createMissingParents: true,
+            });
+        }
+        const source = (await entryAt(user, '/Documents/tree-cp-fail'))!;
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        const original = server.stores.s3Object.copyObject.bind(
+            server.stores.s3Object,
+        );
+        const copied: Array<{ bucket: string; key: string; region: string }> =
+            [];
+        let calls = 0;
+        const copyObject = vi
+            .spyOn(server.stores.s3Object, 'copyObject')
+            .mockImplementation(async (input, region) => {
+                if (++calls === 2) throw new Error('copy failed');
+                await original(input, region);
+                copied.push({
+                    bucket: input.destinationBucket,
+                    key: input.destinationKey,
+                    region,
+                });
+            });
+        try {
+            await expect(
+                fs.copy(user.userId, {
+                    source,
+                    destinationParent: destination,
+                }),
+            ).rejects.toThrow('copy failed');
+        } finally {
+            copyObject.mockRestore();
+        }
+
+        expect(copied).toHaveLength(2);
+        const sourceFile = (await entryAt(
+            user,
+            '/Documents/tree-cp-fail/a.txt',
+        ))!;
+        await expect(
+            server.stores.s3Object.headObjectSize(
+                copied[0]!.bucket,
+                sourceFile.uuid,
+                copied[0]!.region,
+            ),
+        ).resolves.toBe(5);
+        for (const { bucket, key, region } of copied) {
+            await expect(
+                server.stores.s3Object.headObjectSize(bucket, key, region),
+            ).rejects.toBeDefined();
+        }
+        expect(await entryAt(user, '/Desktop/tree-cp-fail/a.txt')).toBeNull();
     });
 
     it('clones an empty file without touching storage', async () => {

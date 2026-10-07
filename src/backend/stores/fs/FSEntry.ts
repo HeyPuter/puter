@@ -93,6 +93,25 @@ export interface FSEntryCreateInput extends FSEntryWriteInput {
     bucketRegion: string;
 }
 
+/** A row whose parent already exists, for `FSEntryStore.insertEntries`. */
+export interface FSEntryInsertInput {
+    uuid: string;
+    parent: Pick<FSEntry, 'id' | 'uuid' | 'userId' | 'path'>;
+    name: string;
+    kind: 'directory' | 'file' | 'shortcut' | 'symlink' | 'empty-file';
+    /** `file` only. */
+    bucket?: string | null;
+    bucketRegion?: string | null;
+    size?: number;
+    shortcutTo?: number | null;
+    symlinkPath?: string | null;
+    associatedAppId?: number | null;
+    metadata?: string | null;
+    thumbnail?: string | null;
+    immutable?: boolean;
+    isPublic?: boolean | null;
+}
+
 export interface PendingUploadSession {
     id: number;
     sessionId: string;
