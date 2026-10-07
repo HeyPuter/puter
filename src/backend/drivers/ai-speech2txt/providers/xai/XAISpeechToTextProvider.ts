@@ -18,6 +18,7 @@
  */
 
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { loadFileInput } from '../../../util/fileInput.js';
 import type {
     ISpeechToTextDeps,
@@ -180,10 +181,7 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
             'xai:stt:second',
             estimatedCost,
         );
-        if (!hold)
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
+        if (!hold) throw insufficientCreditsError();
 
         try {
             // Build multipart form data

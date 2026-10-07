@@ -20,6 +20,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
@@ -217,9 +218,7 @@ export class GeminiTTSProvider extends TTSProvider {
             estimatedTotalMicroCents,
         );
         if (!hold) {
-            throw new HttpError(402, 'Insufficient funds', {
-                legacyCode: 'insufficient_funds',
-            });
+            throw insufficientCreditsError();
         }
 
         try {

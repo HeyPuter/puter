@@ -96,15 +96,17 @@ export const assertActorHasCredits = async (
     if (creditEnforcementExempt(actor, config)) return;
 
     if (!(await metering.hasAnyUsageCached(actor!))) {
-        throw new HttpError(
-            402,
-            'No usage left for request. Upgrade at https://puter.com/#billing',
-            {
-                legacyCode: 'insufficient_funds',
-            },
-        );
+        throw insufficientCreditsError();
     }
 };
+
+/** The 402 for a request the account's remaining credits can't cover. */
+export const insufficientCreditsError = (): HttpError =>
+    new HttpError(
+        402,
+        "Your account doesn't have enough credits left for this request. Upgrade your plan at https://puter.com/#billing to continue.",
+        { legacyCode: 'insufficient_funds' },
+    );
 
 /** The part of the metering service the subscription check calls. */
 export type SubscriptionMetering = Pick<

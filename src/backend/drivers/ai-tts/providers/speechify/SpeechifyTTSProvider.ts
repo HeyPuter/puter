@@ -19,6 +19,7 @@
 
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
@@ -159,9 +160,7 @@ export class SpeechifyTTSProvider extends TTSProvider {
             totalCost,
         );
         if (!hold) {
-            throw new HttpError(402, 'Insufficient funds', {
-                legacyCode: 'insufficient_funds',
-            });
+            throw insufficientCreditsError();
         }
 
         try {
