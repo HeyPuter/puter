@@ -60,7 +60,7 @@
     "postal-mime": "^3.0.1",
     "replicate": "^1.0.0",
     "sharp": "^0.35.5",
-    "smtp-server": "^3.19.13",
+    "smtp-server": "^3.19.17",
     "socket.io": "^4.8.4",
     "svg-captcha": "^1.4.0",
     "together-ai": "^0.33.0",
