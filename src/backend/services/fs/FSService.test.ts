@@ -3863,6 +3863,133 @@ describe('FSService move', () => {
         expect(await readBack(overwritten)).toBe('winner');
     });
 
+    /**
+     * Reproduce an occupant arriving after the collision probe: the probe
+     * misses it (a concurrent move, or a replica that hasn't caught up) and the
+     * UPDATE trips the `(parent_id, name)` unique key. Both halves are forced,
+     * because the sqlite test schema has no unique key on that pair.
+     */
+    const simulateLostMoveRace = (targetPath: string) => {
+        const store = server.stores.fsEntry;
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(store) as typeof store)
+            .getEntryByPath;
+        const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
+
+        const probeSpy = vi
+            .spyOn(store, 'getEntryByPath')
+            .mockImplementation(async (candidate, options) => {
+                if (candidate === targetPath && !options?.useTryHardRead)
+                    return null;
+                return originalRead.call(store, candidate, options);
+            });
+
+        let updateRejected = false;
+        const writeSpy = vi
+            .spyOn(db, 'write')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (
+                    !updateRejected &&
+                    sql.startsWith('UPDATE fsentries SET') &&
+                    params?.includes(targetPath)
+                ) {
+                    updateRejected = true;
+                    throw Object.assign(
+                        new Error(
+                            "Duplicate entry for key 'fsentries.parent_id_filename'",
+                        ),
+                        { code: 'ER_DUP_ENTRY', errno: 1062 },
+                    );
+                }
+                return originalWrite.call(db, sql, params);
+            });
+
+        return () => {
+            probeSpy.mockRestore();
+            writeSpy.mockRestore();
+        };
+    };
+
+    it('reports a name taken after the collision check as a conflict', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const targetPath = `${user.home}/Desktop/race-409.txt`;
+        await writeFile(user, targetPath, 'occupant');
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/race-409.txt`,
+            'incoming',
+        );
+        const restore = simulateLostMoveRace(targetPath);
+
+        try {
+            const error = await caught(() =>
+                fs.move(user.userId, {
+                    source,
+                    destinationParent: destination,
+                }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(error.legacyCode).toBe('item_with_same_name_exists');
+            expect(error.fields).toMatchObject({ entry_name: 'race-409.txt' });
+        } finally {
+            restore();
+        }
+        expect(await entryAt(user, '/Documents/race-409.txt')).not.toBeNull();
+    });
+
+    it('replaces an occupant that arrived after the collision check when overwriting', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const targetPath = `${user.home}/Desktop/race-overwrite.txt`;
+        const occupant = await writeFile(user, targetPath, 'occupant');
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/race-overwrite.txt`,
+            'incoming',
+        );
+        const restore = simulateLostMoveRace(targetPath);
+
+        let moved: FSEntry;
+        try {
+            moved = await fs.move(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: true,
+            });
+        } finally {
+            restore();
+        }
+        expect(moved.path).toBe(targetPath);
+        expect(moved.uuid).toBe(source.uuid);
+        expect(await readBack(moved)).toBe('incoming');
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(occupant.uuid),
+        ).toBeNull();
+    });
+
+    it('dedupes against an occupant that arrived after the collision check', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const targetPath = `${user.home}/Desktop/race-dedupe.txt`;
+        await writeFile(user, targetPath, 'occupant');
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/race-dedupe.txt`,
+            'incoming',
+        );
+        const restore = simulateLostMoveRace(targetPath);
+
+        let moved: FSEntry;
+        try {
+            moved = await fs.move(user.userId, {
+                source,
+                destinationParent: destination,
+                dedupeName: true,
+            });
+        } finally {
+            restore();
+        }
+        expect(moved.path).toBe(`${user.home}/Desktop/race-dedupe (1).txt`);
+    });
+
     it('replaces metadata on the moved entry and can clear it', async () => {
         const destination = (await entryAt(user, '/Desktop'))!;
         const entry = await writeFile(

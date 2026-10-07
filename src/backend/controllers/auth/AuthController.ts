@@ -77,6 +77,7 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import {
     cleanEmail,
     isBlockedEmail,
@@ -1188,12 +1189,21 @@ export class AuthController extends PuterController {
                 // Lost the race to another signup between the re-check above and
                 // this insert. The index is the only thing that can see that, so
                 // translate it into the answer the pre-check would have given.
-                if (!isOwnedEmailConflict(e)) throw e;
-                throw new HttpError(
-                    400,
-                    'This email already exists in our database. Please use another one.',
-                    { legacyCode: 'bad_request' },
-                );
+                if (isOwnedEmailConflict(e)) {
+                    throw new HttpError(
+                        400,
+                        'This email already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                if (await this.#isUsernameTaken(e, body.username)) {
+                    throw new HttpError(
+                        400,
+                        'This username already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                throw e;
             }
 
             // Add to default group
@@ -5090,6 +5100,17 @@ export class AuthController extends PuterController {
                 );
         } while (await this.stores.user.getByUsername(username));
         return username;
+    }
+
+    /**
+     * Whether a failed user write lost `username` to a concurrent one. The
+     * primary is read because the winner may not have replicated yet.
+     */
+    async #isUsernameTaken(err: unknown, username: string): Promise<boolean> {
+        if (!isUniqueViolation(err)) return false;
+        return Boolean(
+            await this.stores.user.getByUsername(username, { force: true }),
+        );
     }
 
     /**
