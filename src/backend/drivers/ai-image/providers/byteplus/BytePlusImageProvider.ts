@@ -24,6 +24,7 @@ import { closestAspectRatio } from '../../imageDimensions.js';
 import type { ImageSize } from '../../types.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
     IGenerateParams,
@@ -170,11 +171,7 @@ export class BytePlusImageProvider implements IImageProvider {
             estimatedCents * 1_000_000,
         );
         if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
+            throw insufficientCreditsError();
         }
 
         const image =

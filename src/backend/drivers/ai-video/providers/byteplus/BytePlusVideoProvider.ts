@@ -164,7 +164,6 @@ export class BytePlusVideoProvider extends VideoProvider {
             perSecondMicroCents,
             requestedSeconds,
             allowedSeconds: model.durationSeconds,
-            modelId: model.id,
         });
 
         const body: Record<string, unknown> = {

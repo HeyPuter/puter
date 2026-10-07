@@ -20,6 +20,7 @@
 import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
@@ -166,7 +167,6 @@ export class TogetherVideoProvider extends VideoProvider {
                 perSecondMicroCents: perSecondCents * 1_000_000,
                 requestedSeconds: normalizedSeconds ?? DEFAULT_DURATION_SECONDS,
                 allowedSeconds: selectedModel?.durationSeconds,
-                modelId: model,
             });
             estimateMicroCents = Math.round(
                 perSecondCents * 1_000_000 * normalizedSeconds,
@@ -179,9 +179,7 @@ export class TogetherVideoProvider extends VideoProvider {
                 estimateMicroCents,
             );
             if (!usageAllowed) {
-                throw new HttpError(402, 'Insufficient funds', {
-                    legacyCode: 'insufficient_funds',
-                });
+                throw insufficientCreditsError();
             }
             billedUnits = 1;
         }

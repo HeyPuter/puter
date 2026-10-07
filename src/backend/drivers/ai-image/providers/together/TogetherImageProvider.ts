@@ -39,6 +39,7 @@ import {
     toUrlOrDataUri,
 } from '../../inputImage.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
 type TogetherGenerateParams = IGenerateParams & {
@@ -234,11 +235,7 @@ export class TogetherImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
+            throw insufficientCreditsError();
         }
 
         const request = this.#buildRequest(

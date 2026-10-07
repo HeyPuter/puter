@@ -21,6 +21,7 @@
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
+import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 
 export interface ICapSecondsParams {
     metering: MeteringService;
@@ -37,8 +38,6 @@ export interface ICapSecondsParams {
     allowedSeconds?: readonly number[] | null;
     /** Floor for models with no discrete ladder. Defaults to 1. */
     minSeconds?: number;
-    /** Model id, for the 402 message. */
-    modelId?: string;
 }
 
 /**
@@ -62,7 +61,6 @@ export async function capSecondsToRemainingCredits({
     requestedSeconds,
     allowedSeconds,
     minSeconds,
-    modelId,
 }: ICapSecondsParams): Promise<number> {
     if (!actor) {
         throw new HttpError(401, 'Authentication required', {
@@ -82,16 +80,6 @@ export async function capSecondsToRemainingCredits({
         .filter((s) => Number.isFinite(s) && s > 0)
         .sort((a, b) => a - b);
 
-    const usd = (microCents: number) => (microCents / 1e8).toFixed(2);
-    const insufficient = (shortest: number) =>
-        new HttpError(
-            402,
-            `Insufficient funds: the shortest ${modelId ?? 'video'} clip is ` +
-                `${shortest}s ($${usd(shortest * perSecondMicroCents)}), ` +
-                `more than the $${usd(remaining)} remaining.`,
-            { legacyCode: 'insufficient_funds' },
-        );
-
     if (ladder.length > 0) {
         // A sub-ladder request already gets rounded up to the shortest
         // supported duration by every provider, so price it that way here too.
@@ -102,11 +90,11 @@ export async function capSecondsToRemainingCredits({
         for (let i = ladder.length - 1; i >= 0; i--) {
             if (ladder[i] <= ceiling) return ladder[i];
         }
-        throw insufficient(ladder[0]);
+        throw insufficientCreditsError();
     }
 
     const floor = Math.max(1, minSeconds ?? 1);
     const capped = Math.min(requestedSeconds, affordableSeconds);
-    if (capped < floor) throw insufficient(floor);
+    if (capped < floor) throw insufficientCreditsError();
     return capped;
 }

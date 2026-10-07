@@ -37,6 +37,7 @@ import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { fetchImageAsBase64, isHttpUrl } from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 interface OpenAIImageUsage {
@@ -213,11 +214,7 @@ export class OpenAiImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
+            throw insufficientCreditsError();
         }
 
         // With input images we use the edit endpoint (gpt-image only);

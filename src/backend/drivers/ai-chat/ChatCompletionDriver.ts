@@ -23,6 +23,7 @@ import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import { isFreeSubscription } from '../../services/metering/consts.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
@@ -149,13 +150,7 @@ const fundsRefusal = (heldByInFlight: boolean): HttpError =>
               'Usage is reserved by requests still running. Retry when they finish, or upgrade at https://puter.com/#billing',
               { legacyCode: 'too_many_requests', code: 'credits_reserved' },
           )
-        : new HttpError(
-              402,
-              'No usage left for request. Upgrade at https://puter.com/#billing',
-              {
-                  legacyCode: 'insufficient_funds',
-              },
-          );
+        : insufficientCreditsError();
 
 const positiveOrInfinity = (n: unknown): number =>
     typeof n === 'number' && Number.isFinite(n) && n > 0
