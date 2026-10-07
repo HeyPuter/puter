@@ -56,6 +56,8 @@ If the user has no keys, the array will be empty.
 
 When paginating, iterate until the result has no `cursor` — a page may hold fewer than `limit` items while more pages still exist.
 
+Invalid options, such as a non-boolean `reverse` or `offset` combined with `stream`, reject the returned promise with an `invalid_request` error; `list()` never throws synchronously. With `stream: true`, the iterator's first `next()` rejects instead.
+
 Full (non-paginated) listings keep resolving to a plain array, so existing code is unaffected — under the hood the SDK now fetches them page by page. They still read the entire store, though: every page is metered, so on large stores a bare `list()` gets slow and costly (the SDK logs a one-time console warning when a full listing spans multiple pages). Prefer `stream: true` or explicit `limit`/`cursor` pages, and narrow the scan with a `pattern`.
 
 With `stream: true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead:

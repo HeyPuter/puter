@@ -395,14 +395,32 @@ export default suite('kv', {
         t.assert.deepEqual(seen, ['kv-suite-stream-nolimit']);
     },
 
-    'list with stream rejects offset client-side': async (t) => {
-        let err: { code?: string } | undefined;
-        try {
-            t.puter.kv.list({ stream: true, offset: 1 } as never);
-        } catch (e) {
-            err = e as { code?: string };
-        }
-        t.assert.equal(err?.code, 'invalid_request');
+    'list with stream rejects offset on the first page': async (t) => {
+        const pages = t.puter.kv.list({
+            stream: true,
+            offset: 1,
+        } as never) as AsyncIterableIterator<unknown>;
+        const err = await t.assert.rejects(
+            () => pages.next(),
+            'offset with stream should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'invalid_request');
+    },
+
+    'list with a non-boolean reverse returns a rejected promise': async (t) => {
+        const result = t.puter.kv.list({
+            reverse: 'yes',
+        } as never) as Promise<unknown>;
+        t.assert.equal(
+            typeof result.then,
+            'function',
+            'list should return a promise',
+        );
+        const err = await t.assert.rejects(
+            () => result,
+            'a non-boolean reverse should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'invalid_request');
     },
 
     // -- argument shapes --
@@ -517,6 +535,40 @@ export default suite('kv', {
             (err as { message?: string })?.message,
             `Value size cannot be larger than ${t.puter.kv.MAX_VALUE_SIZE}`,
         );
+    },
+
+    'set measures value size in bytes of the JSON value': async (t) => {
+        const max = t.puter.kv.MAX_VALUE_SIZE;
+        for (const value of [
+            '\u20ac'.repeat(Math.ceil(max / 3)),
+            { blob: 'x'.repeat(max) },
+            Array(max).fill(0),
+        ]) {
+            const err = await t.assert.rejects(
+                () => t.puter.kv.set('kv-suite-oversized-json', value),
+                'a value over the byte cap should be rejected',
+            );
+            t.assert.equal((err as { code?: string })?.code, 'value_too_large');
+        }
+        // Quotes included, this string is exactly at the cap.
+        const atCap = 'v'.repeat(max - 2);
+        t.assert.equal(
+            await t.puter.kv.set('kv-suite-value-at-cap', atCap),
+            true,
+        );
+        t.assert.equal(await t.puter.kv.get('kv-suite-value-at-cap'), atCap);
+    },
+
+    'set rejects a multibyte key over the byte cap': async (t) => {
+        const err = await t.assert.rejects(
+            () =>
+                t.puter.kv.set(
+                    '\u00e9'.repeat(t.puter.kv.MAX_KEY_SIZE / 2 + 1),
+                    'x',
+                ),
+            'a key over the byte cap should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'key_too_large');
     },
 
     'set rejects an oversized key with key_too_large': async (t) => {
@@ -837,6 +889,17 @@ export default suite('kv', {
             null,
             'an unset boot key comes back empty from the same batch',
         );
+    },
+
+    'writes to a boot-cached key are visible to the next get': async (t) => {
+        // The first get() of one of these keys batch-reads all of them, and
+        // the batch serves reads for a few seconds afterwards.
+        await t.puter.kv.set('desktop_icons_hidden', 'true');
+        t.assert.equal(await t.puter.kv.get('taskbar_position'), null);
+        await t.puter.kv.set('taskbar_position', 'left');
+        t.assert.equal(await t.puter.kv.get('taskbar_position'), 'left');
+        await t.puter.kv.del('desktop_icons_hidden');
+        t.assert.equal(await t.puter.kv.get('desktop_icons_hidden'), null);
     },
 
     'clear is an alias of flush and empties the store': async (t) => {

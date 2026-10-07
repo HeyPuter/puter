@@ -54,6 +54,11 @@ const normalizeListPattern = (pattern) => {
     return trimmed;
 };
 
+// Argument errors surface where network errors do: a rejected promise, or for
+// `stream` an iterator whose first `next()` rejects.
+const failList = (stream, error) =>
+    stream ? (async function* () { throw error; })() : Promise.reject(error);
+
 /**
  * @overload
  * @param {string} [pattern]
@@ -159,9 +164,10 @@ export function list (patternOrOptions, returnValuesOrOptConfig, maybeOptConfig)
 
     if ( isOptionsObject ) {
         const input = patternOrOptions;
+        stream = input.stream === true;
         if ( input.reverse !== undefined ) {
             if ( typeof input.reverse !== 'boolean' ) {
-                throw { message: 'reverse must be a boolean', code: 'invalid_request' };
+                return failList(stream, { message: 'reverse must be a boolean', code: 'invalid_request' });
             }
             options.reverse = input.reverse;
         }
@@ -169,7 +175,6 @@ export function list (patternOrOptions, returnValuesOrOptConfig, maybeOptConfig)
             pattern = input.pattern;
         }
         returnValues = !!input.returnValues;
-        stream = input.stream === true;
         if ( isObject(input.optConfig) ) {
             options.optConfig = input.optConfig;
         } else if ( isOptConfigShorthand(input) ) {
@@ -224,7 +229,7 @@ export function list (patternOrOptions, returnValuesOrOptConfig, maybeOptConfig)
 
     if ( stream ) {
         if ( options.offset !== undefined ) {
-            throw { message: '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.', code: 'invalid_request' };
+            return failList(stream, { message: '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.', code: 'invalid_request' });
         }
         const base = { ...options };
         delete base.cursor;
