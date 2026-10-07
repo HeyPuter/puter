@@ -175,6 +175,7 @@ export type EventMap = {
             index_url?: string | null;
             owner_user_id?: number | null;
             name?: string | null;
+            godmode?: boolean;
         };
     };
 

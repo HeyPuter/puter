@@ -21,7 +21,8 @@
  * Pick the session rows that belong to one app, out of a /auth/list-sessions
  * response.
  *
- * Only `kind === 'app'` rows: `worker` rows also carry an `app_uid` but are
+ * `app` rows, plus the `access_token` row a godmode app runs on (the only
+ * access tokens that carry an `app_uid`). `worker` rows also carry one but are
  * deployment credentials rather than this user's grant to the app, and access
  * tokens the app issued follow on their own through the server-side cascade.
  *
@@ -32,7 +33,12 @@
 export const appSessionUuids = (sessions, appUid) => {
     if (!Array.isArray(sessions) || !appUid) return [];
     return sessions
-        .filter((s) => s?.kind === 'app' && s?.app_uid === appUid && s?.uuid)
+        .filter(
+            (s) =>
+                (s?.kind === 'app' || s?.kind === 'access_token') &&
+                s?.app_uid === appUid &&
+                s?.uuid,
+        )
         .map((s) => s.uuid);
 };
 
