@@ -4914,6 +4914,76 @@ describe('AuthController SMS → card fallback', () => {
             value: true,
         });
 
+    // An abuse extension vetoing with `card_fallback_instead` asks for the
+    // card path in place of SMS.
+    const withFallbackVeto = async (fn: () => Promise<void>) => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emit: vi.fn(),
+            emitAndWait: vi.fn(
+                async (_name: string, payload: Record<string, unknown>) => {
+                    payload.allowed = false;
+                    payload.reason = 'phone_virtual_number';
+                    payload.card_fallback_instead = true;
+                },
+            ),
+        };
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+        }
+    };
+
+    it('routes a vetoed send to the card fallback when the extension asks', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(prelude, async () => {
+                await withFallbackVeto(async () => {
+                    await expect(
+                        controller.handleSendConfirmPhone(
+                            makeReq({ phone: '+14155550123' }, { actor }),
+                            makeRes(),
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 429,
+                        fields: {
+                            card_fallback_available: true,
+                            reason: 'phone_virtual_number',
+                        },
+                    });
+                });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+        const { res: flag } = await server.stores.kv.get({
+            key: `card-fallback-open:${user.id}`,
+        });
+        expect(flag).toBe(true);
+    });
+
+    it('lets that send through when the fallback is off', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: false }, async () => {
+            await withPrelude(prelude, async () => {
+                await withFallbackVeto(async () => {
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        makeRes(),
+                    );
+                });
+            });
+        });
+        expect(prelude.createVerification).toHaveBeenCalled();
+    });
+
     it('offers the fallback on send only once SMS attempts are exhausted', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,

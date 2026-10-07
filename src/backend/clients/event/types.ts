@@ -304,6 +304,9 @@ export type EventMap = {
         device_fingerprint: string | null;
         allowed: boolean;
         reason: string | null;
+        // With `allowed` false, offer the card fallback in place of SMS. Only
+        // honored while the fallback is on; otherwise the send proceeds.
+        card_fallback_instead?: boolean;
         [key: string]: unknown;
     };
     // Fire-and-forget signal that a code was actually sent — the abuse

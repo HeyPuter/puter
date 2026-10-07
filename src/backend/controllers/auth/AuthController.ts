@@ -1714,29 +1714,35 @@ export class AuthController extends PuterController {
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
-        const open =
-            Boolean(user.requires_phone_verification) &&
-            attempts >= cardFallbackAfterAttempts(this.config) &&
-            (await isCardFallbackEnabled(this.config, this.cardFallbackDeps()));
-        if (open) {
-            try {
-                // Plain set, so each eligible attempt refreshes the window.
-                await this.stores.kv.set({
-                    key: cardFallbackFlagKey(user.id),
-                    value: true,
-                    expireAt:
-                        Math.floor(Date.now() / 1000) +
-                        CARD_FALLBACK_OPEN_TTL_SECONDS,
-                });
-            } catch (e) {
-                console.warn(
-                    '[send-confirm-phone] fallback flag stamp failed:',
-                    e,
-                );
-                return false;
-            }
+        if (attempts < cardFallbackAfterAttempts(this.config)) return false;
+        return this.openCardFallback(user);
+    }
+
+    /**
+     * Stamp the eligibility flag the card endpoints check, when the user is
+     * phone-gated and the fallback is on. Returns whether it is now open.
+     */
+    private async openCardFallback(user: {
+        id: number;
+        requires_phone_verification?: boolean | number | null;
+    }): Promise<boolean> {
+        if (!user.requires_phone_verification) return false;
+        const deps = this.cardFallbackDeps();
+        if (!(await isCardFallbackEnabled(this.config, deps))) return false;
+        try {
+            // Plain set, so each eligible attempt refreshes the window.
+            await this.stores.kv.set({
+                key: cardFallbackFlagKey(user.id),
+                value: true,
+                expireAt:
+                    Math.floor(Date.now() / 1000) +
+                    CARD_FALLBACK_OPEN_TTL_SECONDS,
+            });
+            return true;
+        } catch (e) {
+            console.warn('[send-confirm-phone] fallback flag stamp failed:', e);
+            return false;
         }
-        return open;
     }
 
     private async isCardFallbackEligible(user: {
@@ -1856,6 +1862,7 @@ export class AuthController extends PuterController {
             device_fingerprint: req.deviceFingerprint ?? null,
             allowed: true,
             reason: null as string | null,
+            card_fallback_instead: false,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -1865,6 +1872,14 @@ export class AuthController extends PuterController {
             );
         } catch (e) {
             console.warn('[send-confirm-phone] abuse-check hook failed:', e);
+        }
+        // A veto that routes to the card fallback needs the fallback to exist;
+        // without it there is nothing to offer, so the send goes ahead.
+        let vetoFallbackFields = fallbackFields;
+        if (abuseCheck.allowed === false && abuseCheck.card_fallback_instead) {
+            if (await this.openCardFallback(user))
+                vetoFallbackFields = { card_fallback_available: true };
+            else abuseCheck.allowed = true;
         }
         // Forward the verdict verbatim: a generic 429 plus the opaque reason for
         // the client to message on. The backend never interprets the reason —
@@ -1883,7 +1898,7 @@ export class AuthController extends PuterController {
                 {
                     legacyCode: 'phone_verification_unavailable' as never,
                     fields: {
-                        ...fallbackFields,
+                        ...vetoFallbackFields,
                         ...(abuseCheck.reason
                             ? { reason: abuseCheck.reason }
                             : {}),
