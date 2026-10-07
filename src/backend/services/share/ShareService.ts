@@ -234,6 +234,10 @@ export const entryPermissions = (uuid: string): string[] => [
  * The permission a share of `mode` actually grants — which is what authority to
  * issue that share has to be measured against.
  */
+/** `see` says a node is there; `list` is what says what is inside it. */
+const showsContents = (mode: unknown): boolean =>
+    ['list', 'read', 'write', MANAGE_PERM_PREFIX].includes(String(mode));
+
 export const entryPermissionForMode = (
     uuid: string,
     mode: AclMode | string,
@@ -800,6 +804,8 @@ export class ShareService extends PuterService {
             if (!root || !Number.isFinite(holderId)) continue;
             if (holderId === entry.userId) continue;
             if (!live.has(`${holderId}:${root.id}`)) continue;
+            // `see` says the folder is there, not what is inside it.
+            if (root.id !== entry.id && !showsContents(row.mode)) continue;
             const current = rootByHolder.get(holderId);
             if (!current || root.path.length > current.path.length) {
                 rootByHolder.set(holderId, root);
@@ -948,8 +954,13 @@ export class ShareService extends PuterService {
         // this recipient already had reach here.
         const hadAccess =
             indexed || (await this.#hasGrantFrom(entry, holder.id, issuerId));
+        // Not new reach, so not the share budget -- but still a write.
         const releaseQuota = hadAccess
-            ? null
+            ? await this.#reserveDailyQuota(issuerId, {
+                  scope: 'remode',
+                  limit: this.#remodeLimit(),
+                  code: 'share_daily_limit_reached',
+              })
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -3571,28 +3582,52 @@ export class ShareService extends PuterService {
      * distinct numbers and only those at or under the limit proceed. Counting
      * first and writing after would let them all read the same count and pass.
      */
-    async #reserveDailyQuota(userId: number): Promise<() => Promise<void>> {
+    /** Mode changes get their own, looser budget; they are not new reach. */
+    #remodeLimit(): number {
+        const configured = this.config.share_remode_daily_limit;
+        if (typeof configured === 'number') return configured;
+        const base = this.config.share_daily_limit ?? DEFAULT_DAILY_SHARE_LIMIT;
+        return base * 10;
+    }
+
+    async #reserveDailyQuota(
+        userId: number,
+        opts: { scope?: string; limit?: number; code?: string } = {},
+    ): Promise<() => Promise<void>> {
+        const scope = opts.scope ?? 'quota';
         const limit =
-            this.config.share_daily_limit ?? DEFAULT_DAILY_SHARE_LIMIT;
+            opts.limit ??
+            this.config.share_daily_limit ??
+            DEFAULT_DAILY_SHARE_LIMIT;
         const noop = async () => {};
         if (limit <= 0) return noop;
 
         const release = async (): Promise<void> => {
             try {
-                await this.stores.share.incrementDailyShareCount(userId, -1);
+                await this.stores.share.incrementDailyShareCount(
+                    userId,
+                    -1,
+                    scope,
+                );
             } catch {
                 // A leaked slot costs the user one share until midnight;
                 // failing the request over it would cost them more.
             }
         };
 
-        const used = await this.stores.share.incrementDailyShareCount(userId);
+        const used = await this.stores.share.incrementDailyShareCount(
+            userId,
+            1,
+            scope,
+        );
         if (used > limit) {
             await release();
             throw new HttpError(
                 429,
                 `daily share limit reached (${limit}); try again tomorrow`,
-                { legacyCode: 'share_daily_limit_reached' },
+                {
+                    legacyCode: opts.code ?? 'share_daily_limit_reached',
+                },
             );
         }
         return release;

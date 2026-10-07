@@ -803,9 +803,9 @@ interface IConfigOptional {
     /**
      * Accept the pre-owner-binding signature format on signed file URLs
      * alongside the current owner-bound one. Default true, so URLs minted
-     * before owner binding shipped keep working. Set false once those have
-     * aged out — the old format has no owner check, so a signed folder URL
-     * keeps authorizing reads after the folder moves to another owner.
+     * before owner binding shipped keep working. Set false once those have aged
+     * out — the old format has no owner check, so a signed folder URL keeps
+     * authorizing reads after the folder moves to another owner.
      */
     legacy_file_signatures?: boolean;
     /** Name of the session cookie the auth probe reads. */
@@ -908,6 +908,8 @@ interface IConfigOptional {
      * use the built-in default.
      */
     share_daily_limit?: number;
+    /** Mode changes on existing shares; defaults to ten times the above. */
+    share_remode_daily_limit?: number;
 
     /**
      * How often a share may interrupt its recipient — the notification pushed

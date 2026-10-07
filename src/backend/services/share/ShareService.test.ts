@@ -2784,6 +2784,41 @@ describe('ShareService', () => {
             });
         });
 
+        it('bounds mode changes on their own budget', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const cfg = (
+                server.services.share as unknown as {
+                    config: { share_remode_daily_limit?: number };
+                }
+            ).config;
+            const previous = cfg.share_remode_daily_limit;
+            cfg.share_remode_daily_limit = 1;
+            try {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                // Not new reach, so not the share budget -- but still a write.
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'write',
+                });
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: { email: recipient.email },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({ statusCode: 429 });
+            } finally {
+                cfg.share_remode_daily_limit = previous;
+            }
+        });
+
         it('counts creations, so revoking does not refund the slot', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
@@ -3628,6 +3663,46 @@ describe('ShareService', () => {
             expect(payload?.path).toBe(
                 `/${owner.user.username}/${dir.uuid}/${dir.name}/${file.name}`,
             );
+        });
+
+        it('does not tell a `see`-only folder recipient what is inside it', async () => {
+            const owner = await makeUser();
+            const seeOnly = await makeUser();
+            const lister = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const loose = await makeFile(owner.user);
+            const after = `${dir.path}/${loose.name}`;
+
+            for (const [who, mode] of [
+                [seeOnly, 'see'],
+                [lister, 'read'],
+            ] as const) {
+                await share(owner.actor, {
+                    uid: dir.uuid,
+                    recipient: { email: who.email },
+                    mode,
+                });
+            }
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.added',
+                loose.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...loose, path: after },
+                            fromPath: loose.path,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // The child's name and size are what `list` is for.
+            expect(audiences.flat()).toContain(lister.user.id);
+            expect(audiences.flat()).not.toContain(seeOnly.user.id);
         });
 
         it('tells a folder recipient when a file is moved into it', async () => {

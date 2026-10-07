@@ -1037,9 +1037,9 @@ export class ShareStore extends PuterStore {
      * @param {number} [amount]
      * @returns {Promise<number>} The count after incrementing
      */
-    async incrementDailyShareCount(userId, amount = 1) {
+    async incrementDailyShareCount(userId, amount = 1, scope = 'quota') {
         const { res } = await this.stores.kv.incr({
-            key: this.#dailyQuotaKey(userId),
+            key: this.#dailyQuotaKey(userId, scope),
             pathAndAmountMap: { count: amount },
             // Two days, so a counter written just before midnight still ages
             // out on its own.
@@ -1049,10 +1049,10 @@ export class ShareStore extends PuterStore {
         return typeof count === 'number' ? count : amount;
     }
 
-    /** @param {number} userId */
-    #dailyQuotaKey(userId) {
+    /** @param {number} userId @param {string} scope */
+    #dailyQuotaKey(userId, scope = 'quota') {
         const day = new Date().toISOString().slice(0, 10);
-        return `share:quota:${userId}:${day}`;
+        return `share:${scope}:${userId}:${day}`;
     }
 
     // -- Internals ----------------------------------------------------
