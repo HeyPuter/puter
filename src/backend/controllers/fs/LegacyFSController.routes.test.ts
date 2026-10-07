@@ -1555,6 +1555,118 @@ describe('LegacyFSController.writeFile operations', () => {
         ).toBe('original'.length);
     });
 
+    describe("past the owner's allowance", () => {
+        let limited: PuterServer;
+        let limitedController: LegacyFSController;
+        const secret = 'limited-signing-secret';
+        const apiBaseUrl = 'http://api.test.local';
+
+        beforeAll(async () => {
+            limited = await setupTestServer({
+                is_storage_limited: true,
+            } as never);
+            limitedController = limited.controllers
+                .legacyFs as unknown as LegacyFSController;
+            Object.assign(
+                (limitedController as unknown as { config: object }).config,
+                { api_base_url: apiBaseUrl, url_signature_secret: secret },
+            );
+        });
+
+        afterAll(async () => {
+            await limited?.shutdown();
+        });
+
+        it('refuses an overwrite mid-stream and leaves the old file intact', async () => {
+            const username = `lfq-${Math.random().toString(36).slice(2, 10)}`;
+            const created = await limited.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email: `${username}@test.local`,
+                free_storage: 8 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+            await generateDefaultFsentries(
+                limited.clients.db,
+                limited.stores.user,
+                created,
+            );
+            // Fresh databases reuse user ids; drop any leases a prior suite
+            // left under this one.
+            await (
+                limited.clients.redis as unknown as {
+                    del: (...keys: string[]) => Promise<number>;
+                }
+            ).del(
+                `prodfsv2:upload-reservations:{${created.id}}`,
+                `prodfsv2:upload-reservation-totals:{${created.id}}`,
+            );
+            const actor: Actor = {
+                user: {
+                    id: created.id,
+                    uuid: created.uuid,
+                    username,
+                    email: created.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            };
+            const path = `/${username}/Documents/kept.txt`;
+            const { fsEntry: original } = await limited.services.fs.write(
+                created.id,
+                {
+                    fileMetadata: { path, size: 8, contentType: 'text/plain' },
+                    fileContent: 'original',
+                },
+            );
+            const url = new URL(
+                signFile(original as never, { secret, apiBaseUrl }).write_url!,
+            );
+
+            // 12 MiB into 8 MiB of room.
+            const chunk = Buffer.alloc(64 * 1024, 7);
+            const chunkCount = 192;
+            let pulled = 0;
+            async function* body() {
+                yield fileHeader('kept.txt');
+                for (let i = 0; i < chunkCount; i++) {
+                    pulled++;
+                    yield chunk;
+                }
+                yield Buffer.from(`\r\n--${streamBoundary}--\r\n`);
+            }
+            await expect(
+                withActor(actor, () =>
+                    limitedController.writeFile(
+                        streamedReq(body, {
+                            actor,
+                            query: {
+                                uid: url.searchParams.get('uid'),
+                                expires: url.searchParams.get('expires'),
+                                signature: url.searchParams.get('signature'),
+                                operation: 'write',
+                            },
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 413,
+                legacyCode: 'storage_limit_reached',
+            });
+            expect(pulled).toBeLessThan(chunkCount);
+
+            const kept = (await limited.stores.fsEntry.getEntryByPath(path, {
+                skipCache: true,
+            }))!;
+            expect(kept).toMatchObject({ uuid: original.uuid, size: 8 });
+            const read = await limited.services.fs.readContent(kept);
+            const chunks: Buffer[] = [];
+            for await (const part of read.body) chunks.push(Buffer.from(part));
+            expect(Buffer.concat(chunks).toString()).toBe('original');
+        });
+    });
+
     it('rejects a signed write when the owning account is suspended', async () => {
         const { actor, userId, username } = await makeUser();
         const path = `/${username}/Documents/suspended-write.txt`;

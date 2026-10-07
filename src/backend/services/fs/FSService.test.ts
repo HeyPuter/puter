@@ -361,6 +361,43 @@ describe('FSService write payload handling', () => {
             })
             .then((result) => result.fsEntry);
 
+    it('refuses a streamed body past maxBytes with the per-file error', async () => {
+        const path = `${user.home}/Documents/capped.bin`;
+        const error = await caught(() =>
+            fs.write(
+                user.userId,
+                {
+                    fileMetadata: { path, size: 0 },
+                    fileContent: Readable.from([
+                        Buffer.alloc(60, 1),
+                        Buffer.alloc(60, 1),
+                    ]),
+                },
+                undefined,
+                undefined,
+                undefined,
+                100,
+            ),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('too_large');
+        expect(await entryAt(user, '/Documents/capped.bin')).toBeNull();
+
+        await expect(
+            fs.write(
+                user.userId,
+                {
+                    fileMetadata: { path, size: 0 },
+                    fileContent: Readable.from([Buffer.alloc(100, 1)]),
+                },
+                undefined,
+                undefined,
+                undefined,
+                100,
+            ),
+        ).resolves.toMatchObject({ fsEntry: { size: 100 } });
+    });
+
     it('accepts a Buffer body and records its byte length', async () => {
         const entry = await write('buffer.bin', Buffer.from('buffered'));
         expect(entry.size).toBe(8);
@@ -805,6 +842,56 @@ describe('FSService storage allowance', () => {
                 `${user.home}/Documents/understated.bin`,
             ),
         ).toBeNull();
+    });
+
+    it('cuts off a streamed overwrite at the allowance and keeps the old file', async () => {
+        const user = await quotaUser(8 * 1024 * 1024);
+        const path = `${user.home}/Documents/keep.bin`;
+        await user.write('keep.bin', 'original');
+
+        // 12 MiB against 8 MiB of room: past the first multipart part, so the
+        // store has started an upload it then has to abandon.
+        const chunk = Buffer.alloc(64 * 1024, 1);
+        const chunkCount = 192;
+        let pulled = 0;
+        async function* body() {
+            for (let i = 0; i < chunkCount; i++) {
+                pulled++;
+                yield chunk;
+            }
+        }
+        const error = await caught(() =>
+            limitedFs.write(user.userId, {
+                fileMetadata: { path, size: 0, overwrite: true },
+                fileContent: Readable.from(body()),
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        expect(pulled).toBeLessThan(chunkCount);
+
+        const kept = (await limitedServer.stores.fsEntry.getEntryByPath(path, {
+            skipCache: true,
+        }))!;
+        expect(kept.size).toBe('original'.length);
+        const read = await limitedFs.readContent(kept);
+        const chunks: Buffer[] = [];
+        for await (const part of read.body) chunks.push(Buffer.from(part));
+        expect(Buffer.concat(chunks).toString()).toBe('original');
+    });
+
+    it('lets a streamed write fill exactly the room left', async () => {
+        const user = await quotaUser(64);
+        await user.write('half.txt', 'x'.repeat(32));
+        await expect(
+            limitedFs.write(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/rest.bin`,
+                    size: 0,
+                },
+                fileContent: Readable.from([Buffer.alloc(32, 1)]),
+            }),
+        ).resolves.toMatchObject({ fsEntry: { size: 32 } });
     });
 
     it('lets a per-request override raise the ceiling', async () => {

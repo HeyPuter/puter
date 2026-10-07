@@ -114,7 +114,7 @@ const UUID_SHAPE =
 // memory before any quota / storage check runs, so without these limits an
 // authenticated caller could grow the process heap proportional to whatever
 // they sent. Streaming uploads go through `/writeFile`; this path is for
-// pre-v2 clients only.
+// pre-v2 clients only. The per-file cap applies to a `/writeFile` body too.
 const BATCH_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MiB per file
 const BATCH_MAX_TOTAL_SIZE = 256 * 1024 * 1024; // 256 MiB buffered per request
 const BATCH_MAX_FILES = 64;
@@ -2223,15 +2223,24 @@ export class LegacyFSController extends PuterController {
                 try {
                     // The part itself is the upload body, so a slow store
                     // upload holds back the request instead of buffering it.
-                    const response = await this.services.fs.write(userId, {
-                        fileMetadata: {
-                            path: targetPath,
-                            size: 0, // real size accumulates as stream drains
-                            ...(contentType ? { contentType } : {}),
-                            overwrite: true,
+                    // Its size is unknown up front, so write() cuts it off at
+                    // the owner's allowance or the per-file cap `/batch` uses.
+                    const response = await this.services.fs.write(
+                        userId,
+                        {
+                            fileMetadata: {
+                                path: targetPath,
+                                size: 0, // real size accumulates as stream drains
+                                ...(contentType ? { contentType } : {}),
+                                overwrite: true,
+                            },
+                            fileContent: fileStream,
                         },
-                        fileContent: fileStream,
-                    });
+                        undefined,
+                        undefined,
+                        undefined,
+                        BATCH_MAX_FILE_SIZE,
+                    );
                     resolve({ fsEntry: response.fsEntry });
                 } catch (err) {
                     // Let the parser reach the end of the body.

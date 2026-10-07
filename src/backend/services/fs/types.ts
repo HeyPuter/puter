@@ -49,6 +49,14 @@ export interface UploadPayload {
     uploadedSize: () => number;
     contentHashSha256: string | null;
     finalizeContentHashSha256?: () => string | null;
+    /** The error a streamed body was cut off with, once it ran past its limit. */
+    exceededLimit?: () => Error | null;
+}
+
+/** Most bytes a streamed body may carry, and what to fail with past that. */
+export interface StreamByteLimit {
+    maxBytes: number;
+    error: () => Error;
 }
 
 export interface UploadProgressTrackerLike {

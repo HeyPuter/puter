@@ -181,7 +181,7 @@ Per minute unless stated:
 | Entries in one `/sign` request | 500 | Per request |
 | Part numbers in one `signMultipartParts` | 10,000 | Per request |
 | Legacy `/batch` request | 256 multipart parts (fields and files combined) or 256 JSON operations, 64 files, 100 MiB per file, 1 MiB per field, 256 MiB in total | Per request |
-| Signed-URL write (`write_url`) request | 256 multipart parts before the file; only the first file is written | Per request |
+| Signed-URL write (`write_url`) request | 256 multipart parts before the file; only the first file is written, up to 100 MiB (`413 too_large` past that) | Per request |
 | Signed-URL reads | 3,000/min | Per network |
 | Signed-URL writes | 600/min | Per network |
 | Signed-URL concurrent requests | 60 | Per network |
@@ -509,7 +509,7 @@ Every driver call also counts toward **8,000 calls/min**, before the per-API lim
 
 ## Storage quota
 
-Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
+Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 storage_limit_reached`; reads keep working. A streamed write whose size isn't known up front is stopped as soon as it passes the space left, and a file it would have replaced is left unchanged. `puter.fs.space()` returns `{ capacity, used }`.
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 

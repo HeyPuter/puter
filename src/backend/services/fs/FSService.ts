@@ -86,6 +86,7 @@ import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
     PreparedBatchWrite,
+    StreamByteLimit,
     UploadedBatchWriteItem,
     UploadPayload,
     UploadPreparedBatchItemInput,
@@ -108,6 +109,11 @@ type AncestorChain = Array<{ uid: string; path: string }>;
  * caller could opt itself out of its own quota.
  */
 export const UNLIMITED_STORAGE_ALLOWANCE = Number.MAX_SAFE_INTEGER;
+
+const storageLimitReached = () =>
+    new HttpError(413, 'Storage limit reached', {
+        legacyCode: 'storage_limit_reached',
+    });
 
 // Held past a lease's signed-URL expiry so a client finishing right at the
 // deadline still settles or aborts before the lease would otherwise lapse.
@@ -1001,22 +1007,21 @@ export class FSService extends PuterService {
     }
 
     /**
-     * The shared allowance check: usage plus pending bytes against the max,
-     * from a replica. Only settled bytes can make this stricter than a plain
-     * replica check, so only then is the primary consulted. Returns whether a
-     * limit was actually enforced and throws the existing 413 when `delta`
-     * doesn't fit.
+     * Bytes `userId` can still add, or null when nothing is enforced. Usage
+     * plus pending bytes against the max, from a replica. Only settled bytes
+     * can make that stricter than a plain replica read, so the primary is
+     * consulted only when there are some and `needed` doesn't fit without it.
      */
-    async #checkStorageAllowance(
+    async #storageHeadroom(
         userId: number,
-        delta: number,
         storageAllowanceMaxOverride?: number,
         pending?: PendingUploadBytes,
-    ): Promise<boolean> {
+        needed = Number.POSITIVE_INFINITY,
+    ): Promise<number | null> {
         // Skip the allowance lookup entirely for unmetered writes — it costs
         // a query plus a quota-bonus round trip whose answer can't matter.
         if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
-            return false;
+            return null;
         }
 
         const [fast, resolvedPending] = await Promise.all([
@@ -1028,18 +1033,13 @@ export class FSService extends PuterService {
             storageAllowanceMaxOverride,
         );
         if (fastMax === UNLIMITED_STORAGE_ALLOWANCE) {
-            return false;
+            return null;
         }
 
         const { activeBytes, settledBytes } = resolvedPending;
-        const fastProjected = fast.curr + activeBytes + settledBytes + delta;
-        if (!(fastProjected > fastMax)) {
-            return true;
-        }
-        if (settledBytes === 0) {
-            throw new HttpError(413, 'Storage limit reached', {
-                legacyCode: 'storage_limit_reached',
-            });
+        const fastRoom = fastMax - (fast.curr + activeBytes + settledBytes);
+        if (needed <= fastRoom || settledBytes === 0) {
+            return fastRoom;
         }
 
         const exact = await this.stores.fsEntry.getUserStorageAllowance(
@@ -1051,15 +1051,30 @@ export class FSService extends PuterService {
             storageAllowanceMaxOverride,
         );
         if (exactMax === UNLIMITED_STORAGE_ALLOWANCE) {
-            return false;
+            return null;
         }
-        if (!(exact.curr + activeBytes + delta > exactMax)) {
-            return true;
-        }
+        return Math.max(fastRoom, exactMax - (exact.curr + activeBytes));
+    }
 
-        throw new HttpError(413, 'Storage limit reached', {
-            legacyCode: 'storage_limit_reached',
-        });
+    /**
+     * The shared allowance check. Returns whether a limit was actually enforced
+     * and throws the existing 413 when `delta` doesn't fit.
+     */
+    async #checkStorageAllowance(
+        userId: number,
+        delta: number,
+        storageAllowanceMaxOverride?: number,
+        pending?: PendingUploadBytes,
+    ): Promise<boolean> {
+        const headroom = await this.#storageHeadroom(
+            userId,
+            storageAllowanceMaxOverride,
+            pending,
+            delta,
+        );
+        if (headroom === null) return false;
+        if (delta > headroom) throw storageLimitReached();
+        return true;
     }
 
     async #assertStorageAllowance(
@@ -1374,15 +1389,54 @@ export class FSService extends PuterService {
         );
     }
 
+    // Bodies whose length is only known once they have been read.
+    #isStreamContent(content: WriteRequest['fileContent']): boolean {
+        return (
+            this.#isNodeStream(content) ||
+            this.#isWebReadableStream(content) ||
+            content instanceof Blob
+        );
+    }
+
+    /**
+     * The most a streamed write may carry: what the owner can still store plus
+     * the size of the file it replaces, and `maxBytes` when that is smaller.
+     * Each fails with its own existing error.
+     */
+    #streamByteLimit(
+        headroom: number | null,
+        existingSize: number,
+        maxBytes?: number,
+    ): StreamByteLimit | undefined {
+        const allowanceBytes =
+            headroom === null
+                ? Number.POSITIVE_INFINITY
+                : Math.max(0, headroom + existingSize);
+        if (maxBytes !== undefined && maxBytes < allowanceBytes) {
+            return {
+                maxBytes,
+                error: () =>
+                    new HttpError(413, `File exceeds ${maxBytes} bytes`, {
+                        legacyCode: 'too_large' as never,
+                    }),
+            };
+        }
+        if (allowanceBytes === Number.POSITIVE_INFINITY) return undefined;
+        return { maxBytes: allowanceBytes, error: storageLimitReached };
+    }
+
     #createCountingStream(
         source: Readable,
         uploadTracker?: UploadProgressTrackerLike,
+        limit?: StreamByteLimit,
     ): {
         stream: Readable;
         uploadedSize: () => number;
         contentHashSha256: () => string;
+        exceededLimit: () => Error | null;
     } {
         let uploadedBytes = 0;
+        let exceeded: Error | null = null;
         const hash = createHash('sha256');
         const countingStream = new Transform({
             transform(
@@ -1393,10 +1447,18 @@ export class FSService extends PuterService {
                 let chunkLength = 0;
                 if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
                     chunkLength = chunk.byteLength;
-                    hash.update(chunk);
                 } else if (typeof chunk === 'string') {
                     chunkLength = Buffer.byteLength(chunk);
-                    hash.update(chunk);
+                }
+                // Failing the stream fails the upload reading it, so the
+                // store never commits an over-limit body.
+                if (limit && uploadedBytes + chunkLength > limit.maxBytes) {
+                    exceeded = limit.error();
+                    callback(exceeded);
+                    return;
+                }
+                if (chunkLength > 0) {
+                    hash.update(chunk as Buffer | Uint8Array | string);
                 }
                 uploadedBytes += chunkLength;
                 if (chunkLength > 0 && uploadTracker) {
@@ -1423,6 +1485,7 @@ export class FSService extends PuterService {
             stream: countingStream,
             uploadedSize: () => uploadedBytes,
             contentHashSha256: () => hash.digest('hex'),
+            exceededLimit: () => exceeded,
         };
     }
 
@@ -1430,6 +1493,7 @@ export class FSService extends PuterService {
         content: WriteRequest['fileContent'],
         encoding: WriteRequest['encoding'],
         uploadTracker?: UploadProgressTrackerLike,
+        limit?: StreamByteLimit,
     ): Promise<UploadPayload> {
         if (Buffer.isBuffer(content)) {
             const hash = createHash('sha256');
@@ -1499,6 +1563,7 @@ export class FSService extends PuterService {
             const streamPayload = this.#createCountingStream(
                 content,
                 uploadTracker,
+                limit,
             );
             return {
                 body: streamPayload.stream,
@@ -1506,6 +1571,7 @@ export class FSService extends PuterService {
                 contentHashSha256: null,
                 finalizeContentHashSha256: () =>
                     streamPayload.contentHashSha256(),
+                exceededLimit: streamPayload.exceededLimit,
             };
         }
         if (this.#isWebReadableStream(content)) {
@@ -1530,6 +1596,7 @@ export class FSService extends PuterService {
             const streamPayload = this.#createCountingStream(
                 Readable.from(asyncIterable),
                 uploadTracker,
+                limit,
             );
             return {
                 body: streamPayload.stream,
@@ -1537,6 +1604,7 @@ export class FSService extends PuterService {
                 contentHashSha256: null,
                 finalizeContentHashSha256: () =>
                     streamPayload.contentHashSha256(),
+                exceededLimit: streamPayload.exceededLimit,
             };
         }
         if (content instanceof Blob) {
@@ -1561,6 +1629,7 @@ export class FSService extends PuterService {
             const streamPayload = this.#createCountingStream(
                 Readable.from(asyncIterable),
                 uploadTracker,
+                limit,
             );
             return {
                 body: streamPayload.stream,
@@ -1571,6 +1640,7 @@ export class FSService extends PuterService {
                 contentHashSha256: null,
                 finalizeContentHashSha256: () =>
                     streamPayload.contentHashSha256(),
+                exceededLimit: streamPayload.exceededLimit,
             };
         }
 
@@ -3391,12 +3461,17 @@ export class FSService extends PuterService {
         }
     }
 
+    /**
+     * `maxBytes` caps a streamed body on top of the owner's allowance; like
+     * `homeRegion`, it is server-only.
+     */
     async write(
         userId: number,
         writeRequest: WriteRequest,
         uploadTracker?: UploadProgressTrackerLike,
         storageAllowanceMax?: number,
         homeRegion?: string,
+        maxBytes?: number,
     ): Promise<WriteResponse> {
         // Server-only, and a positional argument for that reason: the
         // controllers build `writeRequest` out of the parsed request body, so a
@@ -3431,35 +3506,52 @@ export class FSService extends PuterService {
             userId,
             storageAllowanceMax,
         );
-        await this.#assertStorageAllowance(
+        // A stream's length is only known once it has been read, so it gets a
+        // byte budget up front and is cut off past it: the store never commits
+        // the upload, and an overwritten object is left as it was.
+        const streamed = this.#isStreamContent(writeRequest.fileContent);
+        const declaredDelta = normalizedInput.size - existingSize;
+        const headroom = await this.#storageHeadroom(
             storageOwner,
-            normalizedInput.size,
-            existingSize,
             ownerAllowanceMax,
+            undefined,
+            streamed ? undefined : declaredDelta,
         );
+        if (headroom !== null && declaredDelta > headroom) {
+            throw storageLimitReached();
+        }
+        const streamLimit = streamed
+            ? this.#streamByteLimit(headroom, existingSize, maxBytes)
+            : undefined;
 
         const uploadBody = await this.#toUploadBody(
             writeRequest.fileContent,
             writeRequest.encoding,
             uploadTracker,
+            streamLimit,
         );
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        await this.#uploadContent(
-            {
-                bucket: normalizedInput.bucket,
-                objectKey,
-                contentType: normalizedInput.contentType,
-                body: uploadBody.body,
-                ...(uploadBody.contentLength !== undefined
-                    ? { contentLength: uploadBody.contentLength }
-                    : {}),
-                ...(Number.isFinite(normalizedInput.size)
-                    ? { sizeHint: normalizedInput.size }
-                    : {}),
-            },
-            normalizedInput.bucketRegion,
-            uploadBody,
-        );
+        try {
+            await this.#uploadContent(
+                {
+                    bucket: normalizedInput.bucket,
+                    objectKey,
+                    contentType: normalizedInput.contentType,
+                    body: uploadBody.body,
+                    ...(uploadBody.contentLength !== undefined
+                        ? { contentLength: uploadBody.contentLength }
+                        : {}),
+                    ...(Number.isFinite(normalizedInput.size)
+                        ? { sizeHint: normalizedInput.size }
+                        : {}),
+                },
+                normalizedInput.bucketRegion,
+                uploadBody,
+            );
+        } catch (error) {
+            // The store reports the cut-off body in its own terms.
+            throw uploadBody.exceededLimit?.() ?? error;
+        }
 
         const uploadedSize = uploadBody.uploadedSize();
         if (uploadTracker) {
@@ -3468,6 +3560,7 @@ export class FSService extends PuterService {
                 uploadTracker.add(uploadedSize - currentTrackedSize);
             }
         }
+        // Still needed: other writes can land while this one streams.
         if (uploadedSize > normalizedInput.size) {
             try {
                 await this.#assertStorageAllowance(
