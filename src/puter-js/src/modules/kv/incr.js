@@ -50,5 +50,6 @@ export async function incr (keyOrOptions, amountOrMap, optConfig) {
     const options = parseCounterArgs(keyOrOptions, amountOrMap, optConfig);
     assertKeyPresent(options.key);
     assertKeySize(options.key);
+    this.guiCache.invalidate(options.key);
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'incr', argNames: ['key'], puter: this.puter })(options);
 }

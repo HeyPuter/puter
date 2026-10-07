@@ -17,26 +17,29 @@ import { assertKeyPresent, assertKeySize, assertValueSize } from './lib/validate
  * @typedef {import('./types.js').KVSetObject<T>} KVSetObject
  */
 
-const setSingle = (puter, args) =>
+/** @typedef {import('./index.js').KVModule} KVModule */
+
+const setSingle = (/** @type {KVModule} */ kv, args) =>
     utils.makeDriverMethod({
         iface: 'puter-kvstore',
         method: 'set',
         argNames: ['key', 'value', 'expireAt'],
-        puter,
+        puter: kv.puter,
         preprocess: (driverArgs) => {
             assertKeyPresent(driverArgs.key);
             assertKeySize(driverArgs.key);
             assertValueSize(driverArgs.value);
+            kv.guiCache.invalidate(driverArgs.key);
             return driverArgs;
         },
     })(args);
 
-const setBatch = (puter, args) =>
+const setBatch = (/** @type {KVModule} */ kv, args) =>
     utils.makeDriverMethod({
         iface: 'puter-kvstore',
         method: 'batchPut',
         argNames: ['items'],
-        puter,
+        puter: kv.puter,
         preprocess: (driverArgs) => {
             if ( !Array.isArray(driverArgs.items) || driverArgs.items.length === 0 ) {
                 throw { message: 'Items are required', code: 'items_required' };
@@ -60,6 +63,7 @@ const setBatch = (puter, args) =>
                     ...(item.expireAt !== undefined ? { expireAt: item.expireAt } : {}),
                 };
             });
+            kv.guiCache.invalidate(...items.map((item) => item.key));
 
             return {
                 ...driverArgs,
@@ -120,19 +124,17 @@ const setBatch = (puter, args) =>
  * @returns {Promise<boolean>}
  */
 export async function set (keyOrItems, value, ...rest) {
-    const { puter } = this;
-
     if ( Array.isArray(keyOrItems) ) {
         const trailing = [value, ...rest];
         const { optConfig, success, error } = parseTrailingArgs(trailing);
-        return await setBatch(puter, { items: keyOrItems, optConfig, success, error });
+        return await setBatch(this, { items: keyOrItems, optConfig, success, error });
     }
 
     if ( isObject(keyOrItems) && value === undefined && rest.length === 0 ) {
         if ( Array.isArray(keyOrItems.items) ) {
-            return await setBatch(puter, keyOrItems);
+            return await setBatch(this, keyOrItems);
         }
-        return await setSingle(puter, keyOrItems);
+        return await setSingle(this, keyOrItems);
     }
 
     let expireAt;
@@ -142,5 +144,5 @@ export async function set (keyOrItems, value, ...rest) {
         expireAt = rest.shift();
     }
     const { optConfig, success, error } = parseTrailingArgs(rest);
-    return await setSingle(puter, { key: keyOrItems, value, expireAt, optConfig, success, error });
+    return await setSingle(this, { key: keyOrItems, value, expireAt, optConfig, success, error });
 }

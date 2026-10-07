@@ -60,5 +60,6 @@ export async function add (keyOrOptions, valueOrMap, optConfig) {
 
     assertKeyPresent(options.key);
     assertKeySize(options.key);
+    this.guiCache.invalidate(options.key);
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'add', argNames: ['key'], puter: this.puter })(options);
 }

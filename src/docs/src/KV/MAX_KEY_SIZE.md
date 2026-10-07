@@ -4,7 +4,7 @@ description: Returns the maximum key size (in bytes) for the key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-A property of the `puter.kv` object that returns the maximum key size (in bytes) for the key-value store.
+A property of the `puter.kv` object that returns the maximum key size (in bytes) for the key-value store. A key is measured in UTF-8 bytes, so a key with non-ASCII characters fits fewer characters.
 
 ## Syntax
 
