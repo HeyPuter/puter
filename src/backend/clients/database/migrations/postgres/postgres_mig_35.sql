@@ -17,16 +17,33 @@
 
 -- Recompute `clean_email` for Apple's domains: dots are significant there, so
 -- rows written while they were stripped still collapse two mailboxes into one.
--- Subaddressing still folds. Splits rows apart only, so it cannot collide.
+-- Only rows still holding exactly what the old rule produced, so a NULL or a
+-- legacy un-lowercased value is left alone -- rewriting those would fold `+tag`
+-- or case into a key another row already owns. Restores dots and nothing else.
 
 UPDATE "user"
-SET clean_email =
-    split_part(split_part(lower(email), '@', 1), '+', 1)
-    || '@' || split_part(lower(email), '@', 2)
+SET clean_email = (split_part(split_part(lower(email), '@', 1), '+', 1) || '@' || split_part(lower(email), '@', 2))
 WHERE email IS NOT NULL
   AND position('@' in email) > 1
   AND (
         lower(email) LIKE '%@icloud.com'
      OR lower(email) LIKE '%@me.com'
      OR lower(email) LIKE '%@mac.com'
-  );
+  )
+  AND clean_email = (replace(split_part(split_part(lower(email), '@', 1), '+', 1), '.', '') || '@' || split_part(lower(email), '@', 2))
+  AND clean_email IS DISTINCT FROM (split_part(split_part(lower(email), '@', 1), '+', 1) || '@' || split_part(lower(email), '@', 2));
+
+-- The same collapse decided who a pending invite belongs to, so the holder
+-- of the undotted address claims invites addressed to the dotted one. The
+-- typed address rides along as `invitedAddress` whenever it differed.
+UPDATE "share"
+SET recipient_email = (split_part(split_part(lower((data->>'invitedAddress')), '@', 1), '+', 1) || '@' || split_part(lower((data->>'invitedAddress')), '@', 2))
+WHERE (data->>'invitedAddress') IS NOT NULL
+  AND position('@' in (data->>'invitedAddress')) > 1
+  AND (
+        lower(recipient_email) LIKE '%@icloud.com'
+     OR lower(recipient_email) LIKE '%@me.com'
+     OR lower(recipient_email) LIKE '%@mac.com'
+  )
+  AND recipient_email = (replace(split_part(split_part(lower((data->>'invitedAddress')), '@', 1), '+', 1), '.', '') || '@' || split_part(lower((data->>'invitedAddress')), '@', 2))
+  AND recipient_email IS DISTINCT FROM (split_part(split_part(lower((data->>'invitedAddress')), '@', 1), '+', 1) || '@' || split_part(lower((data->>'invitedAddress')), '@', 2));

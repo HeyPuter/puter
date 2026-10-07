@@ -17,24 +17,57 @@
 
 -- Recompute `clean_email` for Apple's domains: dots are significant there, so
 -- rows written while they were stripped still collapse two mailboxes into one.
--- Subaddressing still folds. Splits rows apart only, so it cannot collide.
+-- Only rows still holding exactly what the old rule produced, so a NULL or a
+-- legacy un-lowercased value is left alone -- rewriting those would fold `+tag`
+-- or case into a key another row already owns. Restores dots and nothing else.
 
 UPDATE `user`
-SET `clean_email` =
-    CASE
-        WHEN instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') > 0
-        THEN substr(
-                substr(lower(`email`), 1, instr(`email`, '@') - 1),
-                1,
-                instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') - 1
-             )
-        ELSE substr(lower(`email`), 1, instr(`email`, '@') - 1)
-    END
-    || substr(lower(`email`), instr(`email`, '@'))
+SET `clean_email` = (CASE WHEN instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') > 0
+             THEN substr(substr(lower(`email`), 1, instr(`email`, '@') - 1), 1,
+                         instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') - 1)
+             ELSE substr(lower(`email`), 1, instr(`email`, '@') - 1)
+        END || substr(lower(`email`), instr(`email`, '@')))
 WHERE `email` IS NOT NULL
   AND instr(`email`, '@') > 1
   AND (
         lower(`email`) LIKE '%@icloud.com'
      OR lower(`email`) LIKE '%@me.com'
      OR lower(`email`) LIKE '%@mac.com'
-  );
+  )
+  AND `clean_email` = (replace(CASE WHEN instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') > 0
+             THEN substr(substr(lower(`email`), 1, instr(`email`, '@') - 1), 1,
+                         instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') - 1)
+             ELSE substr(lower(`email`), 1, instr(`email`, '@') - 1)
+        END, '.', '') || substr(lower(`email`), instr(`email`, '@')))
+  AND `clean_email` <> (CASE WHEN instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') > 0
+             THEN substr(substr(lower(`email`), 1, instr(`email`, '@') - 1), 1,
+                         instr(substr(lower(`email`), 1, instr(`email`, '@') - 1), '+') - 1)
+             ELSE substr(lower(`email`), 1, instr(`email`, '@') - 1)
+        END || substr(lower(`email`), instr(`email`, '@')));
+
+-- The same collapse decided who a pending invite belongs to, so the holder
+-- of the undotted address claims invites addressed to the dotted one. The
+-- typed address rides along as `invitedAddress` whenever it differed.
+UPDATE `share`
+SET `recipient_email` = (CASE WHEN instr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), '+') > 0
+             THEN substr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), 1,
+                         instr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), '+') - 1)
+             ELSE substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1)
+        END || substr(lower(json_extract(`data`, '$.invitedAddress')), instr(json_extract(`data`, '$.invitedAddress'), '@')))
+WHERE json_extract(`data`, '$.invitedAddress') IS NOT NULL
+  AND instr(json_extract(`data`, '$.invitedAddress'), '@') > 1
+  AND (
+        lower(`recipient_email`) LIKE '%@icloud.com'
+     OR lower(`recipient_email`) LIKE '%@me.com'
+     OR lower(`recipient_email`) LIKE '%@mac.com'
+  )
+  AND `recipient_email` = (replace(CASE WHEN instr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), '+') > 0
+             THEN substr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), 1,
+                         instr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), '+') - 1)
+             ELSE substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1)
+        END, '.', '') || substr(lower(json_extract(`data`, '$.invitedAddress')), instr(json_extract(`data`, '$.invitedAddress'), '@')))
+  AND `recipient_email` <> (CASE WHEN instr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), '+') > 0
+             THEN substr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), 1,
+                         instr(substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1), '+') - 1)
+             ELSE substr(lower(json_extract(`data`, '$.invitedAddress')), 1, instr(json_extract(`data`, '$.invitedAddress'), '@') - 1)
+        END || substr(lower(json_extract(`data`, '$.invitedAddress')), instr(json_extract(`data`, '$.invitedAddress'), '@')));
