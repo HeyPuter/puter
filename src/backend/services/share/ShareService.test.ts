@@ -207,6 +207,32 @@ describe('ShareService', () => {
         expect(listed.items.map((i) => i.entryUid)).toContain(file.uuid);
     });
 
+    it('tells the account how much is shared with it, and an app only its page', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const app = await makeApp(recipient.user.id);
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        const asAccount = await server.services.share.listSharedWithMe(
+            recipient.actor,
+            { includeTotal: true },
+        );
+        expect(asAccount.total).toBeGreaterThanOrEqual(1);
+
+        // The app reads what it was handed, not the size of the rest.
+        const asTheApp = await server.services.share.listSharedWithMe(
+            asApp(recipient, app),
+            { includeTotal: true },
+        );
+        expect(asTheApp.total).toBeUndefined();
+    });
+
     it('carries the entry metadata the file browser renders', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();

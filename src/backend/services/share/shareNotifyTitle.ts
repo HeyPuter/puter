@@ -179,6 +179,10 @@ export const digestItemPaths = (entries: DigestEntry[]): string[] => {
     return paths;
 };
 
+/** A name as a header may carry it: one line, and not an unbounded one. */
+const forSubject = (name: string): string =>
+    name.replace(/\s+/gu, ' ').trim().slice(0, 120);
+
 /**
  * The digest's subject: "alice shared report.txt with you" when there is
  * exactly one named item, counts otherwise.
@@ -191,10 +195,13 @@ export const digestSubject = (
         (sum, entry) => sum + Math.max(0, entry.count),
         0,
     );
+    const named = entries.find((entry) => entry.items.length > 0)?.items[0]
+        .name;
     const what =
         total === 1
-            ? (entries.find((entry) => entry.items.length > 0)?.items[0].name ??
-              'an item')
+            ? named
+                ? forSubject(named) || 'an item'
+                : 'an item'
             : `${total} items`;
     const base = `${senderList(entries)} shared ${what} with you`;
     return opts.suffix ? `${base} ${opts.suffix}` : base;

@@ -30,7 +30,8 @@ describe('sharing with a team', () => {
 
     const actorFor = async (userId: number): Promise<Actor> => {
         const user = await fx.env.server.stores.user.getById(userId);
-        return { user } as unknown as Actor;
+        // A session acts as the account; omitting this reads as an app.
+        return { user, effectiveApp: null } as unknown as Actor;
     };
 
     const shares = () => fx.env.server.services.share;

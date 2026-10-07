@@ -154,6 +154,28 @@ describe('email digests', () => {
         ).toBe('alice and bob shared 3 items with you on Puter');
     });
 
+    it('keeps a name to one line in the subject', () => {
+        // A name is free-form and the subject is a header.
+        const subject = digestSubject([
+            {
+                username: 'alice',
+                count: 1,
+                items: [item('report\r\nBcc: someone@elsewhere.test.txt')],
+            },
+        ]);
+        expect(subject).not.toMatch(/[\r\n]/u);
+        expect(subject).toBe(
+            'alice shared report Bcc: someone@elsewhere.test.txt with you',
+        );
+    });
+
+    it('does not let one name run away with the subject', () => {
+        const subject = digestSubject([
+            { username: 'alice', count: 1, items: [item('x'.repeat(400))] },
+        ]);
+        expect(subject.length).toBeLessThan(200);
+    });
+
     it('renders one line per sender, naming what it can', () => {
         expect(
             digestLines([
