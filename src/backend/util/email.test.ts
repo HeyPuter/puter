@@ -61,8 +61,21 @@ describe('cleanEmail', () => {
         expect(cleanEmail('foo.bar@googlemail.com')).toBe('foobar@gmail.com');
     });
 
-    it('drops dots for icloud too', () => {
-        expect(cleanEmail('foo.bar@icloud.com')).toBe('foobar@icloud.com');
+    // Apple allocates the exact string: both of these can have owners.
+    it('keeps dots for icloud, which treats them as significant', () => {
+        expect(cleanEmail('foo.bar@icloud.com')).toBe('foo.bar@icloud.com');
+        expect(cleanEmail('foobar@icloud.com')).toBe('foobar@icloud.com');
+        for (const domain of ['icloud.com', 'me.com', 'mac.com']) {
+            expect(cleanEmail(`a.b@${domain}`)).not.toBe(
+                cleanEmail(`ab@${domain}`),
+            );
+        }
+    });
+
+    it('still drops `+` for icloud, which does fold subaddressing', () => {
+        expect(cleanEmail('foo.bar+tag@icloud.com')).toBe(
+            'foo.bar@icloud.com',
+        );
     });
 
     it('keeps `+` for yahoo, which treats it as significant', () => {
