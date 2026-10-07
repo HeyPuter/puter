@@ -4168,17 +4168,7 @@ export class AuthController extends PuterController {
         // A desktop launch of a godmode app gets a full-access token tied to
         // this session. Origin lookups (sign-in popups for pages outside the
         // desktop) keep getting an ordinary app token.
-        if (!resolvedFromOrigin && isGodmodeApp(app)) {
-            const { token, expiresAt } =
-                await this.services.auth.getGodmodeAppToken(req.actor!, app);
-            res.json({
-                token,
-                app_uid,
-                godmode: true,
-                expires_at: expiresAt,
-            });
-            return;
-        }
+        const godmode = !resolvedFromOrigin && isGodmodeApp(app);
 
         const userPermGrantPromise =
             this.services.permission.grantUserAppPermission(
@@ -4189,10 +4179,15 @@ export class AuthController extends PuterController {
                 {},
             );
 
-        const tokenPromise = this.services.auth.getUserAppToken(
-            req.actor!,
-            app_uid,
-        );
+        const tokenPromise: Promise<{ token: string; expiresAt?: number }> =
+            godmode
+                ? this.services.auth.getGodmodeAppToken(req.actor!, app)
+                : (async () => ({
+                      token: await this.services.auth.getUserAppToken(
+                          req.actor!,
+                          app_uid,
+                      ),
+                  }))();
 
         const missingFSPathPromise = (async () => {
             // Ensure the app's per-user AppData directory exists.
@@ -4216,7 +4211,7 @@ export class AuthController extends PuterController {
             }
         })();
 
-        const [, token] = await Promise.all([
+        const [, { token, expiresAt }] = await Promise.all([
             userPermGrantPromise,
             tokenPromise,
             missingFSPathPromise,
@@ -4249,7 +4244,11 @@ export class AuthController extends PuterController {
             // Fine if failed
         }
 
-        res.json({ token, app_uid });
+        res.json(
+            godmode
+                ? { token, app_uid, godmode: true, expires_at: expiresAt }
+                : { token, app_uid },
+        );
     }
 
     @Post('/auth/check-app', {

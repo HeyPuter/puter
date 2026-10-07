@@ -33,8 +33,8 @@ const sessions = [
 ];
 
 describe('appSessionUuids', () => {
-    it("picks only the app's own app-kind rows", () => {
-        expect(appSessionUuids(sessions, APP)).toEqual(['app-a', 'app-b']);
+    it("picks the app's own app rows and its godmode token row", () => {
+        expect(appSessionUuids(sessions, APP)).toEqual(['app-a', 'app-b', 'tok-1']);
     });
 
     it('leaves worker rows alone — they are deployment credentials', () => {
@@ -74,9 +74,9 @@ describe('revokeAppSessions', () => {
         const { fetchImpl, calls } = makeFetch();
         const revoked = await revokeAppSessions(APP, deps({ fetchImpl }));
 
-        expect(revoked).toBe(2);
+        expect(revoked).toBe(3);
         const revokes = calls.filter(c => c.url.endsWith('/auth/revoke-session'));
-        expect(revokes.map(c => c.body.uuid)).toEqual(['app-a', 'app-b']);
+        expect(revokes.map(c => c.body.uuid)).toEqual(['app-a', 'app-b', 'tok-1']);
     });
 
     it('sends an anti-csrf token with every revoke — they are single-use', async () => {
@@ -90,7 +90,7 @@ describe('revokeAppSessions', () => {
         const tokens = calls
             .filter(c => c.url.endsWith('/auth/revoke-session'))
             .map(c => c.body.anti_csrf);
-        expect(tokens).toEqual(['csrf-1', 'csrf-2']);
+        expect(tokens).toEqual(['csrf-1', 'csrf-2', 'csrf-3']);
     });
 
     it('makes no revoke call when the app has no sessions', async () => {
@@ -101,7 +101,7 @@ describe('revokeAppSessions', () => {
 
     it('counts a 404 as done — the row already went away', async () => {
         const { fetchImpl } = makeFetch({ revokeStatus: 404 });
-        expect(await revokeAppSessions(APP, deps({ fetchImpl }))).toBe(2);
+        expect(await revokeAppSessions(APP, deps({ fetchImpl }))).toBe(3);
     });
 
     it('keeps going after one row fails, and reports the shortfall', async () => {
@@ -110,8 +110,8 @@ describe('revokeAppSessions', () => {
         const { fetchImpl, calls } = makeFetch({ revokeStatus: () => (++n === 1 ? 500 : 200) });
         const revoked = await revokeAppSessions(APP, deps({ fetchImpl }));
 
-        expect(revoked).toBe(1);
-        expect(calls.filter(c => c.url.endsWith('/auth/revoke-session'))).toHaveLength(2);
+        expect(revoked).toBe(2);
+        expect(calls.filter(c => c.url.endsWith('/auth/revoke-session'))).toHaveLength(3);
     });
 
     it('throws when the session list cannot be read', async () => {
