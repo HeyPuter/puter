@@ -39,6 +39,20 @@ describe('cleanEmail', () => {
         );
     });
 
+    it('strips subaddressing on regional Microsoft domains', () => {
+        expect(cleanEmail('Foo+x1@outlook.jp')).toBe('foo@outlook.jp');
+        expect(cleanEmail('foo.bar+x@hotmail.co.uk')).toBe(
+            'foo.bar@hotmail.co.uk',
+        );
+        expect(cleanEmail('foo+x@live.jp')).toBe('foo@live.jp');
+    });
+
+    it('strips subaddressing for the other providers that deliver tags', () => {
+        expect(cleanEmail('foo+x@protonmail.ch')).toBe('foo@protonmail.ch');
+        expect(cleanEmail('foo+x@zohomail.eu')).toBe('foo@zohomail.eu');
+        expect(cleanEmail('foo+x@yandex.ru')).toBe('foo@yandex.ru');
+    });
+
     it('drops dots and subaddressing for gmail', () => {
         expect(cleanEmail('foo.bar+tag@gmail.com')).toBe('foobar@gmail.com');
     });
