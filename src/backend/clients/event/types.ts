@@ -314,6 +314,9 @@ export type EventMap = {
         user_uid: string;
         phone: string;
         device_fingerprint: string | null;
+        // Browser-signals dispatch id the client sent with this request, or
+        // null when it sent none.
+        dispatch_id: string | null;
     };
     'user.phone-verified': {
         user_id: number;
@@ -895,11 +898,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
