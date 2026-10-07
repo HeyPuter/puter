@@ -1153,6 +1153,34 @@ describe('ShareService', () => {
                 server.services.share.listSharedByMe(actor, opts),
             );
 
+        it("includes a delegate's share on an item the caller owns", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // The owner issued one of these and the delegate the other; both
+            // are on an entry the owner owns, so both are theirs to see.
+            const listed = await listSharedByMe(owner.actor, {
+                includeTotal: true,
+            });
+            const holders = listed.items.map((r) => r.holder?.username);
+            expect(holders).toContain(delegate.user.username);
+            expect(holders).toContain(third.user.username);
+            expect(listed.total).toBeGreaterThanOrEqual(2);
+        });
+
         it('gathers shares on unrelated items into one listing', async () => {
             const owner = await makeUser();
             const first = await makeUser();
