@@ -457,6 +457,37 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
     });
 
+    it('reports a username lost to a simultaneous signup as a 400', async () => {
+        const username = `r_u_${uniq()}`;
+        const results = await Promise.allSettled([
+            controller.handleSignup(
+                makeReq({
+                    username,
+                    email: `race-u-a-${uniq()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+            controller.handleSignup(
+                makeReq({
+                    username,
+                    email: `race-u-b-${uniq()}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ]);
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        const rejected = results.find((r) => r.status === 'rejected') as
+            PromiseRejectedResult | undefined;
+        expect(rejected?.reason).toMatchObject({
+            statusCode: 400,
+            message:
+                'This username already exists in our database. Please use another one.',
+        });
+    });
+
     it('reports a duplicate address as a 400, not a constraint error', async () => {
         const email = `dupe-${uniq()}@test.local`;
         await controller.handleSignup(

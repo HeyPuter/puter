@@ -573,11 +573,19 @@ export class ServerHealthService extends PuterService {
         check.lastRunAt = startedAt;
         check.hasRun = true;
 
+        // A stall that outlasts the deadline times the check out however fast
+        // the dependency answered, so the timeout says how long that was.
+        const stopWatch = watchLoopStalls();
         let timeoutHandle: NodeJS.Timeout | null = null;
         try {
             await new Promise<void>((resolve, reject) => {
                 timeoutHandle = setTimeout(
-                    () => reject(new Error('Health check timed out')),
+                    () =>
+                        reject(
+                            new Error(
+                                `Health check timed out (event loop blocked up to ${stopWatch()}ms)`,
+                            ),
+                        ),
                     CHECK_TIMEOUT_MS,
                 );
                 Promise.resolve(check.fn()).then(() => resolve(), reject);
@@ -605,6 +613,7 @@ export class ServerHealthService extends PuterService {
             }
             console.error(`[server-health] check "${check.name}" failed:`, err);
         } finally {
+            stopWatch();
             if (timeoutHandle) clearTimeout(timeoutHandle);
             check.lastDurationMs = Date.now() - startedAt;
         }
