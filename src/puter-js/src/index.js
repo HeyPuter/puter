@@ -900,6 +900,7 @@ export class Puter {
         // Same opt-out as `/rao`: a disposable per-invocation client has no
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
+        const issuedUnder = this.authToken;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
@@ -911,7 +912,10 @@ export class Puter {
                 },
             });
             if (!resp.ok) return null;
-            this.whoami = await resp.json();
+            const body = await resp.json();
+            // The answer belongs to the token that asked for it.
+            if (this.authToken !== issuedUnder) return null;
+            this.whoami = body;
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
@@ -984,7 +988,11 @@ export class Puter {
     setAuthToken = function (authToken) {
         const normalizedAuthToken =
             this.normalizeAuthTokenCandidate(authToken);
+        // Keys carry the token, and the store is persisted with no TTL.
+        const changed =
+            this.authToken && this.authToken !== normalizedAuthToken;
         this.authToken = normalizedAuthToken;
+        if (changed) this._dropIdentityCaches();
 
         // Keep app identity consistent with token claims whenever available.
         const tokenAppID = this.getAppIDFromAuthToken(normalizedAuthToken);
@@ -1092,6 +1100,34 @@ export class Puter {
      *
      * @internal
      */
+    /** Windows this SDK opened; the GUI posts a token back to its opener. */
+    openedWindows_ = new Set();
+
+    /** @internal */
+    trackOpenedWindow_ = function (win) {
+        if (win) this.openedWindows_.add(win);
+    };
+
+    /** Framed, only the embedder sends a token; top-level, only our popup. */
+    tokenSourceAllowed_ = function (source) {
+        if (!source) return false;
+        if (globalThis.parent !== globalThis) {
+            return source === globalThis.parent;
+        }
+        for (const win of [...this.openedWindows_]) {
+            try {
+                if (win.closed) {
+                    this.openedWindows_.delete(win);
+                    continue;
+                }
+            } catch (e) {
+                continue;
+            }
+            if (win === source) return true;
+        }
+        return false;
+    };
+
     /** Cache key for `kind` at `path`, scoped to the identity it was read as. */
     fsCacheKey = function (kind, path) {
         return `${kind}:${this.APIOrigin}:${this.authToken}:${path}`;
@@ -1100,6 +1136,7 @@ export class Puter {
     /** Nothing read as one identity may answer for the next. */
     _dropIdentityCaches = function () {
         this.whoami = undefined;
+        this.whoamiCache_ = null;
         try {
             this._cache.flushall();
         } catch (e) {
@@ -2021,9 +2058,7 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
-            // Only the embedder hands a token to this handler; `signIn` and
-            // the consent dialog each pin their own popup for the rest.
-            if (event.source !== globalThis.parent) {
+            if (!puter.tokenSourceAllowed_(event.source)) {
                 return;
             }
             // Set the authToken property

@@ -555,6 +555,8 @@ export class UIModule extends EventListener {
     }
 
     #trackPickerPopup (popup) {
+        // Also shared with the SDK, whose token handler pins on the same set.
+        puter.trackOpenedWindow_?.(popup);
         // Null when the browser blocked the popup.
         if ( popup ) this.#pickerPopups.add(popup);
     }

@@ -189,9 +189,9 @@ export class AuthModule extends PuterModule {
 
             if (window.crossOriginIsolated) {
                 (async () => {
-                    // Stops with the promise: closing the popup settles it,
-                    // and this would otherwise poll for the page's life.
-                    while ( ! settled ) {
+                    // Bounded too: isolated with a gesture, nothing watches.
+                    const deadline = Date.now() + 5 * 60 * 1000;
+                    while ( ! settled && Date.now() < deadline ) {
                         try {
                             // Pinned to the deployment's own API, the same
                             // way the popup and its message handler pin

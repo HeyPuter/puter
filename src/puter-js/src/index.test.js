@@ -240,6 +240,26 @@ describe('app-mode launch token', () => {
     });
 });
 
+describe('token adoption on a top-level page', () => {
+    it('takes a token from a window it opened, and from nothing else', async () => {
+        const puter = await bootWeb('');
+        expect(puter.env).toBe('web');
+        // Top-level: `parent` is the page itself, so there is no embedder.
+        expect(globalThis.parent).toBe(globalThis);
+
+        const stranger = { closed: false };
+        expect(puter.tokenSourceAllowed_(stranger)).toBe(false);
+
+        const popup = { closed: false };
+        puter.trackOpenedWindow_(popup);
+        expect(puter.tokenSourceAllowed_(popup)).toBe(true);
+
+        // A popup the user closed is no longer a sender we know.
+        popup.closed = true;
+        expect(puter.tokenSourceAllowed_(popup)).toBe(false);
+    });
+});
+
 describe('web-mode stored token', () => {
     it('purges a stored session token on a third-party page', async () => {
         localStorage.setItem(STORAGE_KEY, GUI_TOKEN);

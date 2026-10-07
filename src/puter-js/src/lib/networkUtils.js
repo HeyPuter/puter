@@ -470,22 +470,6 @@ const creditHoldRetry = (ctx) => {
     };
 };
 
-/**
- * Drive the env-specific permission prompt for a denied driver call.
- *
- * @returns {Promise<{ granted: boolean }>}
- */
-async function resolvePermission(permission) {
-    try {
-        // requestPermission resolves to a boolean; the legacy `{granted}`
-        // object shape is also tolerated for safety.
-        const perm = await puter.ui.requestPermission({ permission });
-        return { granted: perm === true || perm?.granted === true };
-    } catch (e) {
-        return { granted: false };
-    }
-}
-
 // The 403 account-verification gates the hosting GUI can walk a user through.
 const VERIFICATION_GATE_CODES = new Set([
     'email_confirmation_required',
@@ -526,11 +510,11 @@ async function resolveVerificationGate(code, factors) {
                 return { verified: verified === true };
             } catch (e) {
                 return { verified: false };
-            } finally {
-                pendingVerificationGates.delete(key);
             }
         })();
         pendingVerificationGates.set(key, pending);
+        // On a microtask, so a sync throw cannot delete before the set.
+        pending.finally(() => pendingVerificationGates.delete(key));
     }
     return pending;
 }
@@ -665,24 +649,6 @@ async function classifyRetry(outcome, ctx) {
                 return { delayMs: 0 };
             }
             if (reauth?.action === 'reject') outcome.reauthError = reauth.error;
-        }
-        return null;
-    }
-
-    // permission denied (403) — one-shot, any method, no backoff. The envelope
-    // this used to read, a 200 carrying `success:false`, is not one the API
-    // sends; a refusal arrives as the status.
-    if (
-        ctx.permission &&
-        status === 403 &&
-        [parsed?.code, parsed?.error?.code].includes('permission_denied')
-    ) {
-        if (!ctx.done.has('permission')) {
-            const perm = await resolvePermission(ctx.permission);
-            if (perm.granted) {
-                ctx.done.add('permission');
-                return { delayMs: 0 };
-            }
         }
         return null;
     }
@@ -1121,7 +1087,6 @@ async function driverCall(call, opts = {}) {
 
     return await sendWithRetry(spec, {
         retrySafe: readonly,
-        permission: `driver:${call.iface}:${call.method}`,
         shapeStream: (lineStream) =>
             driverLineStream(lineStream, puter, promptContext),
         // Reauth, permission grants, and transient retries are already spent by

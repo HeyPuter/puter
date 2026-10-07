@@ -155,6 +155,7 @@ export class Context {
 /**
  * Run `fn` in a scope that starts as a copy of the current one, so what it
  * writes is invisible both to the caller and to anything running beside it.
+ * Cuts both ways: nothing the callee stores survives the scope.
  */
 export const runInDerivedContext = <T>(fn: () => T): T => {
     const parent = als.getStore();
