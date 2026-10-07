@@ -51,9 +51,42 @@ const PROVIDERS: Record<string, { rules: RuleName[] }> = {
     proton: { rules: ['remove_subaddressing'] },
     fastmail: { rules: ['remove_subaddressing'] },
     zoho: { rules: ['remove_subaddressing'] },
+    yandex: { rules: ['remove_subaddressing'] },
     // Listed to record the finding: yahoo makes `+` significant, using `-`.
     yahoo: { rules: [] },
 };
+
+/** `brand.tld` for each whitespace-separated tld. */
+const regional = (brand: string, tlds: string): string[] =>
+    tlds
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((tld) => `${brand}.${tld}`);
+
+/** Microsoft's consumer domains, regional ones included; one mailbox system. */
+const MICROSOFT_DOMAINS = [
+    'msn.com',
+    'passport.com',
+    'windowslive.com',
+    ...regional(
+        'outlook',
+        `com ae at be bg ch cl co co.id co.il co.in co.jp co.kr co.nz co.th co.uk
+        com.ar com.au com.br com.co com.mx com.my com.pe com.ph com.sg com.tr
+        com.vn cz de dk ee eg es fi fr gr hk hr hu ie in it jp kr lt lv my nl no
+        nz ph pk pl pt qa ro rs ru sa se sg si sk tw ua vn`,
+    ),
+    ...regional(
+        'hotmail',
+        `com at be ca ch cl co.il co.in co.jp co.kr co.nz co.th co.uk co.za
+        com.ar com.au com.br com.hk com.mx com.tr com.tw com.vn cz de dk es fi
+        fr gr hu ie it my nl no ph pt se sg sk`,
+    ),
+    ...regional(
+        'live',
+        `com at be ca ch cl cn co.kr co.uk co.za com.ar com.au com.mx com.my
+        com.ph com.pt com.sg de dk fi fr hk ie in it jp nl no ru se`,
+    ),
+];
 
 const DOMAIN_TO_PROVIDER: Record<string, string> = {
     'gmail.com': 'gmail',
@@ -61,17 +94,25 @@ const DOMAIN_TO_PROVIDER: Record<string, string> = {
     'icloud.com': 'icloud',
     'me.com': 'icloud',
     'mac.com': 'icloud',
-    'outlook.com': 'outlook',
-    'hotmail.com': 'outlook',
-    'live.com': 'outlook',
-    'msn.com': 'outlook',
+    ...Object.fromEntries(MICROSOFT_DOMAINS.map((d) => [d, 'outlook'])),
     'proton.me': 'proton',
     'protonmail.com': 'proton',
+    'protonmail.ch': 'proton',
     'pm.me': 'proton',
     'fastmail.com': 'fastmail',
     'fastmail.fm': 'fastmail',
     'zoho.com': 'zoho',
     'zohomail.com': 'zoho',
+    'zoho.eu': 'zoho',
+    'zohomail.eu': 'zoho',
+    'zoho.in': 'zoho',
+    'zohomail.in': 'zoho',
+    'yandex.com': 'yandex',
+    'yandex.ru': 'yandex',
+    'yandex.by': 'yandex',
+    'yandex.kz': 'yandex',
+    'yandex.ua': 'yandex',
+    'ya.ru': 'yandex',
     'yahoo.com': 'yahoo',
     'yahoo.co.uk': 'yahoo',
     'yahoo.ca': 'yahoo',
