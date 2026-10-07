@@ -113,7 +113,9 @@ export class GeminiChatProvider implements IChatProvider {
                 signal: Context.get('abortSignal'),
             });
         } catch (e) {
-            console.error('Gemini completion error: ', e);
+            if (!Context.get('abortSignal')?.aborted) {
+                console.error('Gemini completion error: ', e);
+            }
             throw e;
         }
 

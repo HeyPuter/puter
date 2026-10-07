@@ -1359,7 +1359,6 @@ export class ClaudeProvider implements IChatProvider {
             }
         }
 
-        Context.get('abortSignal')?.throwIfAborted();
         // The SDK only rejects event readers that were already waiting, so a
         // failure that landed before this loop started pulling ends it
         // silently rather than throwing.

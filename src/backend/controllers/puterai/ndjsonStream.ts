@@ -20,10 +20,8 @@
 import { StringDecoder } from 'node:string_decoder';
 
 interface NdjsonPipeOptions {
-    onEnd: () => void;
+    onEnd?: () => void;
     onError: (error: Error) => void;
-    getBuffer: () => string;
-    setBuffer: (value: string) => void;
 }
 
 /** A usage or error event terminates the chat driver's NDJSON contract. */
@@ -33,6 +31,7 @@ export const pipeNdjsonStream = (
     opts: NdjsonPipeOptions,
 ): void => {
     const decoder = new StringDecoder('utf8');
+    let buffer = '';
     let settled = false;
     let terminal = false;
     const fail = (error: Error) => {
@@ -58,27 +57,24 @@ export const pipeNdjsonStream = (
     };
     stream.on('data', (chunk: Buffer | string) => {
         if (settled) return;
-        let buffer =
-            opts.getBuffer() +
-            (typeof chunk === 'string' ? chunk : decoder.write(chunk));
+        buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
         let newlineIndex: number;
         while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
             consumeLine(buffer.slice(0, newlineIndex));
             buffer = buffer.slice(newlineIndex + 1);
         }
-        opts.setBuffer(buffer);
     });
     stream.on('end', () => {
         if (settled) return;
-        consumeLine(opts.getBuffer() + decoder.end());
-        opts.setBuffer('');
+        consumeLine(buffer + decoder.end());
+        buffer = '';
         if (settled) return;
         if (!terminal) {
             fail(new Error('Stream ended before completion'));
             return;
         }
         settled = true;
-        opts.onEnd();
+        opts.onEnd?.();
     });
     stream.on('error', fail);
     stream.on('close', () =>

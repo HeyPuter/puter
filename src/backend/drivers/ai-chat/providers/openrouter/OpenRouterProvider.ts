@@ -175,10 +175,12 @@ export class OpenRouterProvider implements IChatProvider {
             );
         } catch (e: unknown) {
             if (!isContextLengthError(e)) {
-                console.log(
-                    'Openrouter error: ',
-                    (e as { error?: { message?: string } })?.error?.message,
-                );
+                if (!Context.get('abortSignal')?.aborted) {
+                    console.log(
+                        'Openrouter error: ',
+                        (e as { error?: { message?: string } })?.error?.message,
+                    );
+                }
                 throw e;
             }
             // OpenRouter rejects an overlarge max_tokens rather than

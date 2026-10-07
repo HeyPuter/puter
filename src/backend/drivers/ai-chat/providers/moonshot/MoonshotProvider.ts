@@ -100,7 +100,9 @@ export class MoonshotProvider implements IChatProvider {
                 { signal: Context.get('abortSignal') },
             );
         } catch (e) {
-            console.log('Moonshot AI process_input_messages error: ', e);
+            if (!Context.get('abortSignal')?.aborted) {
+                console.log('Moonshot AI process_input_messages error: ', e);
+            }
             throw e;
         }
 

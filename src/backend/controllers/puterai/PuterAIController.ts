@@ -446,12 +446,10 @@ export class PuterAIController extends PuterController {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            let buffer = '';
             let usageDetails: UsageDetails | undefined;
             let finishReason: string | undefined;
             let toolCallIndex = 0;
             let sawToolCalls = false;
-            let errored = false;
             const toolCallIndexById = new Map<string, number>();
 
             const sendChunk = (
@@ -539,7 +537,6 @@ export class PuterAIController extends PuterController {
                             UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
-                        errored = true;
                         res.write(
                             `data: ${JSON.stringify({
                                 error: {
@@ -555,7 +552,6 @@ export class PuterAIController extends PuterController {
                 },
                 {
                     onEnd: () => {
-                        if (errored) return;
                         sendChunk(
                             {},
                             promoteStopForToolCalls(
@@ -576,10 +572,6 @@ export class PuterAIController extends PuterController {
                         );
                         res.write('data: [DONE]\n\n');
                         res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
                     },
                 },
             );
@@ -656,10 +648,8 @@ export class PuterAIController extends PuterController {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            let buffer = '';
             let usageDetails: UsageDetails | undefined;
             let finishReason: string | undefined;
-            let errored = false;
 
             const sendChunk = (
                 text: string,
@@ -695,7 +685,6 @@ export class PuterAIController extends PuterController {
                             UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
-                        errored = true;
                         res.write(
                             `data: ${JSON.stringify({
                                 error: {
@@ -711,7 +700,6 @@ export class PuterAIController extends PuterController {
                 },
                 {
                     onEnd: () => {
-                        if (errored) return;
                         sendChunk(
                             '',
                             finishReason ?? 'stop',
@@ -728,10 +716,6 @@ export class PuterAIController extends PuterController {
                         );
                         res.write('data: [DONE]\n\n');
                         res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
                     },
                 },
             );
@@ -882,7 +866,6 @@ export class PuterAIController extends PuterController {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            let buffer = '';
             let sequenceNumber = 0;
             let usage: Record<string, unknown> | null = null;
             let messageItem: {
@@ -899,7 +882,6 @@ export class PuterAIController extends PuterController {
             let messageOutputIndex: number | null = null;
             const output: unknown[] = [];
             let textContent = '';
-            let errored = false;
             const toolItemsById = new Map<
                 string,
                 {
@@ -1102,7 +1084,6 @@ export class PuterAIController extends PuterController {
                             ev.usageDetails as UsageDetails | undefined,
                         );
                     } else if (ev.type === 'error') {
-                        errored = true;
                         sendEvent({
                             type: 'error',
                             error: {
@@ -1117,7 +1098,6 @@ export class PuterAIController extends PuterController {
                 },
                 {
                     onEnd: () => {
-                        if (errored) return;
                         if (messageItem) {
                             messageItem.status = 'completed';
                             sendEvent({
@@ -1166,10 +1146,6 @@ export class PuterAIController extends PuterController {
                         });
                         res.write('data: [DONE]\n\n');
                         res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
                     },
                 },
             );
@@ -1227,9 +1203,7 @@ export class PuterAIController extends PuterController {
             });
             writer.start();
 
-            let buffer = '';
             pipeNdjsonStream(streamResult.stream, (ev) => writer.onChunk(ev), {
-                onEnd: () => {},
                 onError: (err) => {
                     if (!writer.ended) {
                         writer.onChunk({
@@ -1237,10 +1211,6 @@ export class PuterAIController extends PuterController {
                             message: err?.message ?? 'stream error',
                         });
                     }
-                },
-                getBuffer: () => buffer,
-                setBuffer: (v) => {
-                    buffer = v;
                 },
             });
             return;

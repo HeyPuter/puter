@@ -872,7 +872,7 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         }
     });
 
-    it('does not announce a successful completion after cancellation', async () => {
+    it('records the cost of a cancelled stream without announcing a completion', async () => {
         const abort = new AbortController();
         let resume!: () => void;
         const paused = new Promise<void>((resolve) => {
@@ -903,6 +903,11 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         expect(
             events.mock.calls.some(([key]) => key === 'ai.prompt.complete'),
         ).toBe(false);
+        expect(
+            events.mock.calls.some(
+                ([key]) => key === 'ai.prompt.cost-calculated',
+            ),
+        ).toBe(true);
     });
 
     it('stops the generation and gives the hold back', async () => {

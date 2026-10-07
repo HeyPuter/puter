@@ -744,22 +744,29 @@ export class ChatCompletionDriver extends PuterDriver {
             return attempt;
         };
 
-        try {
-            abortSignal?.throwIfAborted();
+        const runAttempt = async (
+            attemptProvider: IChatProvider,
+            attemptModel: IChatModel,
+        ) => {
             if (!useFakeProvider) {
-                await this.#resolvePuterPaths(provider, args, actor);
+                await this.#resolvePuterPaths(attemptProvider, args, actor);
             }
-            abortSignal?.throwIfAborted();
-            res = await provider.complete({
+            return attemptProvider.complete({
                 ...args,
-                model: model.id,
-                provider: model.provider,
+                model: attemptModel.id,
+                provider: attemptModel.provider,
             });
+        };
+
+        try {
+            res = await runAttempt(provider, model);
         } catch (e) {
             // This attempt is over and cost whatever it cost; the next one
             // takes a hold of its own.
             await hold.release();
             hold = NO_CREDIT_HOLD;
+            // A cancelled request carries no status, which would otherwise
+            // mark the route unhealthy and walk the fallback chain.
             abortSignal?.throwIfAborted();
 
             // A withheld completion was still a completion — charged, final,
@@ -820,16 +827,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
-                    abortSignal?.throwIfAborted();
-                    if (!useFakeProvider) {
-                        await this.#resolvePuterPaths(fbProvider, args, actor);
-                    }
-                    abortSignal?.throwIfAborted();
-                    res = await fbProvider.complete({
-                        ...args,
-                        model: fallback.id,
-                        provider: fallback.provider,
-                    });
+                    res = await runAttempt(fbProvider, fallback);
                     model = fallback;
                     lastError = null;
                     console.warn(
@@ -916,7 +914,6 @@ export class ChatCompletionDriver extends PuterDriver {
             // meter after this call (e.g. Claude) don't pick up `usd_cents`.
             const originalEnd = chatStream.end.bind(chatStream);
             chatStream.end = (usage?: Record<string, number>) => {
-                if (chatStream.aborted) return originalEnd(usage!);
                 // Read before `originalEnd` writes the wire line — the
                 // provider sets it (if at all) any time before `end()`.
                 const usageCosts = chatStream.usageCosts ?? undefined;
@@ -924,19 +921,23 @@ export class ChatCompletionDriver extends PuterDriver {
                 if (enrichedUsage) {
                     this.#injectUsdCents(enrichedUsage, model, usageCosts);
                 }
-                this.clients.event.emit(
-                    'ai.prompt.complete',
-                    {
-                        username: username!,
-                        completionId,
-                        intended_service: intendedProvider,
-                        parameters: args,
-                        result: { usage: enrichedUsage, stream: true },
-                        model_used: model.id,
-                        service_used: model.provider!,
-                    },
-                    {},
-                );
+                // A cancelled stream isn't a completion, but whatever it
+                // metered still gets its cost row.
+                if (!chatStream.aborted) {
+                    this.clients.event.emit(
+                        'ai.prompt.complete',
+                        {
+                            username: username!,
+                            completionId,
+                            intended_service: intendedProvider,
+                            parameters: args,
+                            result: { usage: enrichedUsage, stream: true },
+                            model_used: model.id,
+                            service_used: model.provider!,
+                        },
+                        {},
+                    );
+                }
                 if (usage) {
                     this.#emitCostCalculated({
                         completionId,
@@ -1466,12 +1467,10 @@ export class ChatCompletionDriver extends PuterDriver {
                 );
             }
             args.max_tokens = cap;
-            // Holds alone shrinking the cap is a busy account, not a broke one.
-            if (
-                cap < limit &&
-                affordableOutputTokens(balance) < limit &&
-                cap >= Math.floor(affordableOutputTokens(balance))
-            ) {
+            // Only the balance itself bounding output counts as running dry;
+            // a cap that holds shrank further is a busy account.
+            const balanceBound = affordableOutputTokens(balance);
+            if (balanceBound < limit && cap >= Math.floor(balanceBound)) {
                 fundsCap = cap;
             }
         } else {

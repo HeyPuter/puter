@@ -24,16 +24,11 @@ import { pipeNdjsonStream } from './ndjsonStream.js';
 const capture = () => {
     const stream = new PassThrough();
     const events: Record<string, unknown>[] = [];
-    let buffer = '';
     const onEnd = vi.fn();
     const onError = vi.fn();
     pipeNdjsonStream(stream, (event) => events.push(event), {
         onEnd,
         onError,
-        getBuffer: () => buffer,
-        setBuffer: (value) => {
-            buffer = value;
-        },
     });
     return { stream, events, onEnd, onError };
 };
