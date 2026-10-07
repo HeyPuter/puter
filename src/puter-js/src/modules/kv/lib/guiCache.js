@@ -37,10 +37,11 @@ const createDeferred = () => {
 };
 
 /**
- * Boot-time read cache for the GUI's well-known keys. Lazy: nothing is
- * fetched until the first `lookup()` resolves the init deferred; every read
- * within the lifetime window is then served from the one batched response,
- * except for keys written through the module since it was created.
+ * Boot-time read cache for the GUI's well-known keys, active only when the SDK
+ * runs as the GUI. Lazy: nothing is fetched until the first `lookup()`
+ * resolves the init deferred; every read within the lifetime window is then
+ * served from the one batched response, except for keys written through the
+ * module since it was created.
  */
 export class GuiBootCache {
     /** @param {import('../../../index.js').Puter} puter */
@@ -48,6 +49,12 @@ export class GuiBootCache {
         this.puter = puter;
         /** @type {Set<string>} */
         this.written = new Set();
+        // Elsewhere these are ordinary keys in the caller's own store.
+        if ( puter.env !== 'gui' ) {
+            this.batch = null;
+            this.init = null;
+            return;
+        }
         this.batch = createDeferred();
         this.init = createDeferred();
         (async () => {
