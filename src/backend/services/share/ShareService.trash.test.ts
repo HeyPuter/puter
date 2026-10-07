@@ -239,6 +239,45 @@ describe('ShareService: deleting a shared item', () => {
         );
     });
 
+    it('does not answer whether a name is already in the owner\'s Trash', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        // Write on the folder is what lets the recipient trash what is in it.
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'write',
+        });
+
+        // Already in the owner's Trash under that name, and unlistable.
+        await server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                uuidv4(),
+                file.name,
+                `${trash.path}/${file.name}`,
+                owner.user.id,
+                0,
+                Math.floor(Date.now() / 1000),
+                trash.id,
+                trash.uuid,
+            ],
+        );
+
+        const moved = await runWithContext({ actor: recipient.actor }, () =>
+            server.services.fs.move(recipient.user.id, {
+                source: file,
+                destinationParent: trash,
+            }),
+        );
+        // Deduped rather than refused, so the collision says nothing.
+        expect(moved.path.startsWith(`${trash.path}/`)).toBe(true);
+        expect(moved.name).not.toBe(file.name);
+    });
+
     it('does not hand access back when the item leaves Trash', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();

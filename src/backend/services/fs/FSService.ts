@@ -4683,6 +4683,11 @@ export class FSService extends PuterService {
             });
         }
 
+        // Authorized without write there, so a collision must not answer.
+        const intoSomeoneElsesTrash =
+            isOwnersTrash(source, destinationParent) &&
+            destinationParent.userId !== userId;
+
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
         const targetPath =
@@ -4705,7 +4710,7 @@ export class FSService extends PuterService {
                     entry: collision,
                     recursive: true,
                 });
-            } else if (input.dedupeName) {
+            } else if (input.dedupeName || intoSomeoneElsesTrash) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
                 // v1 wire contract: clients (the GUI's move/paste flows among

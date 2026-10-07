@@ -408,13 +408,16 @@ export class ACLService extends PuterService {
         const stat = await this.statUserGroup(issuer, groupUid, resource);
         const existing = stat[resource.path] ?? [];
 
-        const existingModes = existing.map((p) =>
-            PermissionUtil.isManage(p)
+        const modeOf = (perm: string) =>
+            PermissionUtil.isManage(perm)
                 ? MANAGE_PERM_PREFIX
-                : PermissionUtil.split(p).at(-1),
-        );
+                : PermissionUtil.split(perm).at(-1);
+        const existingModes = existing.map(modeOf);
+        const superseded = existing.filter((perm) => modeOf(perm) !== mode);
+        const already = existingModes.includes(mode);
 
-        if (existingModes.includes(mode)) return false;
+        // A half-finished downgrade leaves the higher grant for this to clear.
+        if (already && superseded.length === 0) return false;
 
         if (options.onlyIfHigher) {
             const higher = MODES_ABOVE[mode] ?? [mode];
@@ -429,22 +432,20 @@ export class ACLService extends PuterService {
             }
         }
 
-        const newPerm =
-            mode === MANAGE_PERM_PREFIX
-                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
-                : PermissionUtil.join('fs', uid, mode);
-        await this.services.permission.grantUserGroupPermission(
-            issuer,
-            groupUid,
-            newPerm,
-        );
+        if (!already) {
+            const newPerm =
+                mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                    : PermissionUtil.join('fs', uid, mode);
+            await this.services.permission.grantUserGroupPermission(
+                issuer,
+                groupUid,
+                newPerm,
+            );
+        }
 
         // One mode per node per issuer/holder — higher modes supersede lower.
-        for (const perm of existing) {
-            const existingMode = PermissionUtil.isManage(perm)
-                ? MANAGE_PERM_PREFIX
-                : PermissionUtil.split(perm).at(-1);
-            if (existingMode === mode) continue;
+        for (const perm of superseded) {
             await this.services.permission.revokeUserGroupPermission(
                 issuer,
                 groupUid,
@@ -567,13 +568,16 @@ export class ACLService extends PuterService {
         const stat = await this.statUserUser(issuer, holder, resource);
         const existing = stat[resource.path] ?? [];
 
-        const existingModes = existing.map((p) =>
-            PermissionUtil.isManage(p)
+        const modeOf = (perm: string) =>
+            PermissionUtil.isManage(perm)
                 ? MANAGE_PERM_PREFIX
-                : PermissionUtil.split(p).at(-1),
-        );
+                : PermissionUtil.split(perm).at(-1);
+        const existingModes = existing.map(modeOf);
+        const superseded = existing.filter((perm) => modeOf(perm) !== mode);
+        const already = existingModes.includes(mode);
 
-        if (existingModes.includes(mode)) return false;
+        // A half-finished downgrade leaves the higher grant for this to clear.
+        if (already && superseded.length === 0) return false;
 
         if (options.onlyIfHigher) {
             const higher = MODES_ABOVE[mode] ?? [mode];
@@ -588,23 +592,21 @@ export class ACLService extends PuterService {
             }
         }
 
-        const newPerm =
-            mode === MANAGE_PERM_PREFIX
-                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
-                : PermissionUtil.join('fs', uid, mode);
-        await this.services.permission.grantUserUserPermission(
-            issuer,
-            username,
-            newPerm,
-        );
+        if (!already) {
+            const newPerm =
+                mode === MANAGE_PERM_PREFIX
+                    ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                    : PermissionUtil.join('fs', uid, mode);
+            await this.services.permission.grantUserUserPermission(
+                issuer,
+                username,
+                newPerm,
+            );
+        }
 
         // Revoke any other modes on the same node (ACL enforces one mode per
         // node per issuer/holder — higher modes supersede lower).
-        for (const perm of existing) {
-            const existingMode = PermissionUtil.isManage(perm)
-                ? MANAGE_PERM_PREFIX
-                : PermissionUtil.split(perm).at(-1);
-            if (existingMode === mode) continue;
+        for (const perm of superseded) {
             await this.services.permission.revokeUserUserPermission(
                 issuer,
                 username,

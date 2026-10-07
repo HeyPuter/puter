@@ -831,6 +831,38 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         expect(await acl.check(holder, res, 'read')).toBe(true);
     });
 
+    it('clears a superseded grant a half-finished downgrade left behind', async () => {
+        const issuer = await makeUser();
+        const holder = await makeUser();
+        const res = await ownedResource(issuer);
+        const uid = res.uid;
+
+        await runWithContext({ actor: issuer }, () =>
+            acl.setUserUser(issuer, holder, res, 'write'),
+        );
+        // What a downgrade that granted `read` and then failed looks like.
+        await runWithContext({ actor: issuer }, () =>
+            server.services.permission.grantUserUserPermission(
+                issuer,
+                holder.user!.username!,
+                `fs:${uid}:read`,
+            ),
+        );
+        expect(
+            (await acl.statUserUser(issuer, holder, res))[res.path],
+        ).toHaveLength(2);
+
+        // Asking for the same mode again is what finishes it.
+        expect(
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            ),
+        ).toBe(true);
+        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
+            [res.path]: [`fs:${uid}:read`],
+        });
+    });
+
     it('onlyIfHigher declines to downgrade an existing stronger grant', async () => {
         const issuer = await makeUser();
         const holder = await makeUser();
