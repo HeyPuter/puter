@@ -19,6 +19,7 @@
 
 import OpenAI, { toFile } from 'openai';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { loadFileInput } from '../../../util/fileInput.js';
 import { SPEECH_TO_TEXT_COSTS } from '../../costs.js';
 import type {
@@ -184,10 +185,7 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             usageType,
             estimatedCost,
         );
-        if (!hold)
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
+        if (!hold) throw insufficientCreditsError();
 
         try {
             const openaiFile = await toFile(

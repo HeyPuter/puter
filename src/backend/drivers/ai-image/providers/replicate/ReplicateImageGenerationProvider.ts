@@ -29,6 +29,7 @@ import sharp from 'sharp';
 import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { secureFetch } from '../../../../util/secureHttp.js';
 import type { IGenerateParams, IImageProvider } from '../../types.js';
@@ -313,13 +314,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                 totalCostMicroCents,
             );
             if (!usageAllowed) {
-                throw new HttpError(
-                    402,
-                    'Insufficient credits for image generation',
-                    {
-                        legacyCode: 'insufficient_funds',
-                    },
-                );
+                throw insufficientCreditsError();
             }
         };
         // Measuring input images fetches caller-supplied URLs, so the credit

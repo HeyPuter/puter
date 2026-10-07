@@ -21,6 +21,7 @@ import { assertImagePrompt } from '../../imageValidation.js';
 import { expandAspectRatio } from '../../imageDimensions.js';
 import { imageDataUri } from '../../imageOutput.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
@@ -196,11 +197,7 @@ export class CloudflareImageProvider implements IImageProvider {
             totalCostInMicroCents,
         );
         if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
+            throw insufficientCreditsError();
         }
 
         const response = await this.#runModel(selectedModel, {
