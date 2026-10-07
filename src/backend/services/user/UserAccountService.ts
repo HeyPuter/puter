@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { FlatPermRef } from '../../stores/permission/PermissionStore.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types.js';
 
@@ -69,6 +70,21 @@ export class UserAccountService extends PuterService {
         // Same reason, one table over: the membership row cascades on delete.
         const seat = await this.services.team.captureSeatForBilling(userId);
 
+        // The SQL rows cascade with the user; the flat entries are keyed on the
+        // holder, so without this the access outlives the issuer.
+        let issuedRefs: FlatPermRef[] = [];
+        try {
+            issuedRefs =
+                await this.stores.permission.listUserUserPermRefsIssuedBy(
+                    userId,
+                );
+        } catch (e) {
+            console.warn(
+                '[cascade-delete-user] issued-grant lookup failed:',
+                e,
+            );
+        }
+
         try {
             await this.services.fs.removeAllForUser(userId);
         } catch (e) {
@@ -87,6 +103,17 @@ export class UserAccountService extends PuterService {
         ]);
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
+
+        if (issuedRefs.length > 0) {
+            try {
+                await this.stores.permission.delFlatUserPerms(issuedRefs);
+            } catch (e) {
+                console.warn(
+                    '[cascade-delete-user] issued-grant flat purge failed:',
+                    e,
+                );
+            }
+        }
 
         // Fire-and-forget: let listeners purge external state tied to the
         // account (Stripe subscriptions are cancelled immediately, without

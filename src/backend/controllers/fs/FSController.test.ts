@@ -2536,6 +2536,64 @@ describe('FSController.statEntry additional branches', () => {
     });
 });
 
+describe('FSController.statEntry return_size disclosure', () => {
+    it('answers the owner-wide size only to a caller who could list it', async () => {
+        const { actor: owner, userId } = await makeUser();
+        const username = owner.user!.username!;
+        const dir = `/${username}/Documents/shared-sized`;
+        await withActor(owner, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: dir }, actor: owner }),
+                makeRes().res,
+            ),
+        );
+        const body = Buffer.from('1234567890');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: `${dir}/secret.txt`,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+
+        const { actor: viewer } = await makeUser();
+        const viewerName = viewer.user!.username!;
+        const statAsViewer = async () => {
+            const { res, captured } = makeRes();
+            await withActor(viewer, () =>
+                controller.statEntry(
+                    makeReq({
+                        body: { path: dir, return_size: true },
+                        actor: viewer,
+                    }),
+                    res,
+                ),
+            );
+            return captured.body as { size?: number };
+        };
+
+        // `see` is the weakest level: the folder is visible, its contents are not.
+        await server.services.permission.grantUserUserPermission(
+            owner,
+            viewerName,
+            `fs:${dir}:see`,
+        );
+        // The directory row's own size, never the sum of what is under it.
+        expect((await statAsViewer()).size).toBe(0);
+
+        // `list` is where the contents become enumerable, so the sum may go out.
+        await server.services.permission.grantUserUserPermission(
+            owner,
+            viewerName,
+            `fs:${dir}:list`,
+        );
+        expect((await statAsViewer()).size).toBeGreaterThanOrEqual(
+            body.byteLength,
+        );
+    });
+});
+
 // ── #getReportedCosts ───────────────────────────────────────────────
 
 describe('FSController.getReportedCosts', () => {

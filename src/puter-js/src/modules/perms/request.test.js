@@ -12,7 +12,9 @@ const ROOT_DIR_ROUTE = '/auth/request-app-root-dir';
 const WHOAMI = { username: 'alice', uuid: 'u-1' };
 const SELF_UID = 'app-00000000-0000-4000-8000-000000000001';
 
-const denied = async () => { throw new Error('no access'); };
+const denied = async () => {
+    throw new Error('no access');
+};
 
 /**
  * Answer the mocked helper by route, so a test says what is held and what the
@@ -23,8 +25,8 @@ const denied = async () => { throw new Error('no access'); };
 const routes = ({ held = {}, rootDir = [] } = {}) => {
     const pending = [...rootDir];
     mockReq.mockImplementation(async (_puter, route) => {
-        if ( route === CHECK_ROUTE ) return { permissions: held };
-        if ( route === ROOT_DIR_ROUTE ) {
+        if (route === CHECK_ROUTE) return { permissions: held };
+        if (route === ROOT_DIR_ROUTE) {
             return pending.length
                 ? pending.shift()
                 : { error: true, code: 'forbidden' };
@@ -92,7 +94,10 @@ describe('perms request(resource, details)', () => {
     it('resolves undefined when a folder request is denied', async () => {
         const mod = makeModule({ requestPermission: () => false });
         expect(
-            await request.call(mod, 'folder', { name: 'Videos', access: 'write' }),
+            await request.call(mod, 'folder', {
+                name: 'Videos',
+                access: 'write',
+            }),
         ).toBeUndefined();
     });
 
@@ -147,7 +152,10 @@ describe('perms request(resource, details)', () => {
             }),
         ).toBe(true);
         expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
-            permissions: ['app-data:app-target:fs:read', 'app-data:app-target:kv:read'],
+            permissions: [
+                'app-data:app-target:fs:read',
+                'app-data:app-target:kv:read',
+            ],
         });
     });
 
@@ -215,7 +223,7 @@ describe('perms request(resource, details)', () => {
     it('reads a permission string that collides with an Object member', async () => {
         const mod = makeModule({ requestPermission: () => true });
 
-        for ( const name of ['constructor', 'toString', 'hasOwnProperty'] ) {
+        for (const name of ['constructor', 'toString', 'hasOwnProperty']) {
             expect(await request.call(mod, name)).toBe(true);
             expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
                 permission: name,
@@ -280,9 +288,9 @@ describe('perms request(resource, details)', () => {
         await expect(
             request.call(mod, 'apps', { access: 'delete' }),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
-        await expect(
-            request.call(mod, 'apps', 'read'),
-        ).rejects.toMatchObject({ code: 'invalid_argument' });
+        await expect(request.call(mod, 'apps', 'read')).rejects.toMatchObject({
+            code: 'invalid_argument',
+        });
         await expect(
             request.call(mod, 'appRootDir', { app: 42 }),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
@@ -435,6 +443,18 @@ describe('perms request([...]) batching', () => {
         expect(results).toEqual([true, undefined]);
     });
 
+    // Another app's root dir can never be claimed, so asking must not cost the
+    // user a consent prompt or leave a grant behind.
+    it('does not prompt for an app root dir that is not the caller own', async () => {
+        routes({ rootDir: [{ error: true, reason: 'app_mismatch' }] });
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(
+            await request.call(mod, [{ resource: 'appRootDir', app: 'app-2' }]),
+        ).toEqual([undefined]);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
     // A grant can lag the permission cache, so the first refusal after one
     // isn't final — in a batch exactly as in a single request.
     it('keeps asking for the app root dir after the pooled grant', async () => {
@@ -489,7 +509,11 @@ describe('perms request([...]) batching', () => {
         await expect(
             request.call(mod, [
                 { resource: 'permission', permission: 'a:read', create: true },
-                { resource: 'permission', permission: 'b:read', create: 'file' },
+                {
+                    resource: 'permission',
+                    permission: 'b:read',
+                    create: 'file',
+                },
             ]),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
@@ -535,7 +559,9 @@ describe('perms request([...]) batching', () => {
 
     it('rejects an entry with no resource, an unknown one, or a stray second argument', async () => {
         const mod = makeModule();
-        await expect(request.call(mod, [{ name: 'Desktop' }])).rejects.toMatchObject({
+        await expect(
+            request.call(mod, [{ name: 'Desktop' }]),
+        ).rejects.toMatchObject({
             code: 'invalid_argument',
         });
         await expect(
@@ -685,7 +711,9 @@ describe('perms check(resource, details)', () => {
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
 
         // The queue is empty now, so the route refuses: not held.
-        expect(await check.call(mod, 'appRootDir', { app: 'app-1' })).toBe(false);
+        expect(await check.call(mod, 'appRootDir', { app: 'app-1' })).toBe(
+            false,
+        );
     });
 
     it('rejects an invalid `create` value the same way `request` does', async () => {

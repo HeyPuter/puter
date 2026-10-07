@@ -10,7 +10,11 @@ const picture = 'data:image/png;base64,iVBORw0KGgo=';
 const profile = { picture, displayName: 'Alice', bio: null };
 
 /** A `fetchUrl` response stub. */
-const respond = (body, ok = true) => ({ ok, json: async () => body });
+const respond = (body, ok = true) => ({
+    ok,
+    status: ok ? 200 : 401,
+    json: async () => body,
+});
 
 const makeAuth = ({ authToken = 'test-token' } = {}) =>
     new AuthModule({ authToken, APIOrigin: API_ORIGIN });
@@ -34,7 +38,10 @@ describe('getProfile', () => {
         const { url, opts } = onlyRequest();
         expect(url.origin + url.pathname).toBe(`${API_ORIGIN}/profile`);
         expect(url.searchParams.get('username')).toBe('alice');
-        expect(opts).toMatchObject({ includePuterAuth: true, interactiveReauth: false });
+        expect(opts).toMatchObject({
+            includePuterAuth: true,
+            interactiveReauth: false,
+        });
     });
 
     it('asks for the signed-in user when no username is given', async () => {
@@ -43,8 +50,22 @@ describe('getProfile', () => {
         expect(onlyRequest().url.searchParams.has('username')).toBe(false);
     });
 
-    it.each([null, '', ' ', 42, {}, [], '.', '..', '../alice', 'alice/Public', 'alice\\Public', 'alice '])(
-        'returns null for an invalid username (%j) without a request', async username => {
+    it.each([
+        null,
+        '',
+        ' ',
+        42,
+        {},
+        [],
+        '.',
+        '..',
+        '../alice',
+        'alice/Public',
+        'alice\\Public',
+        'alice ',
+    ])(
+        'returns null for an invalid username (%j) without a request',
+        async (username) => {
             expect(await makeAuth().getProfile(username)).toBeNull();
             expect(fetchUrlMock).not.toHaveBeenCalled();
         },
@@ -56,14 +77,22 @@ describe('getProfile', () => {
     });
 
     it('still asks for a named user when signed out, since public profiles need no session', async () => {
-        expect(await makeAuth({ authToken: null }).getProfile('alice')).toEqual(profile);
+        expect(await makeAuth({ authToken: null }).getProfile('alice')).toEqual(
+            profile,
+        );
         expect(fetchUrlMock).toHaveBeenCalledTimes(1);
     });
 
     it.each([
-        ['a hidden or missing profile (404)', () => respond({ code: 'not_found' }, false)],
+        [
+            'a hidden or missing profile (404)',
+            () => respond({ code: 'not_found' }, false),
+        ],
         ['a non-object body', () => respond([])],
-        ['a request failure', () => Promise.reject(new Error('Network unavailable'))],
+        [
+            'a request failure',
+            () => Promise.reject(new Error('Network unavailable')),
+        ],
     ])('returns null on %s', async (_label, response) => {
         fetchUrlMock.mockImplementation(response);
         expect(await makeAuth().getProfile('alice')).toBeNull();
@@ -83,10 +112,15 @@ describe('getProfilePicture', () => {
         'data:text/html;base64,SGk=',
         'data:image/png;base64,',
         'data:image/png;base64,%%%',
-    ])('returns null for a picture that is not an image data URL (%j)', async value => {
-        fetchUrlMock.mockResolvedValue(respond({ ...profile, picture: value }));
-        expect(await makeAuth().getProfilePicture('alice')).toBeNull();
-    });
+    ])(
+        'returns null for a picture that is not an image data URL (%j)',
+        async (value) => {
+            fetchUrlMock.mockResolvedValue(
+                respond({ ...profile, picture: value }),
+            );
+            expect(await makeAuth().getProfilePicture('alice')).toBeNull();
+        },
+    );
 
     it('returns null when the profile is unavailable', async () => {
         fetchUrlMock.mockResolvedValue(respond({ code: 'not_found' }, false));
@@ -97,7 +131,9 @@ describe('getProfilePicture', () => {
 describe('updateProfile', () => {
     it('posts the patch as JSON with the session and returns the stored profile', async () => {
         const auth = makeAuth();
-        expect(await auth.updateProfile({ displayName: 'Alice' })).toEqual(profile);
+        expect(await auth.updateProfile({ displayName: 'Alice' })).toEqual(
+            profile,
+        );
         const { url, opts } = onlyRequest();
         expect(url.href).toBe(`${API_ORIGIN}/profile`);
         expect(opts).toMatchObject({
@@ -108,34 +144,48 @@ describe('updateProfile', () => {
         expect(JSON.parse(opts.body)).toEqual({ displayName: 'Alice' });
     });
 
-    it.each([null, 'x', 42, ['picture']])('rejects a patch that is not an object (%j) without a request', async patch => {
-        await expect(makeAuth().updateProfile(patch)).rejects.toMatchObject({ code: 'profile_patch_invalid' });
-        expect(fetchUrlMock).not.toHaveBeenCalled();
-    });
+    it.each([null, 'x', 42, ['picture']])(
+        'rejects a patch that is not an object (%j) without a request',
+        async (patch) => {
+            await expect(makeAuth().updateProfile(patch)).rejects.toMatchObject(
+                { code: 'profile_patch_invalid' },
+            );
+            expect(fetchUrlMock).not.toHaveBeenCalled();
+        },
+    );
 
     it('rejects with the backend body when the API refuses the patch', async () => {
-        const refusal = { code: 'profile_field_not_allowed', message: 'Unknown profile field: name', field: 'name' };
+        const refusal = {
+            code: 'profile_field_not_allowed',
+            message: 'Unknown profile field: name',
+            field: 'name',
+        };
         fetchUrlMock.mockResolvedValue(respond(refusal, false));
-        await expect(makeAuth().updateProfile({ name: 'x' })).rejects.toEqual(refusal);
+        await expect(makeAuth().updateProfile({ name: 'x' })).rejects.toEqual(
+            refusal,
+        );
     });
 });
 
 describe('signIn', () => {
     const withGlobals = (globals, fn) => {
-        const saved = Object.keys(globals).map(key => [
+        const saved = Object.keys(globals).map((key) => [
             key,
             Object.getOwnPropertyDescriptor(globalThis, key),
         ]);
-        for ( const [key, value] of Object.entries(globals) ) {
+        for (const [key, value] of Object.entries(globals)) {
             Object.defineProperty(globalThis, key, {
-                value, configurable: true, writable: true,
+                value,
+                configurable: true,
+                writable: true,
             });
         }
         try {
             return fn();
         } finally {
-            for ( const [key, descriptor] of saved ) {
-                if ( descriptor ) Object.defineProperty(globalThis, key, descriptor);
+            for (const [key, descriptor] of saved) {
+                if (descriptor)
+                    Object.defineProperty(globalThis, key, descriptor);
                 else delete globalThis[key];
             }
         }
@@ -144,16 +194,41 @@ describe('signIn', () => {
     it.each([
         ['a file:// page', { protocol: 'file:' }, 'null'],
         ['a sandboxed iframe', { protocol: 'https:' }, 'null'],
-    ])('rejects on %s without opening a popup', async (_label, location, origin) => {
-        const open = vi.fn();
-        await withGlobals(
-            { puter: { env: 'web' }, location, origin, window: { open } },
-            async () => {
-                await expect(makeAuth().signIn()).rejects.toMatchObject({
-                    error: 'unsupported_origin',
-                });
-            },
+    ])(
+        'rejects on %s without opening a popup',
+        async (_label, location, origin) => {
+            const open = vi.fn();
+            await withGlobals(
+                { puter: { env: 'web' }, location, origin, window: { open } },
+                async () => {
+                    await expect(makeAuth().signIn()).rejects.toMatchObject({
+                        error: 'unsupported_origin',
+                    });
+                },
+            );
+            expect(open).not.toHaveBeenCalled();
+        },
+    );
+});
+
+describe('whoami', () => {
+    it('throws on a refused token instead of resolving the error body', async () => {
+        fetchUrlMock.mockResolvedValue(
+            respond({ error: 'token_auth_failed', message: 'Nope' }, false),
         );
-        expect(open).not.toHaveBeenCalled();
+        const auth = makeAuth();
+
+        // Resolving here would hand callers a `User` whose username is
+        // undefined, which is how `/undefined/Documents` reached a prompt.
+        await expect(auth.whoami()).rejects.toMatchObject({
+            message: 'Nope',
+        });
+    });
+
+    it('resolves the user when the request succeeds', async () => {
+        fetchUrlMock.mockResolvedValue(respond({ username: 'alice' }));
+        await expect(makeAuth().whoami()).resolves.toEqual({
+            username: 'alice',
+        });
     });
 });
