@@ -4295,7 +4295,33 @@ describe('AuthController phone verification — staging & reuse', () => {
         );
         expect(emit).toHaveBeenCalledWith(
             'puter.phone-verification.sent',
-            expect.objectContaining({ phone: '+14155550123' }),
+            expect.objectContaining({
+                phone: '+14155550123',
+                dispatch_id: null,
+            }),
+            expect.anything(),
+        );
+    });
+
+    it('carries the client dispatch id on the sent signal', async () => {
+        const { actor } = await makeUserAndActor();
+        const emit = vi.fn();
+        const emitAndWait = vi.fn(async () => {});
+        await withClients(
+            { prelude: stubPrelude(), event: { emit, emitAndWait } },
+            async () => {
+                await controller.handleSendConfirmPhone(
+                    makeReq(
+                        { phone: '+14155550123', dispatch_id: 'disp-123' },
+                        { actor },
+                    ),
+                    makeRes(),
+                );
+            },
+        );
+        expect(emit).toHaveBeenCalledWith(
+            'puter.phone-verification.sent',
+            expect.objectContaining({ dispatch_id: 'disp-123' }),
             expect.anything(),
         );
     });
