@@ -48,7 +48,7 @@ An app can only end subscriptions it created. An account session can end any of 
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
             const sub = await puter.events.onPersistent({ subject: `fs:${dir}` });

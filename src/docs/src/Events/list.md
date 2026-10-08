@@ -53,7 +53,7 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
             const sub = await puter.events.onPersistent({
                 subject: `fs:${dir}`,
