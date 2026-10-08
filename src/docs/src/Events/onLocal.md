@@ -37,7 +37,7 @@ Called with `{ event }` for each delivery; see [The event](#the-event). `event.o
 A `Promise` that resolves, once the server confirms the subscription, to:
 
 - `subId` (String | null): The server's id for the subscription. It changes on every reconnect, so don't store anything against it.
-- `subject` (String): The subject as you passed it. For `kv:`, `anchor.uid` is the app it resolved to; for `notif:`, the app, or your user id when acting as the account.
+- `subject` (String): The subject as you passed it, with a relative `fs:` path expanded. For `kv:`, `anchor.uid` is the app it resolved to; for `notif:`, the app, or your user id when acting as the account.
 - `anchor` (Object): The node the subscription is attached to, as `{ uid, path }`: the subject itself, or its nearest existing parent if the subject doesn't exist yet. For `kv:`, `uid` is the app whose store is watched and `path` is the key prefix. Through a share handle, `uid` is the handle and `path` is empty. `path` is the one from when you subscribed; a later rename doesn't update it.
 - `match` (String | null): The pattern matched under the anchor, if the subject had one. For a path that didn't exist yet, it's the rest of that path, and it covers that path and everything under it.
 - `op` (String | null): The one operation this subscription is limited to, or `null` for all.
@@ -80,12 +80,13 @@ The same subjects work with [`onPersistent()`](/Events/onPersistent/).
 
 ### Files
 
-- **Path**: absolute (`/alice/Documents`) or home-relative (`~/Documents`). A directory covers everything under it, at any depth.
-- **Uid**: the `uid` of a file or directory, to follow one node wherever it moves.
+- **Path**: absolute (`/alice/Documents`), home-relative (`~/Documents`), or relative (`inbox` or `./inbox`). A relative path resolves the same way [`puter.fs`](/FS/) paths do: under your app's `AppData` folder in an app, under home otherwise. A directory covers everything under it, at any depth.
+- **Uid**: the `uid` of a file or directory, to follow one node wherever it moves. A relative name shaped like a uid is read as one; write `./<name>` to mean the path.
 - **Op**: one of `add`, `write`, `move`, `remove`, `meta`. Leave it off to get all of them. Nothing emits `meta` yet.
 
 ```js
 await puter.events.onLocal('fs:~/Documents', handler);                  // everything under Documents
+await puter.events.onLocal('fs:inbox', handler);                        // inbox in your app's folder
 await puter.events.onLocal('fs:~/Documents/notes.txt:write', handler);  // one file, writes only
 await puter.events.onLocal('fs:~/Pictures/*.png', handler);             // wildcard within one segment
 await puter.events.onLocal('fs:~/Projects/**/build.log', handler);      // across directories
@@ -302,7 +303,7 @@ If the connection is down when this happens, or drops before `onError` is called
     <script>
         (async () => {
             // (1) Create a directory to watch
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
             // (2) Subscribe to everything under it
@@ -334,7 +335,7 @@ If the connection is down when this happens, or drops before `onError` is called
     <script>
         (async () => {
             // (1) A directory to work in. `inbox/` below it does not exist yet.
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
             // (2) Subscribe anyway — the subscription anchors on `dir` and
