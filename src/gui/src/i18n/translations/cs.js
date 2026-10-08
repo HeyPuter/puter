@@ -40,7 +40,7 @@ const cs = {
         "add_app_request_failed": "Vaši žádost se nepodařilo odeslat. Zkuste to prosím znovu.",
         "app_feedback_error": "Něco se pokazilo. Zkuste to prosím znovu.",
         "app_feedback_placeholder": "Co funguje dobře? Co by mohlo být lepší?",
-        "add_existing_account": "Přidat existující účet",
+        "add_another_account": "Přidat další účet",
         "add_to_desktop": "Přidat na plochu",
         "ai_app_unavailable": "Aplikace AI není k dispozici. Zkuste to znovu později.",
         "app_feedback_c2a": "Vaše zpětná vazba bude odeslána přímo vývojáři této aplikace.",

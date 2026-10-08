@@ -26,7 +26,7 @@ const ro = {
         account: 'Cont',
         account_password: 'Verifică parola contului',
         access_granted_to: 'Acces acordat pentru',
-        add_existing_account: 'Adaugă cont existent',
+        add_another_account: 'Adaugă alt cont',
         all_fields_required: 'Toate câmpurile sunt necesare.',
         allow: 'Permite',
         apply: 'Aplică',

@@ -26,7 +26,7 @@ const de = {
         account: 'Konto',
         account_password: 'Kontopasswort eingeben',
         access_granted_to: 'Zugriff gewährt an',
-        add_existing_account: 'Bestehendes Konto hinzufügen',
+        add_another_account: 'Weiteres Konto hinzufügen',
         all_fields_required: 'Alle Felder sind erforderlich.',
         allow: 'Erlauben',
         apply: 'Anwenden',

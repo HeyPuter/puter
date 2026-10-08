@@ -26,7 +26,7 @@ const pt = {
         account: 'Conta',
         account_password: 'Verificar a palavra-passe da conta',
         access_granted_to: 'Acesso Concedido a',
-        add_existing_account: 'Adicionar Conta Existente',
+        add_another_account: 'Adicionar Outra Conta',
         all_fields_required: 'Todos os campos são obrigatórios.',
         allow: 'Permitir',
         apply: 'Aplicar',

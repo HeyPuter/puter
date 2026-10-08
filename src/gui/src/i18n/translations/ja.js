@@ -26,7 +26,7 @@ const ja = {
         account: 'アカウント',
         account_password: 'アカウントのパスワードを確認',
         access_granted_to: 'アクセスを承認するアカウント',
-        add_existing_account: '既存のアカウントを追加',
+        add_another_account: '別のアカウントを追加',
         all_fields_required: '全ての項目が必須です。',
         allow: '許可',
         apply: '適用',

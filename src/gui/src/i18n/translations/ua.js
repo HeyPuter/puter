@@ -26,7 +26,7 @@ const ua = {
         account: 'Обліковий запис',
         account_password: 'Перевірити пароль облікового запису',
         access_granted_to: 'Доступ надано',
-        add_existing_account: 'Додати існуючий обліковий запис',
+        add_another_account: 'Додати інший обліковий запис',
         all_fields_required: "Усі поля обов\'язкові.",
         allow: 'Дозволити',
         apply: 'Застосувати',

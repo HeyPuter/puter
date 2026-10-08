@@ -26,7 +26,7 @@ const bn = {
         account: 'অ্যাকাউন্ট',
         account_password: 'অ্যাকাউন্ট পাসওয়ার্ড যাচাই করুন',
         access_granted_to: 'অ্যাক্সেস দেওয়া হয়েছে',
-        add_existing_account: 'বিদ্যমান অ্যাকাউন্ট যোগ করুন',
+        add_another_account: 'অন্য অ্যাকাউন্ট যোগ করুন',
         all_fields_required: 'সমস্ত ফিল্ড পূরন করুন.',
         allow: 'অনুমতি দিন',
         apply: 'প্রয়োগ করুন',

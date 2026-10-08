@@ -2213,7 +2213,7 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
         items.push('-');
 
         items.push({
-            html: i18n('add_existing_account'),
+            html: i18n('add_another_account'),
             // icon: l_user.username === user.username ? '✓' : '',
             onClick: async function (val) {
                 await UIWindowLogin({

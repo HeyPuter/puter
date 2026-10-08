@@ -26,7 +26,7 @@ const ru = {
         account: 'Учетная запись',
         account_password: 'Подтвердите пароль',
         access_granted_to: 'Доступ предоставлен',
-        add_existing_account: 'Добавить существующую Учетную запись',
+        add_another_account: 'Добавить другую учетную запись',
         all_fields_required: 'Все поля обязательны для заполнения.',
         allow: 'Разрешить',
         apply: 'Применить',

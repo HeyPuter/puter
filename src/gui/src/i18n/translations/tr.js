@@ -26,7 +26,7 @@ const tr = {
         account: 'Hesap',
         account_password: 'Hesap parolasını doğrula',
         access_granted_to: 'Erişim İzni Verildi',
-        add_existing_account: 'Mevcut Hesabı Ekle',
+        add_another_account: 'Başka Hesap Ekle',
         all_fields_required: 'Tüm alanların doldurulması zorunludur.',
         allow: 'İzin ver',
         apply: 'Uygula',
