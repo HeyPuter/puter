@@ -62,10 +62,6 @@ const DEFERRED_TOKEN_POPUP_ACTIONS = new Set([
 /**
  * Whether a popup running `action` holds its token back until it has an answer.
  *
- * The exchange still runs at boot — the app row and `host_app_uid` are what the
- * dialog is opened against — but the hand-off waits for a pick or a save, so
- * cancelling hands the opener nothing.
- *
  * @param {string|null|undefined} action
  * @returns {boolean} `true` if the hand-off waits for the picker's answer.
  */
@@ -73,10 +69,7 @@ export const defersTokenToOpener = (action) =>
     DEFERRED_TOKEN_POPUP_ACTIONS.has(action);
 
 /**
- * Whether a popup running `action` delivers its token as soon as it boots.
- *
- * The one gate every boot-time hand-off reads: the plain exchange, the
- * isolated `/login/set` path, temp-user creation, and manual signup.
+ * The one gate every boot-time hand-off reads, exchange to signup.
  *
  * @param {string|null|undefined} action
  * @returns {boolean} `true` if booting is enough to deliver the token.

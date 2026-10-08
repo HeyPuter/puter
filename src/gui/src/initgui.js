@@ -85,7 +85,7 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenAtBoot, deliversTokenToOpener, runsUserAppTokenExchange } from './util/popupAuth.js';
+import { deliversTokenAtBoot, runsUserAppTokenExchange } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 /**
@@ -435,9 +435,8 @@ const postAuthActions = async (action) => {
             }
             return;
         } else if ( runsUserAppTokenExchange(action) ) {
+            // Its failure carries `token: null`, which the SDK sets too.
             const deliver_token_to_opener = deliversTokenAtBoot(action);
-            // A failed exchange has nothing to defer, so it reports and closes.
-            const report_failure_to_opener = deliversTokenToOpener(action);
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                 // `getUserAppToken` reports a network failure by returning
@@ -474,7 +473,7 @@ const postAuthActions = async (action) => {
                 }
             } catch ( err ) {
                 // send error to parent
-                if ( report_failure_to_opener ) {
+                if ( deliver_token_to_opener ) {
                     window.opener?.postMessage({
                         msg: 'puter.token',
                         success: false,
@@ -527,6 +526,7 @@ const postAuthActions = async (action) => {
                 msg_id: msg_id,
             }, window.openerOrigin);
         };
+        window.deliverPopupTokenToOpener = deliver_token_with_answer;
 
         if ( action === 'show-open-file-picker' ) {
             let options = window.url_query_params.get('options');
@@ -551,7 +551,6 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_return_to_opener: deliver_token_with_answer,
                 on_close: function () {
                     window.opener.postMessage({
                         msg: 'fileOpenCanceled',
@@ -582,7 +581,6 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_return_to_opener: deliver_token_with_answer,
                 on_close: function () {
                     window.opener.postMessage({
                         msg: 'directoryOpenCanceled',
@@ -627,8 +625,7 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                    on_return_to_opener: deliver_token_with_answer,
-                    on_close: function () {
+                        on_close: function () {
                         window.opener.postMessage({
                             msg: 'fileSaveCanceled',
                             original_msg_id: msg_id,
@@ -662,7 +659,7 @@ const postAuthActions = async (action) => {
                                 file_signature = file_signature.items;
 
                                 item_with_same_name_already_exists = false;
-                                deliver_token_with_answer();
+                                window.deliverPopupTokenToOpener?.();
                                 window.opener.postMessage({
                                     msg: 'fileSaved',
                                     original_msg_id: msg_id,

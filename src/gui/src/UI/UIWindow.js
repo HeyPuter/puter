@@ -952,7 +952,7 @@ async function UIWindow (options) {
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
             if ( options.return_to_parent_window ) {
                 // Before the answer: a picker's token rides out with it.
-                options.on_return_to_opener?.();
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'fileOpenPicked',
                     original_msg_id: ifram_msg_uid,
@@ -1036,7 +1036,7 @@ async function UIWindow (options) {
 
             if ( options.return_to_parent_window ) {
                 // Before the answer: a picker's token rides out with it.
-                options.on_return_to_opener?.();
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'directoryPicked',
                     original_msg_id: ifram_msg_uid,
