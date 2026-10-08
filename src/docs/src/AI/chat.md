@@ -137,6 +137,44 @@ Output generated before the stream stops may still be billed.
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
 
+### Claude Sonnet 5.5 and Mistral Large 4
+
+Both models accept text and images, support tool calling, and return normalized responses by default. Select them with `claude-sonnet-5-5` and `mistral-large-4` (`mistral-large-4-0` is also accepted). Existing `claude-sonnet` aliases select Sonnet 5.5; `mistral-large` and `mistral-large-latest` continue to select Large 3.
+
+The direct-provider catalog uses these standard upstream rates in USD per million tokens, verified October 8, 2026:
+
+| Model | Input | Cached input | Output | Context |
+| --- | --- | --- | --- | --- |
+| Claude Sonnet 5.5 | $2 | $0.10 | $10 | 1M tokens |
+| Mistral Large 4 | $1.36 | $0.14 | $4.18 | 1M tokens |
+
+[Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) is active on the Claude API, Amazon Bedrock, Google Cloud, and Microsoft Foundry. It supports 128K output tokens; 5-minute cache writes cost $2.50/M tokens and 1-hour writes cost $4/M tokens. Puter integrates it through the Claude API.
+
+[Large 4](https://docs.mistral.ai/models/mistral-large-4-0) is available through Mistral's API in public preview, released October 6, 2026. Its open weights are [planned for the end of October](https://mistral.ai/news/mistral-large-4/). Mistral advertises a [two-week launch discount](https://docs.mistral.ai/resources/changelogs) of 50%: $0.68 input, $0.07 cached input, and $2.09 output per million tokens. Puter's catalog uses the standard rates above rather than this temporary promotion. Cached prompt tokens are billed separately from uncached input for streamed and non-streamed requests.
+
+Provider availability depends on the deployment's configured API keys. Use [`listModels()`](/AI/listModels) to check the running instance and `GET /metering/allCosts` for its billed rates, which can include a deployment's AI cost factor.
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            for (const [model, provider] of [
+                ["claude-sonnet-5-5", "claude"],
+                ["mistral-large-4", "mistral"],
+            ]) {
+                const response = await puter.ai.chat("Explain a rainbow in one sentence.", {
+                    model, provider, max_tokens: 1024,
+                });
+                puter.print(response.message.content);
+            }
+        })();
+    </script>
+</body>
+</html>
+```
+
 ## Response Normalization
 
 Most vendors respond in the OpenAI chat format, where `message.content` is a string and tool calls appear as `message.tool_calls`. Anthropic models historically respond in Anthropic's native format instead, where `message.content` is an array of content blocks such as `[{ type: "text", text: "..." }]`.
