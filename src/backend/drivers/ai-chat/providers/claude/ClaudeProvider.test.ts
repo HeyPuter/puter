@@ -1303,9 +1303,9 @@ describe('ClaudeProvider.complete non-stream output', () => {
         ['claude-opus', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-latest', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-5-latest', 'claude-opus-5', 500, 625, 1000, 50, 2500],
-        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
-        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
-        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
+        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
+        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
+        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
         ['claude-sonnet-5', 'claude-sonnet-5', 200, 250, 400, 20, 1000],
     ])(
         'resolves and meters %s at its current rates',

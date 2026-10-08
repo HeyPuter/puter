@@ -103,7 +103,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             input_tokens: 200,
             ephemeral_5m_input_tokens: 200 * 1.25,
             ephemeral_1h_input_tokens: 200 * 2,
-            cache_read_input_tokens: 200 * 0.1,
+            cache_read_input_tokens: 200 * 0.05,
             output_tokens: 1000,
             web_search_requests: 1_000_000,
         },
