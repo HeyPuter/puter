@@ -118,8 +118,9 @@ const isFastModeRateLimit = (e: unknown): boolean => {
 };
 
 // Models whose current turn rejects a non-default temperature/top_p/top_k
-// outright. Fable 5/5.1, Sonnet 5/5.5, and Opus 4.7+.
+// outright. Fable 5/5.1, Sonnet 5/5.5, Haiku 5.5, and Opus 4.7+.
 const OMITS_SAMPLING_PARAMS = new Set([
+    'claude-haiku-5-5',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-sonnet-5-5',
@@ -131,6 +132,7 @@ const OMITS_SAMPLING_PARAMS = new Set([
 ]);
 
 const SUPPORTS_EFFORT = new Set([
+    'claude-haiku-5-5',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-sonnet-5-5',
@@ -1065,6 +1067,7 @@ export class ClaudeProvider implements IChatProvider {
         // These models reject manual thinking budgets; summarized display
         // keeps reasoning visible in the stream.
         if (
+            modelId === 'claude-haiku-5-5' ||
             modelId === 'claude-fable-5-1' ||
             modelId === 'claude-fable-5' ||
             modelId === 'claude-sonnet-5-5' ||

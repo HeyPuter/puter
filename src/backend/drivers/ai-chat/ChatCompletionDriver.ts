@@ -96,6 +96,7 @@ import {
     costKeys,
     isFreeModel,
     isOutputCostKey,
+    isPerCallCostKey,
     longContextMultipliers,
     trackedInputTokens,
     trackedOutputTokens,
@@ -1304,7 +1305,10 @@ export class ChatCompletionDriver extends PuterDriver {
             if (isOutputKey(key)) {
                 outputMicroCents += rawAmount * rate * multipliers.output;
             } else {
-                inputMicroCents += rawAmount * rate * multipliers.input;
+                inputMicroCents +=
+                    rawAmount *
+                    rate *
+                    (isPerCallCostKey(key) ? 1 : multipliers.input);
             }
         }
 
