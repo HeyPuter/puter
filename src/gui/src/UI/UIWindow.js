@@ -1322,8 +1322,11 @@ async function UIWindow (options) {
     // set iframe url
     if ( options.iframe_url ) {
         $(el_window_app_iframe).attr('src', options.iframe_url);
-        //bring focus to iframe
-        el_window_app_iframe.contentWindow.focus();
+        // Not for a hidden window: focusing a display:none iframe still takes
+        // the keyboard from whatever had it. Showing it later focuses it.
+        if ( options.is_visible ) {
+            el_window_app_iframe.contentWindow.focus();
+        }
     }
     // set the position of window
     if ( ! options.is_maximized ) {
