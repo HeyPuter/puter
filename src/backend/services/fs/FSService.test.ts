@@ -2301,6 +2301,64 @@ describe('FSService signed (direct-to-S3) writes', () => {
             expect(completed.fsEntry.uuid).toBe(existing.uuid);
         });
 
+        it('stages a batch-signed overwrite too, which is the path the SDK takes', async () => {
+            const path = `${user.home}/Documents/staged-batch.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+            expect(await liveSize(existing)).toBe(11);
+
+            const [started] = await fs.batchStartUrlWrites(user.userId, [
+                { fileMetadata: { path, size: 3, overwrite: true } },
+            ]);
+            expect(started!.objectKey).not.toBe(existing.uuid);
+            expect(started!.entryUid).toBe(existing.uuid);
+
+            await fetch(started!.url!, { method: 'PUT', body: 'NEW' });
+            expect(await liveSize(existing)).toBe(11);
+
+            await fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: started!.sessionId },
+            ]);
+            expect(await liveSize(existing)).toBe(3);
+        });
+
+        it('aborting a batch-signed overwrite leaves the live object alone', async () => {
+            const path = `${user.home}/Documents/staged-batch-abort.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const [started] = await fs.batchStartUrlWrites(user.userId, [
+                { fileMetadata: { path, size: 3, overwrite: true } },
+            ]);
+            await fetch(started!.url!, { method: 'PUT', body: 'NEW' });
+            await fs.abortUrlWrite(user.userId, started!.sessionId);
+
+            expect(await liveSize(existing)).toBe(11);
+        });
+
+        it('refuses to land on a target that moved after the url was signed', async () => {
+            const path = `${user.home}/Documents/staged-moved.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+
+            const documents = await entryAt(user, '/Documents');
+            await fs.move(user.userId, {
+                source: existing,
+                destinationParent: documents!,
+                newName: 'staged-moved-elsewhere.txt',
+            });
+
+            const error = await caught(() =>
+                fs.completeUrlWrite(user.userId, {
+                    uploadId: started.sessionId,
+                }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await liveSize(existing)).toBe(11);
+        });
+
         it('drops the staged object when the upload is abandoned', async () => {
             const path = `${user.home}/Documents/staged-abort.txt`;
             const existing = await writeFile(user, path, 'OLD-CONTENT');

@@ -2709,9 +2709,9 @@ export class FSController extends PuterController {
         // so the mask is built from the path the caller already named.
         const publishedPath = maskPathForRequest(normalizedPath);
         const pendingResponse = {
-            id: response.objectKey,
-            uid: response.objectKey,
-            uuid: response.objectKey,
+            id: response.entryUid,
+            uid: response.entryUid,
+            uuid: response.entryUid,
             path: publishedPath,
             name: pathPosix.basename(normalizedPath),
             is_dir: false,
@@ -2873,9 +2873,8 @@ export class FSController extends PuterController {
                         index: item.index,
                         contentType: item.contentType,
                         ...(item.size !== undefined ? { size: item.size } : {}),
-                        // The entry the upload lands on; its thumbnail key is
-                        // bound to it.
-                        item_uid: responses[item.index]?.objectKey ?? '',
+                        // The entry it lands on; the thumbnail key is bound to it.
+                        item_uid: responses[item.index]?.entryUid ?? '',
                     }) as ThumbnailUploadPrepareItem,
             ),
         };

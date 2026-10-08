@@ -1730,11 +1730,13 @@ export class FSService extends PuterService {
         normalizedInput: NormalizedWriteInput,
         objectKey: string,
         signedUploadResult: SignedUploadResult,
+        entryUid: string = objectKey,
     ): SignedWriteResponse {
         return {
             sessionId,
             uploadMode: signedUploadResult.uploadMode,
             objectKey,
+            entryUid,
             bucket: normalizedInput.bucket,
             bucketRegion: normalizedInput.bucketRegion,
             contentType: normalizedInput.contentType,
@@ -1763,6 +1765,7 @@ export class FSService extends PuterService {
             sessionId: '',
             uploadMode: 'single',
             objectKey: fsEntry.uuid,
+            entryUid: fsEntry.uuid,
             bucket: fsEntry.bucket ?? '',
             bucketRegion: fsEntry.bucketRegion ?? '',
             contentType: 'inode/directory',
@@ -2264,6 +2267,7 @@ export class FSService extends PuterService {
                     normalizedInput,
                     objectKey,
                     signedUploadResult,
+                    existingEntry?.uuid ?? objectKey,
                 ),
                 createdDirectoryEntries,
             };
@@ -2449,9 +2453,8 @@ export class FSService extends PuterService {
             }
 
             try {
-                const objectKeys = resolvedFileItems.map((item) => {
-                    return item.existingEntry?.uuid ?? uuidv4();
-                });
+                // Staged, as the single path.
+                const objectKeys = resolvedFileItems.map(() => uuidv4());
                 const uploadModes = resolvedFileItems.map((item) => {
                     return this.#determineUploadMode(
                         item.request.uploadMode,
@@ -2664,6 +2667,7 @@ export class FSService extends PuterService {
                                 item.normalizedInput,
                                 objectKey,
                                 signedUploadResult,
+                                item.existingEntry?.uuid ?? objectKey,
                             ),
                         );
                     }
@@ -2953,6 +2957,15 @@ export class FSService extends PuterService {
     ): Promise<void> {
         const liveKey = session.overwriteTargetUid;
         if (!liveKey || liveKey === session.objectKey) return;
+        // The completion was allowed against a path, so that is where the
+        // entry has to still be; a move since would put the bytes elsewhere.
+        const target =
+            await this.stores.fsEntry.getEntryByUuidFromPrimary(liveKey);
+        if (!target || target.path !== session.targetPath) {
+            throw new HttpError(409, 'Upload target has moved', {
+                legacyCode: 'conflict',
+            });
+        }
         await this.stores.s3Object.copyObjectOfAnySize(
             {
                 sourceBucket: bucket,
@@ -3308,20 +3321,36 @@ export class FSService extends PuterService {
         }
 
         // Each staged overwrite goes onto its live key before any row moves.
-        await Promise.all(
-            completionItems.map((item) =>
-                this.#promoteStagedOverwrite(
-                    item.session,
-                    item.finalData.size ?? item.session.size,
-                    item.session.bucket ??
-                        item.finalData.bucket ??
-                        this.#resolveBucket(),
-                    item.session.bucketRegion ??
-                        item.finalData.bucketRegion ??
-                        this.#resolveBucketRegion(),
+        // A failure here leaves the sessions as any other one does, rather
+        // than pending with their leases still held.
+        try {
+            await Promise.all(
+                completionItems.map((item) =>
+                    this.#promoteStagedOverwrite(
+                        item.session,
+                        item.finalData.size ?? item.session.size,
+                        item.session.bucket ??
+                            item.finalData.bucket ??
+                            this.#resolveBucket(),
+                        item.session.bucketRegion ??
+                            item.finalData.bucketRegion ??
+                            this.#resolveBucketRegion(),
+                    ),
                 ),
-            ),
-        );
+            );
+        } catch (error) {
+            try {
+                await this.stores.fsEntry.markPendingEntriesFailed(
+                    completionItems.map((item) => item.session.sessionId),
+                    this.#toErrorMessage(error),
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations(
+                    completionItems.map((item) => item.session),
+                );
+            }
+            throw error;
+        }
 
         const completedEntries =
             await this.stores.fsEntry.batchCompletePendingEntries(
