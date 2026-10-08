@@ -72,6 +72,10 @@ export const OTHER_USAGE_TYPE = 'other';
  * free ids rather than a list of paid ones so a plan added by an extension is
  * recognised without touching core.
  */
+/** Where a default-subscription resolver sits; lower wins. */
+export const ORG_SEAT_RESOLVER_PRIORITY = 10;
+export const DEFAULT_RESOLVER_PRIORITY = 100;
+
 export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,

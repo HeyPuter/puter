@@ -25,8 +25,10 @@ import {
 } from '../../controllers/auth/AuthController.js';
 import { isReservedUsername } from '../../util/reservedUsernames.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
-import { subscriptionSatisfies } from '../metering/enforcement.js';
-import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import {
+    ORG_SEAT_FREE_SUBSCRIPTION,
+    ORG_SEAT_RESOLVER_PRIORITY,
+} from '../metering/consts.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
@@ -142,6 +144,8 @@ export class TeamService extends PuterService {
                 const seat = await this.stores.team.getOrgSeat(userId);
                 return seat ? ORG_SEAT_FREE_SUBSCRIPTION : null;
             },
+            // Ahead of anything read off the address, which nobody confirmed.
+            { priority: ORG_SEAT_RESOLVER_PRIORITY },
         );
     }
 
@@ -317,12 +321,12 @@ export class TeamService extends PuterService {
         const override = Number(this.config.max_seats_per_team);
         if (Number.isFinite(override) && override > 0) return override;
 
-        const policy = await this.#ownerPolicy(ownerUserId);
-        const planCap = Number(policy?.teamSeatCap);
+        const plan = await this.#ownerPlan(ownerUserId);
+        const planCap = Number(plan?.policy?.teamSeatCap);
         if (Number.isFinite(planCap) && planCap > 0) return planCap;
 
-        // A resolved policy outside the free set is a plan someone pays for.
-        const paid = policy ? subscriptionSatisfies(policy.id, true) : false;
+        // A plan bought, not one inferred for the owner from their address.
+        const paid = plan?.paid ?? false;
         const key = paid
             ? 'max_seats_per_team_paid'
             : 'max_seats_per_team_free';
@@ -332,22 +336,27 @@ export class TeamService extends PuterService {
     }
 
     /** Null when unreadable, which caps as free: over-provisioning is worse. */
-    async #ownerPolicy(
-        ownerUserId: number,
-    ): Promise<{ id: string; teamSeatCap?: number } | null> {
+    async #ownerPlan(ownerUserId: number): Promise<{
+        policy: { id: string; teamSeatCap?: number };
+        paid: boolean;
+    } | null> {
         try {
             const owner = await this.stores.user.getById(ownerUserId);
             if (!owner?.uuid) return null;
             // The whole row, not an id/uuid stub: a resolver may key on any
             // field, and one that misses makes the cap depend on whether
             // something else cached this user's plan first.
-            return await this.services.metering.getActorSubscription({
-                user: owner,
-            } as never);
+            const actor = { user: owner } as never;
+            const [policy, paid] = await Promise.all([
+                this.services.metering.getActorSubscription(actor),
+                this.services.metering.actorHasPaidSubscription(actor),
+            ]);
+            return { policy, paid };
         } catch (e) {
             console.warn('[team] seat cap plan lookup failed:', e);
             return null;
         }
+    }
     }
 
     /** A rejected handle is 400, a taken one 409, never an unhandled 500. */

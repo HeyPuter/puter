@@ -3,25 +3,35 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { readFile } from 'node:fs/promises';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
+import { isFreeSubscription } from '../metering/consts.ts';
 
 describe('team and seat caps', () => {
     let server: PuterServer;
@@ -91,9 +101,7 @@ describe('team and seat caps', () => {
             Array.from({ length: 5 }, () => makeTeam(owner.id)),
         );
 
-        expect(
-            results.filter((r) => r.status === 'fulfilled'),
-        ).toHaveLength(1);
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     });
 
     it('refuses on the cap before complaining about the handle', async () => {
@@ -325,10 +333,12 @@ describe('team and seat caps', () => {
             }
         };
 
+        // The cap asks whether the owner is on a plan somebody bought; the
+        // free/paid reading of an id is MeteringService's own test.
         const onPlan = (id: string) =>
             vi
-                .spyOn(server.services.metering, 'getActorSubscription')
-                .mockResolvedValue({ id } as never);
+                .spyOn(server.services.metering, 'actorHasPaidSubscription')
+                .mockResolvedValue(!isFreeSubscription(id));
 
         const fill = async (teamUid: string, ownerId: number, n: number) => {
             for (let i = 0; i < n; i++) await provision(teamUid, ownerId);
@@ -364,7 +374,7 @@ describe('team and seat caps', () => {
                     provision(team.uid, owner.id),
                 ).rejects.toMatchObject({ legacyCode: 'seat_limit_reached' });
 
-                plan.mockResolvedValue({ id: 'basic' } as never);
+                plan.mockResolvedValue(true);
                 await expect(
                     provision(team.uid, owner.id),
                 ).resolves.toBeTruthy();
@@ -432,12 +442,12 @@ describe('team and seat caps', () => {
                 const seen: Array<Record<string, unknown>> = [];
                 vi.spyOn(
                     server.services.metering,
-                    'getActorSubscription',
+                    'actorHasPaidSubscription',
                 ).mockImplementation(async (actor: never) => {
                     seen.push(
                         (actor as { user: Record<string, unknown> }).user,
                     );
-                    return { id: 'user_free' } as never;
+                    return false;
                 });
                 await provision(team.uid, owner.id);
                 expect(seen[0]).toMatchObject({
