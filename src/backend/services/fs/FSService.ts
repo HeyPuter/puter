@@ -4770,6 +4770,7 @@ export class FSService extends PuterService {
                     destinationParent,
                     name,
                     input,
+                    { intoSomeoneElsesTrash },
                 );
             }
             updated = await applyMove(name);
@@ -4782,6 +4783,15 @@ export class FSService extends PuterService {
                 source.path,
                 finalPath,
                 newOwnerId,
+            );
+        }
+
+        // The subtree changed hands, so the owner recorded on its shares did
+        // too. Stale there drops them from the new owner's outbound listing.
+        if (newOwnerId !== source.userId) {
+            await this.stores.share.reassignEntryOwnerUnder(
+                newOwnerId,
+                finalPath,
             );
         }
 

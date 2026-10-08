@@ -899,6 +899,24 @@ export class ShareStore extends PuterStore {
      * @param {number} issuerUserId
      * @param {number} fsentryId
      */
+    /**
+     * Re-point `entry_owner_user_id` at `newOwnerId` for every share on `path`
+     * or anything under it. A move into someone else's tree re-owns the whole
+     * subtree, and a stale owner here silently drops rows from the outbound
+     * listing it keys.
+     *
+     * @param {number} newOwnerId @param {string} path
+     */
+    async reassignEntryOwnerUnder(newOwnerId, path) {
+        const escaped = path.replace(/([!%_])/g, '!$1');
+        await this.clients.db.write(
+            'UPDATE `share` SET `entry_owner_user_id` = ? WHERE `fsentry_id` ' +
+                'IN (SELECT `id` FROM `fsentries` WHERE `path` = ? OR ' +
+                "`path` LIKE ? ESCAPE '!')",
+            [newOwnerId, path, `${escaped}/%`],
+        );
+    }
+
     async deletePendingByIssuerSubtree(issuerUserId, fsentryId) {
         // Read-then-delete rather than a CTE inside the DELETE, which the
         // dialects disagree on. The gap between the two only ever leaves an

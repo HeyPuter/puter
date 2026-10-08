@@ -23,8 +23,9 @@
 -- every file the user owns, driven from `share` it walks every share until it
 -- has a page. `#outboundAppsSql` has no LIMIT at all.
 --
--- An entry cannot change owner -- a move out of the owner's tree is refused --
--- so this is written once, with the row.
+-- Written with the row, and re-pointed when a move re-owns the subtree it
+-- names; `FSService.move` does that whenever the destination is someone
+-- else's tree.
 
 ALTER TABLE `share` ADD COLUMN `entry_owner_user_id` INTEGER DEFAULT NULL;
 
