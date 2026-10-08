@@ -21,7 +21,7 @@
             );
 
             // (3) Subscribe. `context` is read now and never again.
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
             const sub = await puter.events.onPersistent({
                 subject: `fs:${dir}`,

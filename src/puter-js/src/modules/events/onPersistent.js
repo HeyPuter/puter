@@ -2,6 +2,7 @@ import { PuterJSError } from '../../lib/PuterJSError.js';
 import { request } from './lib/api.js';
 import { prepareHandler, serializeContext } from './lib/handlerSource.js';
 import { assertSubject } from './lib/validate.js';
+import { resolveSubject } from './lib/resolveSubject.js';
 
 /** @typedef {import('./types.js').OnPersistentOptions} OnPersistentOptions */
 /** @typedef {import('./types.js').PersistentSubscription} PersistentSubscription */
@@ -35,7 +36,7 @@ import { assertSubject } from './lib/validate.js';
 export async function onPersistent (options = {}) {
     const { puter } = this;
     assertSubject(options?.subject);
-
+    const subject = resolveSubject(options.subject, puter);
     const { handler, handlerName } = options;
     // An inline handler is source the server has to match against something it
     // already has, and a name is the only thing it can match against.
@@ -60,7 +61,7 @@ export async function onPersistent (options = {}) {
         : await prepareHandler(puter, handler);
 
     const body = {
-        subject: options.subject,
+        subject,
         ...(options.delivery ? { delivery: options.delivery } : {}),
         ...(options.targets ? { targets: options.targets } : {}),
         ...(handlerName ? { handlerName } : {}),

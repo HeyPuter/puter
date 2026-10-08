@@ -48,7 +48,7 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
     <script>
         (async () => {
             // (1) Create a directory to watch
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
             // (2) Subscribe to everything under it
@@ -120,7 +120,7 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
     <script>
         (async () => {
             // (1) A directory to work in. `inbox/` below it does not exist yet.
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
             // (2) Subscribe anyway — the subscription anchors on `dir` and
@@ -174,7 +174,7 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
             );
 
             // (3) Subscribe. `context` is read now and never again.
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
             const sub = await puter.events.onPersistent({
                 subject: `fs:${dir}`,
@@ -204,7 +204,7 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
             const sub = await puter.events.onPersistent({
                 subject: `fs:${dir}`,
