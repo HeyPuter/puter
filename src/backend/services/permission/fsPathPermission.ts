@@ -37,6 +37,8 @@ export interface ParsedFsPathPermission {
 export function parseFsPathPermission(
     permission: string,
 ): ParsedFsPathPermission | null {
+    // The list is only checked for being an array, so an element is anything.
+    if (typeof permission !== 'string') return null;
     if (
         !permission.startsWith('fs:') &&
         !permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
@@ -60,6 +62,8 @@ export interface ParsedFsUidPermission {
 export function parseFsUidPermission(
     permission: string,
 ): ParsedFsUidPermission | null {
+    // The list is only checked for being an array, so an element is anything.
+    if (typeof permission !== 'string') return null;
     if (!permission.startsWith('fs:')) return null;
     const parts = PermissionUtil.split(permission);
     if (parts.length !== 3) return null;
