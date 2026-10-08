@@ -24,6 +24,7 @@ import {
     MAX_CREATE_DEPTH,
     parseCreateFlag,
     parseFsPathPermission,
+    parseFsUidPermission,
 } from './fsPathPermission.js';
 
 describe('parseFsPathPermission', () => {
@@ -71,6 +72,34 @@ describe('parseFsPathPermission', () => {
     it('is null for a bare `fs` with nothing after it', () => {
         expect(parseFsPathPermission('fs:read')).toBeNull();
     });
+});
+
+describe('parseFsUidPermission', () => {
+    it('splits a uid-addressed permission', () => {
+        expect(parseFsUidPermission('fs:abc-123:write')).toEqual({
+            uid: 'abc-123',
+            mode: 'write',
+        });
+    });
+
+    it('is null for the path-addressed form', () => {
+        expect(parseFsUidPermission('fs:/dan/.mail:write')).toBeNull();
+    });
+
+    it('is null for a manage-prefixed permission', () => {
+        expect(parseFsUidPermission('manage:fs:abc-123')).toBeNull();
+    });
+
+    it('is null for a non-fs permission', () => {
+        expect(parseFsUidPermission('apps-of-user:u1:read')).toBeNull();
+    });
+
+    it.each(['fs:abc-123', 'fs:abc-123:write:create', 'fs:read'])(
+        'is null for %s, which carries no single mode',
+        (permission) => {
+            expect(parseFsUidPermission(permission)).toBeNull();
+        },
+    );
 });
 
 describe('fsCreateKindFor', () => {
