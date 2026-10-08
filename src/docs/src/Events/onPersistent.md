@@ -133,7 +133,7 @@ Clients connect to the nearest region. Events reach a client wherever it's conne
 A `Promise` that resolves to the subscription:
 
 - `subId` (String): Its id, which [`puter.events.unsubscribe()`](/Events/unsubscribe/) takes. It never changes.
-- `subject` (String): For `kv:` and `notif:`, the subject in full form: `kv:cart` comes back as `kv:<appId>:cart`. For `fs:`, as you passed it, with a relative path expanded.
+- `subject` (String): For `kv:` and `notif:`, the subject in full form: `kv:cart` comes back as `kv:<appId>:cart`. For `fs:`, as you passed it, except a relative path comes back resolved the same way [`onLocal()`](/Events/onLocal/) returns it.
 - `anchor`, `match`, `op`: as `onLocal()` returns them.
 - `delivery` (String), `targets` (Array), `handlerName` (String | null), `includeValue` (Boolean).
 - `appUid` (String | null): The app that created it, or `null` if an account session did.

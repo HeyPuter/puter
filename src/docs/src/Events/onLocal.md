@@ -37,7 +37,7 @@ Called with `{ event }` for each delivery; see [The event](#the-event). `event.o
 A `Promise` that resolves, once the server confirms the subscription, to:
 
 - `subId` (String | null): The server's id for the subscription. It changes on every reconnect, so don't store anything against it.
-- `subject` (String): The subject as you passed it, with a relative `fs:` path expanded. For `kv:`, `anchor.uid` is the app it resolved to; for `notif:`, the app, or your user id when acting as the account.
+- `subject` (String): The subject as you passed it. A relative `fs:` path comes back resolved: `fs:inbox` returns as `fs:~/AppData/<appId>/inbox` in an app, `fs:~/inbox` otherwise. For `kv:`, `anchor.uid` is the app it resolved to; for `notif:`, the app, or your user id when acting as the account.
 - `anchor` (Object): The node the subscription is attached to, as `{ uid, path }`: the subject itself, or its nearest existing parent if the subject doesn't exist yet. For `kv:`, `uid` is the app whose store is watched and `path` is the key prefix. Through a share handle, `uid` is the handle and `path` is empty. `path` is the one from when you subscribed; a later rename doesn't update it.
 - `match` (String | null): The pattern matched under the anchor, if the subject had one. For a path that didn't exist yet, it's the rest of that path, and it covers that path and everything under it.
 - `op` (String | null): The one operation this subscription is limited to, or `null` for all.
