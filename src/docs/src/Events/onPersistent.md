@@ -164,7 +164,7 @@ The promise rejects with `{ message, code }`:
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
 | `events_subscription_limit` | The account or app is at its [persistent subscription limit](/rate-limits-and-quotas/#events). |
 | `events_value_too_large` | A field is longer than can be stored (for example an app id over 40 characters). |
-| `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. Scoped access tokens, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, get no persistent subscriptions. |
+| `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. Scoped access tokens, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, get no persistent subscriptions, whether the account or an app created them. |
 | `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
