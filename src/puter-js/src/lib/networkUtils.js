@@ -162,9 +162,8 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
  * The one XHR builder both `initXhr` (utils.js) and `fetchUrl` wrap. Opens the
  * request, applies headers/credentials/responseType, and stashes the whole
  * `spec` on `xhr._puterReq` as the single replay representation — any attempt
- * (reauth, transient) rebuilds the request by calling
- * `buildXhr(spec)` again, which re-reads the live token when
- * `includePuterAuth`.
+ * (reauth, transient) rebuilds it by calling `buildXhr(spec)` again, which
+ * re-reads the live token when `includePuterAuth`.
  *
  * @param {Object} spec
  * @param {string} spec.url - Full request URL.
@@ -383,9 +382,9 @@ async function bodyForLog(xhr) {
 
 // -- Retry engine --
 // One loop drives every request: build the XHR from its spec, send, classify
-// the outcome, and either replay (reauth / transient backoff) or
-// hand the result to the caller's shaper. A replay just rebuilds from the same
-// spec, so there are no hand-listed argument lists to get wrong.
+// the outcome, and either replay (reauth / transient backoff) or hand the
+// result to the caller's shaper. A replay just rebuilds from the same spec, so
+// there are no hand-listed argument lists to get wrong.
 
 // Transient statuses that may or may not have run the handler. A 502/503/504
 // can mean the request was half-applied upstream, so only a read replays.
@@ -642,12 +641,12 @@ function sendOnce(spec) {
 }
 
 /**
- * Classify a completed attempt into a retry decision. Reauth and
- * the phone-verification gate are one-shot (tracked in `ctx.done`) and apply
- * to any request; transient backoff
- * applies only to `ctx.retrySafe` requests and honors the autoRetry kill
- * switch. Memoizes the parsed body on `outcome.parsed` and stashes any reauth
- * error on `outcome.reauthError` for the shaper.
+ * Classify a completed attempt into a retry decision. Reauth and the
+ * phone-verification gate are one-shot (tracked in `ctx.done`) and apply to any
+ * request; transient backoff applies only to `ctx.retrySafe` requests and
+ * honors the autoRetry kill switch. Memoizes the parsed body on
+ * `outcome.parsed` and stashes any reauth error on `outcome.reauthError` for
+ * the shaper.
  *
  * @returns {Promise<{ delayMs: number } | null>} A delay to retry after, or
  *   null to stop.
@@ -717,8 +716,8 @@ async function classifyRetry(outcome, ctx) {
 
 /**
  * The one retry loop. Sends `spec` (rebuilding per attempt), classifies each
- * outcome, and retries on reauth / transient causes; otherwise
- * hands the outcome to `shape`.
+ * outcome, and retries on reauth / transient causes; otherwise hands the
+ * outcome to `shape`.
  *
  * @param {Object} spec - BuildXhr spec (+ optional buildBody, signal).
  * @param {Object} opts
@@ -1125,8 +1124,8 @@ async function driverCall(call, opts = {}) {
         retrySafe: readonly,
         shapeStream: (lineStream) =>
             driverLineStream(lineStream, puter, promptContext),
-        // Reauth and transient retries are already spent by
-        // the time the engine hands the outcome over, so this is terminal.
+        // Reauth and transient retries are already spent by the time the
+        // engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {
             if (outcome.networkError) {
                 logCall(call, { error: { message: 'Network error occurred' } });
