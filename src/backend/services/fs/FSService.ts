@@ -1332,7 +1332,7 @@ export class FSService extends PuterService {
         return {
             ...parsedMetadata,
             userId: session.userId,
-            uuid: session.objectKey,
+            uuid: session.overwriteTargetUid ?? session.objectKey,
             path: session.targetPath,
             size: session.size,
             contentType: session.contentType,
@@ -2190,7 +2190,8 @@ export class FSService extends PuterService {
                 );
             }
 
-            const objectKey = existingEntry?.uuid ?? uuidv4();
+            // Staged: only the authorized completion puts it on the live key.
+            const objectKey = uuidv4();
             const uploadMode = this.#determineUploadMode(
                 signedWriteRequest.uploadMode,
                 normalizedInput.size,
@@ -2943,6 +2944,39 @@ export class FSService extends PuterService {
         }
     }
 
+    /** Puts a staged overwrite in place, the completion having been allowed. */
+    async #promoteStagedOverwrite(
+        session: PendingUploadSession,
+        size: number,
+        bucket: string,
+        region: string,
+    ): Promise<void> {
+        const liveKey = session.overwriteTargetUid;
+        if (!liveKey || liveKey === session.objectKey) return;
+        await this.stores.s3Object.copyObjectOfAnySize(
+            {
+                sourceBucket: bucket,
+                sourceKey: session.objectKey,
+                destinationBucket: bucket,
+                destinationKey: liveKey,
+                contentType: session.contentType,
+                metadataDirective: 'REPLACE',
+            },
+            region,
+            size,
+        );
+        try {
+            await this.stores.s3Object.deleteObject(
+                bucket,
+                session.objectKey,
+                region,
+            );
+        } catch (e) {
+            // The live object is already right; the staged one is only litter.
+            console.warn('[fs] staged overwrite left behind:', e);
+        }
+    }
+
     async completeUrlWrite(
         userId: number,
         completeWriteRequest: CompleteWriteRequest,
@@ -3038,6 +3072,14 @@ export class FSService extends PuterService {
                 this.#logUnreceivedUploads([session]);
                 throw uploadNotReceivedError();
             }
+            await this.#promoteStagedOverwrite(
+                session,
+                typeof uploaded === 'number' && uploaded >= 0
+                    ? uploaded
+                    : session.size,
+                reconcileBucket,
+                reconcileRegion,
+            );
             if (typeof uploaded === 'number' && uploaded >= 0) {
                 // Record the true size only — do not re-assert the quota
                 // here. The bytes are already in the object store, so a
@@ -3265,6 +3307,22 @@ export class FSService extends PuterService {
             item.finalData.size = uploaded;
         }
 
+        // Each staged overwrite goes onto its live key before any row moves.
+        await Promise.all(
+            completionItems.map((item) =>
+                this.#promoteStagedOverwrite(
+                    item.session,
+                    item.finalData.size ?? item.session.size,
+                    item.session.bucket ??
+                        item.finalData.bucket ??
+                        this.#resolveBucket(),
+                    item.session.bucketRegion ??
+                        item.finalData.bucketRegion ??
+                        this.#resolveBucketRegion(),
+                ),
+            ),
+        );
+
         const completedEntries =
             await this.stores.fsEntry.batchCompletePendingEntries(
                 completionItems.map((item) => ({
@@ -3344,21 +3402,8 @@ export class FSService extends PuterService {
                         bucket,
                         session.objectKey,
                     );
-                } else if (session.overwriteTargetUid) {
-                    // An overwrite shares the live entry's object key, so only
-                    // delete once the primary confirms that entry is gone.
-                    const target =
-                        await this.stores.fsEntry.getEntryByUuidFromPrimary(
-                            session.overwriteTargetUid,
-                        );
-                    if (target === null) {
-                        await this.stores.s3Object.deleteObject(
-                            bucket,
-                            session.objectKey,
-                            bucketRegion,
-                        );
-                    }
                 } else {
+                    // Its own key, overwrite or not, so this is never live.
                     await this.stores.s3Object.deleteObject(
                         bucket,
                         session.objectKey,
