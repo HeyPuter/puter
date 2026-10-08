@@ -432,7 +432,7 @@ export class ACLService extends PuterService {
             }
         }
 
-        // Unconditional, as before: see `#setUserUserLocked`.
+        // Unconditional: see `#setUserUserLocked`.
         const newPerm =
             mode === MANAGE_PERM_PREFIX
                 ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
@@ -591,8 +591,7 @@ export class ACLService extends PuterService {
             }
         }
 
-        // Unconditional, as before: the read above can be a stale replica,
-        // and skipping the grant on it would revoke with nothing put back.
+        // Unconditional: the read above can be a stale replica.
         const newPerm =
             mode === MANAGE_PERM_PREFIX
                 ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)

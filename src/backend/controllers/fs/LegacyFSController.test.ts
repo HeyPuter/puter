@@ -1838,8 +1838,7 @@ describe('LegacyFSController.move', () => {
         // in masked form — the owner's real layout stays theirs.
         const body = captured.body as { moved: { uid: string; path: string } };
         const suffix = ` (${body.moved.uid.slice(0, 8)})`;
-        // Renamed on the way in, always, so the name cannot report on what the
-        // Trash already holds; `original_name` keeps the real one.
+        // Always renamed in, so the name cannot report on the Trash.
         expect(body.moved.path).toBe(
             `/${ownerName}/${body.moved.uid}/note${suffix}.txt`,
         );

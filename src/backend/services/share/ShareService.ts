@@ -1817,8 +1817,7 @@ export class ShareService extends PuterService {
         return {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
-            // Account-wide, so only for a caller acting as the account: an app
-            // reads a page of what it was handed, not the size of the rest.
+            // Account-wide, so only for a caller acting as the account.
             ...(opts.includeTotal && isAccountContext(actor)
                 ? {
                       total: await this.stores.share.countByHolder(holderId, {

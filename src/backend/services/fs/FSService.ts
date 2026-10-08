@@ -4824,8 +4824,7 @@ export class FSService extends PuterService {
         input: { overwrite?: boolean; dedupeName?: boolean },
         opts: { intoSomeoneElsesTrash?: boolean } = {},
     ): Promise<string> {
-        // Ahead of `overwrite`: authorized here without write, so a collision
-        // must neither answer for the contents nor destroy one.
+        // Ahead of `overwrite`: no write here, so a collision destroys nothing.
         if (opts.intoSomeoneElsesTrash) {
             return this.#findDedupedName(destinationParent, name);
         }

@@ -157,8 +157,7 @@ export class ShareStore extends PuterStore {
                     ' ORDER BY `id` LIMIT ?',
                 [userId, userId, afterId, ...own.params, size + 1],
             ),
-            // Rows a writer that predates the column left behind -- a pod not
-            // yet rolled, say. Indexed on the NULL, and empty once none remain.
+            // Rows left by a writer predating the column; indexed on the NULL.
             this.clients.db.read(
                 'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
                     '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +

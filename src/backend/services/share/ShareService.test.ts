@@ -1201,8 +1201,7 @@ describe('ShareService', () => {
                 mode: 'read',
             });
 
-            // The owner issued one of these and the delegate the other; both
-            // are on an entry the owner owns, so both are theirs to see.
+            // Owner and delegate issued one each, both on the owner's entry.
             const listed = await listSharedByMe(owner.actor, {
                 includeTotal: true,
             });
