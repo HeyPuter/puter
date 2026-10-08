@@ -18,11 +18,13 @@ puter.fs.copy(options)
 
 #### `source` (String) (Required)
 
-The path to the file or directory to copy.
+The path or UID of the file or directory to copy.
 
 #### `destination` (String) (Required)
 
-The path to the destination directory. If destination is a directory then the file or directory will be copied into that directory using the same name as the source file or directory. If the destination is a file, we overwrite if overwrite is `true`, otherwise we error.
+The path or UID of the destination directory. If destination is a directory then the file or directory will be copied into that directory using the same name as the source file or directory. If the destination is a file, we overwrite if overwrite is `true`, otherwise we error.
+
+Relative paths resolve against the app's root directory. A relative name that looks like a UID is read as one; prefix it with `./` to address a file by that name.
 
 #### `options` (Object) (Optional)
 

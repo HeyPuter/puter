@@ -827,11 +827,6 @@ const handlerAppRequired = (): HttpError =>
     });
 
 /**
- * Deploying an app's code is the developer's, and an app token cannot borrow
- * its user's ownership of some other app. Same answer for an app that is not
- * there: which apps exist is not this surface's to disclose.
- */
-/**
  * Listing and revoking are the owner's, and an app's only where the handle is
  * the app's own: its namespace, its user, and a delegation it still holds.
  * Anything else — another app, a token an app issued, a handle outside the
@@ -908,6 +903,11 @@ const handleQuotaReached = (
         { legacyCode: 'events_kv_handle_limit_reached' },
     );
 
+/**
+ * Deploying an app's code is the developer's, and an app token cannot borrow
+ * its user's ownership of some other app. Same answer for an app that is not
+ * there: which apps exist is not this surface's to disclose.
+ */
 const handlerAppForbidden = (): HttpError =>
     new HttpError(403, 'Only the app owner may publish its handlers', {
         legacyCode: 'events_handler_forbidden',
@@ -1805,9 +1805,10 @@ export class EventsService extends PuterService {
         // As the session verb does: an unresolved `effectiveApp` would land an
         // app's row in the account's scope.
         assertResolvedActor(actor);
-        // Its row would land in the account's scope, which it may not list or
-        // remove from.
-        if (actor.effectiveApp === null && !isAccountContext(actor))
+        // A scoped token is neither the account nor the app, including one an
+        // app issued (a read URL): it may not list or remove the row it would
+        // create.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
             throw durableScopedToken();
 
         await this.#spendCallBudget(holderUserId);
@@ -1902,7 +1903,7 @@ export class EventsService extends PuterService {
      * What this actor holds durably. An app-context actor is confined to its
      * own rows by the index the query runs on; an account-context one sees
      * across apps, which is what makes the account the revoke surface for a row
-     * whose app is long gone. A scoped token with no app holds nothing.
+     * whose app is long gone. A scoped token holds nothing, whoever issued it.
      */
     async listDurable(
         actor: Actor,
@@ -1916,7 +1917,8 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app" — reading it that way is what would hand
         // an app the account-wide view.
         if (app === undefined) return { items: [] };
-        if (app === null && !isAccountContext(actor)) return { items: [] };
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            return { items: [] };
 
         const page = await this.stores.durableSubscription.listForHolder(
             holderUserId,
@@ -1954,9 +1956,10 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app": reading it that way would hand an app
         // rows only the account may see.
         if (actor.effectiveApp === undefined) return { items: [] };
-        // A scoped token with no app is not the account. Refused here, not by
-        // the row filter, which would still cut a cursor from the full page.
-        if (actor.effectiveApp === null && !isAccountContext(actor))
+        // A scoped token is neither the account nor the app, including one an
+        // app issued. Refused here, not by the row filter, which would still
+        // cut a cursor from the full page.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
             return { items: [] };
 
         const scope = resolveNotifFetch(String(request.subject ?? ''), {
@@ -2057,8 +2060,9 @@ export class EventsService extends PuterService {
         const row = subId
             ? await this.stores.durableSubscription.getBySubId(subId)
             : null;
-        // Someone else's id — or one another app created — reads as absent
-        // rather than refused: a 403 here is an oracle for subIds.
+        // Someone else's id, one another app created, or any id asked by a
+        // scoped token reads as absent rather than refused: a 403 here is an
+        // oracle for subIds.
         if (
             !row ||
             row.holderUserId !== holderUserId ||

@@ -10,7 +10,7 @@ Reads events a subject has stored, a page at a time. A subscription only deliver
 
 It's a plain query: nothing is registered, no position is saved, and calling it twice returns the same result. You keep the `cursor` and pass it back as `after`.
 
-A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, reads an empty page whatever the subject.
+A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, reads an empty page whatever the subject, whether the account or an app created it.
 
 Only **`notif:`** (the notification mailbox) stores events. `fs:` and `kv:` are refused with `fetch_unsupported_subject` rather than answered with an empty page.
 

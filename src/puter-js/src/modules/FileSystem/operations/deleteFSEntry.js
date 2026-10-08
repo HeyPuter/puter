@@ -1,11 +1,11 @@
-import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import { getAbsolutePathOrUidForApp } from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 
 /** @typedef {import('../types.js').DeleteOptions} DeleteOptions */
 
 /**
  * Deletes one or more files or directories. Relative paths resolve against the
- * app's root directory.
+ * app's root directory; a UID-shaped string is read as a uid.
  *
  * Named `deleteFSEntry` rather than `delete` because `delete` is a reserved
  * keyword; it is exposed as `puter.fs.delete`.
@@ -29,7 +29,7 @@ const deleteFSEntry = defineOperation({
         return {
             endpoint: '/delete',
             body: {
-                paths: paths.map((path) => getAbsolutePathForApp(path)),
+                paths: paths.map((path) => getAbsolutePathOrUidForApp(path)),
                 descendants_only: firstDefined(options, 'descendantsOnly', 'descendants_only') ?? false,
                 recursive: options.recursive ?? true,
             },

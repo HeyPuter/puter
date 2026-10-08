@@ -111,19 +111,22 @@ export class DeepSeekProvider implements IChatProvider {
             }
         }
 
-        const completion = await this.#openai.chat.completions.create({
-            messages,
-            model: modelUsed.id,
-            ...(tools ? { tools } : {}),
-            max_tokens: max_tokens ?? 1000,
-            temperature,
-            stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-        } as ChatCompletionCreateParams);
+        const completion = await this.#openai.chat.completions.create(
+            {
+                messages,
+                model: modelUsed.id,
+                ...(tools ? { tools } : {}),
+                max_tokens: max_tokens ?? 1000,
+                temperature,
+                stream,
+                ...(stream
+                    ? {
+                          stream_options: { include_usage: true },
+                      }
+                    : {}),
+            } as ChatCompletionCreateParams,
+            { signal: Context.get('abortSignal') },
+        );
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {

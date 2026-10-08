@@ -53,13 +53,14 @@ const statImpl = async function (...args) {
         options.consistency = 'strong';
     }
 
-    // Generate cache key based on path or uid
+    // Only path-addressed entries are cached: path-based invalidation (socket
+    // events, share changes) can't reach an entry keyed by uid.
     let cacheKey;
-    if ( options.path ) {
+    if ( options.uid === undefined && options.path ) {
         cacheKey = puter.fsCacheKey('item', options.path);
     }
 
-    if ( options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize && !options.returnShares ) {
+    if ( cacheKey && options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize && !options.returnShares ) {
         const cachedResult = await puter._cache.get(cacheKey);
         if ( cachedResult ) {
             return cachedResult;
@@ -108,7 +109,7 @@ const statImpl = async function (...args) {
                     result.shares = result.shares.map(toShare);
                 }
                 // Not cached — a later plain stat must not serve share data.
-                if ( ! options.returnShares && JSON.stringify(result).length <= MAX_CACHE_SIZE ) {
+                if ( cacheKey && ! options.returnShares && JSON.stringify(result).length <= MAX_CACHE_SIZE ) {
                     puter._cache.set(cacheKey, result);
                 }
                 return result;

@@ -939,6 +939,7 @@ export function concurrencyGate(opts) {
         };
         res.once('finish', release);
         res.once('close', release);
+        if (res.destroyed || res.writableFinished) release();
         next();
     };
 }

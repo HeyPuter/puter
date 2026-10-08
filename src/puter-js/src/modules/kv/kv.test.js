@@ -223,6 +223,41 @@ describe('kv.set driver payloads', () => {
         expect(FakeXHR.requests).toHaveLength(0);
     });
 
+    // The store measures UTF-8 bytes of the value's JSON, so a string's
+    // quotes count and `.length` undercounts everything but ASCII strings.
+    it.each([
+        ['an ASCII string one byte over once quoted', 'v'.repeat(399 * 1024 - 1)],
+        ['a multibyte string', '\u20ac'.repeat(140 * 1024)],
+        ['an object', { blob: 'x'.repeat(399 * 1024) }],
+        ['a long array', Array(300_000).fill(0)],
+    ])('rejects %s over the byte limit without a request', async (_label, value) => {
+        await expect(kv.set('k', value)).rejects.toEqual({
+            message: `Value size cannot be larger than ${399 * 1024}`,
+            code: 'value_too_large',
+        });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('accepts a value whose JSON is exactly at the byte limit', async () => {
+        await expect(kv.set('k', 'v'.repeat(399 * 1024 - 2))).resolves.toBe(true);
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
+
+    it('rejects a batch item over the byte limit without a request', async () => {
+        await expect(kv.set([
+            { key: 'a', value: 1 },
+            { key: 'b', value: { blob: 'x'.repeat(399 * 1024) } },
+        ])).rejects.toMatchObject({ code: 'value_too_large' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('rejects a multibyte key over the byte limit without a request', async () => {
+        // 513 characters, 1026 bytes.
+        await expect(kv.set('\u00e9'.repeat(513), 'v')).rejects.toMatchObject({ code: 'key_too_large' });
+        await expect(kv.set([{ key: '\u00e9'.repeat(513), value: 'v' }])).rejects.toMatchObject({ code: 'key_too_large' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
     it('rejects an empty batch', async () => {
         await expect(kv.set([])).rejects.toMatchObject({ code: 'items_required' });
     });
@@ -253,6 +288,7 @@ describe('kv.get driver payloads', () => {
 
     it('rejects an oversized key without a request', async () => {
         await expect(kv.get('k'.repeat(1025))).rejects.toMatchObject({ code: 'key_too_large' });
+        await expect(kv.get('\u00e9'.repeat(513))).rejects.toMatchObject({ code: 'key_too_large' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
 
@@ -263,6 +299,11 @@ describe('kv.get driver payloads', () => {
 });
 
 describe('kv.get GUI boot cache', () => {
+    beforeEach(() => {
+        fakePuter.env = 'gui';
+        kv = new KV(fakePuter);
+    });
+
     it('serves boot keys from one batched request', async () => {
         FakeXHR.respondWith = (body) => ({
             success: true,
@@ -307,6 +348,93 @@ describe('kv.get GUI boot cache', () => {
         await kv.get('ordinary-key');
         expect(lastBody().args).toEqual({ key: 'ordinary-key' });
     });
+
+    describe('after a write', () => {
+        // The batch answers 'stale' for every boot key; a single-key read
+        // answers 'fresh', and every other call succeeds.
+        beforeEach(() => {
+            FakeXHR.respondWith = (body) => {
+                if ( body.method === 'get' ) {
+                    return Array.isArray(body.args.key)
+                        ? { success: true, result: body.args.key.map(() => 'stale') }
+                        : { success: true, result: 'fresh' };
+                }
+                return { success: true, result: true };
+            };
+        });
+
+        it.each([
+            ['set(key, value)', () => kv.set('sidebar_items', 'v')],
+            ['set({ key, value })', () => kv.set({ key: 'sidebar_items', value: 'v' })],
+            ['set([items])', () => kv.set([{ key: 'sidebar_items', value: 'v' }])],
+            ['set({ items })', () => kv.set({ items: [{ key: 'sidebar_items', value: 'v' }] })],
+            ['del(key)', () => kv.del('sidebar_items')],
+            ['del({ key })', () => kv.del({ key: 'sidebar_items' })],
+            ['incr(key)', () => kv.incr('sidebar_items')],
+            ['decr(key)', () => kv.decr('sidebar_items')],
+            ['add(key, value)', () => kv.add('sidebar_items', 'v')],
+            ['remove(key, path)', () => kv.remove('sidebar_items', 'a')],
+            ['update(key, map)', () => kv.update('sidebar_items', { a: 1 })],
+            ['update({ key, pathAndValueMap })', () => kv.update({ key: 'sidebar_items', pathAndValueMap: { a: 1 } })],
+            ['expire(key, ttl)', () => kv.expire('sidebar_items', 60)],
+            ['expireAt(key, timestamp)', () => kv.expireAt('sidebar_items', 1)],
+            ['flush()', () => kv.flush()],
+        ])('%s makes the next get(key) read the store', async (_label, write) => {
+            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await write();
+            await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
+            expect(lastBody()).toMatchObject({ method: 'get', args: { key: 'sidebar_items' } });
+        });
+
+        it('keeps serving the boot keys that were not written', async () => {
+            await kv.get('menubar_style');
+            await kv.set('sidebar_items', 'v');
+            const requests = FakeXHR.requests.length;
+            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            expect(FakeXHR.requests).toHaveLength(requests);
+        });
+
+        it('a write before the batch is fetched still bypasses it for that key', async () => {
+            await kv.set('sidebar_items', 'v');
+            await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
+            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+        });
+
+        it('a write issued while the batch is in flight bypasses it', async () => {
+            const pending = kv.get('sidebar_items');
+            const write = kv.set('sidebar_items', 'v');
+            await expect(pending).resolves.toBe('fresh');
+            await write;
+        });
+
+        it('a rejected write still bypasses the batch', async () => {
+            await kv.get('menubar_style');
+            FakeXHR.respondWith = (body) => body.method === 'set'
+                ? { success: false, error: { code: 'insufficient_funds' } }
+                : { success: true, result: 'fresh' };
+            await expect(kv.set('sidebar_items', 'v')).rejects.toBeTruthy();
+            await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
+        });
+    });
+});
+
+describe('kv.get boot keys outside the GUI', () => {
+    it.each(['app', 'web', 'nodejs', 'web-worker', 'service-worker'])(
+        'in %s, get(bootKey) reads that key on its own every time',
+        async (env) => {
+            fakePuter.env = env;
+            kv = new KV(fakePuter);
+            FakeXHR.respondWith = (body) => ({ success: true, result: `${body.args.key}-value` });
+            await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
+            await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
+            await expect(kv.get('menubar_style')).resolves.toBe('menubar_style-value');
+            expect(FakeXHR.requests.map((xhr) => JSON.parse(xhr.requestBody).args)).toEqual([
+                { key: 'sidebar_items' },
+                { key: 'sidebar_items' },
+                { key: 'menubar_style' },
+            ]);
+        },
+    );
 });
 
 describe('kv.incr / kv.decr driver payloads', () => {
@@ -760,14 +888,22 @@ describe('kv.list driver payloads', () => {
         expect(lastBody().args).toEqual({ as: 'keys', limit: 1000, fetchUntilFull: true, cursor: 'c9' });
     });
 
-    it('list({ stream: true, offset }) rejects client-side', () => {
-        let err;
-        try {
-            kv.list({ stream: true, offset: 1 });
-        } catch (e) {
-            err = e;
-        }
-        expect(err).toMatchObject({ code: 'invalid_request' });
+    it('list({ stream: true, offset }) rejects on the first next() without a request', async () => {
+        const pages = kv.list({ stream: true, offset: 1 });
+        await expect(pages.next()).rejects.toMatchObject({ code: 'invalid_request' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('list({ reverse: nonBoolean }) rejects instead of throwing', async () => {
+        const result = kv.list({ reverse: 'yes' });
+        expect(result).toBeInstanceOf(Promise);
+        await expect(result).rejects.toEqual({ message: 'reverse must be a boolean', code: 'invalid_request' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('list({ stream: true, reverse: nonBoolean }) rejects on the first next()', async () => {
+        const pages = kv.list({ stream: true, reverse: 1 });
+        await expect(pages.next()).rejects.toMatchObject({ code: 'invalid_request' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
 

@@ -1091,3 +1091,64 @@ describe('driverLineStream', () => {
         expect(String(line)).toBe('[object Object]');
     });
 });
+
+
+describe('NDJSON stream termination', () => {
+    const start = async (signal) => {
+        const xhrs = installFakeXHR((xhr) => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"type":"text","text":"partial"}\n');
+        });
+        const response = await fetchUrl('https://api.example/stream', { signal });
+        const stream = response.stream();
+        expect((await stream.next()).value.text).toBe('partial');
+        return { xhr: xhrs[0], stream };
+    };
+
+    it('rejects a pending read when the transport fails after headers', async () => {
+        const { xhr, stream } = await start();
+        const read = stream.next();
+        xhr._networkError();
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+
+    it('rejects a pending read on cancellation after headers', async () => {
+        const controller = new AbortController();
+        const { stream } = await start(controller.signal);
+        const read = stream.next();
+        controller.abort();
+        await expect(read).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
+    it('aborts the request when the consumer stops iteration', async () => {
+        const { xhr, stream } = await start();
+        const abort = vi.spyOn(xhr, 'abort');
+        await stream.return();
+        expect(abort).toHaveBeenCalledOnce();
+    });
+    it('cancels a ReadableStream adapter while its pump is waiting', async () => {
+        const { xhr, stream: lines } = await start();
+        const stream = driverLineStream(lines, {}, undefined);
+        const readable = new ReadableStream(stream);
+        const reader = readable.getReader();
+        const abort = vi.spyOn(xhr, 'abort');
+        await reader.cancel();
+        expect(abort).toHaveBeenCalledOnce();
+        expect((await reader.read()).done).toBe(true);
+    });
+    it('errors the ReadableStream adapter on a transport failure', async () => {
+        const { xhr, stream: lines } = await start();
+        const reader = new ReadableStream(driverLineStream(lines, {}, undefined)).getReader();
+        const read = reader.read();
+        xhr._networkError();
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+    it('rejects a pending read on timeout after headers', async () => {
+        const { xhr, stream } = await start();
+        const read = stream.next();
+        xhr.dispatchEvent(new Event('timeout'));
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+
+});

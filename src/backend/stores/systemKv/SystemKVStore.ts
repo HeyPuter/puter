@@ -408,8 +408,7 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
     });
 
 type PathToken =
-    | { type: 'key'; value: string }
-    | { type: 'index'; value: number };
+    { type: 'key'; value: string } | { type: 'index'; value: number };
 
 const invalidPathError = (): HttpError =>
     new HttpError(400, 'kv: path has invalid syntax', {
@@ -610,6 +609,24 @@ const pathsSubject = (
                 subject: `at least one of the paths ${describePaths(paths)}`,
                 plural: false,
             };
+
+/** Refuses an `incr`/`decr` amount map that is empty or holds a non-number. */
+const assertAmountMap = (
+    op: 'incr' | 'decr',
+    pathAndAmountMap: Record<string, unknown>,
+): void => {
+    if (!pathAndAmountMap || Object.keys(pathAndAmountMap).length === 0)
+        throw new HttpError(400, `kv: ${op} requires pathAndAmountMap`, {
+            legacyCode: 'bad_request',
+        });
+    if (Object.values(pathAndAmountMap).some((v) => typeof v !== 'number')) {
+        throw new HttpError(
+            400,
+            'kv: all values in pathAndAmountMap must be numbers',
+            { legacyCode: 'bad_request' },
+        );
+    }
+};
 
 const notANumberError = (cause?: unknown): HttpError =>
     new HttpError(
@@ -1355,9 +1372,10 @@ export class SystemKVStore extends PuterStore {
      * Post-commit fan-out for one mutation: drop the cached reads it made
      * wrong, then say on the bus that it happened.
      *
-     * Every mutating method ends here, and the announcement sits outside the
-     * cache's own guard — whether this install caches reads says nothing about
-     * whether anyone subscribed to the change.
+     * Every mutating method ends here (`flush` runs both steps itself, since it
+     * pages), and the announcement sits outside the cache's own guard — whether
+     * this install caches reads says nothing about whether anyone subscribed to
+     * the change.
      */
     async #committed(
         actor: Actor,
@@ -1372,9 +1390,8 @@ export class SystemKVStore extends PuterStore {
     }
 
     /**
-     * A flush is a namespace-level marker rather than a per-key fan-out: its
-     * own key enumeration is truncated for a large namespace, so the keys it
-     * names are not the keys it removed.
+     * A flush is a namespace-level marker rather than a per-key fan-out, so a
+     * large namespace doesn't turn into an unbounded event.
      */
     #emitMutation(
         actor: Actor,
@@ -1693,8 +1710,7 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined,
+                        number | undefined,
                 ),
             );
         }
@@ -1784,8 +1800,7 @@ export class SystemKVStore extends PuterStore {
             );
             return writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined) ?? 1,
+                    number | undefined) ?? 1,
             );
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
@@ -1832,8 +1847,7 @@ export class SystemKVStore extends PuterStore {
                     },
                 );
                 units = response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined;
+                    number | undefined;
             } else {
                 const expiry = ttlNumber(ttl);
                 const keep = Number.isFinite(expiry) && expiry !== 0;
@@ -1849,8 +1863,7 @@ export class SystemKVStore extends PuterStore {
                     { condition },
                 );
                 units = response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined;
+                    number | undefined;
             }
             usage = addUsage(usage, writeUsage(units ?? 1));
         } catch (e) {
@@ -1953,8 +1966,7 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 0,
+                        number | undefined) ?? 0,
                 );
             }
 
@@ -1975,8 +1987,9 @@ export class SystemKVStore extends PuterStore {
         }
 
         const now = Date.now() / 1000;
+        const entriesByKey = new Map(kvEntries.map((e) => [e.key, e]));
         const values = keys.map((k) => {
-            const entry = kvEntries.find((e) => e.key === k);
+            const entry = entriesByKey.get(k);
             if (!entry) return null;
             if (isExpiredTtl(entry.ttl, now)) return null;
             // Absent rather than refused: the flag must not confirm the key.
@@ -2041,8 +2054,7 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined,
+                        number | undefined,
                 ),
             ),
         };
@@ -2139,6 +2151,7 @@ export class SystemKVStore extends PuterStore {
         { key }: { key: string },
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
+        assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
@@ -2164,8 +2177,7 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             ),
         };
@@ -2200,8 +2212,7 @@ export class SystemKVStore extends PuterStore {
         );
 
         const old = response.Attributes as
-            | { value?: unknown; ttl?: number }
-            | undefined;
+            { value?: unknown; ttl?: number } | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || isExpiredTtl(old.ttl, now)
@@ -2214,8 +2225,7 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             ),
         };
@@ -2305,9 +2315,7 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      | string[]
-                      | unknown[]
-                      | { key: string; value: unknown }[];
+                      string[] | unknown[] | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -2430,8 +2438,7 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             );
             return response;
@@ -2448,10 +2455,12 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
+                // No key means no data past this page, even when the offset
+                // landed exactly on its end; listing on would restart at the
+                // first key.
                 if (!startKey) {
-                    exhausted = remaining > 0;
+                    exhausted = true;
                     break;
                 }
             }
@@ -2472,8 +2481,7 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -2512,8 +2520,7 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
             } while (countKey);
         }
 
@@ -2532,51 +2539,64 @@ export class SystemKVStore extends PuterStore {
         };
     }
 
+    /**
+     * Deletes every row in the namespace, one query page at a time. A failed
+     * delete rejects rather than reporting a partial flush as done.
+     */
     async flush(opts?: KVOpts): Promise<KVResult<boolean>> {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
-        const response = await this.clients.dynamo.query(this.tableName, {
-            namespace,
-        });
-        let usage = readUsage(
-            response.ConsumedCapacity?.CapacityUnits as number | undefined,
-        );
-
-        const entries = response.Items ?? [];
-        // One BatchWriteItem fan-out (25-item chunks with retries inside the
-        // client) instead of an unbounded Promise.all of single deletes.
-        // Failure posture matches the old per-item loop: log and fall through
-        // to invalidation — a partial flush must still drop cached reads for
-        // every key the query saw.
-        let deleteUnits = 0;
-        if (entries.length > 0) {
-            try {
-                const deleted = await this.clients.dynamo.batchDel(
-                    entries.map((entry) => ({
-                        table: this.tableName,
-                        key: { namespace, key: entry.key },
-                    })),
+        let usage = emptyUsage();
+        let pageKey: Record<string, unknown> | undefined;
+        try {
+            do {
+                const response = await this.clients.dynamo.query(
+                    this.tableName,
+                    { namespace },
+                    0,
+                    pageKey,
                 );
-                deleteUnits =
-                    deleted.ConsumedCapacity?.reduce(
-                        (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
-                        0,
-                    ) ?? 0;
-            } catch (e) {
-                console.error('[kv] flush batch delete failed', e);
-            }
+                usage = addUsage(
+                    usage,
+                    readUsage(
+                        response.ConsumedCapacity?.CapacityUnits as
+                            number | undefined,
+                    ),
+                );
+                const keys = (response.Items ?? []).map((entry) =>
+                    String(entry.key),
+                );
+                if (keys.length > 0) {
+                    try {
+                        const deleted = await this.clients.dynamo.batchDel(
+                            keys.map((key) => ({
+                                table: this.tableName,
+                                key: { namespace, key },
+                            })),
+                        );
+                        usage = addUsage(
+                            usage,
+                            writeUsage(
+                                deleted.ConsumedCapacity?.reduce(
+                                    (acc, curr) =>
+                                        acc + Number(curr.CapacityUnits ?? 0),
+                                    0,
+                                ) ?? 0,
+                            ),
+                        );
+                    } finally {
+                        // A failed batch may still have deleted some of
+                        // these, so their cached reads go either way.
+                        await this.#invalidate(namespace, keys);
+                    }
+                }
+                pageKey = response.LastEvaluatedKey as
+                    Record<string, unknown> | undefined;
+            } while (pageKey);
+        } finally {
+            this.#emitMutation(actor, namespace, [], 'flush');
         }
-        usage = addUsage(usage, writeUsage(deleteUnits));
-
-        // Exactly the keys the query saw, which is also exactly what was
-        // deleted — anything a truncated query missed is still there to read.
-        await this.#committed(
-            actor,
-            namespace,
-            entries.map((entry) => String(entry.key)),
-            'flush',
-        );
 
         return { res: true, usage };
     }
@@ -2647,19 +2667,7 @@ export class SystemKVStore extends PuterStore {
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
     > {
         assertKey(key);
-        if (!pathAndAmountMap || Object.keys(pathAndAmountMap).length === 0)
-            throw new HttpError(400, 'kv: incr requires pathAndAmountMap', {
-                legacyCode: 'bad_request',
-            });
-        if (
-            Object.values(pathAndAmountMap).some((v) => typeof v !== 'number')
-        ) {
-            throw new HttpError(
-                400,
-                'kv: all values in pathAndAmountMap must be numbers',
-                { legacyCode: 'bad_request' },
-            );
-        }
+        assertAmountMap('incr', pathAndAmountMap);
         const paths = Object.keys(pathAndAmountMap);
         const pathTokens = parsePaths(paths);
         assertDisjointPaths(paths, pathTokens);
@@ -2766,6 +2774,8 @@ export class SystemKVStore extends PuterStore {
     ): Promise<
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
     > {
+        // Before negating: `-'5'` and `-null` are numbers.
+        assertAmountMap('decr', pathAndAmountMap);
         const negated = Object.fromEntries(
             Object.entries(pathAndAmountMap).map(([k, v]) => [k, -v]),
         ) as T;
@@ -2920,8 +2930,7 @@ export class SystemKVStore extends PuterStore {
             );
             const units =
                 (response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined) ?? 1;
+                    number | undefined) ?? 1;
             // A legacy ttl the condition couldn't read: the row was already expired.
             const removedTtl = response.Attributes?.ttl;
             if (
@@ -3181,8 +3190,7 @@ export class SystemKVStore extends PuterStore {
                 resetUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             ),
             isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),

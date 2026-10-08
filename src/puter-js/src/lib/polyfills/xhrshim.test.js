@@ -56,4 +56,30 @@ describe('xhrshim', () => {
         expect(xhr.getResponseHeader('ETag')).toBe('"abc123"');
         expect(xhr.getResponseHeader('content-type')).toBe(null);
     });
+    it.each(['abort', 'error', 'timeout'])(
+        'emits %s when a streaming body stops after headers', async (eventName) => {
+            respond = (res) => {
+                res.setHeader('Content-Type', 'application/x-ndjson');
+                res.write('{"text":"partial"}\n');
+                if (eventName === 'error') setTimeout(() => res.destroy(), 25);
+            };
+            const xhr = new XMLHttpRequestShim();
+            const events = [];
+            const ended = new Promise((resolve) => {
+                for (const name of ['load', 'abort', 'error', 'timeout']) {
+                    xhr.addEventListener(name, () => events.push(name));
+                }
+                xhr.addEventListener('loadend', resolve);
+            });
+            xhr.open('GET', origin);
+            if (eventName === 'timeout') xhr.timeout = 50;
+            xhr.onprogress = () => {
+                if (eventName === 'abort') xhr.abort();
+            };
+            xhr.send();
+            await ended;
+            expect(events).toEqual([eventName]);
+        },
+    );
+
 });

@@ -77,6 +77,7 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import {
     cleanEmail,
     isBlockedEmail,
@@ -1092,26 +1093,46 @@ export class AuthController extends PuterController {
             // otherwise both "succeed", the second overwriting the first's
             // username and password on a row the first was already given a
             // session for.
-            const claimed = await this.stores.user.claimPlaceholder(
-                pseudo_user.id,
-                {
-                    username: body.username,
-                    password: password_hash,
-                    uuid: user_uuid,
-                    email_confirm_code,
-                    email_confirm_token,
-                    email_confirmed: 0,
-                    requires_email_confirmation: 1,
-                    last_activity_ts: signupSqlTs,
-                    ...(validateEvent.reputation != null
-                        ? { reputation: validateEvent.reputation }
-                        : {}),
-                    requires_phone_verification: force_phone_verification
-                        ? 1
-                        : 0,
-                    requires_card_verification: force_card_verification ? 1 : 0,
-                },
-            );
+            let claimed: boolean;
+            try {
+                claimed = await this.stores.user.claimPlaceholder(
+                    pseudo_user.id,
+                    {
+                        username: body.username,
+                        password: password_hash,
+                        uuid: user_uuid,
+                        email_confirm_code,
+                        email_confirm_token,
+                        email_confirmed: 0,
+                        requires_email_confirmation: 1,
+                        last_activity_ts: signupSqlTs,
+                        ...(validateEvent.reputation != null
+                            ? { reputation: validateEvent.reputation }
+                            : {}),
+                        requires_phone_verification: force_phone_verification
+                            ? 1
+                            : 0,
+                        requires_card_verification: force_card_verification
+                            ? 1
+                            : 0,
+                    },
+                );
+            } catch (e) {
+                if (
+                    await this.#isUsernameTaken(
+                        e,
+                        body.username,
+                        pseudo_user.id,
+                    )
+                ) {
+                    throw new HttpError(
+                        400,
+                        'This username already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                throw e;
+            }
             if (!claimed) {
                 throw new HttpError(
                     400,
@@ -1188,12 +1209,21 @@ export class AuthController extends PuterController {
                 // Lost the race to another signup between the re-check above and
                 // this insert. The index is the only thing that can see that, so
                 // translate it into the answer the pre-check would have given.
-                if (!isOwnedEmailConflict(e)) throw e;
-                throw new HttpError(
-                    400,
-                    'This email already exists in our database. Please use another one.',
-                    { legacyCode: 'bad_request' },
-                );
+                if (isOwnedEmailConflict(e)) {
+                    throw new HttpError(
+                        400,
+                        'This email already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                if (await this.#isUsernameTaken(e, body.username)) {
+                    throw new HttpError(
+                        400,
+                        'This username already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                throw e;
             }
 
             // Add to default group
@@ -2784,9 +2814,24 @@ export class AuthController extends PuterController {
             );
         }
 
-        await this.stores.user.update(req.actor!.user.id!, {
-            username: new_username,
-        });
+        try {
+            await this.stores.user.update(req.actor!.user.id!, {
+                username: new_username,
+            });
+        } catch (e) {
+            if (
+                await this.#isUsernameTaken(
+                    e,
+                    new_username,
+                    req.actor!.user.id!,
+                )
+            ) {
+                throw new HttpError(400, 'This username is already taken.', {
+                    legacyCode: 'username_already_in_use',
+                });
+            }
+            throw e;
+        }
         await consumeRouteRateLimit(req, CHANGE_USERNAME_LIMIT);
 
         // Rename the user's FS home from `/<old>` to `/<new>` and
@@ -3170,10 +3215,17 @@ export class AuthController extends PuterController {
                 requires_email_confirmation: 1,
             });
         } catch (e) {
-            if (!isOwnedEmailConflict(e)) throw e;
-            throw new HttpError(400, 'This email is already in use.', {
-                legacyCode: 'email_already_in_use' as never,
-            });
+            if (isOwnedEmailConflict(e)) {
+                throw new HttpError(400, 'This email is already in use.', {
+                    legacyCode: 'email_already_in_use' as never,
+                });
+            }
+            if (await this.#isUsernameTaken(e, username, user.id)) {
+                throw new HttpError(400, 'This username is already taken.', {
+                    legacyCode: 'username_already_in_use',
+                });
+            }
+            throw e;
         }
 
         // Rename the user's FS home so `/<temp>/Desktop` etc.
@@ -4158,17 +4210,7 @@ export class AuthController extends PuterController {
         // A desktop launch of a godmode app gets a full-access token tied to
         // this session. Origin lookups (sign-in popups for pages outside the
         // desktop) keep getting an ordinary app token.
-        if (!resolvedFromOrigin && isGodmodeApp(app)) {
-            const { token, expiresAt } =
-                await this.services.auth.getGodmodeAppToken(req.actor!, app);
-            res.json({
-                token,
-                app_uid,
-                godmode: true,
-                expires_at: expiresAt,
-            });
-            return;
-        }
+        const godmode = !resolvedFromOrigin && isGodmodeApp(app);
 
         const userPermGrantPromise =
             this.services.permission.grantUserAppPermission(
@@ -4179,10 +4221,15 @@ export class AuthController extends PuterController {
                 {},
             );
 
-        const tokenPromise = this.services.auth.getUserAppToken(
-            req.actor!,
-            app_uid,
-        );
+        const tokenPromise: Promise<{ token: string; expiresAt?: number }> =
+            godmode
+                ? this.services.auth.getGodmodeAppToken(req.actor!, app)
+                : (async () => ({
+                      token: await this.services.auth.getUserAppToken(
+                          req.actor!,
+                          app_uid,
+                      ),
+                  }))();
 
         const missingFSPathPromise = (async () => {
             // Ensure the app's per-user AppData directory exists.
@@ -4206,7 +4253,7 @@ export class AuthController extends PuterController {
             }
         })();
 
-        const [, token] = await Promise.all([
+        const [, { token, expiresAt }] = await Promise.all([
             userPermGrantPromise,
             tokenPromise,
             missingFSPathPromise,
@@ -4230,6 +4277,7 @@ export class AuthController extends PuterController {
                         index_url: a.index_url ?? null,
                         owner_user_id: a.owner_user_id ?? null,
                         name: a.name ?? null,
+                        godmode: isGodmodeApp(app),
                     },
                     user_id: req.actor!.user?.id ?? null,
                 } as never,
@@ -4239,7 +4287,11 @@ export class AuthController extends PuterController {
             // Fine if failed
         }
 
-        res.json({ token, app_uid });
+        res.json(
+            godmode
+                ? { token, app_uid, godmode: true, expires_at: expiresAt }
+                : { token, app_uid },
+        );
     }
 
     @Post('/auth/check-app', {
@@ -5090,6 +5142,23 @@ export class AuthController extends PuterController {
                 );
         } while (await this.stores.user.getByUsername(username));
         return username;
+    }
+
+    /**
+     * Whether a failed write to user `ownId` (none for an insert) lost
+     * `username` to another account. The primary is read because the winner may
+     * not have replicated yet.
+     */
+    async #isUsernameTaken(
+        err: unknown,
+        username: string,
+        ownId?: number,
+    ): Promise<boolean> {
+        if (!isUniqueViolation(err)) return false;
+        const holder = await this.stores.user.getByUsername(username, {
+            force: true,
+        });
+        return Boolean(holder && holder.id !== ownId);
     }
 
     /**

@@ -129,19 +129,22 @@ export class OllamaChatProvider implements IChatProvider {
 
         messages = await OpenAIUtil.process_input_messages(messages);
 
-        const completion = await this.#openai.chat.completions.create({
-            messages,
-            model: model ?? this.getDefaultModel(),
-            ...(tools ? { tools } : {}),
-            max_tokens,
-            temperature: temperature, // default to 1.0
-            stream: !!stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-        } as ChatCompletionCreateParams);
+        const completion = await this.#openai.chat.completions.create(
+            {
+                messages,
+                model: model ?? this.getDefaultModel(),
+                ...(tools ? { tools } : {}),
+                max_tokens,
+                temperature: temperature, // default to 1.0
+                stream: !!stream,
+                ...(stream
+                    ? {
+                          stream_options: { include_usage: true },
+                      }
+                    : {}),
+            } as ChatCompletionCreateParams,
+            { signal: Context.get('abortSignal') },
+        );
 
         const modelDetails = (await this.models()).find(
             (m) => m.id === `ollama:${model}`,

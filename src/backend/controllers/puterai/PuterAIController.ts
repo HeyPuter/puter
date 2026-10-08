@@ -50,6 +50,7 @@ import { isDriverStreamResult } from '../../drivers/meta.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterController } from '../types.js';
 import { parseAnthropicRequest, toAnthropicMessage } from './anthropicWire.js';
+import { pipeNdjsonStream } from './ndjsonStream.js';
 import { AnthropicSseWriter, startSse } from './sse.js';
 import {
     anthropicRequestId,
@@ -445,12 +446,10 @@ export class PuterAIController extends PuterController {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            let buffer = '';
             let usageDetails: UsageDetails | undefined;
             let finishReason: string | undefined;
             let toolCallIndex = 0;
             let sawToolCalls = false;
-            let errored = false;
             const toolCallIndexById = new Map<string, number>();
 
             const sendChunk = (
@@ -538,7 +537,6 @@ export class PuterAIController extends PuterController {
                             UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
-                        errored = true;
                         res.write(
                             `data: ${JSON.stringify({
                                 error: {
@@ -554,7 +552,6 @@ export class PuterAIController extends PuterController {
                 },
                 {
                     onEnd: () => {
-                        if (errored) return;
                         sendChunk(
                             {},
                             promoteStopForToolCalls(
@@ -575,10 +572,6 @@ export class PuterAIController extends PuterController {
                         );
                         res.write('data: [DONE]\n\n');
                         res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
                     },
                 },
             );
@@ -655,10 +648,8 @@ export class PuterAIController extends PuterController {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            let buffer = '';
             let usageDetails: UsageDetails | undefined;
             let finishReason: string | undefined;
-            let errored = false;
 
             const sendChunk = (
                 text: string,
@@ -694,7 +685,6 @@ export class PuterAIController extends PuterController {
                             UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
-                        errored = true;
                         res.write(
                             `data: ${JSON.stringify({
                                 error: {
@@ -710,7 +700,6 @@ export class PuterAIController extends PuterController {
                 },
                 {
                     onEnd: () => {
-                        if (errored) return;
                         sendChunk(
                             '',
                             finishReason ?? 'stop',
@@ -727,10 +716,6 @@ export class PuterAIController extends PuterController {
                         );
                         res.write('data: [DONE]\n\n');
                         res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
                     },
                 },
             );
@@ -881,7 +866,6 @@ export class PuterAIController extends PuterController {
             const streamResult = expectStream(result);
             setSseHeaders(res);
 
-            let buffer = '';
             let sequenceNumber = 0;
             let usage: Record<string, unknown> | null = null;
             let messageItem: {
@@ -898,7 +882,6 @@ export class PuterAIController extends PuterController {
             let messageOutputIndex: number | null = null;
             const output: unknown[] = [];
             let textContent = '';
-            let errored = false;
             const toolItemsById = new Map<
                 string,
                 {
@@ -1101,7 +1084,6 @@ export class PuterAIController extends PuterController {
                             ev.usageDetails as UsageDetails | undefined,
                         );
                     } else if (ev.type === 'error') {
-                        errored = true;
                         sendEvent({
                             type: 'error',
                             error: {
@@ -1116,7 +1098,6 @@ export class PuterAIController extends PuterController {
                 },
                 {
                     onEnd: () => {
-                        if (errored) return;
                         if (messageItem) {
                             messageItem.status = 'completed';
                             sendEvent({
@@ -1165,10 +1146,6 @@ export class PuterAIController extends PuterController {
                         });
                         res.write('data: [DONE]\n\n');
                         res.end();
-                    },
-                    getBuffer: () => buffer,
-                    setBuffer: (v) => {
-                        buffer = v;
                     },
                 },
             );
@@ -1226,15 +1203,7 @@ export class PuterAIController extends PuterController {
             });
             writer.start();
 
-            let buffer = '';
             pipeNdjsonStream(streamResult.stream, (ev) => writer.onChunk(ev), {
-                onEnd: () => {
-                    // A stream that ended with no usage chunk (shouldn't
-                    // happen from a real provider) still closes the
-                    // message instead of leaving the response hanging.
-                    if (!writer.ended)
-                        writer.onChunk({ type: 'usage', usage: {} });
-                },
                 onError: (err) => {
                     if (!writer.ended) {
                         writer.onChunk({
@@ -1242,10 +1211,6 @@ export class PuterAIController extends PuterController {
                             message: err?.message ?? 'stream error',
                         });
                     }
-                },
-                getBuffer: () => buffer,
-                setBuffer: (v) => {
-                    buffer = v;
                 },
             });
             return;
@@ -1476,49 +1441,6 @@ const expectStream = (
         });
     }
     return result as unknown as { stream: NodeJS.ReadableStream };
-};
-
-/**
- * The chat driver's stream emits one JSON object per line (`{type: 'text',
- * text}` / `{type: 'tool_use', ...}` / `{type: 'usage', ...}`). This helper
- * consumes the stream line-by-line and hands parsed events to the caller's
- * reducer, so the per-route translators can stay shape-focused.
- */
-interface NdjsonPipeOptions {
-    onEnd: () => void;
-    onError: (err: Error) => void;
-    getBuffer: () => string;
-    setBuffer: (v: string) => void;
-}
-
-const pipeNdjsonStream = (
-    stream: NodeJS.ReadableStream,
-    onEvent: (event: Record<string, unknown>) => void,
-    opts: NdjsonPipeOptions,
-): void => {
-    stream.on('data', (chunk: Buffer | string) => {
-        opts.setBuffer(
-            opts.getBuffer() +
-                (typeof chunk === 'string' ? chunk : chunk.toString('utf8')),
-        );
-        let newlineIndex: number;
-        let buf = opts.getBuffer();
-        while ((newlineIndex = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, newlineIndex).trim();
-            buf = buf.slice(newlineIndex + 1);
-            if (!line) continue;
-            let event: Record<string, unknown>;
-            try {
-                event = JSON.parse(line) as Record<string, unknown>;
-            } catch {
-                continue;
-            }
-            onEvent(event);
-        }
-        opts.setBuffer(buf);
-    });
-    stream.on('end', opts.onEnd);
-    stream.on('error', opts.onError);
 };
 
 // -- OpenAI/Anthropic shape helpers -----------------------------------

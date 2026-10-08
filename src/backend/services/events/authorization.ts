@@ -19,6 +19,7 @@
 
 import {
     actorUid,
+    isAccessTokenActor,
     isAccountContext,
     makeActor,
     type Actor,
@@ -364,11 +365,10 @@ export const assertCrossAppKvAuthorized = async (
 };
 
 /**
- * Whether a row is inside what this actor may see and remove. An app-context
- * actor — an app token, or an access token an app issued — is confined to the
- * rows its own app created; the account sees everything of theirs across apps,
- * which is what makes it the revoke surface. A scoped token with no app sees
- * nothing.
+ * Whether a row is inside what this actor may see and remove. An app token is
+ * confined to the rows its own app created; the account sees everything of
+ * theirs across apps, which is what makes it the revoke surface. A scoped
+ * access token sees nothing, whether the account or an app issued it.
  */
 export const rowInActorScope = (
     actor: Actor,
@@ -378,6 +378,7 @@ export const rowInActorScope = (
     // Unresolved is not "no app": reading it that way is what would hand an
     // app the account-wide view.
     if (app === undefined) return false;
+    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
     if (app === null) return isAccountContext(actor);
     return row.appUid === app.uid;
 };

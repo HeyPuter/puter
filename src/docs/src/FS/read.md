@@ -18,8 +18,8 @@ puter.fs.read(options)
 
 #### `path` (String) (required)
 
-Path of the file to read.
-If `path` is not absolute, it will be resolved relative to the app's root directory.
+Path of the file to read, or its UID.
+If `path` is not absolute, it will be resolved relative to the app's root directory. A relative name that looks like a UID is read as one; prefix it with `./` to address a file by that name.
 
 #### `options` (Object) (optional)
 

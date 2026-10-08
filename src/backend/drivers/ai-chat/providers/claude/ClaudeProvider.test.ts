@@ -47,6 +47,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../../../core/actor.js';
+import { Context } from '../../../../core/context.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -294,6 +295,27 @@ describe('ClaudeProvider.complete request shape', () => {
         content: [{ type: 'text', text: 'hi' }],
         usage: { input_tokens: 1, output_tokens: 1 },
     };
+
+    it.each([false, true])(
+        'passes cancellation to the SDK with stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const abort = new AbortController();
+            if (stream)
+                messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
+            else messagesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return provider.complete({
+                    model: 'claude-sonnet-4-6',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream,
+                });
+            });
+            const sdk = stream ? messagesStreamMock : messagesCreateMock;
+            expect(sdk.mock.calls[0][1]?.signal).toBe(abort.signal);
+        },
+    );
 
     it.each([
         [

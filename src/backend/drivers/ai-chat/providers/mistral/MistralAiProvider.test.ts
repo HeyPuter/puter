@@ -29,6 +29,7 @@
  * exercises the real Mistral endpoint.
  */
 
+import { Context } from '../../../../core/context.js';
 import { Writable } from 'node:stream';
 import {
     afterAll,
@@ -203,6 +204,20 @@ describe('MistralAIProvider.complete request shape', () => {
         ],
         usage: { promptTokens: 1, completionTokens: 1 },
     };
+
+    it('passes the request cancellation signal to the SDK', async () => {
+        const { provider } = makeProvider();
+        const abort = new AbortController();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+        await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return provider.complete({
+                model: 'mistral-small-latest',
+                messages: [{ role: 'user', content: 'hi' }],
+            });
+        });
+        expect(completeMock.mock.calls[0][1]?.signal).toBe(abort.signal);
+    });
 
     it('forwards model + messages and threads max_tokens/temperature into camelCase fields', async () => {
         const { provider } = makeProvider();

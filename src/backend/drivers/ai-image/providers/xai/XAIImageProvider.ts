@@ -26,6 +26,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { IGenerateParams, IImageProvider } from '../../types.js';
 import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { toUrlOrDataUri } from '../../inputImage.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
@@ -134,11 +135,7 @@ export class XAIImageProvider implements IImageProvider {
         );
 
         if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
+            throw insufficientCreditsError();
         }
 
         const response = hasInputImages

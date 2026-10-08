@@ -5,8 +5,10 @@ import mapV2EntryToV1 from '../utils/mapV2EntryToV1.js';
 import { fsRequest, parseOperationArgs } from './scaffold.js';
 
 /** @typedef {import('../types.js').ReaddirOptions} ReaddirOptions */
+/** @typedef {import('../types.js').ReaddirOptionsOwn} ReaddirOptionsOwn */
 /** @typedef {import('../types.js').FSItemRead} FSItemRead */
 /** @typedef {import('../../../lib/types.js').ListPage<FSItemRead>} FSItemPage */
+/** @typedef {import('../../../lib/types.js').RequestCallbacks<FSItemPage>} FSItemPageCallbacks */
 
 // Listings larger than this are served but never cached.
 const MAX_CACHE_SIZE = 100 * 1024 * 1024;
@@ -166,10 +168,30 @@ const readdirPaged = async function (options) {
 };
 
 /**
+ * Options that make readdir resolve with one `{items, cursor?, total?}` page:
+ * `cursor` or `includeTotal`, or a `recursive` listing bounded by `limit` or
+ * `offset` (recursive listings are always paged).
+ *
+ * @typedef {ReaddirOptionsOwn & FSItemPageCallbacks & (
+ *   | { cursor: string | null }
+ *   | { includeTotal: true }
+ *   | { recursive: true, limit: number }
+ *   | { recursive: true, offset: number }
+ * )} ReaddirPageOptions
+ */
+
+/**
  * @typedef {{
  *   (options: ReaddirOptions & { stream: true }): AsyncIterableIterator<FSItemPage>,
- *   (options: ReaddirOptions & ({ cursor: string | null } | { includeTotal: true })): Promise<FSItemPage>,
+ *   (options: ReaddirPageOptions): Promise<FSItemPage>,
  *   (options: ReaddirOptions): Promise<FSItemRead[]>,
+ *   (path: string, options: ReaddirOptions & { stream: true }): AsyncIterableIterator<FSItemPage>,
+ *   (
+ *     path: string,
+ *     options: ReaddirPageOptions,
+ *     success?: (value: FSItemPage) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItemPage>,
  *   (
  *     path: string,
  *     options?: ReaddirOptions,
@@ -189,8 +211,9 @@ const readdirPaged = async function (options) {
  * resolve against the app's root directory) or by `uid`.
  *
  * By default the whole listing is returned as an array. Passing `cursor` or
- * `includeTotal` returns one `{items, cursor?, total?}` page instead, and
- * `stream: true` returns an async iterator over those pages.
+ * `includeTotal`, or `limit`/`offset` with `recursive`, returns one
+ * `{items, cursor?, total?}` page instead, and `stream: true` returns an async
+ * iterator over those pages.
  *
  * @type {ReaddirOperation}
  */

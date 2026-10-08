@@ -379,6 +379,16 @@ describe('creating a durable subscription over HTTP', () => {
         expect(refused.body.code).toBe('events_durable_requires_account');
     });
 
+    it('refuses a scoped token an app issued, even into that app', async () => {
+        // Socket-only, so the background consent the token lacks is not
+        // what refuses it.
+        const refused = await subscribe(appOneAccessToken, {
+            targets: ['socket'],
+        });
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_durable_requires_account');
+    });
+
     it('refuses an expiry in the past', async () => {
         const refused = await subscribe(env.users.user.token, {
             expiresAt: Math.floor(Date.now() / 1000) - 60,
@@ -410,11 +420,6 @@ describe('what each credential sees and removes', () => {
         expect(subIdsOf(await listSubscriptions(appTwoToken))).toEqual([
             theirs,
         ]);
-        // An access token an app issued acts as that app, one hop through the
-        // issuer — which is what the whole scope keys on.
-        expect(subIdsOf(await listSubscriptions(appOneAccessToken))).toEqual([
-            mine,
-        ]);
 
         for (const wide of [env.users.user.token, env.users.user.apiToken])
             expect(subIdsOf(await listSubscriptions(wide)).sort()).toEqual(
@@ -437,6 +442,23 @@ describe('what each credential sees and removes', () => {
         expect(
             subIdsOf(await listSubscriptions(env.users.user.token)).sort(),
         ).toEqual([appRow, account].sort());
+    });
+
+    it('gives a scoped token an app issued none of that app`s rows', async () => {
+        await clearRows();
+        const appRow = (await subscribe(appOneToken)).body.subId as string;
+
+        // Its effectiveApp is the issuing app, so an app-scope check alone
+        // would hand it the app's whole durable surface.
+        expect(subIdsOf(await listSubscriptions(appOneAccessToken))).toEqual(
+            [],
+        );
+        const refused = await unsubscribe(appOneAccessToken, appRow);
+        expect(refused.status).toBe(404);
+        expect(refused.body.code).toBe('subscription_does_not_exist');
+        expect(subIdsOf(await listSubscriptions(appOneToken))).toEqual([
+            appRow,
+        ]);
     });
 
     it('answers another app`s subscription id as absent', async () => {

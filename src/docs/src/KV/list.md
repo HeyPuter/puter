@@ -37,7 +37,7 @@ An object with the following optional properties:
 - `pattern` (String): Same as the `pattern` parameter.
 - `returnValues` (Boolean): Same as the `returnValues` parameter.
 - `reverse` (Boolean): Lists keys in descending order when `true`. Defaults to `false`. Works with full listings, pagination, and streams; by itself, it keeps the plain-array return shape.
-- `limit` (Number): Maximum number of items to return in a single call.
+- `limit` (Number): Maximum number of items to return in a single call, at most `1000`. A larger value is lowered to `1000`; follow the `cursor` for the rest.
 - `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one. The cursor preserves the listing direction; omit `reverse` to keep it, or pass the same value. A conflicting direction is rejected.
 - `offset` (Number): Skips the given number of items before the page starts. Not recommended — requests get slower and more expensive the larger the offset; prefer `cursor`. Maximum `5000`, and cannot be combined with `cursor`.
 - `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). The count is metered and its cost grows with the size of your store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead of counting.
@@ -55,6 +55,8 @@ A `Promise` that will resolve to either:
 If the user has no keys, the array will be empty.
 
 When paginating, iterate until the result has no `cursor` — a page may hold fewer than `limit` items while more pages still exist.
+
+Invalid options, such as a non-boolean `reverse` or `offset` combined with `stream`, reject the returned promise with an `invalid_request` error; `list()` never throws synchronously. With `stream: true`, the iterator's first `next()` rejects instead.
 
 Full (non-paginated) listings keep resolving to a plain array, so existing code is unaffected — under the hood the SDK now fetches them page by page. They still read the entire store, though: every page is metered, so on large stores a bare `list()` gets slow and costly (the SDK logs a one-time console warning when a full listing spans multiple pages). Prefer `stream: true` or explicit `limit`/`cursor` pages, and narrow the scan with a `pattern`.
 
