@@ -20,10 +20,42 @@
 import { describe, it, expect } from 'vitest';
 import * as popupAuth from './popupAuth.js';
 import {
+    defersTokenToOpener,
+    deliversTokenAtBoot,
     deliversTokenToOpener,
     offersFederatedSignInInPopup,
     runsUserAppTokenExchange,
 } from './popupAuth.js';
+
+const PICKER_ACTIONS = [
+    'show-open-file-picker',
+    'show-directory-picker',
+    'show-save-file-picker',
+];
+
+describe('deliversTokenAtBoot', () => {
+    it('withholds a picker\'s token until the picker has an answer', () => {
+        for ( const action of PICKER_ACTIONS ) {
+            // Still allowed to deliver — just not for merely having opened.
+            expect(deliversTokenToOpener(action)).toBe(true);
+            expect(defersTokenToOpener(action)).toBe(true);
+            expect(deliversTokenAtBoot(action)).toBe(false);
+        }
+    });
+
+    it('delivers at boot for the flows that exist to authenticate', () => {
+        for ( const action of [undefined, 'sign-in', 'login', 'signup'] ) {
+            expect(deliversTokenAtBoot(action)).toBe(true);
+        }
+    });
+
+    it('keeps withholding the token from the popups that answer a question', () => {
+        for ( const action of ['request-permission', 'send-feedback'] ) {
+            expect(deliversTokenAtBoot(action)).toBe(false);
+            expect(defersTokenToOpener(action)).toBe(false);
+        }
+    });
+});
 
 describe('deliversTokenToOpener', () => {
     it('withholds the token from a permission prompt', () => {
