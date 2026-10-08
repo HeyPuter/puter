@@ -18,6 +18,7 @@
  */
 
 import type { Response } from 'express';
+import { HttpError } from './HttpError.js';
 
 /**
  * A signal that fires when the caller hangs up before its response is done, so
@@ -26,8 +27,17 @@ import type { Response } from 'express';
  */
 export const abortOnDisconnect = (res: Response): AbortSignal => {
     const abort = new AbortController();
-    res.once('close', () => {
-        if (!res.writableFinished) abort.abort();
-    });
+    const onClose = () => {
+        if (!res.writableFinished) {
+            abort.abort(
+                new HttpError(400, 'Request aborted', {
+                    legacyCode: 'client_aborted',
+                    noAlarm: true,
+                }),
+            );
+        }
+    };
+    if (res.destroyed) onClose();
+    else res.once('close', onClose);
     return abort.signal;
 };

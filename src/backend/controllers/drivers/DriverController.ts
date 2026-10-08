@@ -326,8 +326,7 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                | PermissionService
-                | undefined;
+                PermissionService | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -453,6 +452,7 @@ export class DriverController extends PuterController {
             // so we still release. `close` covers client aborts.
             res.once('finish', release);
             res.once('close', release);
+            if (res.destroyed || res.writableFinished) release();
         }
 
         // Stash the requested driver name in Context so multi-provider

@@ -38,6 +38,7 @@ export type {
     ChatOptions,
     ChatResponse,
     ChatResponseChunk,
+    ChatResponseStream,
     ImageContent,
     Img2TxtOptions,
     ListTTSEnginesOptions,

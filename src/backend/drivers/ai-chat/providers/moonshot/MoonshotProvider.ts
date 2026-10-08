@@ -84,20 +84,25 @@ export class MoonshotProvider implements IChatProvider {
         messages = await OpenAIUtil.process_input_messages(messages);
         let completion;
         try {
-            completion = await this.#openai.chat.completions.create({
-                messages,
-                model: modelUsed.id,
-                ...(tools ? { tools } : {}),
-                max_tokens,
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams);
+            completion = await this.#openai.chat.completions.create(
+                {
+                    messages,
+                    model: modelUsed.id,
+                    ...(tools ? { tools } : {}),
+                    max_tokens,
+                    stream,
+                    ...(stream
+                        ? {
+                              stream_options: { include_usage: true },
+                          }
+                        : {}),
+                } as ChatCompletionCreateParams,
+                { signal: Context.get('abortSignal') },
+            );
         } catch (e) {
-            console.log('Moonshot AI process_input_messages error: ', e);
+            if (!Context.get('abortSignal')?.aborted) {
+                console.log('Moonshot AI process_input_messages error: ', e);
+            }
             throw e;
         }
 

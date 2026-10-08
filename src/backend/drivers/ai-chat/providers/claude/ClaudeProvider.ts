@@ -390,8 +390,12 @@ export class ClaudeProvider implements IChatProvider {
 
         if (args.stream) {
             const completion = usesBeta
-                ? this.anthropic.beta.messages.stream(sdkParams as never)
-                : this.anthropic.messages.stream(sdkParams as never);
+                ? this.anthropic.beta.messages.stream(sdkParams as never, {
+                      signal: Context.get('abortSignal'),
+                  })
+                : this.anthropic.messages.stream(sdkParams as never, {
+                      signal: Context.get('abortSignal'),
+                  });
             // Subscribed before the request is awaited: the SDK only queues
             // events for iterators that already exist.
             const events = completion[Symbol.asyncIterator]();
@@ -428,8 +432,12 @@ export class ClaudeProvider implements IChatProvider {
 
         try {
             const msg = await (usesBeta
-                ? this.anthropic.beta.messages.create(sdkParams as never)
-                : this.anthropic.messages.create(sdkParams as never));
+                ? this.anthropic.beta.messages.create(sdkParams as never, {
+                      signal: Context.get('abortSignal'),
+                  })
+                : this.anthropic.messages.create(sdkParams as never, {
+                      signal: Context.get('abortSignal'),
+                  }));
             const { usage, costs, details, advisorModel } = this.#meter(
                 (msg as Message).usage,
                 modelUsed,

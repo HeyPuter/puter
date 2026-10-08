@@ -117,6 +117,22 @@ Returns a `Promise` that resolves to either:
 
 In case of an error, the `Promise` will reject with an error message.
 
+For streaming responses, an error from the AI provider is returned as a chunk
+with `type: "error"` and a `message` describing the failure. This also happens
+if the provider stops sending the response before it is complete. Check for
+error chunks in your `for await...of` loop before treating the response as complete.
+
+If the network connection fails after streaming starts, the loop throws
+`{ message, code: "network_error" }`. Use `try...catch` around the call and loop
+to handle these failures.
+
+### Stopping a stream
+
+Break out of the `for await...of` loop to stop a chat stream. When using
+`new ReadableStream(response)`, call `reader.cancel()` to stop it.
+
+Output generated before the stream stops may still be billed.
+
 ## Vendors
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.

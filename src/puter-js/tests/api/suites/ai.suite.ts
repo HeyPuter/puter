@@ -178,6 +178,32 @@ export default suite('ai', {
         );
     },
 
+    'chat stream supports stopping iteration': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        const iterator = stream[Symbol.asyncIterator]();
+        t.assert.equal((await iterator.next()).done, false);
+        t.assert.equal((await iterator.return!()).done, true);
+        t.assert.equal((await iterator.next()).done, true);
+    },
+
+    'chat stream adapter supports cancellation': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        let firstChunk!: () => void;
+        const ready = new Promise<void>((resolve) => { firstChunk = resolve; });
+        const controller = {
+            enqueue: () => firstChunk(),
+            close: () => {},
+            error: () => {},
+        } as unknown as ReadableStreamDefaultController<Uint8Array>;
+        const pumping = stream.start(controller);
+        await ready;
+        await stream.cancel();
+        await pumping;
+        t.assert.equal((await stream.next()).done, true);
+    },
+
     'chat with stream true yields text parts': async (t) => {
         useApiToken(t);
         const stream = await t.puter.ai.chat('Stream this', {

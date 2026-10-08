@@ -109,9 +109,13 @@ export class GeminiChatProvider implements IChatProvider {
 
         let completion;
         try {
-            completion = await this.openai.chat.completions.create(sdk_params);
+            completion = await this.openai.chat.completions.create(sdk_params, {
+                signal: Context.get('abortSignal'),
+            });
         } catch (e) {
-            console.error('Gemini completion error: ', e);
+            if (!Context.get('abortSignal')?.aborted) {
+                console.error('Gemini completion error: ', e);
+            }
             throw e;
         }
 

@@ -42,6 +42,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -916,4 +917,36 @@ describe('OpenAiChatProvider.complete error mapping', () => {
 
         expect(recordSpy).not.toHaveBeenCalled();
     });
+});
+
+describe('provider request cancellation', () => {
+    it.each([false, true])(
+        'passes cancellation to the SDK with stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const abort = new AbortController();
+            createMock.mockResolvedValueOnce(
+                stream
+                    ? asAsyncIterable([])
+                    : {
+                          choices: [
+                              {
+                                  message: { content: 'hi', role: 'assistant' },
+                                  finish_reason: 'stop',
+                              },
+                          ],
+                          usage: { prompt_tokens: 1, completion_tokens: 1 },
+                      },
+            );
+            await withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return provider.complete({
+                    model: 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream,
+                });
+            });
+            expect(createMock.mock.calls[0][1]?.signal).toBe(abort.signal);
+        },
+    );
 });
