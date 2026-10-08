@@ -299,6 +299,11 @@ describe('kv.get driver payloads', () => {
 });
 
 describe('kv.get GUI boot cache', () => {
+    beforeEach(() => {
+        fakePuter.env = 'gui';
+        kv = new KV(fakePuter);
+    });
+
     it('serves boot keys from one batched request', async () => {
         FakeXHR.respondWith = (body) => ({
             success: true,
@@ -411,6 +416,25 @@ describe('kv.get GUI boot cache', () => {
             await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
         });
     });
+});
+
+describe('kv.get boot keys outside the GUI', () => {
+    it.each(['app', 'web', 'nodejs', 'web-worker', 'service-worker'])(
+        'in %s, get(bootKey) reads that key on its own every time',
+        async (env) => {
+            fakePuter.env = env;
+            kv = new KV(fakePuter);
+            FakeXHR.respondWith = (body) => ({ success: true, result: `${body.args.key}-value` });
+            await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
+            await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
+            await expect(kv.get('menubar_style')).resolves.toBe('menubar_style-value');
+            expect(FakeXHR.requests.map((xhr) => JSON.parse(xhr.requestBody).args)).toEqual([
+                { key: 'sidebar_items' },
+                { key: 'sidebar_items' },
+                { key: 'menubar_style' },
+            ]);
+        },
+    );
 });
 
 describe('kv.incr / kv.decr driver payloads', () => {

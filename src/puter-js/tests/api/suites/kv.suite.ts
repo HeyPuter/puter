@@ -877,29 +877,51 @@ export default suite('kv', {
         t.assert.equal(await t.puter.kv.get('kv-suite-flush-cb'), null);
     },
 
-    // The GUI reads a fixed set of keys while it boots; the first of those
-    // reads fetches all of them in one batched driver call and later reads
-    // inside the window are served from it.
-    'get of a GUI boot key is served from the batched read': async (t) => {
+    // The GUI batch-reads a fixed set of keys while it boots. No runner is
+    // the GUI, so here those names are ordinary keys.
+    'get of a GUI boot key returns the stored value': async (t) => {
         await t.puter.kv.set('menubar_style', 'system');
         t.assert.equal(await t.puter.kv.get('menubar_style'), 'system');
         t.assert.equal(await t.puter.kv.get('menubar_style'), 'system');
         t.assert.equal(
             await t.puter.kv.get('has_seen_welcome_window'),
             null,
-            'an unset boot key comes back empty from the same batch',
+            'an unset boot key comes back empty',
         );
     },
 
-    'writes to a boot-cached key are visible to the next get': async (t) => {
-        // The first get() of one of these keys batch-reads all of them, and
-        // the batch serves reads for a few seconds afterwards.
+    'writes to a GUI boot key are visible to the next get': async (t) => {
         await t.puter.kv.set('desktop_icons_hidden', 'true');
         t.assert.equal(await t.puter.kv.get('taskbar_position'), null);
         await t.puter.kv.set('taskbar_position', 'left');
         t.assert.equal(await t.puter.kv.get('taskbar_position'), 'left');
         await t.puter.kv.del('desktop_icons_hidden');
         t.assert.equal(await t.puter.kv.get('desktop_icons_hidden'), null);
+    },
+
+    'a GUI boot key written by another client reads fresh': async (t) => {
+        const key = 'user_preferences.language';
+        t.assert.equal(await t.puter.kv.get(key), null);
+        const { authToken } = t.puter as unknown as { authToken: string };
+        const res = await fetch(`${t.env.apiOrigin}/drivers/call`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${authToken}`,
+                Origin: t.env.apiOrigin,
+            },
+            body: JSON.stringify({
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key, value: 'fr' },
+            }),
+        });
+        t.assert.equal(
+            res.status,
+            200,
+            `set should succeed, got ${res.status}`,
+        );
+        t.assert.equal(await t.puter.kv.get(key), 'fr');
     },
 
     'clear is an alias of flush and empties the store': async (t) => {
