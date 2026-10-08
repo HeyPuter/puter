@@ -26,7 +26,7 @@ const ku = {
         account: 'هەژمار',
         account_password: 'وشەی تێپەڕی هەژمارەکەت پشتڕاست بکەوە',
         access_granted_to: 'ڕێگەپێدان درا بۆ',
-        add_existing_account: 'زیادکردنی هەژماری هەبوو',
+        add_another_account: 'زیادکردنی هەژمارێکی تر',
         all_fields_required: 'هەموو بوارەکان پێویستە.',
         allow: 'ڕێگەدان',
         apply: 'بەکارهێنان',

@@ -26,7 +26,7 @@ const ko = {
         account: '계정',
         account_password: '계정 비밀번호 확인',
         access_granted_to: '접근 권한',
-        add_existing_account: '기존 계정 추가',
+        add_another_account: '다른 계정 추가',
         all_fields_required: '모든 항목을 입력하세요.',
         allow: '허용',
         apply: '적용',

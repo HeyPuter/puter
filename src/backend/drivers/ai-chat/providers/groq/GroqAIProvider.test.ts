@@ -29,6 +29,7 @@
  * exercises the real Groq endpoint.
  */
 
+import { Context } from '../../../../core/context.js';
 import { Writable } from 'node:stream';
 import {
     afterAll,
@@ -202,6 +203,20 @@ describe('GroqAIProvider.complete request shape', () => {
         ],
         usage: { prompt_tokens: 1, completion_tokens: 1 },
     };
+
+    it('passes the request cancellation signal to the SDK', async () => {
+        const { provider } = makeProvider();
+        const abort = new AbortController();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return provider.complete({
+                model: 'openai/gpt-oss-20b',
+                messages: [{ role: 'user', content: 'hi' }],
+            });
+        });
+        expect(createMock.mock.calls[0][1]?.signal).toBe(abort.signal);
+    });
 
     it('forwards model + messages and renames max_tokens to max_completion_tokens', async () => {
         const { provider } = makeProvider();

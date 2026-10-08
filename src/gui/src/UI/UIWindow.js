@@ -951,6 +951,8 @@ async function UIWindow (options) {
 
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
             if ( options.return_to_parent_window ) {
+                // Before the answer: a picker's token rides out with it.
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'fileOpenPicked',
                     original_msg_id: ifram_msg_uid,
@@ -1033,6 +1035,8 @@ async function UIWindow (options) {
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
 
             if ( options.return_to_parent_window ) {
+                // Before the answer: a picker's token rides out with it.
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'directoryPicked',
                     original_msg_id: ifram_msg_uid,
@@ -1322,8 +1326,11 @@ async function UIWindow (options) {
     // set iframe url
     if ( options.iframe_url ) {
         $(el_window_app_iframe).attr('src', options.iframe_url);
-        //bring focus to iframe
-        el_window_app_iframe.contentWindow.focus();
+        // Not for a hidden window: focusing a display:none iframe still takes
+        // the keyboard from whatever had it. Showing it later focuses it.
+        if ( options.is_visible ) {
+            el_window_app_iframe.contentWindow.focus();
+        }
     }
     // set the position of window
     if ( ! options.is_maximized ) {

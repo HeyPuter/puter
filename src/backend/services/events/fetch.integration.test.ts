@@ -40,6 +40,7 @@ let otherId: number;
 let appUid: string;
 let appToken: string;
 let readUrlToken: string;
+let appReadUrlToken: string;
 let otherAppUid: string;
 
 interface ApiResponse {
@@ -137,6 +138,18 @@ beforeAll(async () => {
         actor.actor!,
         [[`fs:${entry!.uid}:read`]],
         { label: 'fetch-read-url' },
+    );
+    // The same, minted inside the app: its effectiveApp is the app.
+    await env.server.services.permission.grantUserAppPermission(
+        actor.actor!,
+        appUid,
+        `fs:${entry!.uid}:read`,
+    );
+    const appActor = await env.server.services.auth.authenticate(appToken);
+    appReadUrlToken = await env.server.services.auth.createAccessToken(
+        appActor.actor!,
+        [[`fs:${entry!.uid}:read`]],
+        { label: 'fetch-app-read-url' },
     );
 }, BOOT_TIMEOUT_MS);
 
@@ -290,6 +303,36 @@ describe('who a fetch may see', () => {
             `notif:${appUid}:app-user`,
         ]) {
             const page = await fetchPage(readUrlToken, { subject, limit: 1 });
+            expect(page.status).toBe(200);
+            expect(page.body.items).toEqual([]);
+            expect(page.body.cursor).toBeUndefined();
+        }
+    });
+
+    it('hands a scoped token an app issued nothing of that app`s slice', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) {
+            await seed(
+                userId,
+                { title: 'app row' },
+                { audience: 'app-user', appUid },
+            );
+            await seed(
+                userId,
+                { title: 'deploy failed' },
+                { audience: 'developer', appUid },
+            );
+        }
+
+        for (const subject of [
+            'notif:app-user',
+            `notif:${appUid}:app-user`,
+            'notif:developer',
+        ]) {
+            const page = await fetchPage(appReadUrlToken, {
+                subject,
+                limit: 1,
+            });
             expect(page.status).toBe(200);
             expect(page.body.items).toEqual([]);
             expect(page.body.cursor).toBeUndefined();

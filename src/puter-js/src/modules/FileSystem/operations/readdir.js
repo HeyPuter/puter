@@ -69,7 +69,7 @@ const requestOnce = function (options, pageParams) {
             // set each individual item's cache
             const entries = Array.isArray(normalized) ? normalized : (normalized?.items ?? []);
             for ( const item of entries ) {
-                puter._cache.set(`item:${ item.path}`, item);
+                puter._cache.set(puter.fsCacheKey('item', item.path), item);
             }
             return normalized;
         },
@@ -106,7 +106,7 @@ const readdirPaged = async function (options) {
     // listings are never cached (they'd collide with the direct listing).
     let cacheKey;
     if ( options.path && unbound && ! options.recursive ) {
-        cacheKey = `readdir:${ options.path}`;
+        cacheKey = puter.fsCacheKey('readdir', options.path);
     }
 
     if ( options.consistency === 'eventual' && cacheKey ) {
@@ -116,8 +116,10 @@ const readdirPaged = async function (options) {
         }
     }
 
-    // Requests made with the same parameters share one backend call.
+    // Same parameters share one call; origin and token keep identities apart.
     const deduplicationKey = 'fs:readdir:' + JSON.stringify({
+        apiOrigin: this.APIOrigin,
+        authToken: this.authToken,
         path: options.path,
         uid: options.uid,
         no_thumbs: options.no_thumbs,

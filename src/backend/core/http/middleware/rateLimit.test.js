@@ -910,6 +910,15 @@ describe('concurrencyGate — memory backend', () => {
         route: init.route,
     });
 
+    it.each(['destroyed', 'writableFinished'])('releases a slot when the response is already %s', async (state) => {
+        const opts = { limit: 1, key: 'ip', scope: `cg-already-${state}` };
+        const res = makeRes();
+        res[state] = true;
+        await runGate(opts, baseReq(), res);
+        await new Promise((resolve) => setImmediate(resolve));
+        expect((await runGate(opts, baseReq())).err).toBeUndefined();
+    });
+
     it('admits up to `limit` in-flight requests and 429s the next one', async () => {
         const opts = { limit: 2, key: 'ip', scope: 'cg-basic' };
         // Two outstanding admits.

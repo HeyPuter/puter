@@ -162,9 +162,8 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
  * The one XHR builder both `initXhr` (utils.js) and `fetchUrl` wrap. Opens the
  * request, applies headers/credentials/responseType, and stashes the whole
  * `spec` on `xhr._puterReq` as the single replay representation — any attempt
- * (reauth, permission, transient) rebuilds the request by calling
- * `buildXhr(spec)` again, which re-reads the live token when
- * `includePuterAuth`.
+ * (reauth, transient) rebuilds it by calling `buildXhr(spec)` again, which
+ * re-reads the live token when `includePuterAuth`.
  *
  * @param {Object} spec
  * @param {string} spec.url - Full request URL.
@@ -383,9 +382,9 @@ async function bodyForLog(xhr) {
 
 // -- Retry engine --
 // One loop drives every request: build the XHR from its spec, send, classify
-// the outcome, and either replay (reauth / permission / transient backoff) or
-// hand the result to the caller's shaper. A replay just rebuilds from the same
-// spec, so there are no hand-listed argument lists to get wrong.
+// the outcome, and either replay (reauth / transient backoff) or hand the
+// result to the caller's shaper. A replay just rebuilds from the same spec, so
+// there are no hand-listed argument lists to get wrong.
 
 // Transient statuses that may or may not have run the handler. A 502/503/504
 // can mean the request was half-applied upstream, so only a read replays.
@@ -470,22 +469,6 @@ const creditHoldRetry = (ctx) => {
     };
 };
 
-/**
- * Drive the env-specific permission prompt for a denied driver call.
- *
- * @returns {Promise<{ granted: boolean }>}
- */
-async function resolvePermission(permission) {
-    try {
-        // requestPermission resolves to a boolean; the legacy `{granted}`
-        // object shape is also tolerated for safety.
-        const perm = await puter.ui.requestPermission({ permission });
-        return { granted: perm === true || perm?.granted === true };
-    } catch (e) {
-        return { granted: false };
-    }
-}
-
 // The 403 account-verification gates the hosting GUI can walk a user through.
 const VERIFICATION_GATE_CODES = new Set([
     'email_confirmation_required',
@@ -496,9 +479,8 @@ const VERIFICATION_GATE_CODES = new Set([
 /** Whether an error code names one of those gates. */
 const isVerificationGateCode = (code) => VERIFICATION_GATE_CODES.has(code);
 
-// Single-flighted verification prompt: concurrent gated requests share one
-// GUI dialog rather than stacking windows.
-let pendingVerificationGate = null;
+// Single-flighted per gate: one gate's answer is not another's.
+const pendingVerificationGates = new Map();
 
 /**
  * Drive the hosting GUI's verification flow for a 403 `*_required` gate code.
@@ -513,8 +495,11 @@ let pendingVerificationGate = null;
  */
 async function resolveVerificationGate(code, factors) {
     if (globalThis.puter?.env !== 'app') return { verified: false };
-    if (!pendingVerificationGate) {
-        pendingVerificationGate = (async () => {
+    // The gate alone, as `ctx.done` keys it; factors do not divide it.
+    const key = code;
+    let pending = pendingVerificationGates.get(key);
+    if (!pending) {
+        pending = (async () => {
             try {
                 const verified = await puter.ui.requestVerificationGate(
                     code,
@@ -523,12 +508,13 @@ async function resolveVerificationGate(code, factors) {
                 return { verified: verified === true };
             } catch (e) {
                 return { verified: false };
-            } finally {
-                pendingVerificationGate = null;
             }
         })();
+        pendingVerificationGates.set(key, pending);
+        // On a microtask, so a sync throw cannot delete before the set.
+        pending.finally(() => pendingVerificationGates.delete(key));
     }
-    return pendingVerificationGate;
+    return pending;
 }
 
 /**
@@ -549,19 +535,41 @@ function sendOnce(spec) {
         let carry = '';
         let consumed = 0;
 
+        let streamError;
+        const abortRequest = () => xhr.abort();
+        const removeAbortListener = () =>
+            spec.signal?.removeEventListener('abort', abortRequest);
+        const failStream = (error) => {
+            streamError = error;
+            responseComplete = true;
+            signalStreamUpdate?.();
+            removeAbortListener();
+        };
         const lineStream = (async function* () {
-            while (true) {
-                while (lines.length > 0) {
-                    const line = lines.shift();
-                    if (line.trim() === '') continue;
-                    yield JSON.parse(line);
+            try {
+                while (true) {
+                    if (streamError) throw streamError;
+                    while (lines.length > 0) {
+                        const line = lines.shift();
+                        if (line.trim() === '') continue;
+                        yield JSON.parse(line);
+                        if (streamError) throw streamError;
+                    }
+                    if (responseComplete) break;
+                    const sig = createDeferred();
+                    signalStreamUpdate = sig.resolve;
+                    await sig.promise;
                 }
-                if (responseComplete) break;
-                const sig = createDeferred();
-                signalStreamUpdate = sig.resolve;
-                await sig.promise;
+            } finally {
+                if (!responseComplete) xhr.abort();
+                removeAbortListener();
             }
         })();
+        const returnStream = lineStream.return.bind(lineStream);
+        lineStream.return = (value) => {
+            if (!responseComplete) xhr.abort();
+            return returnStream(value);
+        };
 
         xhr.onreadystatechange = () => {
             if (
@@ -570,14 +578,6 @@ function sendOnce(spec) {
             ) {
                 streamed = true;
                 resolve({ streamed: true, xhr, lineStream });
-            }
-            if (xhr.readyState === 4 && streamed) {
-                if (carry.length > 0) {
-                    lines.push(carry);
-                    carry = '';
-                }
-                responseComplete = true;
-                signalStreamUpdate?.();
             }
         };
 
@@ -596,18 +596,34 @@ function sendOnce(spec) {
         };
 
         xhr.addEventListener('load', () => {
-            if (streamed) return;
-            resolve({ xhr, status: xhr.status });
+            removeAbortListener();
+            if (!streamed) {
+                resolve({ xhr, status: xhr.status });
+                return;
+            }
+            xhr.onprogress();
+            if (carry.length > 0) {
+                lines.push(carry);
+                carry = '';
+            }
+            responseComplete = true;
+            signalStreamUpdate?.();
         });
-        xhr.addEventListener('error', () =>
-            resolve({ networkError: true, xhr }),
-        );
-        xhr.addEventListener('abort', () =>
-            reject(
-                spec.signal?.reason ??
-                    new DOMException('Aborted', 'AbortError'),
-            ),
-        );
+        xhr.addEventListener('timeout', () => {
+            const error = { message: 'Network request timed out.', code: 'network_error' };
+            failStream(error);
+            resolve({ networkError: true, xhr });
+        });
+        xhr.addEventListener('error', () => {
+            failStream({ message: 'Network request failed.', code: 'network_error' });
+            resolve({ networkError: true, xhr });
+        });
+        xhr.addEventListener('abort', () => {
+            const error = spec.signal?.reason ??
+                new DOMException('Aborted', 'AbortError');
+            failStream(error);
+            reject(error);
+        });
 
         if (spec.signal) {
             if (spec.signal.aborted)
@@ -615,9 +631,7 @@ function sendOnce(spec) {
                     spec.signal.reason ??
                         new DOMException('Aborted', 'AbortError'),
                 );
-            spec.signal.addEventListener('abort', () => xhr.abort(), {
-                once: true,
-            });
+            spec.signal.addEventListener('abort', abortRequest, { once: true });
         }
 
         const body =
@@ -627,12 +641,12 @@ function sendOnce(spec) {
 }
 
 /**
- * Classify a completed attempt into a retry decision. Reauth, permission, and
- * the phone-verification gate are one-shot (tracked in `ctx.done`) and apply
- * to any request; transient backoff
- * applies only to `ctx.retrySafe` requests and honors the autoRetry kill
- * switch. Memoizes the parsed body on `outcome.parsed` and stashes any reauth
- * error on `outcome.reauthError` for the shaper.
+ * Classify a completed attempt into a retry decision. Reauth and the
+ * phone-verification gate are one-shot (tracked in `ctx.done`) and apply to any
+ * request; transient backoff applies only to `ctx.retrySafe` requests and
+ * honors the autoRetry kill switch. Memoizes the parsed body on
+ * `outcome.parsed` and stashes any reauth error on `outcome.reauthError` for
+ * the shaper.
  *
  * @returns {Promise<{ delayMs: number } | null>} A delay to retry after, or
  *   null to stop.
@@ -661,22 +675,6 @@ async function classifyRetry(outcome, ctx) {
                 return { delayMs: 0 };
             }
             if (reauth?.action === 'reject') outcome.reauthError = reauth.error;
-        }
-        return null;
-    }
-
-    // permission denied (200 success:false) — one-shot, any method, no backoff.
-    if (
-        ctx.permission &&
-        parsed?.success === false &&
-        parsed?.error?.code === 'permission_denied'
-    ) {
-        if (!ctx.done.has('permission')) {
-            const perm = await resolvePermission(ctx.permission);
-            if (perm.granted) {
-                ctx.done.add('permission');
-                return { delayMs: 0 };
-            }
         }
         return null;
     }
@@ -718,8 +716,8 @@ async function classifyRetry(outcome, ctx) {
 
 /**
  * The one retry loop. Sends `spec` (rebuilding per attempt), classifies each
- * outcome, and retries on reauth / permission / transient causes; otherwise
- * hands the outcome to `shape`.
+ * outcome, and retries on reauth / transient causes; otherwise hands the
+ * outcome to `shape`.
  *
  * @param {Object} spec - BuildXhr spec (+ optional buildBody, signal).
  * @param {Object} opts
@@ -728,8 +726,6 @@ async function classifyRetry(outcome, ctx) {
  * @param {boolean} [opts.retryGated=true] - Eligible for 429 backoff retry,
  *   regardless of method (the gate rejects before the handler runs). Default is
  *   `true`
- * @param {string | null} [opts.permission] - `driver:<iface>:<method>` enables
- *   the permission cause.
  * @param {(lineStream, xhr) => any} opts.shapeStream - Wrap an NDJSON stream.
  * @param {(outcome) => any} opts.shape - Shape a buffered outcome (may throw).
  */
@@ -738,7 +734,6 @@ async function sendWithRetry(
     {
         retrySafe = false,
         retryGated = true,
-        permission = null,
         shapeStream,
         shape,
     },
@@ -747,7 +742,6 @@ async function sendWithRetry(
         attempt: 0,
         retrySafe,
         retryGated,
-        permission,
         done: new Set(),
     };
     while (true) {
@@ -1034,14 +1028,27 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
         }
     })();
 
+    const returnStream = stream.return.bind(stream);
+    stream.return = async (value) => {
+        await lineStream.return();
+        return returnStream(value);
+    };
+    Object.defineProperty(stream, 'cancel', {
+        enumerable: false,
+        value: () => stream.return(),
+    });
     Object.defineProperty(stream, 'start', {
         enumerable: false,
         value: async (controller) => {
-            const encoder = new TextEncoder();
-            for await (const part of stream) {
-                controller.enqueue(encoder.encode(part));
+            try {
+                const encoder = new TextEncoder();
+                for await (const part of stream) {
+                    controller.enqueue(encoder.encode(part));
+                }
+                controller.close();
+            } catch (error) {
+                controller.error(error);
             }
-            controller.close();
         },
     });
 
@@ -1115,11 +1122,10 @@ async function driverCall(call, opts = {}) {
 
     return await sendWithRetry(spec, {
         retrySafe: readonly,
-        permission: `driver:${call.iface}:${call.method}`,
         shapeStream: (lineStream) =>
             driverLineStream(lineStream, puter, promptContext),
-        // Reauth, permission grants, and transient retries are already spent by
-        // the time the engine hands the outcome over, so this is terminal.
+        // Reauth and transient retries are already spent by the time the
+        // engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {
             if (outcome.networkError) {
                 logCall(call, { error: { message: 'Network error occurred' } });

@@ -52,6 +52,31 @@ const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback']);
 export const deliversTokenToOpener = (action) =>
     !NON_AUTH_POPUP_ACTIONS.has(action);
 
+/** Popup actions whose token travels with the answer the user gave. */
+const DEFERRED_TOKEN_POPUP_ACTIONS = new Set([
+    'show-open-file-picker',
+    'show-directory-picker',
+    'show-save-file-picker',
+]);
+
+/**
+ * Whether a popup running `action` holds its token back until it has an answer.
+ *
+ * @param {string|null|undefined} action
+ * @returns {boolean} `true` if the hand-off waits for the picker's answer.
+ */
+export const defersTokenToOpener = (action) =>
+    DEFERRED_TOKEN_POPUP_ACTIONS.has(action);
+
+/**
+ * The one gate every boot-time hand-off reads, exchange to signup.
+ *
+ * @param {string|null|undefined} action
+ * @returns {boolean} `true` if booting is enough to deliver the token.
+ */
+export const deliversTokenAtBoot = (action) =>
+    deliversTokenToOpener(action) && !defersTokenToOpener(action);
+
 /**
  * Popup actions that must not run the user-app token exchange at all.
  *

@@ -534,3 +534,13 @@
  */
 
 export {};
+
+
+/**
+ * Parsed chat chunks, with a byte-stream adapter for `new ReadableStream(response)`.
+ * Stopping iteration or cancelling the byte stream cancels the HTTP request.
+ * @typedef {AsyncGenerator<ChatResponseChunk, void, unknown> & {
+ *     start: (controller: ReadableStreamDefaultController<Uint8Array>) => Promise<void>;
+ *     cancel: () => Promise<IteratorResult<ChatResponseChunk, void>>;
+ * }} ChatResponseStream
+ */

@@ -19,6 +19,8 @@
 
 import { Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
+import { Context } from '../../../core/context.js';
+import { withTestActor } from '../../integrationTestUtil.js';
 // @ts-expect-error — sibling JS module without an adjacent .d.ts
 import {
     create_chat_stream_handler,
@@ -1726,4 +1728,67 @@ describe('handle_completion_output_responses_api non-stream', () => {
         expect(result.stream).toBe(true);
         expect(typeof result.init_chat_stream).toBe('function');
     });
+});
+
+describe('cancelled upstream iterators', () => {
+    it.each([
+        [
+            'chat completions',
+            create_chat_stream_handler,
+            { choices: [{ delta: { content: 'partial' } }] },
+        ],
+        [
+            'responses',
+            create_chat_stream_handler_responses_api,
+            { type: 'response.output_text.delta', delta: 'partial' },
+        ],
+    ])(
+        'does not emit success when %s ends cleanly after cancellation',
+        async (_name, handler, chunk) => {
+            const abort = new AbortController();
+            const usageCalculator = vi.fn();
+            const completion = {
+                async *[Symbol.asyncIterator]() {
+                    yield chunk;
+                    abort.abort();
+                },
+            };
+            const harness = makeCapturingChatStream();
+            await expect(
+                withTestActor(() => {
+                    Context.set('abortSignal', abort.signal);
+                    return handler({
+                        completion,
+                        usage_calculator: usageCalculator,
+                    })({ chatStream: harness.chatStream });
+                }),
+            ).rejects.toMatchObject({ name: 'AbortError' });
+            expect(harness.events()).toEqual([
+                { type: 'text', text: 'partial' },
+            ]);
+            expect(usageCalculator).not.toHaveBeenCalled();
+        },
+    );
+});
+
+
+describe('Responses stream failure events', () => {
+    it.each(['response.failed', 'error'])(
+        'rejects %s instead of producing a successful usage event',
+        async (type) => {
+            const harness = makeCapturingChatStream();
+            const init = create_chat_stream_handler_responses_api({
+                completion: asAsyncIterable([
+                    { type: 'response.output_text.delta', delta: 'partial' },
+                    { type, message: 'upstream failed', response: {
+                        error: { message: 'upstream failed' },
+                    } },
+                ]),
+                usage_calculator: () => ({}),
+            });
+            await expect(init({ chatStream: harness.chatStream }))
+                .rejects.toThrow('upstream failed');
+            expect(harness.events().some((event) => event.type === 'usage')).toBe(false);
+        },
+    );
 });

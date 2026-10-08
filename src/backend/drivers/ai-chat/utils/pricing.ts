@@ -70,6 +70,9 @@ export const isOutputCostKey = (key: string, outputKey: string): boolean =>
     key === 'thinking_tokens' ||
     key.endsWith('_output_tokens');
 
+export const isPerCallCostKey = (key: string): boolean =>
+    key.endsWith('_requests') || key.endsWith('_calls');
+
 /**
  * The rate multipliers a request pays given how many input tokens it sent —
  * cached reads and cache writes included. `1`/`1` unless the model has
@@ -106,11 +109,7 @@ export const trackedInputTokens = (
         // advisor-iteration tokens are billed, but neither is part of the
         // executor prompt the funds cap and long-context threshold are
         // measured against.
-        if (
-            key.endsWith('_requests') ||
-            key.endsWith('_calls') ||
-            key.startsWith('advisor_')
-        ) {
+        if (isPerCallCostKey(key) || key.startsWith('advisor_')) {
             continue;
         }
         if (isOutputCostKey(key, outputKey)) continue;
@@ -132,11 +131,7 @@ export const trackedOutputTokens = (
     const { outputKey } = costKeys(model);
     let total = 0;
     for (const [key, amount] of Object.entries(trackedUsage)) {
-        if (
-            key.endsWith('_requests') ||
-            key.endsWith('_calls') ||
-            key.startsWith('advisor_')
-        ) {
+        if (isPerCallCostKey(key) || key.startsWith('advisor_')) {
             continue;
         }
         if (!isOutputCostKey(key, outputKey)) continue;
@@ -214,8 +209,12 @@ export const buildCostsOverride = (
             ? costs[key]
             : ((isOutput ? outputRate : inputRate) ?? 0);
 
-        overrides[key] =
-            amount * rate * (isOutput ? multipliers.output : multipliers.input);
+        const multiplier = isPerCallCostKey(key)
+            ? 1
+            : isOutput
+              ? multipliers.output
+              : multipliers.input;
+        overrides[key] = amount * rate * multiplier;
     }
 
     return overrides;

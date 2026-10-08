@@ -262,6 +262,22 @@ describe('DriverController — concurrent acquire/release', () => {
         expect(res2.body).toMatchObject({ success: true, result: 'pong' });
     });
 
+    it('releases a slot acquired after the client has disconnected', async () => {
+        const handler = captureCallHandler(buildController(makeSyntheticDriver()));
+        const res1 = new StubRes();
+        Object.assign(res1, { destroyed: true });
+        await callInScope(handler,
+            makeReq({ interface: 'test-iface', method: 'ping' }, 'already-aborted'),
+            res1 as unknown as Response);
+        await new Promise((resolve) => setImmediate(resolve));
+        const res2 = new StubRes();
+        await callInScope(handler,
+            makeReq({ interface: 'test-iface', method: 'ping' }, 'already-aborted'),
+            res2 as unknown as Response);
+        res2.emit('finish');
+        expect(res2.body).toMatchObject({ success: true, result: 'pong' });
+    });
+
     it('does not attach release listeners when the driver declares no concurrent config', async () => {
         // With no spec there is nothing to release, so the gate must not
         // wire `finish`/`close` release listeners. The client-disconnect

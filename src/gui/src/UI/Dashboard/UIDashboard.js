@@ -742,7 +742,7 @@ async function UIDashboard (options) {
             items.push('-');
 
             items.push({
-                html: i18n('add_existing_account'),
+                html: i18n('add_another_account'),
                 onClick: async function () {
                     await UIWindowLogin({
                         reload_on_success: true,

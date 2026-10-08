@@ -1901,6 +1901,7 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
             stream: ndjsonStreamFrom([
                 { type: 'text', text: 'one' },
                 { type: 'text', text: 'two' },
+                { type: 'usage', usage: {} },
             ]),
         });
 
@@ -1943,6 +1944,7 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
                     name: 'lookup',
                     input: { q: 'x' },
                 },
+                { type: 'usage', usage: {} },
             ]),
         });
 

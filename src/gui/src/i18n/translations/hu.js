@@ -26,7 +26,7 @@ const hu = {
         account: 'Fiók',
         account_password: 'Fiók jelszó megerősítése',
         access_granted_to: 'Hozzáférés engedélyezve',
-        add_existing_account: 'Meglévő fiók hozzáadása',
+        add_another_account: 'Másik fiók hozzáadása',
         all_fields_required: 'Minden mező kitöltése kötelező.',
         allow: 'Engedélyez',
         apply: 'Alkalmaz',

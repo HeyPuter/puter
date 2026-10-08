@@ -26,7 +26,7 @@ const ig = {
         account: 'akaụntụ',
         account_password: 'nyochaa paswọọdụ akaụntụ',
         access_granted_to: 'Enyere ohere',
-        add_existing_account: 'Tinye Akaụntụ dị adị',
+        add_another_account: 'Tinye Akaụntụ Ọzọ',
         all_fields_required: 'A chọrọ mpaghara niile.',
         allow: 'ekwe',
         apply: 'Tinye',

@@ -19,8 +19,36 @@
 
 import type { IChatModel } from '../../types.js';
 
-// Hardcoded from https://models.dev/api.json and https://docs.mistral.ai/models/overview
+// Standard rates: https://docs.mistral.ai/inference/pricing
 export const MISTRAL_MODELS: IChatModel[] = [
+    {
+        puterId: 'mistralai:mistralai/mistral-large-4',
+        id: 'mistral-large-4',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-10-06',
+        name: 'Mistral Large 4',
+        aliases: [
+            'mistral-large-4-0',
+            'mistralai/mistral-large-4',
+            'mistralai/mistral-large-4-0',
+        ],
+        context: 1_000_000,
+        max_tokens: 1_000_000,
+        description:
+            'Public-preview multimodal model for reasoning, coding, and agentic workflows; open weights are forthcoming.',
+        provider: 'mistral',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 136,
+            cached_tokens: 14,
+            completion_tokens: 418,
+        },
+    },
     {
         puterId: 'mistralai:mistralai/mistral-medium-2604',
         id: 'mistral-medium-2604',
@@ -50,6 +78,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 150,
+            cached_tokens: 15,
             completion_tokens: 750,
         },
     },
@@ -79,6 +108,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 50,
+            cached_tokens: 5,
             completion_tokens: 150,
         },
     },
@@ -108,6 +138,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
+            cached_tokens: 1.5,
             completion_tokens: 60,
         },
     },
@@ -131,6 +162,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 140,
+            cached_tokens: 14,
             completion_tokens: 440,
         },
     },
@@ -159,6 +191,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
+            cached_tokens: 3,
             completion_tokens: 90,
         },
     },
@@ -183,6 +216,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 20,
+            cached_tokens: 2,
             completion_tokens: 20,
         },
     },
@@ -206,8 +240,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         output_cost_key: 'completion_tokens',
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 10,
-            completion_tokens: 10,
+            prompt_tokens: 15,
+            cached_tokens: 1.5,
+            completion_tokens: 15,
         },
     },
     {
@@ -229,8 +264,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         output_cost_key: 'completion_tokens',
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 4,
-            completion_tokens: 4,
+            prompt_tokens: 10,
+            cached_tokens: 1,
+            completion_tokens: 10,
         },
     },
 ];

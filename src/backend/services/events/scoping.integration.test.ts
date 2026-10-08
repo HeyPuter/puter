@@ -240,8 +240,8 @@ describe('what an actor sees and removes', () => {
         expect(byId.get(own.subId)?.appUid).toBeNull();
         expect(byId.get(theirs.subId)?.appUid).toBe(appOneUid);
 
-        // An access token an app issued acts as that app, one hop through its
-        // issuer — which is what the whole scope keys on.
+        // An access token an app issued resolves to that app, one hop through
+        // its issuer — and is still not the app when scoping rows.
         expect(appAccessToken.effectiveApp?.uid).toBe(appOneUid);
         expect(personalAccessToken.effectiveApp).toBeNull();
         expect(worker.effectiveApp).toBeNull();
@@ -257,8 +257,8 @@ describe('what an actor sees and removes', () => {
 
         await expect(heldBy(appOne)).resolves.toEqual([mine.subId]);
         await expect(heldBy(appTwo)).resolves.toEqual([theirs.subId]);
-        // The token the app issued inherits exactly the app's view.
-        await expect(heldBy(appAccessToken)).resolves.toEqual([mine.subId]);
+        // A scoped token the app issued sees none of the app's rows.
+        await expect(heldBy(appAccessToken)).resolves.toEqual([]);
 
         for (const wide of [session, personalAccessToken, worker])
             expect((await heldBy(wide)).sort()).toEqual(

@@ -315,6 +315,18 @@ const heldForMs = async (subId: string): Promise<number> => {
     return Number(score) - Date.now();
 };
 
+/**
+ * Wait until this subscription has `count` failed attempts on record. The
+ * counter moves only after the attempt's hold or gap marker is written, so it
+ * can't be the in-flight claim's lease or another test's late attempt.
+ */
+const failuresRecorded = (subId: string, count: number): Promise<void> =>
+    waitUntil(async () =>
+        expect(await env.server.clients.redis.get(`ev:qf:{${subId}}`)).toBe(
+            String(count),
+        ),
+    );
+
 beforeAll(async () => {
     // Started first: the dispatcher's address is config, so it has to be known
     // before the server boots.
@@ -587,11 +599,7 @@ describe('what each answer does to the delivery', () => {
         // It counted: a refusal is still a handler that did not work. Counted
         // only once the marker is in, so it is also what says the answer was
         // handled — the depth alone reads 1 while the event is still leased.
-        await waitUntil(async () =>
-            expect(await env.server.clients.redis.get(`ev:qf:{${subId}}`)).toBe(
-                '1',
-            ),
-        );
+        await failuresRecorded(subId, 1);
 
         // The event is gone and a marker stands in its place, so the
         // subscription learns there was one rather than reading silence.
@@ -614,9 +622,8 @@ describe('what each answer does to the delivery', () => {
         await touch('unmarked.txt');
         await invoked(1);
 
-        await waitUntil(async () =>
-            expect(await heldForMs(subId)).toBeGreaterThan(0),
-        );
+        await failuresRecorded(subId, 1);
+        expect(await heldForMs(subId)).toBeGreaterThan(0);
         expect(await pending().depth(subId)).toBe(1);
     });
 
@@ -636,9 +643,7 @@ describe('what each answer does to the delivery', () => {
             attempt < EVENTS_CONSECUTIVE_FAILURES;
             attempt++
         ) {
-            await waitUntil(async () =>
-                expect(await heldForMs(subId)).toBeGreaterThan(0),
-            );
+            await failuresRecorded(subId, attempt);
             waits.push(await heldForMs(subId));
 
             // Nothing may take it while it is held.
@@ -674,7 +679,7 @@ describe('what each answer does to the delivery', () => {
             attempt < EVENTS_CONSECUTIVE_FAILURES;
             attempt++
         ) {
-            await invoked(attempt);
+            await failuresRecorded(subId, attempt);
             jump(deliveryBackoffMs(attempt) + 50);
             await events().sweepPending();
         }
@@ -698,9 +703,8 @@ describe('what each answer does to the delivery', () => {
         await invoked(1);
 
         // Still owed, and held rather than dropped: nobody said no.
-        await waitUntil(async () =>
-            expect(await heldForMs(subId)).toBeGreaterThan(0),
-        );
+        await failuresRecorded(subId, 1);
+        expect(await heldForMs(subId)).toBeGreaterThan(0);
         expect(await pending().depth(subId)).toBe(1);
         answer = 200;
     });
@@ -712,9 +716,8 @@ describe('what each answer does to the delivery', () => {
         await touch('busy.txt');
         await invoked(1);
 
-        await waitUntil(async () =>
-            expect(await heldForMs(subId)).toBeGreaterThan(0),
-        );
+        await failuresRecorded(subId, 1);
+        expect(await heldForMs(subId)).toBeGreaterThan(0);
         expect(await pending().depth(subId)).toBe(1);
     });
 });
@@ -790,9 +793,7 @@ describe('with no events worker to address', () => {
                 attempt < EVENTS_CONSECUTIVE_FAILURES;
                 attempt++
             ) {
-                await waitUntil(async () =>
-                    expect(await heldForMs(subId)).toBeGreaterThan(0),
-                );
+                await failuresRecorded(subId, attempt);
                 jump(deliveryBackoffMs(attempt) + 50);
                 await events().sweepPending();
             }
@@ -823,9 +824,10 @@ describe('with no events worker to address', () => {
 
         try {
             await touch('suspended-owner.txt');
-            await waitUntil(async () =>
-                expect(await heldForMs(subId)).toBeGreaterThan(0),
-            );
+            // Not just the claim's lease: un-suspending the owner while the
+            // attempt is still in flight would let it address and call out.
+            await failuresRecorded(subId, 1);
+            expect(await heldForMs(subId)).toBeGreaterThan(0);
             expect(await pending().depth(subId)).toBe(1);
             // A suspended owner is nobody to address: nothing was called.
             expect(calls).toEqual([]);

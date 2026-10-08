@@ -398,8 +398,7 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
 
         const rejected = results.find((r) => r.status === 'rejected') as
-            | PromiseRejectedResult
-            | undefined;
+            PromiseRejectedResult | undefined;
         expect(rejected?.reason).toMatchObject({ statusCode: 400 });
     });
 
@@ -486,6 +485,59 @@ describe('concurrent claims on one email address', () => {
             message:
                 'This username already exists in our database. Please use another one.',
         });
+    });
+
+    it('reports a username taken before a placeholder claim lands as a 400', async () => {
+        const username = `r_c_${uniq()}`;
+        const email = `race-claim-${uniq()}@test.local`;
+        const placeholder = await server.stores.user.create({
+            username: `r_p_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            clean_email: email,
+        });
+        // The winner, inserted between the duplicate check and the claim.
+        await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `race-claim-winner-${uniq()}@test.local`,
+        });
+        // The duplicate check reads before the winner is visible to it.
+        const store = server.stores.user;
+        const originalGet = (Object.getPrototypeOf(store) as typeof store)
+            .getByUsername;
+        const probeSpy = vi
+            .spyOn(store, 'getByUsername')
+            .mockImplementation(async (candidate, opts) => {
+                if (candidate === username && !opts?.force) return null;
+                return originalGet.call(store, candidate, opts);
+            });
+
+        try {
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message:
+                    'This username already exists in our database. Please use another one.',
+            });
+        } finally {
+            probeSpy.mockRestore();
+        }
+        const after = await server.stores.user.getById(placeholder.id, {
+            force: true,
+        });
+        expect(after!.password).toBeNull();
+        expect(after!.username).toBe(placeholder.username);
     });
 
     it('reports a duplicate address as a 400, not a constraint error', async () => {
@@ -2455,6 +2507,67 @@ describe('AuthController grant flows', () => {
         expect(await storedPermissions()).not.toContain(shortPermission);
     });
 
+    it('grant-user-app: the granting flag is not visible to work running beside it', async () => {
+        const { user: issuer, actor: issuerActor } = await makeUserAndActor();
+        const app = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `conc-${uuidv4()}`,
+                title: 'Concurrency app',
+                index_url: `https://conc-${uuidv4()}.test/`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `conc-${uuidv4()}`;
+        let release: () => void;
+        let entered: () => void;
+        const held = new Promise<void>((r) => {
+            release = r;
+        });
+        const reached = new Promise<void>((r) => {
+            entered = r;
+        });
+        let seenDuring: unknown;
+        // Parks the grant's rewrite, so the flag is set while it is parked.
+        server.services.permission.registerRewriter({
+            id: `test-slow-${prefix}`,
+            matches: (permission: string) =>
+                permission.startsWith(`${prefix}:`),
+            rewrite: async () => {
+                seenDuring = Context.get('is_grant_user_app_permission');
+                entered();
+                await held;
+                return `fs:${uuidv4()}:write`;
+            },
+        });
+
+        await inCtx(issuerActor, async () => {
+            const granting = controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission: `${prefix}:${app.uid}:write`,
+                    },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            );
+            // Read while the rewrite above is parked, so the window is open.
+            await reached;
+            const beside = Context.get('is_grant_user_app_permission');
+            release();
+            await granting;
+
+            expect(seenDuring).toBe(true);
+            expect(beside).toBeFalsy();
+        });
+    });
+
     it('revoke-user-app: undoes a grant whose rewrite only resolves while granting', async () => {
         // `app-root-dir:<uid>:<mode>` is a pseudo-permission: its rewriter
         // resolves it to a real `fs:<root_uid>:<mode>` only while a user-app
@@ -2858,7 +2971,7 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
     });
 
-    it("refuses a foreign path the same way whether or not it is there", async () => {
+    it('refuses a foreign path the same way whether or not it is there', async () => {
         const missing = `/${target.username}/absent-${rand()}`;
         const present = `/${target.username}/present-${rand()}`;
         await server.services.fs.mkdir(target.id, {
@@ -3055,6 +3168,101 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(missingPath),
         ).toBeFalsy();
+    });
+
+    // The GUI consent gate: a user asking what an app of theirs may reach.
+    const checkViaGate = async (permission: string): Promise<boolean> => {
+        const res = makeRes();
+        await inCtx(userActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: appUid },
+                    { actor: userActor },
+                ),
+                res,
+            ),
+        );
+        return (res.body as { permissions: Record<string, boolean> })
+            .permissions[permission];
+    };
+
+    /** A file with no grant of its own, so only an ancestor can answer for it. */
+    const fileWithNoGrantOfItsOwn = async (dirPath: string) => {
+        const filePath = `${dirPath}/doc-${rand()}.txt`;
+        await grant({ permission: `fs:${filePath}:write`, create: 'file' });
+        await revoke({ permission: `fs:${filePath}:write` });
+        const entry = await server.stores.fsEntry.getEntryByPath(filePath);
+        return entry!.uuid;
+    };
+
+    it('settles the gate from a grant the app holds on a folder above', async () => {
+        const dir = path(`.gatedir-${rand()}`);
+        await grant({ permission: `fs:${dir}:write`, create: true });
+        const fileUuid = await fileWithNoGrantOfItsOwn(dir);
+
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${fileUuid}:write`,
+        );
+        expect(await checkViaGate(`fs:${fileUuid}:write`)).toBe(true);
+    });
+
+    it('still prompts for a file no grant of the app reaches', async () => {
+        const held = path(`.gateheld-${rand()}`);
+        const other = path(`.gateother-${rand()}`);
+        await grant({ permission: `fs:${held}:write`, create: true });
+        await grant({ permission: `fs:${other}:write`, create: true });
+        await revoke({ permission: `fs:${other}:write` });
+        const fileUuid = await fileWithNoGrantOfItsOwn(other);
+
+        expect(await checkViaGate(`fs:${fileUuid}:write`)).toBe(false);
+    });
+
+    it('answers a mode the folder grant does not cover', async () => {
+        const dir = path(`.gatemode-${rand()}`);
+        await grant({ permission: `fs:${dir}:read`, create: true });
+        const fileUuid = await fileWithNoGrantOfItsOwn(dir);
+
+        expect(await checkViaGate(`fs:${fileUuid}:read`)).toBe(true);
+        expect(await checkViaGate(`fs:${fileUuid}:write`)).toBe(false);
+    });
+
+    it('leaves a non-fs permission on the scan it was always answered by', async () => {
+        const permission = `apps-of-user:${user.uuid}:read`;
+        expect(await checkViaGate(permission)).toBe(false);
+        await grant({ permission });
+        expect(await checkViaGate(permission)).toBe(true);
+    });
+
+    it('answers false for a permission that is not a string, rather than faulting', async () => {
+        for (const junk of [123, null, {}, []]) {
+            const res = makeRes();
+            await inCtx(userActor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        { permissions: [junk], app_uid: appUid },
+                        { actor: userActor },
+                    ),
+                    res,
+                ),
+            );
+            expect(res.statusCode).toBe(200);
+            expect(
+                (res.body as { permissions: Record<string, boolean> })
+                    .permissions[junk as unknown as string],
+            ).toBe(false);
+        }
+    });
+
+    it('answers the same for a file whether it is named by uid or by path', async () => {
+        const dir = path(`.gateform-${rand()}`);
+        await grant({ permission: `fs:${dir}:write`, create: true });
+        const filePath = `${dir}/doc-${rand()}.txt`;
+        await grant({ permission: `fs:${filePath}:write`, create: 'file' });
+        await revoke({ permission: `fs:${filePath}:write` });
+        const entry = await server.stores.fsEntry.getEntryByPath(filePath);
+
+        expect(await checkViaGate(`fs:${entry!.uuid}:write`)).toBe(true);
+        expect(await checkViaGate(`fs:${filePath}:write`)).toBe(true);
     });
 
     it('ignores `create` on a non-fs permission and grants it normally', async () => {
@@ -6102,6 +6310,37 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('change-username: a name lost to a simultaneous rename is a 400 and leaves the loser untouched', async () => {
+        const a = await makeUserAndActor();
+        const b = await makeUserAndActor();
+        const target = `r_${uniq()}`;
+
+        const results = await Promise.allSettled(
+            [a, b].map(({ actor }) =>
+                controller.handleChangeUsername(
+                    makeReq({ new_username: target }, { actor }),
+                    makeRes(),
+                ),
+            ),
+        );
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        const rejected = results.find((r) => r.status === 'rejected') as
+            PromiseRejectedResult | undefined;
+        expect(rejected?.reason).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'username_already_in_use',
+        });
+
+        const loser = results[0].status === 'rejected' ? a.user : b.user;
+        const after = await server.stores.user.getById(loser.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(loser.username);
+        const root = await server.stores.fsEntry.getRootEntryForUser(loser.id);
+        expect(root!.path).toBe(`/${loser.username}`);
+    });
+
     it('change-email: 403 for an account its team provisioned', async () => {
         const { user: owner } = await makeUserAndActor();
         const { user: seat, actor } = await makeUserAndActor();
@@ -6529,6 +6768,43 @@ describe('AuthController.handleSaveAccount', () => {
         expect(
             await bcrypt.compare('correct-horse-battery', after!.password!),
         ).toBe(true);
+    });
+
+    it('reports a username lost to a simultaneous save as a 400 and leaves the loser temporary', async () => {
+        const a = await makeTempActor();
+        const b = await makeTempActor();
+        const target = `s_${uniq()}`;
+
+        const results = await Promise.allSettled(
+            [a, b].map(({ actor }) =>
+                controller.handleSaveAccount(
+                    makeReq(
+                        {
+                            username: target,
+                            email: `${uniq()}@test.local`,
+                            password: 'correct-horse-battery',
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        );
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        const rejected = results.find((r) => r.status === 'rejected') as
+            PromiseRejectedResult | undefined;
+        expect(rejected?.reason).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'username_already_in_use',
+        });
+
+        const loser = results[0].status === 'rejected' ? a.user : b.user;
+        const after = await server.stores.user.getById(loser.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(loser.username);
+        expect(after!.password).toBeNull();
     });
 
     it('rejects invalid username/email/password validations', async () => {

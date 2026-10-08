@@ -2256,11 +2256,12 @@ window.updateSubdomainsForItems = async function (fsentries, container) {
 
                 // Update cache with subdomain data
                 if ( fsentry.path ) {
-                    const cachedItem = await puter._cache.get(`item:${fsentry.path}`);
+                    const key = puter.fsCacheKey('item', fsentry.path);
+                    const cachedItem = await puter._cache.get(key);
                     if ( cachedItem ) {
                         cachedItem.subdomains = subdomains;
                         cachedItem.has_website = has_website;
-                        puter._cache.set(`item:${fsentry.path}`, cachedItem);
+                        puter._cache.set(key, cachedItem);
                     }
                 }
             } else {

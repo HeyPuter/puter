@@ -208,6 +208,8 @@ Please try recreating the link.`);
             const parent_uuid = $el_parent_window.attr('data-parent_uuid');
             const return_to_parent_window = $el_parent_window.attr('data-return_to_parent_window') === 'true';
             if ( return_to_parent_window ) {
+                // As the Open button: the token rides out with the answer.
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'fileOpenPicked',
                     original_msg_id: $el_parent_window.attr('data-iframe_msg_uid'),

@@ -21,6 +21,7 @@ import { Mistral } from '@mistralai/mistralai';
 import { ChatCompletionResponse } from '@mistralai/mistralai/models/components/chatcompletionresponse.js';
 import { MistralError } from '@mistralai/mistralai/models/errors/mistralerror.js';
 import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
+import type { UsageInfo } from '@mistralai/mistralai/models/components/usageinfo.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -92,6 +93,19 @@ const MISTRAL_FINISH_REASON_MAP: Record<string, string> = {
     length: 'length',
     model_length: 'length',
     tool_calls: 'tool_calls',
+};
+
+// The SDK keeps unrecognized wire fields in additionalProperties. Prompt
+// totals include cache hits, which must be removed before billing input.
+const coerceMistralUsage = (usage: UsageInfo) => {
+    const details = usage.additionalProperties?.prompt_tokens_details as
+        { cached_tokens?: number } | undefined;
+    const cachedTokens = details?.cached_tokens ?? 0;
+    return {
+        prompt_tokens: (usage.promptTokens ?? 0) - cachedTokens,
+        completion_tokens: usage.completionTokens ?? 0,
+        prompt_tokens_details: { cached_tokens: cachedTokens },
+    };
 };
 
 export class MistralAIProvider implements IChatProvider {
@@ -217,16 +231,19 @@ export class MistralAIProvider implements IChatProvider {
         try {
             completion = await this.#client.chat[
                 stream ? 'stream' : 'complete'
-            ]({
-                model: selectedModel.id,
-                ...(tools ? { tools: tools as any[] } : {}),
-                ...(customParams.prompt_mode !== undefined
-                    ? { promptMode: customParams.prompt_mode }
-                    : {}),
-                messages,
-                maxTokens: max_tokens,
-                temperature,
-            });
+            ](
+                {
+                    model: selectedModel.id,
+                    ...(tools ? { tools: tools as any[] } : {}),
+                    ...(customParams.prompt_mode !== undefined
+                        ? { promptMode: customParams.prompt_mode }
+                        : {}),
+                    messages,
+                    maxTokens: max_tokens,
+                    temperature,
+                },
+                { signal: Context.get('abortSignal') },
+            );
         } catch (e) {
             // The SDK validates input client-side and throws without a status,
             // which the driver would count as a route failure. Its `instanceof`
@@ -330,19 +347,10 @@ export class MistralAIProvider implements IChatProvider {
         return await OpenAIUtil.handle_completion_output({
             deviations: {
                 index_usage_from_stream_chunk: (chunk: {
-                    usage?: Record<string, number>;
+                    usage?: UsageInfo;
                 }) => {
                     if (!chunk.usage) return;
-
-                    const snake_usage: Record<string, number> = {};
-                    for (const key in chunk.usage) {
-                        const snakeKey = key
-                            .replace(/([A-Z])/g, '_$1')
-                            .toLowerCase();
-                        snake_usage[snakeKey] = chunk.usage[key]!;
-                    }
-
-                    return snake_usage;
+                    return coerceMistralUsage(chunk.usage);
                 },
                 // Mistral wraps each event; unwrap it, then split a
                 // reasoning model's chunked `delta.content` into the two
@@ -382,12 +390,8 @@ export class MistralAIProvider implements IChatProvider {
                 index_tool_calls_from_stream_choice: (choice: {
                     delta?: unknown;
                 }) => (choice.delta as any).toolCalls,
-                coerce_completion_usage: (
-                    completion: ChatCompletionResponse,
-                ) => ({
-                    prompt_tokens: completion.usage.promptTokens,
-                    completion_tokens: completion.usage.completionTokens,
-                }),
+                coerce_completion_usage: (completion: ChatCompletionResponse) =>
+                    coerceMistralUsage(completion.usage),
             },
             completion: completion as ChatCompletionResponse,
             stream,

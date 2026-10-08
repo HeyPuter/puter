@@ -239,8 +239,10 @@ export class NeuralwattProvider implements IChatProvider {
                 : {}),
         } as ChatCompletionCreateParams;
 
-        const completion =
-            await this.#openai.chat.completions.create(completionParams);
+        const completion = await this.#openai.chat.completions.create(
+            completionParams,
+            { signal: Context.get('abortSignal') },
+        );
 
         const usage_calculator = ({
             usage,

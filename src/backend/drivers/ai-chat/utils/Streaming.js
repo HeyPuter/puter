@@ -198,9 +198,8 @@ export class AIChatStream {
     }
 
     /**
-     * Stop accepting output because nobody is reading it. The next write
-     * throws, which unwinds the provider's read loop — and leaving an SDK's
-     * stream iterator early is what cancels the upstream request.
+     * Stop accepting output after cancellation; providers cancel their requests
+     * too.
      */
     abort() {
         this.aborted = true;

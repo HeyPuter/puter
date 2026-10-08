@@ -26,7 +26,7 @@ const fr = {
         account: 'Compte',
         account_password: 'Vérifier le mot de passe du compte',
         access_granted_to: 'Accès accordé à',
-        add_existing_account: 'Ajouter un compte existant',
+        add_another_account: 'Ajouter un autre compte',
         ai_app_unavailable: 'L\'application IA n\'est pas disponible. Veuillez réessayer plus tard.',
         all_fields_required: 'Tous les champs sont requis.',
         allow: 'Autoriser',

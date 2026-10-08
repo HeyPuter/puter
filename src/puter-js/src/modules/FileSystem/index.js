@@ -133,9 +133,9 @@ export class PuterJSFileSystemModule extends PuterModule {
 
         this.socket.on('item.added', (item) => {
             // remove readdir cache for parent
-            puter._cache.del(`readdir:${ path.dirname(item.path)}`);
+            puter._cache.del(puter.fsCacheKey('readdir', path.dirname(item.path)));
             // remove item cache for parent directory
-            puter._cache.del(`item:${ path.dirname(item.path)}`);
+            puter._cache.del(puter.fsCacheKey('item', path.dirname(item.path)));
         });
 
         this.socket.on('item.updated', (item) => {

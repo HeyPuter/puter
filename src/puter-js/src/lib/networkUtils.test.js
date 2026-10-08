@@ -716,78 +716,6 @@ describe('dedupe', () => {
     });
 });
 
-describe('driver permission-grant replay (regression)', () => {
-    it('replays exactly once after a grant, preserving the rebuilt request', async () => {
-        // Before the fix, the driver permission replay dropped arguments; here we
-        // assert one prompt, one replay, and the same body on the retry.
-        // requestPermission resolves to a boolean (its real contract).
-        const requestPermission = vi.fn(async () => true);
-        globalThis.puter = { ui: { requestPermission } };
-        const xhrs = installFakeXHR(
-            sequence(
-                respond({
-                    status: 200,
-                    body: {
-                        success: false,
-                        error: { code: 'permission_denied' },
-                    },
-                }),
-                respond({ status: 200, body: { success: true, result: 'ok' } }),
-            ),
-        );
-        const spec = {
-            url: 'https://api.example/drivers/call',
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;actually=json' },
-            buildBody: () =>
-                JSON.stringify({
-                    interface: 'iface',
-                    method: 'm',
-                    args: { a: 1 },
-                }),
-        };
-        const result = await sendWithRetry(spec, {
-            permission: 'driver:iface:m',
-            shapeStream: () => {},
-            shape: (outcome) => outcome.parsed,
-        });
-        expect(requestPermission).toHaveBeenCalledTimes(1);
-        expect(requestPermission).toHaveBeenCalledWith({
-            permission: 'driver:iface:m',
-        });
-        expect(xhrs.length).toBe(2);
-        expect(xhrs[1].reqBody).toBe(
-            JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }),
-        );
-        expect(result).toEqual({ success: true, result: 'ok' });
-    });
-
-    it('does not loop when the grant still yields permission_denied', async () => {
-        // Legacy `{granted}` object shape is still tolerated.
-        const requestPermission = vi.fn(async () => ({ granted: true }));
-        globalThis.puter = { ui: { requestPermission } };
-        const denied = respond({
-            status: 200,
-            body: { success: false, error: { code: 'permission_denied' } },
-        });
-        const xhrs = installFakeXHR(sequence(denied, denied, denied));
-        const spec = {
-            url: 'https://api.example/drivers/call',
-            method: 'POST',
-            headers: {},
-            buildBody: () => '{}',
-        };
-        const result = await sendWithRetry(spec, {
-            permission: 'driver:iface:m',
-            shapeStream: () => {},
-            shape: (outcome) => outcome.parsed,
-        });
-        expect(requestPermission).toHaveBeenCalledTimes(1); // one-shot
-        expect(xhrs.length).toBe(2);
-        expect(result.error.code).toBe('permission_denied');
-    });
-});
-
 describe('driverCall', () => {
     const call = { iface: 'puter-kvstore', method: 'get', args: { key: 'k' } };
 
@@ -1162,4 +1090,65 @@ describe('driverLineStream', () => {
         const [line] = await collect([{ type: 'usage', usage: {} }]);
         expect(String(line)).toBe('[object Object]');
     });
+});
+
+
+describe('NDJSON stream termination', () => {
+    const start = async (signal) => {
+        const xhrs = installFakeXHR((xhr) => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"type":"text","text":"partial"}\n');
+        });
+        const response = await fetchUrl('https://api.example/stream', { signal });
+        const stream = response.stream();
+        expect((await stream.next()).value.text).toBe('partial');
+        return { xhr: xhrs[0], stream };
+    };
+
+    it('rejects a pending read when the transport fails after headers', async () => {
+        const { xhr, stream } = await start();
+        const read = stream.next();
+        xhr._networkError();
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+
+    it('rejects a pending read on cancellation after headers', async () => {
+        const controller = new AbortController();
+        const { stream } = await start(controller.signal);
+        const read = stream.next();
+        controller.abort();
+        await expect(read).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
+    it('aborts the request when the consumer stops iteration', async () => {
+        const { xhr, stream } = await start();
+        const abort = vi.spyOn(xhr, 'abort');
+        await stream.return();
+        expect(abort).toHaveBeenCalledOnce();
+    });
+    it('cancels a ReadableStream adapter while its pump is waiting', async () => {
+        const { xhr, stream: lines } = await start();
+        const stream = driverLineStream(lines, {}, undefined);
+        const readable = new ReadableStream(stream);
+        const reader = readable.getReader();
+        const abort = vi.spyOn(xhr, 'abort');
+        await reader.cancel();
+        expect(abort).toHaveBeenCalledOnce();
+        expect((await reader.read()).done).toBe(true);
+    });
+    it('errors the ReadableStream adapter on a transport failure', async () => {
+        const { xhr, stream: lines } = await start();
+        const reader = new ReadableStream(driverLineStream(lines, {}, undefined)).getReader();
+        const read = reader.read();
+        xhr._networkError();
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+    it('rejects a pending read on timeout after headers', async () => {
+        const { xhr, stream } = await start();
+        const read = stream.next();
+        xhr.dispatchEvent(new Event('timeout'));
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+
 });

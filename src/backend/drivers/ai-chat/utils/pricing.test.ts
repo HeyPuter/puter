@@ -312,6 +312,20 @@ describe('long-context pricing', () => {
         expect(overrides.thinking_tokens).toBe(10 * 1000 * 1.5);
     });
 
+    it('keeps per-call tool fees flat on a long prompt', () => {
+        const overrides = buildCostsOverride(
+            { prompt_tokens: 300_000, web_search_requests: 2, web_search_calls: 3 },
+            longContext({
+                ...rates,
+                web_search_requests: 1_000_000,
+                web_search_calls: 1_000_000,
+            }),
+        );
+        expect(overrides.prompt_tokens).toBe(300_000 * 200 * 2);
+        expect(overrides.web_search_requests).toBe(2_000_000);
+        expect(overrides.web_search_calls).toBe(3_000_000);
+    });
+
     it('leaves a model without long-context pricing at standard rates', () => {
         const overrides = buildCostsOverride(
             { prompt_tokens: 900_000, completion_tokens: 10 },

@@ -189,7 +189,19 @@ export class AuthModule extends PuterModule {
 
             if (window.crossOriginIsolated) {
                 (async () => {
-                    while (true) {
+                    // Bounded too: isolated with a gesture, nothing watches.
+                    const deadline = Date.now() + 5 * 60 * 1000;
+                    while ( ! settled ) {
+                        if ( Date.now() >= deadline ) {
+                            // The only thing that settles this here.
+                            settled = true;
+                            cleanup();
+                            reject({
+                                error: 'auth_timeout',
+                                msg: 'Timed out waiting for the sign-in to finish.',
+                            });
+                            return;
+                        }
                         try {
                             // Pinned to the deployment's own API, the same
                             // way the popup and its message handler pin

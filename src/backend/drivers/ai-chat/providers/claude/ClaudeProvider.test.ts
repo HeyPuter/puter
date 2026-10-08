@@ -47,6 +47,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../../../core/actor.js';
+import { Context } from '../../../../core/context.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -247,6 +248,25 @@ describe('ClaudeProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('ClaudeProvider model catalog', () => {
+    it('lists Haiku 5.5 with its context, output, and long-prompt pricing', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.models().find((model) => model.id === 'claude-haiku-5-5'),
+        ).toMatchObject({
+            release_date: '2026-10-07',
+            knowledge: '2026-06',
+            context: 1_000_000,
+            max_tokens: 128_000,
+            modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+            tool_call: true,
+            long_context_pricing: {
+                threshold: 100_000,
+                input_multiplier: 5,
+                output_multiplier: 5,
+            },
+        });
+    });
+
     it('returns claude-haiku-4-5-20251001 as the default', () => {
         const { provider } = makeProvider();
         expect(provider.getDefaultModel()).toBe('claude-haiku-4-5-20251001');
@@ -294,6 +314,27 @@ describe('ClaudeProvider.complete request shape', () => {
         content: [{ type: 'text', text: 'hi' }],
         usage: { input_tokens: 1, output_tokens: 1 },
     };
+
+    it.each([false, true])(
+        'passes cancellation to the SDK with stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const abort = new AbortController();
+            if (stream)
+                messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
+            else messagesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return provider.complete({
+                    model: 'claude-sonnet-4-6',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream,
+                });
+            });
+            const sdk = stream ? messagesStreamMock : messagesCreateMock;
+            expect(sdk.mock.calls[0][1]?.signal).toBe(abort.signal);
+        },
+    );
 
     it.each([
         [
@@ -1072,6 +1113,7 @@ describe('ClaudeProvider.complete request shape', () => {
 
     it.each([
         'claude-fable-5-1',
+        'claude-haiku-5-5',
         'claude-opus-5-5',
         'claude-sonnet-5-5',
         'claude-sonnet-5',
@@ -1096,6 +1138,7 @@ describe('ClaudeProvider.complete request shape', () => {
 
     it.each([
         'claude-fable-5-1',
+        'claude-haiku-5-5',
         'claude-opus-5-5',
         'claude-sonnet-5-5',
         'claude-sonnet-5',
@@ -1268,6 +1311,10 @@ describe('ClaudeProvider model resolution', () => {
 
 describe('ClaudeProvider.complete non-stream output', () => {
     it.each([
+        ['claude-haiku-5-5', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
+        ['anthropic/claude-haiku-5-5', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
+        ['claude-haiku-5.5', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
+        ['claude-haiku-5-5-latest', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
         ['claude-opus-5-5', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         [
             'anthropic/claude-opus-5-5',
@@ -1281,9 +1328,9 @@ describe('ClaudeProvider.complete non-stream output', () => {
         ['claude-opus', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-latest', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-5-latest', 'claude-opus-5', 500, 625, 1000, 50, 2500],
-        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
-        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
-        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
+        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
+        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
+        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
         ['claude-sonnet-5', 'claude-sonnet-5', 200, 250, 400, 20, 1000],
     ])(
         'resolves and meters %s at its current rates',
@@ -1490,6 +1537,76 @@ describe('ClaudeProvider.complete non-stream output', () => {
 // ── Streaming deltas ────────────────────────────────────────────────
 
 describe('ClaudeProvider.complete streaming', () => {
+    it.each([99_999, 100_000, 100_001])(
+        'meters Haiku 5.5 at %s prompt tokens with cached input and a flat search fee',
+        async (promptTokens) => {
+            const { provider } = makeProvider();
+            const usage = {
+                input_tokens: promptTokens - 90_000,
+                output_tokens: 50,
+                cache_creation_input_tokens: 30_000,
+                cache_creation: {
+                    ephemeral_5m_input_tokens: 10_000,
+                    ephemeral_1h_input_tokens: 20_000,
+                },
+                cache_read_input_tokens: 60_000,
+                server_tool_use: { web_search_requests: 1 },
+            };
+            for (const stream of [false, true]) {
+                if (stream) {
+                    messagesStreamMock.mockReturnValueOnce(
+                        makeStreamLike([], usage),
+                    );
+                } else {
+                    messagesCreateMock.mockResolvedValueOnce({
+                        content: [{ type: 'text', text: 'hi' }],
+                        usage,
+                    });
+                }
+                const result = await withTestActor(() =>
+                    provider.complete({
+                        model: 'claude-haiku-5-5',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        stream,
+                    }),
+                );
+                if (stream) {
+                    const { chatStream } = makeCapturingChatStream();
+                    await withTestActor(() =>
+                        (
+                            result as {
+                                init_chat_stream: (params: {
+                                    chatStream: AIChatStream;
+                                }) => Promise<void>;
+                            }
+                        ).init_chat_stream({ chatStream }),
+                    );
+                }
+                const multiplier = promptTokens > 100_000 ? 5 : 1;
+                expect(recordSpy.mock.lastCall).toEqual([
+                    {
+                        input_tokens: promptTokens - 90_000,
+                        output_tokens: 50,
+                        ephemeral_5m_input_tokens: 10_000,
+                        ephemeral_1h_input_tokens: 20_000,
+                        cache_read_input_tokens: 60_000,
+                        web_search_requests: 1,
+                    },
+                    SYSTEM_ACTOR,
+                    'claude:claude-haiku-5-5',
+                    {
+                        input_tokens: (promptTokens - 90_000) * 10 * multiplier,
+                        output_tokens: 50 * 50 * multiplier,
+                        ephemeral_5m_input_tokens: 10_000 * 12.5 * multiplier,
+                        ephemeral_1h_input_tokens: 20_000 * 20 * multiplier,
+                        cache_read_input_tokens: 60_000 * multiplier,
+                        web_search_requests: 1_000_000,
+                    },
+                ]);
+            }
+        },
+    );
+
     it('rejects from complete() when the upstream refuses the stream, so the driver can fall back', async () => {
         const { provider } = makeProvider();
         const refused = Object.assign(new Error('Overloaded'), {

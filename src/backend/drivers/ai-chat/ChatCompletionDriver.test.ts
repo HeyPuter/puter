@@ -548,7 +548,7 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
                 id: 'priced',
                 aliases: [],
                 costs_currency: 'usd-cents',
-                costs: { input_tokens: 1000, output_tokens: 2000 },
+                costs: { input_tokens: 1000, output_tokens: 2000, web_search_requests: 1_000_000 },
                 long_context_pricing: {
                     threshold: 5,
                     input_multiplier: 2,
@@ -564,7 +564,7 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
                 role: 'assistant',
                 content: [{ type: 'text', text: 'ok' }],
             },
-            usage: { input_tokens: 10, output_tokens: 7 },
+            usage: { input_tokens: 10, output_tokens: 7, web_search_requests: 1 },
             finish_reason: 'stop',
         } as never);
 
@@ -575,7 +575,7 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
             }),
         )) as { usage: Record<string, number> };
 
-        const expectedMicroCents = 10 * 1000 * 2 + 7 * 2000 * 1.5;
+        const expectedMicroCents = 10 * 1000 * 2 + 7 * 2000 * 1.5 + 1_000_000;
         expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
     });
 

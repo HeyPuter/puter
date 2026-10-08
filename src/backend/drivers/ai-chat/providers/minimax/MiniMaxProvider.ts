@@ -84,23 +84,26 @@ export class MiniMaxProvider implements IChatProvider {
             ? make_openai_tools(tools, { dialect: 'chat' })
             : undefined;
 
-        const completion = await this.#openai.chat.completions.create({
-            messages,
-            model: modelUsed.apiModel,
-            ...(mappedTools?.length ? { tools: mappedTools } : {}),
-            max_tokens: Math.min(requestedMaxTokens, modelUsed.max_tokens),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(top_p !== undefined ? { top_p } : {}),
-            stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-            ...openAICompatParams({ ...args, tools: mappedTools }, 'chat', {
-                only: ['tool_choice'],
-            }),
-        } as unknown as ChatCompletionCreateParams);
+        const completion = await this.#openai.chat.completions.create(
+            {
+                messages,
+                model: modelUsed.apiModel,
+                ...(mappedTools?.length ? { tools: mappedTools } : {}),
+                max_tokens: Math.min(requestedMaxTokens, modelUsed.max_tokens),
+                ...(temperature !== undefined ? { temperature } : {}),
+                ...(top_p !== undefined ? { top_p } : {}),
+                stream,
+                ...(stream
+                    ? {
+                          stream_options: { include_usage: true },
+                      }
+                    : {}),
+                ...openAICompatParams({ ...args, tools: mappedTools }, 'chat', {
+                    only: ['tool_choice'],
+                }),
+            } as unknown as ChatCompletionCreateParams,
+            { signal: Context.get('abortSignal') },
+        );
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
