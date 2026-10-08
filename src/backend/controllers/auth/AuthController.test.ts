@@ -398,8 +398,7 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
 
         const rejected = results.find((r) => r.status === 'rejected') as
-            | PromiseRejectedResult
-            | undefined;
+            PromiseRejectedResult | undefined;
         expect(rejected?.reason).toMatchObject({ statusCode: 400 });
     });
 
@@ -2972,7 +2971,7 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
     });
 
-    it("refuses a foreign path the same way whether or not it is there", async () => {
+    it('refuses a foreign path the same way whether or not it is there', async () => {
         const missing = `/${target.username}/absent-${rand()}`;
         const present = `/${target.username}/present-${rand()}`;
         await server.services.fs.mkdir(target.id, {
@@ -3169,6 +3168,101 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(missingPath),
         ).toBeFalsy();
+    });
+
+    // The GUI consent gate: a user asking what an app of theirs may reach.
+    const checkViaGate = async (permission: string): Promise<boolean> => {
+        const res = makeRes();
+        await inCtx(userActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: appUid },
+                    { actor: userActor },
+                ),
+                res,
+            ),
+        );
+        return (res.body as { permissions: Record<string, boolean> })
+            .permissions[permission];
+    };
+
+    /** A file with no grant of its own, so only an ancestor can answer for it. */
+    const fileWithNoGrantOfItsOwn = async (dirPath: string) => {
+        const filePath = `${dirPath}/doc-${rand()}.txt`;
+        await grant({ permission: `fs:${filePath}:write`, create: 'file' });
+        await revoke({ permission: `fs:${filePath}:write` });
+        const entry = await server.stores.fsEntry.getEntryByPath(filePath);
+        return entry!.uuid;
+    };
+
+    it('settles the gate from a grant the app holds on a folder above', async () => {
+        const dir = path(`.gatedir-${rand()}`);
+        await grant({ permission: `fs:${dir}:write`, create: true });
+        const fileUuid = await fileWithNoGrantOfItsOwn(dir);
+
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${fileUuid}:write`,
+        );
+        expect(await checkViaGate(`fs:${fileUuid}:write`)).toBe(true);
+    });
+
+    it('still prompts for a file no grant of the app reaches', async () => {
+        const held = path(`.gateheld-${rand()}`);
+        const other = path(`.gateother-${rand()}`);
+        await grant({ permission: `fs:${held}:write`, create: true });
+        await grant({ permission: `fs:${other}:write`, create: true });
+        await revoke({ permission: `fs:${other}:write` });
+        const fileUuid = await fileWithNoGrantOfItsOwn(other);
+
+        expect(await checkViaGate(`fs:${fileUuid}:write`)).toBe(false);
+    });
+
+    it('answers a mode the folder grant does not cover', async () => {
+        const dir = path(`.gatemode-${rand()}`);
+        await grant({ permission: `fs:${dir}:read`, create: true });
+        const fileUuid = await fileWithNoGrantOfItsOwn(dir);
+
+        expect(await checkViaGate(`fs:${fileUuid}:read`)).toBe(true);
+        expect(await checkViaGate(`fs:${fileUuid}:write`)).toBe(false);
+    });
+
+    it('leaves a non-fs permission on the scan it was always answered by', async () => {
+        const permission = `apps-of-user:${user.uuid}:read`;
+        expect(await checkViaGate(permission)).toBe(false);
+        await grant({ permission });
+        expect(await checkViaGate(permission)).toBe(true);
+    });
+
+    it('answers false for a permission that is not a string, rather than faulting', async () => {
+        for (const junk of [123, null, {}, []]) {
+            const res = makeRes();
+            await inCtx(userActor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        { permissions: [junk], app_uid: appUid },
+                        { actor: userActor },
+                    ),
+                    res,
+                ),
+            );
+            expect(res.statusCode).toBe(200);
+            expect(
+                (res.body as { permissions: Record<string, boolean> })
+                    .permissions[junk as unknown as string],
+            ).toBe(false);
+        }
+    });
+
+    it('answers the same for a file whether it is named by uid or by path', async () => {
+        const dir = path(`.gateform-${rand()}`);
+        await grant({ permission: `fs:${dir}:write`, create: true });
+        const filePath = `${dir}/doc-${rand()}.txt`;
+        await grant({ permission: `fs:${filePath}:write`, create: 'file' });
+        await revoke({ permission: `fs:${filePath}:write` });
+        const entry = await server.stores.fsEntry.getEntryByPath(filePath);
+
+        expect(await checkViaGate(`fs:${entry!.uuid}:write`)).toBe(true);
+        expect(await checkViaGate(`fs:${filePath}:write`)).toBe(true);
     });
 
     it('ignores `create` on a non-fs permission and grants it normally', async () => {

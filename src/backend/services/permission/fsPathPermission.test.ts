@@ -24,6 +24,7 @@ import {
     MAX_CREATE_DEPTH,
     parseCreateFlag,
     parseFsPathPermission,
+    parseFsUidPermission,
 } from './fsPathPermission.js';
 
 describe('parseFsPathPermission', () => {
@@ -61,7 +62,11 @@ describe('parseFsPathPermission', () => {
     });
 
     it('is null for a uid-addressed fs permission', () => {
-        expect(parseFsPathPermission('fs:11111111-1111-1111-1111-111111111111:read')).toBeNull();
+        expect(
+            parseFsPathPermission(
+                'fs:11111111-1111-1111-1111-111111111111:read',
+            ),
+        ).toBeNull();
     });
 
     it('is null for a non-fs permission', () => {
@@ -71,6 +76,42 @@ describe('parseFsPathPermission', () => {
     it('is null for a bare `fs` with nothing after it', () => {
         expect(parseFsPathPermission('fs:read')).toBeNull();
     });
+});
+
+describe('parseFsUidPermission', () => {
+    it('splits a uid-addressed permission', () => {
+        expect(parseFsUidPermission('fs:abc-123:write')).toEqual({
+            uid: 'abc-123',
+            mode: 'write',
+        });
+    });
+
+    it('is null for the path-addressed form', () => {
+        expect(parseFsUidPermission('fs:/dan/.mail:write')).toBeNull();
+    });
+
+    it('is null for a manage-prefixed permission', () => {
+        expect(parseFsUidPermission('manage:fs:abc-123')).toBeNull();
+    });
+
+    it('is null for a non-fs permission', () => {
+        expect(parseFsUidPermission('apps-of-user:u1:read')).toBeNull();
+    });
+
+    it.each([123, null, undefined, {}, []])(
+        'is null for %s, which is not a permission at all',
+        (junk) => {
+            expect(parseFsUidPermission(junk as never)).toBeNull();
+            expect(parseFsPathPermission(junk as never)).toBeNull();
+        },
+    );
+
+    it.each(['fs:abc-123', 'fs:abc-123:write:create', 'fs:read'])(
+        'is null for %s, which carries no single mode',
+        (permission) => {
+            expect(parseFsUidPermission(permission)).toBeNull();
+        },
+    );
 });
 
 describe('fsCreateKindFor', () => {
@@ -125,34 +166,52 @@ describe('assertCreatablePath', () => {
 
     it("rejects another user's home with 403 forbidden", () => {
         expect(() => assertCreatablePath('/bob/x', 'dan')).toThrowError(
-            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+            expect.objectContaining({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            }),
         );
     });
 
     it('rejects the bare home directory itself', () => {
         expect(() => assertCreatablePath('/dan', 'dan')).toThrowError(
-            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+            expect.objectContaining({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            }),
         );
     });
 
     it('rejects AppData', () => {
         expect(() => assertCreatablePath('/dan/AppData/x', 'dan')).toThrowError(
-            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+            expect.objectContaining({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            }),
         );
     });
 
     it('rejects Trash', () => {
         expect(() => assertCreatablePath('/dan/Trash/x', 'dan')).toThrowError(
-            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+            expect.objectContaining({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            }),
         );
     });
 
     it('rejects AppData/Trash regardless of case', () => {
         expect(() => assertCreatablePath('/dan/appdata/x', 'dan')).toThrowError(
-            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+            expect.objectContaining({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            }),
         );
         expect(() => assertCreatablePath('/dan/TRASH/x', 'dan')).toThrowError(
-            expect.objectContaining({ statusCode: 403, legacyCode: 'forbidden' }),
+            expect.objectContaining({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            }),
         );
     });
 
