@@ -26,7 +26,7 @@ const zh = {
         account: '账号',
         account_password: '账号密码验证',
         access_granted_to: '访问授权给',
-        add_existing_account: '添加现有帐号',
+        add_another_account: '添加其他帐号',
         all_fields_required: '所有字段都是必需的。',
         allow: '允许',
         apply: '应用',

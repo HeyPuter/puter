@@ -26,7 +26,7 @@ const pl = {
         account: 'Konto',
         account_password: 'Sprawdź hasło do konta',
         access_granted_to: 'Przyznano dostęp do',
-        add_existing_account: 'Dodaj istniejące konto',
+        add_another_account: 'Dodaj inne konto',
         all_fields_required: 'Wszystkie pola są wymagane.',
         allow: 'Pozwól',
         apply: 'Zaaplikuj',

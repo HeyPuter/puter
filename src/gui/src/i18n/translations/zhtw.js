@@ -37,7 +37,7 @@ const zhtw = {
         add_app_request_failed: '無法送出您的需求，請再試一次。',
         add_app_request_placeholder: '我希望 Puter 提供的應用程式是……',
         add_app_request_sent: '謝謝，您的需求已送達我們的團隊。如果您的帳戶設有電子郵件，我們可能會透過該信箱與您聯絡。',
-        add_existing_account: '新增現有帳戶',
+        add_another_account: '新增其他帳戶',
         add_to_desktop: '新增至桌面',
         ai_app_unavailable: 'AI 應用程式目前無法使用，請稍後再試。',
         all_fields_required: '所有欄位都是必填的。',

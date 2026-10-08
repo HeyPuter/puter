@@ -26,7 +26,7 @@ const hy = {
         account: 'Հաշիվ',
         account_password: 'Հաստատել հաշվի գաղտնաբառը',
         access_granted_to: 'Մուտքը տրված է՝',
-        add_existing_account: 'Ավելացնել առկա հաշիվ',
+        add_another_account: 'Ավելացնել այլ հաշիվ',
         all_fields_required: 'Բոլոր դաշտերը պարտադիր են',
         allow: 'Թույլատրել',
         apply: 'Կիրառել',

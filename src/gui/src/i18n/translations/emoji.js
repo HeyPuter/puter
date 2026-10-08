@@ -23,7 +23,7 @@ const emoji = {
     code: 'emoji',
     dictionary: {
         access_granted_to: '🔓✅',
-        add_existing_account: '➕🔄👤',
+        add_another_account: '➕👤',
         all_fields_required: '📝🔒✅',
         apply: '📋🔄',
         ascending: '🔼',

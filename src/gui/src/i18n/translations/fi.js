@@ -26,7 +26,7 @@ const fi = {
         account: 'Tili',
         account_password: 'Vahvista tilin salasana',
         access_granted_to: 'Käyttöoikeus myönnetty',
-        add_existing_account: 'Kirjaudu olemassaolevalla tilillä',
+        add_another_account: 'Lisää toinen tili',
         all_fields_required: 'Kaikki kentät on täytettävä.',
         allow: 'Salli',
         apply: 'Käytä', // TODO: Ambiguous meaning

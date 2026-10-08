@@ -26,7 +26,7 @@ const sv = {
         account: 'Konto',
         account_password: 'Bekräfta kontolösenord',
         access_granted_to: 'Tillgång beviljad till',
-        add_existing_account: 'Lägg till befintligt konto',
+        add_another_account: 'Lägg till ett annat konto',
         all_fields_required: 'Alla fält är obligatoriska.',
         allow: 'Tillåt',
         apply: 'Tillämpa',
