@@ -900,6 +900,7 @@ export class Puter {
         // Same opt-out as `/rao`: a disposable per-invocation client has no
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
+        const issuedUnder = this.authToken;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
@@ -911,7 +912,10 @@ export class Puter {
                 },
             });
             if (!resp.ok) return null;
-            this.whoami = await resp.json();
+            const body = await resp.json();
+            // The answer belongs to the token that asked for it.
+            if (this.authToken !== issuedUnder) return null;
+            this.whoami = body;
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
@@ -984,7 +988,11 @@ export class Puter {
     setAuthToken = function (authToken) {
         const normalizedAuthToken =
             this.normalizeAuthTokenCandidate(authToken);
+        // Keys carry the token, and the store is persisted with no TTL.
+        const changed =
+            this.authToken && this.authToken !== normalizedAuthToken;
         this.authToken = normalizedAuthToken;
+        if (changed) this._dropIdentityCaches();
 
         // Keep app identity consistent with token claims whenever available.
         const tokenAppID = this.getAppIDFromAuthToken(normalizedAuthToken);
@@ -1092,8 +1100,59 @@ export class Puter {
      *
      * @internal
      */
+    /** Windows this SDK opened; the GUI posts a token back to its opener. */
+    openedWindows_ = new Set();
+
+    /** @internal */
+    trackOpenedWindow_ = function (win) {
+        if (!win) return;
+        this.openedWindows_.add(win);
+        // Closed ones are kept, so bound the set rather than the lifetime.
+        while (this.openedWindows_.size > 8) {
+            this.openedWindows_.delete(
+                this.openedWindows_.values().next().value,
+            );
+        }
+    };
+
+    /** Framed, only the embedder sends a token; top-level, only our popup. */
+    tokenSourceAllowed_ = function (source) {
+        if (!source) return false;
+        if (globalThis.parent !== globalThis) {
+            return source === globalThis.parent;
+        }
+        // Closed still counts, as `UI.js` does: it may post, then close.
+        for (const win of [...this.openedWindows_]) {
+            if (win === source) return true;
+        }
+        return false;
+    };
+
+    /** Cache key for `kind` at `path`, scoped to the identity it was read as. */
+    fsCacheKey = function (kind, path) {
+        // `~` resolved, so two spellings of one place share a key.
+        const username = this.whoami?.username;
+        const resolved =
+            username && typeof path === 'string' && path.startsWith('~')
+                ? `/${username}${path.slice(1)}`
+                : path;
+        return `${kind}:${this.APIOrigin}:${this.authToken}:${resolved}`;
+    };
+
+    /** Nothing read as one identity may answer for the next. */
+    _dropIdentityCaches = function () {
+        this.whoami = undefined;
+        this.whoamiCache_ = null;
+        try {
+            this._cache.flushall();
+        } catch (e) {
+            // A cache we cannot clear must not stop the sign-out.
+        }
+    };
+
     _clearAuthToken = function () {
         this.authToken = null;
+        this._dropIdentityCaches();
         if (this.env === 'web' || this.env === 'app') {
             this.storeSessionToken_(null);
             try {
@@ -1195,6 +1254,12 @@ export class Puter {
                 // ensures the message came from the actual embedder.
                 await new Promise((resolve, reject) => {
                     const expectedSource = globalThis.parent;
+                    let timer = null;
+                    const stop = () => {
+                        globalThis.removeEventListener?.('message', onToken);
+                        if (timer) clearTimeout(timer);
+                        timer = null;
+                    };
                     const onToken = (event) => {
                         if (event.origin !== this.defaultGUIOrigin) return;
                         if (
@@ -1203,17 +1268,14 @@ export class Puter {
                         )
                             return;
                         if (event.data?.msg !== 'puter.token') return;
-                        globalThis.removeEventListener('message', onToken);
+                        stop();
                         resolve();
                     };
                     globalThis.addEventListener?.('message', onToken);
                     // Give the user a generous window to re-auth.
-                    setTimeout(
+                    timer = setTimeout(
                         () => {
-                            globalThis.removeEventListener?.(
-                                'message',
-                                onToken,
-                            );
+                            stop();
                             reject(new Error('reauth_timeout'));
                         },
                         5 * 60 * 1000,
@@ -1872,7 +1934,7 @@ export class Puter {
         let public_path = `/${username}/Public`;
 
         // item:Home
-        if (!puter._cache.get(`item:${home_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', home_path))) {
             console.log(
                 `/${username} item is not cached, refetching cache`,
             );
@@ -1880,7 +1942,7 @@ export class Puter {
             warm(puter.fs.stat(home_path));
         }
         // item:Desktop
-        if (!puter._cache.get(`item:${desktop_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', desktop_path))) {
             console.log(
                 `/${username}/Desktop item is not cached, refetching cache`,
             );
@@ -1888,7 +1950,7 @@ export class Puter {
             warm(puter.fs.stat(desktop_path));
         }
         // item:Documents
-        if (!puter._cache.get(`item:${documents_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', documents_path))) {
             console.log(
                 `/${username}/Documents item is not cached, refetching cache`,
             );
@@ -1896,7 +1958,7 @@ export class Puter {
             warm(puter.fs.stat(documents_path));
         }
         // item:Public
-        if (!puter._cache.get(`item:${public_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', public_path))) {
             console.log(
                 `/${username}/Public item is not cached, refetching cache`,
             );
@@ -1905,13 +1967,13 @@ export class Puter {
         }
 
         // readdir:Home
-        if (!puter._cache.get(`readdir:${home_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', home_path))) {
             console.log(`/${username} is not cached, refetching cache`);
             // fetch home
             warm(puter.fs.readdir(home_path));
         }
         // readdir:Desktop
-        if (!puter._cache.get(`readdir:${desktop_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', desktop_path))) {
             console.log(
                 `/${username}/Desktop is not cached, refetching cache`,
             );
@@ -1919,7 +1981,7 @@ export class Puter {
             warm(puter.fs.readdir(desktop_path));
         }
         // readdir:Documents
-        if (!puter._cache.get(`readdir:${documents_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', documents_path))) {
             console.log(
                 `/${username}/Documents is not cached, refetching cache`,
             );
@@ -1927,7 +1989,7 @@ export class Puter {
             warm(puter.fs.readdir(documents_path));
         }
         // readdir:Public
-        if (!puter._cache.get(`readdir:${public_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', public_path))) {
             console.log(
                 `/${username}/Public is not cached, refetching cache`,
             );
@@ -2002,8 +2064,7 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
-            // Inside the desktop, only the embedding desktop hands out tokens.
-            if (puter.env === 'app' && event.source !== globalThis.parent) {
+            if (!puter.tokenSourceAllowed_(event.source)) {
                 return;
             }
             // Set the authToken property

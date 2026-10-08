@@ -57,7 +57,7 @@ const statImpl = async function (...args) {
     // events, share changes) can't reach an entry keyed by uid.
     let cacheKey;
     if ( options.uid === undefined && options.path ) {
-        cacheKey = `item:${ options.path}`;
+        cacheKey = puter.fsCacheKey('item', options.path);
     }
 
     if ( cacheKey && options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize && !options.returnShares ) {
@@ -67,8 +67,10 @@ const statImpl = async function (...args) {
         }
     }
 
-    // Requests made with the same parameters share one backend call.
+    // Same parameters share one call; origin and token keep identities apart.
     const deduplicationKey = 'fs:stat:' + JSON.stringify({
+        apiOrigin: this.APIOrigin,
+        authToken: this.authToken,
         path: options.path,
         uid: options.uid,
         returnSubdomains: options.returnSubdomains || options.returnWorkers,

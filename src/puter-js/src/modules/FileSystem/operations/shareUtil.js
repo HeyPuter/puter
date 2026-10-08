@@ -121,7 +121,7 @@ export const invalidateShareCache = (items) => {
             puter._cache.flushall();
             return;
         }
-        puter._cache.del(`item:${ item.path}`);
-        puter._cache.del(`readdir:${ path.dirname(item.path)}`);
+        puter._cache.del(puter.fsCacheKey('item', item.path));
+        puter._cache.del(puter.fsCacheKey('readdir', path.dirname(item.path)));
     }
 };

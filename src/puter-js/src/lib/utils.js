@@ -149,14 +149,6 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     }
     // success
     else {
-        // This is a driver error
-        if ( resp.success === false && resp.error?.code === 'permission_denied' ) {
-            let perm = await puter.ui.requestPermission({ permission: 'driver:puter-image-generation:generate' });
-            // try sending again if permission was granted
-            if ( perm === true ) {
-                // todo repeat request
-            }
-        }
         // if success callback is provided, call it
         if ( success_cb && typeof success_cb === 'function' )
         {

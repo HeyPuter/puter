@@ -118,6 +118,9 @@ beforeEach(() => {
         env: 'nodejs',
         appID: undefined,
         _cache: makeCache(),
+        // As the real one: keys carry the identity they were read as.
+        fsCacheKey: (kind, path) =>
+            `${kind}:https://api.test:test-token:${path}`,
         fs,
     };
 });
@@ -439,6 +442,18 @@ describe('stat', () => {
         FakeXHR.requests = [];
         await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
         expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('does not serve one identity a result read as another', async () => {
+        await fs.stat('/a/file.txt');
+        FakeXHR.requests = [];
+        // Same path, same realm, different token: a `~`-shaped key would hit.
+        globalThis.puter.fsCacheKey = (kind, path) =>
+            `${kind}:https://api.test:other-token:${path}`;
+        fs.authToken = 'other-token';
+
+        await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
     });
 
     it('asks for shares and publishes them in the SDK shape', async () => {
