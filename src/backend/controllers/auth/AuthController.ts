@@ -1093,26 +1093,46 @@ export class AuthController extends PuterController {
             // otherwise both "succeed", the second overwriting the first's
             // username and password on a row the first was already given a
             // session for.
-            const claimed = await this.stores.user.claimPlaceholder(
-                pseudo_user.id,
-                {
-                    username: body.username,
-                    password: password_hash,
-                    uuid: user_uuid,
-                    email_confirm_code,
-                    email_confirm_token,
-                    email_confirmed: 0,
-                    requires_email_confirmation: 1,
-                    last_activity_ts: signupSqlTs,
-                    ...(validateEvent.reputation != null
-                        ? { reputation: validateEvent.reputation }
-                        : {}),
-                    requires_phone_verification: force_phone_verification
-                        ? 1
-                        : 0,
-                    requires_card_verification: force_card_verification ? 1 : 0,
-                },
-            );
+            let claimed: boolean;
+            try {
+                claimed = await this.stores.user.claimPlaceholder(
+                    pseudo_user.id,
+                    {
+                        username: body.username,
+                        password: password_hash,
+                        uuid: user_uuid,
+                        email_confirm_code,
+                        email_confirm_token,
+                        email_confirmed: 0,
+                        requires_email_confirmation: 1,
+                        last_activity_ts: signupSqlTs,
+                        ...(validateEvent.reputation != null
+                            ? { reputation: validateEvent.reputation }
+                            : {}),
+                        requires_phone_verification: force_phone_verification
+                            ? 1
+                            : 0,
+                        requires_card_verification: force_card_verification
+                            ? 1
+                            : 0,
+                    },
+                );
+            } catch (e) {
+                if (
+                    await this.#isUsernameTaken(
+                        e,
+                        body.username,
+                        pseudo_user.id,
+                    )
+                ) {
+                    throw new HttpError(
+                        400,
+                        'This username already exists in our database. Please use another one.',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                throw e;
+            }
             if (!claimed) {
                 throw new HttpError(
                     400,
@@ -2794,9 +2814,24 @@ export class AuthController extends PuterController {
             );
         }
 
-        await this.stores.user.update(req.actor!.user.id!, {
-            username: new_username,
-        });
+        try {
+            await this.stores.user.update(req.actor!.user.id!, {
+                username: new_username,
+            });
+        } catch (e) {
+            if (
+                await this.#isUsernameTaken(
+                    e,
+                    new_username,
+                    req.actor!.user.id!,
+                )
+            ) {
+                throw new HttpError(400, 'This username is already taken.', {
+                    legacyCode: 'username_already_in_use',
+                });
+            }
+            throw e;
+        }
         await consumeRouteRateLimit(req, CHANGE_USERNAME_LIMIT);
 
         // Rename the user's FS home from `/<old>` to `/<new>` and
@@ -3180,10 +3215,17 @@ export class AuthController extends PuterController {
                 requires_email_confirmation: 1,
             });
         } catch (e) {
-            if (!isOwnedEmailConflict(e)) throw e;
-            throw new HttpError(400, 'This email is already in use.', {
-                legacyCode: 'email_already_in_use' as never,
-            });
+            if (isOwnedEmailConflict(e)) {
+                throw new HttpError(400, 'This email is already in use.', {
+                    legacyCode: 'email_already_in_use' as never,
+                });
+            }
+            if (await this.#isUsernameTaken(e, username, user.id)) {
+                throw new HttpError(400, 'This username is already taken.', {
+                    legacyCode: 'username_already_in_use',
+                });
+            }
+            throw e;
         }
 
         // Rename the user's FS home so `/<temp>/Desktop` etc.
@@ -5103,14 +5145,20 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Whether a failed user write lost `username` to a concurrent one. The
-     * primary is read because the winner may not have replicated yet.
+     * Whether a failed write to user `ownId` (none for an insert) lost
+     * `username` to another account. The primary is read because the winner may
+     * not have replicated yet.
      */
-    async #isUsernameTaken(err: unknown, username: string): Promise<boolean> {
+    async #isUsernameTaken(
+        err: unknown,
+        username: string,
+        ownId?: number,
+    ): Promise<boolean> {
         if (!isUniqueViolation(err)) return false;
-        return Boolean(
-            await this.stores.user.getByUsername(username, { force: true }),
-        );
+        const holder = await this.stores.user.getByUsername(username, {
+            force: true,
+        });
+        return Boolean(holder && holder.id !== ownId);
     }
 
     /**
