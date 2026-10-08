@@ -71,8 +71,6 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 
 An input over its limit is rejected before it reaches the model. OCR input limits are under [OCR](#ocr).
 
-Claude Sonnet 5.5 has a 1M-token context window and a 128K output limit. Mistral Large 4's configured context and output ceilings are 1M tokens combined; its provider does not publish a separate output limit on the model card. Chat output is also bounded by the context remaining after the prompt and the caller's available credits. See [model availability and pricing](/AI/chat/#claude-sonnet-55-and-mistral-large-4).
-
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.

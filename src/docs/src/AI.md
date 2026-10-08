@@ -7,8 +7,6 @@ The Puter.js AI feature allows you to integrate artificial intelligence capabili
 
 You can use AI models from various providers to perform tasks such as chat, text-to-image, image-to-text, text-to-video, and text-to-speech conversion. And with the [User-Pays Model](/user-pays-model/), you don't have to set up your own API keys and top up credits, because users cover their own AI costs.
 
-Chat models include Claude Sonnet 5.5 (`claude-sonnet-5-5`) and Mistral Large 4 (`mistral-large-4`, public preview). See [their availability, pricing, and example](/AI/chat/#claude-sonnet-55-and-mistral-large-4), or query [`puter.ai.listModels()`](/AI/listModels) for the current catalog.
-
 ## Features
 
 <div style="overflow:hidden; margin-bottom: 30px;">
