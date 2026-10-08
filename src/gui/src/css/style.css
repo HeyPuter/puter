@@ -4928,6 +4928,16 @@ fieldset[name=number-code] {
 #storage-used-percent, .usage-progbar-percent {
     font-weight: 500;
 }
+
+.usage-addon-credits {
+    margin: 8px 0 0;
+    font-size: 13px;
+    opacity: 0.85;
+}
+
+.usage-addon-note {
+    opacity: 0.7;
+}
 .driver-usage-container{
     flex-grow: 1;
     display: flex;
