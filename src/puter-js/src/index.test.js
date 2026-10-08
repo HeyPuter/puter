@@ -254,9 +254,10 @@ describe('token adoption on a top-level page', () => {
         puter.trackOpenedWindow_(popup);
         expect(puter.tokenSourceAllowed_(popup)).toBe(true);
 
-        // A popup the user closed is no longer a sender we know.
+        // Still ours once closed: a popup that posts and then closes itself
+        // would otherwise lose the message it had just sent.
         popup.closed = true;
-        expect(puter.tokenSourceAllowed_(popup)).toBe(false);
+        expect(puter.tokenSourceAllowed_(popup)).toBe(true);
     });
 });
 

@@ -162,7 +162,7 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
  * The one XHR builder both `initXhr` (utils.js) and `fetchUrl` wrap. Opens the
  * request, applies headers/credentials/responseType, and stashes the whole
  * `spec` on `xhr._puterReq` as the single replay representation — any attempt
- * (reauth, permission, transient) rebuilds the request by calling
+ * (reauth, transient) rebuilds the request by calling
  * `buildXhr(spec)` again, which re-reads the live token when
  * `includePuterAuth`.
  *
@@ -383,7 +383,7 @@ async function bodyForLog(xhr) {
 
 // -- Retry engine --
 // One loop drives every request: build the XHR from its spec, send, classify
-// the outcome, and either replay (reauth / permission / transient backoff) or
+// the outcome, and either replay (reauth / transient backoff) or
 // hand the result to the caller's shaper. A replay just rebuilds from the same
 // spec, so there are no hand-listed argument lists to get wrong.
 
@@ -498,7 +498,9 @@ const pendingVerificationGates = new Map();
  */
 async function resolveVerificationGate(code, factors) {
     if (globalThis.puter?.env !== 'app') return { verified: false };
-    const key = `${code}:${Array.isArray(factors) ? factors.join(',') : ''}`;
+    // The gate alone, as `ctx.done` keys it: one route naming its factors and
+    // another not is still the same dialog, not two.
+    const key = code;
     let pending = pendingVerificationGates.get(key);
     if (!pending) {
         pending = (async () => {
@@ -643,7 +645,7 @@ function sendOnce(spec) {
 }
 
 /**
- * Classify a completed attempt into a retry decision. Reauth, permission, and
+ * Classify a completed attempt into a retry decision. Reauth and
  * the phone-verification gate are one-shot (tracked in `ctx.done`) and apply
  * to any request; transient backoff
  * applies only to `ctx.retrySafe` requests and honors the autoRetry kill
@@ -718,7 +720,7 @@ async function classifyRetry(outcome, ctx) {
 
 /**
  * The one retry loop. Sends `spec` (rebuilding per attempt), classifies each
- * outcome, and retries on reauth / permission / transient causes; otherwise
+ * outcome, and retries on reauth / transient causes; otherwise
  * hands the outcome to `shape`.
  *
  * @param {Object} spec - BuildXhr spec (+ optional buildBody, signal).
@@ -728,8 +730,6 @@ async function classifyRetry(outcome, ctx) {
  * @param {boolean} [opts.retryGated=true] - Eligible for 429 backoff retry,
  *   regardless of method (the gate rejects before the handler runs). Default is
  *   `true`
- * @param {string | null} [opts.permission] - `driver:<iface>:<method>` enables
- *   the permission cause.
  * @param {(lineStream, xhr) => any} opts.shapeStream - Wrap an NDJSON stream.
  * @param {(outcome) => any} opts.shape - Shape a buffered outcome (may throw).
  */
@@ -738,7 +738,6 @@ async function sendWithRetry(
     {
         retrySafe = false,
         retryGated = true,
-        permission = null,
         shapeStream,
         shape,
     },
@@ -747,7 +746,6 @@ async function sendWithRetry(
         attempt: 0,
         retrySafe,
         retryGated,
-        permission,
         done: new Set(),
     };
     while (true) {
@@ -1130,7 +1128,7 @@ async function driverCall(call, opts = {}) {
         retrySafe: readonly,
         shapeStream: (lineStream) =>
             driverLineStream(lineStream, puter, promptContext),
-        // Reauth, permission grants, and transient retries are already spent by
+        // Reauth and transient retries are already spent by
         // the time the engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {
             if (outcome.networkError) {

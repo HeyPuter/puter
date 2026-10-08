@@ -72,9 +72,13 @@ export const hasOpaqueOrigin = () => {
 export const openAuthPopup = (url, title = 'Puter') => {
     const left = (screen.width / 2) - (POPUP_WIDTH / 2);
     const top = (screen.height / 2) - (POPUP_HEIGHT / 2);
-    return window.open(
+    // Registered here, the one place auth popups are opened, so the SDK's
+    // token handler recognises whichever of them posts back.
+    const popup = window.open(
         url,
         title,
         `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${POPUP_WIDTH}, height=${POPUP_HEIGHT}, top=${top}, left=${left}`,
     );
+    globalThis.puter?.trackOpenedWindow_?.(popup);
+    return popup;
 };

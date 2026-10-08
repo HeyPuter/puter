@@ -1105,7 +1105,14 @@ export class Puter {
 
     /** @internal */
     trackOpenedWindow_ = function (win) {
-        if (win) this.openedWindows_.add(win);
+        if (!win) return;
+        this.openedWindows_.add(win);
+        // Closed ones are kept, so bound the set rather than the lifetime.
+        while (this.openedWindows_.size > 8) {
+            this.openedWindows_.delete(
+                this.openedWindows_.values().next().value,
+            );
+        }
     };
 
     /** Framed, only the embedder sends a token; top-level, only our popup. */
@@ -1114,15 +1121,9 @@ export class Puter {
         if (globalThis.parent !== globalThis) {
             return source === globalThis.parent;
         }
+        // A closed one still counts, as `UI.js` does: a popup that posts and
+        // closes itself would otherwise lose the message it just sent.
         for (const win of [...this.openedWindows_]) {
-            try {
-                if (win.closed) {
-                    this.openedWindows_.delete(win);
-                    continue;
-                }
-            } catch (e) {
-                continue;
-            }
             if (win === source) return true;
         }
         return false;
@@ -1130,7 +1131,14 @@ export class Puter {
 
     /** Cache key for `kind` at `path`, scoped to the identity it was read as. */
     fsCacheKey = function (kind, path) {
-        return `${kind}:${this.APIOrigin}:${this.authToken}:${path}`;
+        // `~` resolved, so a writer and an invalidation that spell the same
+        // place differently still land on one key.
+        const username = this.whoami?.username;
+        const resolved =
+            username && typeof path === 'string' && path.startsWith('~')
+                ? `/${username}${path.slice(1)}`
+                : path;
+        return `${kind}:${this.APIOrigin}:${this.authToken}:${resolved}`;
     };
 
     /** Nothing read as one identity may answer for the next. */
