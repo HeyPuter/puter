@@ -117,29 +117,21 @@ Returns a `Promise` that resolves to either:
 
 In case of an error, the `Promise` will reject with an error message.
 
-After streaming starts, a provider failure arrives as a chunk with
-`type: 'error'` and `message`; ending the stream does not mean the response
-completed successfully. The vendor-compatible HTTP routes emit an error frame
-and omit the successful finish event in this case.
+For streaming responses, an error from the AI provider is returned as a chunk
+with `type: "error"` and a `message` describing the failure. This also happens
+if the provider stops sending the response before it is complete. Check for
+error chunks in your `for await...of` loop before treating the response as complete.
 
-Closing a chat request's HTTP connection cancels the upstream request, including
-while it is waiting for its first output. Credit reservations are released when
-the upstream stops; output generated before cancellation remains metered.
-The `usage_limited` metadata flag indicates that the completion reached a cap
-set by the account's balance. A smaller cap caused by other active requests'
-credit reservations does not set this flag.
+If the network connection fails after streaming starts, the loop throws
+`{ message, code: "network_error" }`. Use `try...catch` around the call and loop
+to handle these failures.
 
 ### Stopping a stream
 
-Break out of the `for await` loop to stop consuming a chat stream. Puter.js cancels
-its HTTP request, and the backend cancels the upstream generation. When using
+Break out of the `for await...of` loop to stop a chat stream. When using
 `new ReadableStream(response)`, call `reader.cancel()` to stop it.
 
-A transport failure after streaming starts rejects the iterator with
-`{ message, code: "network_error" }`. An upstream stream that stops before its
-completion event produces an error chunk (or an error event on vendor-compatible
-routes), instead of a successful stop. Already generated output may still be billed.
-
+Output generated before the stream stops may still be billed.
 
 ## Vendors
 
