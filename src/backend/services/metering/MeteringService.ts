@@ -479,7 +479,7 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a _default_ subscription id,
-     * used when no explicit subscription is set. First non-empty wins.
+     * used when none is set. Lowest `priority` is asked first.
      */
     registerDefaultSubscriptionResolver(
         fn: SubscriptionResolver,
@@ -2060,14 +2060,12 @@ export class MeteringService extends PuterService {
         return (await this.#actorSubscriptionWithStatus(actor)).policy;
     }
 
-    /**
-     * Whether this actor is on a plan somebody subscribed them to, as opposed
-     * to one a resolver inferred for them. A default is not a purchase however
-     * generous it is, so a surface that means "has paid" asks this.
-     */
+    /** On a plan somebody subscribed them to, not one a resolver inferred. */
     async actorHasPaidSubscription(actor: Actor): Promise<boolean> {
         const { policy, fromDefault } =
             await this.#actorSubscriptionWithStatus(actor);
+        // A deployment that turned unlimited on means it.
+        if (policy.id === UNLIMITED_SUBSCRIPTION) return true;
         return !fromDefault && !isFreeSubscription(policy.id);
     }
 
@@ -2178,8 +2176,6 @@ export class MeteringService extends PuterService {
         );
         const resolvedUser = user.id || resolvedDefault;
         const resolverFailed = defaults.failed || user.failed;
-        // Nothing explicit answered, so whatever this is, nobody bought it.
-        const fromDefault = !user.id;
 
         const availablePolicies: SubscriptionPolicy[] = [
             ...this.extraPolicies,
@@ -2194,10 +2190,13 @@ export class MeteringService extends PuterService {
         // the built-in free policy keeps callers holding a real policy: the
         // alternative is `undefined` reaching every reader of `.id` and
         // `.monthUsageAllowance` as a 500 rather than a downgrade.
+        const explicit = availablePolicies.find((p) => p.id === resolvedUser);
         const policy =
-            availablePolicies.find((p) => p.id === resolvedUser) ??
+            explicit ??
             availablePolicies.find((p) => p.id === resolvedDefault) ??
             availablePolicies.find((p) => p.id === fallbackDefault);
+        // Of the policy that applied, not the id that was asked for.
+        const fromDefault = !user.id || !explicit;
         if (policy) {
             const withAllowance = await this.#withMonthAllowance(
                 actor.user.uuid!,

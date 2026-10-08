@@ -72,10 +72,6 @@ export const OTHER_USAGE_TYPE = 'other';
  * free ids rather than a list of paid ones so a plan added by an extension is
  * recognised without touching core.
  */
-/** Where a default-subscription resolver sits; lower wins. */
-export const ORG_SEAT_RESOLVER_PRIORITY = 10;
-export const DEFAULT_RESOLVER_PRIORITY = 100;
-
 export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -85,6 +81,10 @@ export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
 /** Whether a policy id is a free plan. Check free-ness here, not on the set. */
 export const isFreeSubscription = (id: string): boolean =>
     FREE_SUBSCRIPTION_IDS.has(id);
+
+/** Where a default-subscription resolver sits; lower wins. */
+export const ORG_SEAT_RESOLVER_PRIORITY = 10;
+export const DEFAULT_RESOLVER_PRIORITY = 100;
 
 /**
  * A plan's entry in a per-plan map. An unlisted free plan takes the default

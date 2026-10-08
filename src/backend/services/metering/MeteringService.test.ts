@@ -17,6 +17,7 @@ import { setupTestServer } from '../../testUtil.ts';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     ORG_SEAT_FREE_SUBSCRIPTION,
+    UNLIMITED_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
@@ -246,6 +247,47 @@ describe('MeteringService', () => {
             );
             expect(await target.actorHasPaidSubscription(subscribed)).toBe(
                 true,
+            );
+        });
+
+        it('counts unlimited as paid, so a deployment that turned it on keeps its caps', async () => {
+            const cfg = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            const saved = cfg.unlimitedMetering;
+            cfg.unlimitedMetering = true;
+            try {
+                const anyone = makeActor();
+                expect((await target.getActorSubscription(anyone)).id).toBe(
+                    UNLIMITED_SUBSCRIPTION,
+                );
+                expect(await target.actorHasPaidSubscription(anyone)).toBe(
+                    true,
+                );
+            } finally {
+                cfg.unlimitedMetering = saved;
+            }
+        });
+
+        it('calls it a default when the explicit id names no registered policy', async () => {
+            const fallback = {
+                id: 'registered-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(fallback);
+            target.registerDefaultSubscriptionResolver(
+                async () => 'registered-default',
+            );
+            // As an extension that failed to load would name.
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+
+            const actorOnGhost = makeActor();
+            expect((await target.getActorSubscription(actorOnGhost)).id).toBe(
+                'registered-default',
+            );
+            expect(await target.actorHasPaidSubscription(actorOnGhost)).toBe(
+                false,
             );
         });
 
