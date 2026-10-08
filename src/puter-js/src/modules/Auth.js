@@ -193,8 +193,7 @@ export class AuthModule extends PuterModule {
                     const deadline = Date.now() + 5 * 60 * 1000;
                     while ( ! settled ) {
                         if ( Date.now() >= deadline ) {
-                            // The only thing that can settle this here, so it
-                            // has to say so rather than just stop asking.
+                            // The only thing that settles this here.
                             settled = true;
                             cleanup();
                             reject({

@@ -1385,8 +1385,7 @@ export class PermissionService extends PuterService {
         actor: Actor,
         permission: string,
     ): Promise<string> {
-        // In a scope of its own: the flag says "this call is writing the row",
-        // and a request-wide one is also read by whatever runs beside it.
+        // Its own scope: a request-wide flag is read by its neighbours.
         return runInDerivedContext(() => {
             Context.set('is_grant_user_app_permission', true);
             return this.rewritePermissionForActor(actor, permission);

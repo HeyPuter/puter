@@ -72,8 +72,7 @@ export const hasOpaqueOrigin = () => {
 export const openAuthPopup = (url, title = 'Puter') => {
     const left = (screen.width / 2) - (POPUP_WIDTH / 2);
     const top = (screen.height / 2) - (POPUP_HEIGHT / 2);
-    // Registered here, the one place auth popups are opened, so the SDK's
-    // token handler recognises whichever of them posts back.
+    // The one place auth popups open, so the token handler knows them.
     const popup = window.open(
         url,
         title,

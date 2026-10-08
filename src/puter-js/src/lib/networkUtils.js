@@ -480,9 +480,7 @@ const VERIFICATION_GATE_CODES = new Set([
 /** Whether an error code names one of those gates. */
 const isVerificationGateCode = (code) => VERIFICATION_GATE_CODES.has(code);
 
-// Single-flighted per gate: concurrent requests behind the *same* gate share
-// one dialog, while a different gate gets its own — sharing across gates hands
-// one gate's answer to another, which then replays and fails without asking.
+// Single-flighted per gate: one gate's answer is not another's.
 const pendingVerificationGates = new Map();
 
 /**
@@ -498,8 +496,7 @@ const pendingVerificationGates = new Map();
  */
 async function resolveVerificationGate(code, factors) {
     if (globalThis.puter?.env !== 'app') return { verified: false };
-    // The gate alone, as `ctx.done` keys it: one route naming its factors and
-    // another not is still the same dialog, not two.
+    // The gate alone, as `ctx.done` keys it; factors do not divide it.
     const key = code;
     let pending = pendingVerificationGates.get(key);
     if (!pending) {

@@ -67,8 +67,7 @@ const statImpl = async function (...args) {
         }
     }
 
-    // Requests made with the same parameters share one backend call. Origin
-    // and token included, as `os/user.js` does: two identities must not share.
+    // Same parameters share one call; origin and token keep identities apart.
     const deduplicationKey = 'fs:stat:' + JSON.stringify({
         apiOrigin: this.APIOrigin,
         authToken: this.authToken,

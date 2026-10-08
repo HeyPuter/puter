@@ -254,8 +254,7 @@ describe('token adoption on a top-level page', () => {
         puter.trackOpenedWindow_(popup);
         expect(puter.tokenSourceAllowed_(popup)).toBe(true);
 
-        // Still ours once closed: a popup that posts and then closes itself
-        // would otherwise lose the message it had just sent.
+        // Still ours once closed: it may post, then close itself.
         popup.closed = true;
         expect(puter.tokenSourceAllowed_(popup)).toBe(true);
     });
