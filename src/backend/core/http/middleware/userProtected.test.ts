@@ -303,18 +303,41 @@ describe('userProtected — verifyIdentity (step 3)', () => {
         expect(refused.legacyCode).toBe('too_many_requests');
     });
 
-    it('spends the budget on wrong answers only', async () => {
+    it('bounds attempts rather than rounds, so a burst cannot outrun it', async () => {
         const user = await makeUserWithPassword('correct-horse');
         const [, , verifyIdentity] = buildGate();
-        const right = () =>
+        const guess = () =>
             run(
                 verifyIdentity,
-                withUser(user, { body: { password: 'correct-horse' } }),
+                withUser(user, { body: { password: 'wrong-guess' } }),
             );
 
-        // Well past the limit, and none of it is charged.
-        for (let i = 0; i < 20; i++) expect(await right()).toBeUndefined();
-        expect(await right()).toBeUndefined();
+        // All at once: the budget is spent before any comparison runs, so
+        // the same ten get through whether they arrive in step or together.
+        const answers = (await Promise.all(
+            Array.from({ length: 30 }, guess),
+        )) as HttpError[];
+        const compared = answers.filter(
+            (a) => a.legacyCode === 'password_mismatch',
+        );
+        expect(compared).toHaveLength(10);
+    });
+
+    it('keeps an exhausted budget on one route away from the others', async () => {
+        const user = await makeUserWithPassword('correct-horse');
+        const [, , verifyIdentity] = buildGate();
+        const on = (path: string, password: string) =>
+            run(verifyIdentity, {
+                ...withUser(user, { body: { password } }),
+                route: { path },
+            } as Partial<Request>);
+
+        for (let i = 0; i < 10; i++) await on('/a', 'wrong-guess');
+        expect(((await on('/a', 'wrong-guess')) as HttpError).statusCode).toBe(
+            429,
+        );
+        // A different route behind the same gate still answers.
+        expect(await on('/b', 'correct-horse')).toBeUndefined();
     });
 
     it('returns 403 password_required when password account submits no credentials', async () => {

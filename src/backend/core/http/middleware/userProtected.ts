@@ -21,7 +21,7 @@ import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import { isPlainUserActor } from '../../actor';
 import { HttpError } from '../HttpError';
-import { checkRateLimit, peekRateLimit } from './rateLimit.js';
+import { checkRateLimit } from './rateLimit.js';
 import type { IConfig } from '../../../types';
 import type { UserStore, UserRow } from '../../../stores/user/UserStore';
 import type { OIDCService } from '../../../services/auth/OIDCService';
@@ -49,7 +49,9 @@ import type { TokenService } from '../../../services/auth/TokenService';
  *    cookie (signed via `services.token.sign('oidc-state')`) is required.
  *    OIDC-only accounts (no password) MUST use the revalidation cookie —
  *    password path returns `oidc_revalidation_required` with a `revalidate_url`
- *    so the GUI can open the OIDC popup.
+ *    so the GUI can open the OIDC popup. Each password check is charged to a
+ *    per-account, per-route hourly budget, so a route behind this gate is
+ *    bounded whether or not it declares a limit of its own.
  */
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
@@ -139,7 +141,7 @@ async function buildRevalidateFields(
     };
 }
 
-/** Wrong passwords per account per hour, matching the sibling routes. */
+/** Password checks per account per route per hour, as the siblings bound. */
 const PASSWORD_ATTEMPT_LIMIT = 10;
 const PASSWORD_ATTEMPT_WINDOW_MS = 60 * 60_000;
 const PASSWORD_ATTEMPT_SCOPE = 'user-protected-password';
@@ -225,10 +227,14 @@ export const createUserProtectedGate = (
                     fields,
                 });
             }
-            // Charged by the outcome, so a right answer spends nothing.
-            const budgetKey = `${PASSWORD_ATTEMPT_SCOPE}:${user.id}`;
+            // Charged before the comparison, or everything already in
+            // flight is answered before any of it is spent. Per route, so
+            // one exhausted budget cannot close the other five.
+            const budgetKey =
+                `${PASSWORD_ATTEMPT_SCOPE}:${req.route?.path ?? req.path}` +
+                `:${user.id}`;
             if (
-                !(await peekRateLimit(
+                !(await checkRateLimit(
                     budgetKey,
                     PASSWORD_ATTEMPT_LIMIT,
                     PASSWORD_ATTEMPT_WINDOW_MS,
@@ -247,16 +253,10 @@ export const createUserProtectedGate = (
             } catch {
                 match = false;
             }
-            if (!match) {
-                await checkRateLimit(
-                    budgetKey,
-                    PASSWORD_ATTEMPT_LIMIT,
-                    PASSWORD_ATTEMPT_WINDOW_MS,
-                );
+            if (!match)
                 throw new HttpError(400, 'Password mismatch', {
                     legacyCode: 'password_mismatch',
                 });
-            }
             return next();
         }
 
