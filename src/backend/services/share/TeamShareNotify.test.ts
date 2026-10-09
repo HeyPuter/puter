@@ -208,7 +208,8 @@ describe('announcing a team share', () => {
         expect(
             sent.some((mail) => mail.to.includes(fx.b.owner.username)),
         ).toBe(false);
-    });
+        // Longer than the wait above, which the 5s default cuts short.
+    }, 30_000);
 
     it('does not announce to a member who blocked the sharer', async () => {
         // A member nobody has notified yet, so a new row is detectable. Reusing

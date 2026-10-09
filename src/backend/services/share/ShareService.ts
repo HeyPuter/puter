@@ -1449,6 +1449,61 @@ export class ShareService extends PuterService {
         );
     }
 
+    /** Nodes under `entry` that `userId` manages by a grant of their own. */
+    async #nodesManagedDirectly(
+        entry: FSEntry,
+        userId: number,
+        unwinding: Set<number>,
+    ): Promise<Set<number>> {
+        // Every row, not just the applied ones: a node whose only share is a
+        // pending invite or a team grant is exactly what the group and invite
+        // sweeps ask about.
+        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
+        const nodes = await this.stores.fsEntry.getEntriesByIds(
+            rows.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
+        );
+        const candidates = [...nodes.values()].filter(
+            (node) => node.id !== entry.id,
+        );
+        if (candidates.length === 0) return new Set<number>();
+
+        // One read for the whole subtree: the query is holder-scoped, so
+        // asking per node is the same rows over and over.
+        const permOf = (node: FSEntry) =>
+            entryPermissionForMode(node.uuid, MANAGE_PERM_PREFIX);
+        const wanted = candidates.map(permOf);
+        const [linked, viaGroup] = await Promise.all([
+            this.stores.permission.readLinkedUserUserPermsFromPrimary(
+                userId,
+                wanted,
+            ),
+            this.stores.permission.readUserGroupPerms(userId, wanted),
+        ]);
+        // Not from anyone being unwound: two delegates can hold each other up.
+        const held = new Set<string>([
+            ...linked
+                .filter((row) => !unwinding.has(Number(row.issuer_user_id)))
+                .map((row) => String(row.permission)),
+            ...viaGroup.map((row) => String(row.permission)),
+        ]);
+
+        // `manage` inherits downwards, so a grant on a folder between `entry`
+        // and the node answers for the node too.
+        const managedNodes = candidates.filter((node) =>
+            held.has(permOf(node)),
+        );
+        const managed = new Set<number>();
+        for (const node of candidates) {
+            const covered = managedNodes.some(
+                (held) =>
+                    held.id === node.id ||
+                    node.path.startsWith(`${held.path}/`),
+            );
+            if (covered) managed.add(node.id);
+        }
+        return managed;
+    }
+
     /**
      * Withdraw everything `issuerId` granted on this node, and everything those
      * recipients granted in turn.
@@ -1465,19 +1520,6 @@ export class ShareService extends PuterService {
         if (seen.has(issuerId)) return 0;
         seen.add(issuerId);
 
-        // Their unclaimed invites go the same way as their re-shares: an
-        // invite rests on the same authority, and nothing else retires it —
-        // claiming re-checks, but only when the recipient shows up, and until
-        // then the row keeps the entry in the revoked issuer's listing.
-        await this.stores.share.deletePendingByIssuerSubtree(
-            issuerId,
-            entry.id,
-        );
-
-        // What they re-shared to teams goes too: a group grant left behind is
-        // dormant, and springs back if the issuer ever requalifies.
-        let revoked = await this.#revokeGroupSharesBy(actor, entry, issuerId);
-
         // The whole subtree, not just this node: `manage` inherits downwards,
         // so a grant on a descendant can rest on authority held here.
         const rows = (
@@ -1485,6 +1527,28 @@ export class ShareService extends PuterService {
         ).filter(
             (row: { issuer_user_id: number }) =>
                 Number(row.issuer_user_id) === issuerId,
+        );
+
+        // Nodes they manage in their own right, exempt from all three sweeps.
+        const exempt = await this.#nodesManagedDirectly(entry, issuerId, seen);
+
+        // Their unclaimed invites go the same way as their re-shares: an
+        // invite rests on the same authority, and nothing else retires it —
+        // claiming re-checks, but only when the recipient shows up, and until
+        // then the row keeps the entry in the revoked issuer's listing.
+        await this.stores.share.deletePendingByIssuerSubtree(
+            issuerId,
+            entry.id,
+            { exemptFsentryIds: [...exempt] },
+        );
+
+        // What they re-shared to teams goes too: a group grant left behind is
+        // dormant, and springs back if the issuer ever requalifies.
+        let revoked = await this.#revokeGroupSharesBy(
+            actor,
+            entry,
+            issuerId,
+            exempt,
         );
         if (rows.length === 0) return revoked;
 
@@ -1506,6 +1570,9 @@ export class ShareService extends PuterService {
             const node = nodes.get(Number(row.fsentry_id));
             const downstream = holders.get(holderId);
             if (!node || !downstream?.username) continue;
+
+            // Their own authority here, not the one being withdrawn above.
+            if (node.id !== entry.id && exempt.has(node.id)) continue;
 
             const { revoked: didRevoke, authorized } = await this.#revokeFor(
                 actor,
@@ -1547,12 +1614,14 @@ export class ShareService extends PuterService {
         actor: Actor,
         entry: FSEntry,
         issuerId: number,
+        exempt: Set<number> = new Set(),
     ): Promise<number> {
         const rows = (
             await this.stores.share.listGroupSharesBySubtree(entry.id)
         ).filter(
-            (row: { issuer_user_id: number }) =>
-                Number(row.issuer_user_id) === issuerId,
+            (row: { issuer_user_id: number; fsentry_id: number }) =>
+                Number(row.issuer_user_id) === issuerId &&
+                !exempt.has(Number(row.fsentry_id)),
         );
         if (rows.length === 0) return 0;
 

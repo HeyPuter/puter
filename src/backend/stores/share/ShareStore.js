@@ -600,17 +600,19 @@ export class ShareStore extends PuterStore {
         }
 
         const existing = await this.clients.db.read(
-            'SELECT `uid` FROM `share` WHERE `recipient_email` = ? AND ' +
+            'SELECT `uid`, `data` FROM `share` WHERE `recipient_email` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? AND ' +
                 '`holder_user_id` IS NULL LIMIT 1',
             [recipientEmail, fsentryId, issuerUserId],
         );
-        // Same key an active share records the app under, so one reader covers
-        // an invite and the grant it becomes. Attribution follows the most
-        // recent issuance: re-inviting refreshes `data`, exactly as
-        // `upsertActive` does on conflict.
+        // The key an active share uses, so one reader covers both.
+        const attribution = existing[0]
+            ? this.#keptAttribution(existing[0].data, issuerAppUid)
+            : issuerAppUid
+              ? { issuedByApp: issuerAppUid }
+              : {};
         const data = JSON.stringify({
-            ...(issuerAppUid ? { issuedByApp: issuerAppUid } : {}),
+            ...attribution,
             ...(displayEmail && displayEmail !== recipientEmail
                 ? { invitedAddress: displayEmail }
                 : {}),
@@ -689,11 +691,21 @@ export class ShareStore extends PuterStore {
             );
         }
 
-        // A share issued through an app is attributed to the user, because the
-        // grant is theirs. `data` records which app asked for it, so the owner
-        // can tell an app-issued share from one they made themselves.
+        // The user's grant; `data` records which app asked for it.
+        // No app asked, so there is nothing to keep and nothing to read for.
+        const prior = issuerAppUid
+            ? await this.getActive({
+                  holderUserId,
+                  fsentryId,
+                  issuerUserId,
+              })
+            : null;
         const data = JSON.stringify(
-            issuerAppUid ? { issuedByApp: issuerAppUid } : {},
+            prior
+                ? this.#keptAttribution(prior.data, issuerAppUid)
+                : issuerAppUid
+                  ? { issuedByApp: issuerAppUid }
+                  : {},
         );
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
@@ -745,8 +757,20 @@ export class ShareStore extends PuterStore {
                 'upsertActiveGroup: issuerUserId, holderGroupId, fsentryId and mode are required',
             );
         }
+        // No app asked, so there is nothing to keep and nothing to read for.
+        const prior = issuerAppUid
+            ? await this.getActiveGroup({
+                  holderGroupId,
+                  fsentryId,
+                  issuerUserId,
+              })
+            : null;
         const data = JSON.stringify(
-            issuerAppUid ? { issuedByApp: issuerAppUid } : {},
+            prior
+                ? this.#keptAttribution(prior.data, issuerAppUid)
+                : issuerAppUid
+                  ? { issuedByApp: issuerAppUid }
+                  : {},
         );
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
@@ -928,13 +952,22 @@ export class ShareStore extends PuterStore {
         );
     }
 
-    async deletePendingByIssuerSubtree(issuerUserId, fsentryId) {
+    /**
+     * @param {number} issuerUserId @param {number} fsentryId
+     * @param {{ exemptFsentryIds?: number[] }} [opts]
+     */
+    async deletePendingByIssuerSubtree(
+        issuerUserId,
+        fsentryId,
+        { exemptFsentryIds = [] } = {},
+    ) {
         // Read-then-delete rather than a CTE inside the DELETE, which the
         // dialects disagree on. The gap between the two only ever leaves an
         // invite standing, and the claim path re-checks authority anyway.
+        const exempt = new Set(exemptFsentryIds.map(Number));
         const rows = await this.clients.db.read(
             this.#subtreeCte() +
-                'SELECT `share`.`uid` FROM `share` ' +
+                'SELECT `share`.`uid`, `share`.`fsentry_id` FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 // Group and link rows also have no holder user; deleting one
                 // here would drop the index row and leave its grant standing.
@@ -944,11 +977,15 @@ export class ShareStore extends PuterStore {
                 '`share`.`issuer_user_id` = ?',
             [fsentryId, issuerUserId],
         );
-        if (rows.length === 0) return 0;
-        const placeholders = rows.map(() => '?').join(', ');
+        // Not the ones on a node they manage in their own right.
+        const retired = rows.filter(
+            (row) => !exempt.has(Number(row.fsentry_id)),
+        );
+        if (retired.length === 0) return 0;
+        const placeholders = retired.map(() => '?').join(', ');
         const result = await this.clients.db.write(
             `DELETE FROM \`share\` WHERE \`uid\` IN (${placeholders})`,
-            rows.map((row) => row.uid),
+            retired.map((row) => row.uid),
         );
         return result?.affectedRows ?? result?.changes ?? 0;
     }
@@ -1049,8 +1086,14 @@ export class ShareStore extends PuterStore {
                 'upsertAnyone: issuerUserId, fsentryId and mode are required',
             );
         }
+        // As the other upserts: re-issuing may lose the app, never switch it.
+        const prior = issuerAppUid ? await this.getAnyone(fsentryId) : null;
         const data = JSON.stringify(
-            issuerAppUid ? { issuedByApp: issuerAppUid } : {},
+            prior
+                ? this.#keptAttribution(prior.data, issuerAppUid)
+                : issuerAppUid
+                  ? { issuedByApp: issuerAppUid }
+                  : {},
         );
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
@@ -1121,6 +1164,27 @@ export class ShareStore extends PuterStore {
         });
         const count = /** @type {{ count?: unknown } | null} */ (res)?.count;
         return typeof count === 'number' ? count : amount;
+    }
+
+    /**
+     * Who a re-issued share stays credited to: only the same app re-issuing
+     * keeps it, so a share may lose attribution but never gain or switch it.
+     */
+    #keptAttribution(existingData, issuerAppUid) {
+        let prior = existingData ?? {};
+        if (typeof prior === 'string') {
+            // `data` is not always JSON on sqlite; `#normalizeRow` says so too.
+            try {
+                prior = JSON.parse(prior || '{}');
+            } catch {
+                prior = {};
+            }
+        }
+        // `issuerAppUid` is the older spelling, read in two other places.
+        const priorApp = prior?.issuedByApp ?? prior?.issuerAppUid;
+        return issuerAppUid && priorApp === issuerAppUid
+            ? { issuedByApp: issuerAppUid }
+            : {};
     }
 
     /** @param {number} userId @param {string} scope */
