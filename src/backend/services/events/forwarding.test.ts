@@ -974,7 +974,7 @@ describe('what a broadcast delivery bills', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
         // Counted for the region, but not on the node that sends.
-        await west.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         await dispatch(west);
@@ -989,7 +989,7 @@ describe('what a broadcast delivery bills', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         await dispatch(west);
