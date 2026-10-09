@@ -466,7 +466,7 @@ Deliveries are billed to the account holding the subscription:
 
 µ¢ is a microcent (a millionth of a cent). Session subscriptions bill at the broadcast rate. Handler runs bill separately as worker usage.
 
-Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, and gap markers.
+Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, and gap markers.
 
 When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
 

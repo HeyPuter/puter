@@ -25,9 +25,9 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import {
-    decodeCursor,
-    encodeCursor,
     normalizeLimit,
+    openCursor,
+    sealCursor,
 } from '../../util/pagination.js';
 import type { puterStores } from '../index.js';
 import { PuterStore } from '../types.js';
@@ -2622,8 +2622,10 @@ export class FSEntryStore extends PuterStore {
             sortOrder?: 'asc' | 'desc' | null;
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
-        const payload = decodeCursor(options.cursor) as
-            { v: unknown; id: number; s?: string; o?: string } | undefined;
+        const payload = openCursor(
+            options.cursor,
+            this.config.jwt_secret_v2,
+        ) as { v: unknown; id: number; s?: string; o?: string } | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2697,12 +2699,10 @@ export class FSEntryStore extends PuterStore {
                         return last.name;
                 }
             })();
-            cursor = encodeCursor({
-                v,
-                id: Number(last.id),
-                s: sortBy,
-                o: sortOrder,
-            });
+            cursor = sealCursor(
+                { v, id: Number(last.id), s: sortBy, o: sortOrder },
+                this.config.jwt_secret_v2,
+            );
         }
 
         return { entries, ...(cursor ? { cursor } : {}) };
@@ -2815,7 +2815,10 @@ export class FSEntryStore extends PuterStore {
             this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
-        const rawPayload = decodeCursor(options.cursor) as
+        const rawPayload = openCursor(
+            options.cursor,
+            this.config.jwt_secret_v2,
+        ) as
             | { v?: unknown; id?: number; s?: string; o?: string; p?: string }
             | undefined;
         // Cursors minted before this listing honored the sort carried only the
@@ -2886,12 +2889,15 @@ export class FSEntryStore extends PuterStore {
         let cursor: string | undefined;
         if (hasMore) {
             const last = pageRows[pageRows.length - 1]!;
-            cursor = encodeCursor({
-                v: descendantSortValue(last, sortBy),
-                ...(tiebreak ? { id: Number(last.id) } : {}),
-                s: sortBy,
-                o: sortOrder,
-            });
+            cursor = sealCursor(
+                {
+                    v: descendantSortValue(last, sortBy),
+                    ...(tiebreak ? { id: Number(last.id) } : {}),
+                    s: sortBy,
+                    o: sortOrder,
+                },
+                this.config.jwt_secret_v2,
+            );
         }
 
         return { entries, ...(cursor ? { cursor } : {}) };

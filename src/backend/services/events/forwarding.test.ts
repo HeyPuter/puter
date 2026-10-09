@@ -48,7 +48,11 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import { EventForwardService } from './EventForwardService.js';
 import { EventsService, type DeliveryEnvelope } from './EventsService.js';
-import type { ForwardBatch, ForwardDelivery } from './forwardQueue.js';
+import type {
+    ForwardBatch,
+    ForwardDelivery,
+    ForwardEvent,
+} from './forwardQueue.js';
 import { fsAnchorToken } from './subjects.js';
 import type {
     WorkerInvocation,
@@ -194,6 +198,8 @@ interface Region {
     /** Rooms this region terminates a socket for. */
     rooms: Set<string>;
     sent: DeliveryEnvelope[];
+    /** Usage lines this region wrote, by the holder they were billed to. */
+    metered: Array<{ userId: number | undefined; usageType: string }>;
     invoked: WorkerInvocation[];
     alarms: ReturnType<typeof vi.fn>;
     /** Peers whose POSTs never come back — a timeout, not a refusal. */
@@ -289,6 +295,7 @@ const makeRegion = (
         posts: [],
         rooms: new Set(),
         sent: [],
+        metered: [],
         invoked: [],
         alarms: vi.fn(),
         unreachable: new Set(),
@@ -390,7 +397,16 @@ const makeRegion = (
         },
         notification: { notify: vi.fn() },
         metering: {
-            bufferIncrementUsages: () => undefined,
+            bufferIncrementUsages: (
+                actor: Actor,
+                usages: Array<{ usageType: string }>,
+            ) => {
+                for (const usage of usages)
+                    region.metered.push({
+                        userId: actor.user?.id,
+                        usageType: usage.usageType,
+                    });
+            },
             hasAnyUsageCached: async () => true,
         },
     };
@@ -932,6 +948,89 @@ describe('a broadcast delivery', () => {
         await quiet(200);
 
         expect(tableReads).toBe(1);
+    });
+});
+
+describe('what a broadcast delivery bills', () => {
+    /** Past the coalescing window, with the send and its meter settled. */
+    const flushed = async (region: Region): Promise<void> => {
+        await arrived(region);
+        await quiet(100);
+    };
+
+    it('bills nothing when no connection anywhere could take it', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.sent).toHaveLength(1);
+        expect(west.metered).toEqual([]);
+    });
+
+    it('bills one a connection on another node of this region takes', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        // Counted for the region, but not on the node that sends.
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toEqual([
+            { userId, usageType: 'events:delivery:broadcast' },
+        ]);
+    });
+
+    it('bills one only another region holds the socket for, once, where it was sent', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+        await arrived(east);
+
+        expect(west.metered).toHaveLength(1);
+        expect(east.metered).toEqual([]);
+    });
+
+    it('bills nothing for a session row whose connection is gone', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await subscribeSession(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toEqual([]);
+    });
+
+    it('bills a session row while its connection is still here', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        const { socketId } = await subscribeSession(west);
+        west.rooms.add(socketId);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toHaveLength(1);
+    });
+
+    it('bills as it always has where nothing counts connections', async () => {
+        const alone = makeRegion('west', []);
+        await register(alone);
+
+        await dispatch(alone);
+        await flushed(alone);
+
+        expect(alone.metered).toHaveLength(1);
     });
 });
 
@@ -1826,6 +1925,126 @@ describe('forward-path metrics', () => {
 
 /** Session forwarding is on by default, so this is the ordinary config. */
 const forwardCfg = { events: { enabled: true } } as Partial<IConfig>;
+
+describe('a kv value crossing to another region', () => {
+    const APP = 'app-cart';
+
+    const subscribeKv = async (
+        region: Region,
+        socketId: string,
+        includeValue?: true,
+    ) =>
+        (
+            await region.events.subscribe(actorFor(), socketId, {
+                subject: `kv:${APP}:cart`,
+                ...(includeValue ? { includeValue } : {}),
+            })
+        ).sub.subId;
+
+    const write = (region: Region) =>
+        region.events.dispatchKv({
+            userId,
+            namespace: `v1:user-${userId}:${APP}`,
+            keys: ['cart'],
+            op: 'set',
+            values: [{ items: 3 }],
+        });
+
+    /** The raw events a region forwarded, in order. */
+    const eventsIn = (region: Region): ForwardEvent[] =>
+        region.posts.flatMap((post) =>
+            post.batch.items.filter(
+                (item): item is ForwardEvent => item.kind === 'event',
+            ),
+        );
+
+    /** Let `region` post past `before`, then let what it queued land. */
+    const announced = async (region: Region, before = 0): Promise<void> => {
+        await posted(region, before + 1);
+        await quiet(100);
+    };
+
+    it('goes nowhere a row did not ask for it', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-plain');
+        await announced(east);
+
+        await write(west);
+        await posted(west);
+        await arrived(east);
+
+        expect(eventsIn(west)).toHaveLength(1);
+        expect(eventsIn(west)[0].kv).not.toHaveProperty('value');
+        expect(east.sent[0].event).not.toHaveProperty('value');
+    });
+
+    it('goes to a region holding a row that asked for it', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-valued', true);
+        await announced(east);
+
+        await write(west);
+        await posted(west);
+        await arrived(east);
+
+        expect(eventsIn(west)[0].kv).toMatchObject({ value: { items: 3 } });
+        expect(east.sent[0].event).toMatchObject({ value: { items: 3 } });
+    });
+
+    it('stops once the last row asking for it is unsubscribed', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const valued = await subscribeKv(east, 'socket-valued', true);
+        await subscribeKv(east, 'socket-plain');
+        await announced(east);
+        const before = east.posts.length;
+
+        await east.events.unsubscribe(actorFor(), 'socket-valued', {
+            subId: valued,
+        });
+        await announced(east, before);
+        await write(west);
+        await posted(west);
+
+        expect(eventsIn(west)).toHaveLength(1);
+        expect(eventsIn(west)[0].kv).not.toHaveProperty('value');
+    });
+
+    it('stops once the connection holding it is reaped', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-valued', true);
+        await subscribeKv(east, 'socket-plain');
+        await announced(east);
+        const before = east.posts.length;
+
+        await east.events.reapSocket(userId, 'socket-valued');
+        await announced(east, before);
+        await write(west);
+        await posted(west);
+
+        expect(eventsIn(west)[0].kv).not.toHaveProperty('value');
+    });
+
+    it('keeps going while another row there still asks for it', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const valued = await subscribeKv(east, 'socket-valued', true);
+        await subscribeKv(east, 'socket-also-valued', true);
+        await announced(east);
+
+        await east.events.unsubscribe(actorFor(), 'socket-valued', {
+            subId: valued,
+        });
+        await quiet(100);
+        await write(west);
+        await posted(west);
+
+        expect(eventsIn(west)[0].kv).toMatchObject({ value: { items: 3 } });
+    });
+});
 
 describe('a session subscription in another region', () => {
     it('delivers a write committed in the region that has no rows', async () => {

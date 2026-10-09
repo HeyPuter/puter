@@ -33,6 +33,7 @@ import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
     EventSubscriptionStore,
+    valueWatchToken,
     type DurableSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
 import type { KvShareHandle } from '../../stores/events/KvShareHandleStore.js';
@@ -629,6 +630,33 @@ describe('subscribing', () => {
         denied.set(documents.path, 'forbidden');
 
         await expect(subscribe(`fs:${documents.uid}`)).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 403 &&
+                err.legacyCode === 'forbidden',
+        );
+    });
+
+    it('answers an anchor gone mid-subscribe with the subject it was sent, not where it was', async () => {
+        const { documents } = seedTree();
+        // Resolvable by path, gone by uid: deleted between the two reads.
+        entries.delete(`uid:${documents.uid}`);
+
+        await expect(subscribe('fs:~/Documents')).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 404 &&
+                err.legacyCode === 'subject_does_not_exist' &&
+                err.message === 'No such entry: fs:~/Documents',
+        );
+    });
+
+    it('asks whether the caller may watch an anchor before saying it is gone', async () => {
+        const { documents } = seedTree();
+        denied.set(documents.path, 'forbidden');
+        entries.delete(`uid:${documents.uid}`);
+
+        await expect(subscribe('fs:~/Documents')).rejects.toSatisfy(
             (err: unknown) =>
                 isHttpError(err) &&
                 err.statusCode === 403 &&
@@ -1638,6 +1666,93 @@ describe('limits', () => {
                 .map((s) => s.envelope.subId),
         );
         expect([...gapped].some((id) => written.has(id))).toBe(false);
+    });
+
+    it('reads no more of a crowded token than one event can use', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        await seedSubscriptions(400, {
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+        const reads = vi.spyOn(store, 'getForTokens');
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const read = await reads.mock.results[0].value;
+        expect(read.length).toBeLessThan(400);
+        const ops = sent.map((s) => s.envelope.event.op);
+        expect(ops.filter((op) => op === 'write')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
+        expect(ops.filter((op) => op === 'gap')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
+    });
+
+    it('settles every row on a removed anchor, past what one event reads', async () => {
+        const { documents } = seedTree();
+        const token = `f#${documents.uid}`;
+        await seedSubscriptions(300, {
+            token,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+
+        await service.dispatchFs('fs.remove.node', documents, {
+            actingUserId: userId,
+            ancestors: async () => ancestorChain(documents.path),
+        });
+
+        await expect(store.getForTokens(userId, [token])).resolves.toEqual([]);
+    });
+
+    it('finds a forwarded copy`s session rows behind any number of durable ones', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const token = `f#${documents.uid}`;
+        await store.cacheDurable(
+            Array.from(
+                { length: 300 },
+                (_, i) =>
+                    ({
+                        durable: true,
+                        subId: `durable-${seq}-${i}`,
+                        holderUserId: userId,
+                        ownerUserId: userId,
+                        subject: `fs:${documents.path}`,
+                        token,
+                        anchorUid: documents.uid,
+                        anchorPath: documents.path,
+                        match: null,
+                        op: null,
+                        appUid: null,
+                        permission: 'list',
+                        delivery: 'broadcast',
+                        targets: ['socket'],
+                        handlerName: null,
+                        context: null,
+                        expiresAt: null,
+                        suspendedAt: null,
+                        suspendedReason: null,
+                        createdAt: 0,
+                    }) as DurableSubscription,
+            ),
+        );
+        const sub = await subscribe(`fs:${documents.path}`);
+
+        await service.dispatchFs('fs.write.file', file, {
+            actingUserId: userId,
+            ancestors: async () => ancestorChain(file.path),
+            forwarded: true,
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.map((s) => s.envelope.subId)).toEqual([sub.subId]);
     });
 
     it('never gaps a row whose grant was revoked', async () => {
@@ -2693,6 +2808,42 @@ describe('the cross-app kv gate', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toEqual([]);
+    });
+
+    it('sends no value to a peer whose rows did not ask for one', async () => {
+        await store.noteRemoteWatch(
+            userId,
+            kvAnchorToken(`user-${userId}`, OWN_APP, 'cart'),
+            'east',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { values: [{ items: 3 }] });
+
+        expect(forwarded).toHaveLength(1);
+        expect(forwarded[0].regions).toEqual(['east']);
+        expect(forwarded[0].item.kv).not.toHaveProperty('value');
+    });
+
+    it('sends the value only to the peers whose rows asked for it', async () => {
+        const token = kvAnchorToken(`user-${userId}`, OWN_APP, 'cart');
+        for (const region of ['east', 'south'])
+            await store.noteRemoteWatch(userId, token, region, 'add');
+        await store.noteRemoteWatch(
+            userId,
+            valueWatchToken(token),
+            'east',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { values: [{ items: 3 }] });
+
+        const to = (region: string) =>
+            forwarded.find((call) => call.regions.includes(region));
+        expect(forwarded).toHaveLength(2);
+        expect(to('east')?.regions).toEqual(['east']);
+        expect(to('east')?.item.kv).toMatchObject({ value: { items: 3 } });
+        expect(to('south')?.item.kv).not.toHaveProperty('value');
     });
 
     it('marks a private key on the way to a peer region', async () => {

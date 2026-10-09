@@ -95,8 +95,10 @@
  *   behind them — `notif:account` for your account's notifications (never
  *   visible to an app), `notif:app-user` for an app's own, or
  *   `notif:<appId>:<audience>` in full.
- * @property {string} [after] The `cursor` from the previous page. Absent starts
- *   from the oldest notification still kept.
+ * @property {string} [cursor] The `cursor` from the previous page. Absent
+ *   starts from the oldest notification still kept.
+ * @property {string} [after] The older name for `cursor`, still accepted.
+ *   `cursor` wins when both are given.
  * @property {number} [limit] Events per page. Capped at 200; defaults to 50.
  */
 
@@ -105,8 +107,8 @@
  *
  * @typedef {Object} EventFetchPage
  * @property {PuterNotifEvent[]} items The events, oldest first.
- * @property {string} [cursor] Pass as `after` to read the next page. Absent
- *   means there is nothing after this page — for now.
+ * @property {string} [cursor] Pass back as `cursor` to read the next page.
+ *   Absent means there is nothing after this page — for now.
  */
 
 /**

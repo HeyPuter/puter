@@ -37,10 +37,10 @@ import {
     hostedIndexUrlBackingsAreUnavailable,
 } from '../../util/hostedAppBacking.js';
 import {
-    decodeCursor,
-    encodeCursor,
     normalizeLimit,
     normalizeOffset,
+    openCursor,
+    sealCursor,
 } from '../../util/pagination.js';
 import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
@@ -352,7 +352,7 @@ export class AppDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 500;
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = decodeCursor(args.cursor);
+        const payload = openCursor(args.cursor, this.config.jwt_secret_v2);
         if (payload && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
@@ -382,7 +382,10 @@ export class AppDriver extends PuterDriver {
             // The cursor tracks the last fetched row, not the last visible
             // one, so rows hidden by the permission filter below aren't
             // re-scanned on the next page.
-            cursor = encodeCursor({ id: Number(apps[apps.length - 1].id) });
+            cursor = sealCursor(
+                { id: Number(apps[apps.length - 1].id) },
+                this.config.jwt_secret_v2,
+            );
         }
 
         // Resolve protected-app visibility:

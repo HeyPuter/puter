@@ -63,6 +63,7 @@ import type {
     SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
 import {
+    DurableQuotaRaceLost,
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
@@ -102,8 +103,8 @@ import {
     parseKvNamespace,
 } from '../../stores/systemKv/SystemKVStore.js';
 import {
-    decodeCursor,
-    encodeCursor,
+    openCursor,
+    sealCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
@@ -153,7 +154,7 @@ import {
     type SubscriptionGrant,
 } from './authorization.js';
 import { coalesceKey, DeliveryCoalescer } from './coalescer.js';
-import { forwardTarget } from './EventForwardService.js';
+import { forwardTarget, presenceApp } from './EventForwardService.js';
 import type { ForwardDelivery, ForwardEvent } from './forwardQueue.js';
 import {
     DELIVERY_USAGE_TYPES,
@@ -170,6 +171,7 @@ import {
     relativeTo,
     type CompiledMatch,
 } from './matcher.js';
+import { MatcherCache } from './matcherCache.js';
 import { projectNotifRow, resolveNotifFetch } from './notifFetch.js';
 import {
     lookupFsSubject,
@@ -383,12 +385,14 @@ export interface DurableListRequest {
 }
 
 /**
- * One page of catch-up. `after` is where the client got to — the cursor from
+ * One page of catch-up. `cursor` is where the client got to — the cursor from
  * its last page — rather than a stored position, because nothing about a fetch
  * is registered anywhere.
  */
 export interface FetchRequest {
     subject?: string;
+    cursor?: string;
+    /** The name `cursor` shipped under first; still read when it is absent. */
     after?: string;
     limit?: number;
 }
@@ -1234,6 +1238,35 @@ const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
     ...Object.values(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription),
 );
 
+/**
+ * Rows one token can hand `#route` that it may still use: every filter
+ * evaluation, then a gap marker each for the ones after. Past that a row is
+ * neither delivered to nor told, so dispatch does not read it.
+ */
+const FS_ROWS_PER_TOKEN =
+    FILTER_EVALUATIONS_PER_EVENT + EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT;
+const KV_ROWS_PER_TOKEN =
+    Math.max(
+        EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.limit,
+        ...Object.values(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription),
+    ) +
+    Math.max(
+        EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+        ...Object.values(
+            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription,
+        ),
+    );
+
+/**
+ * The rows a dispatch reads: ones `#route` can deliver to, and for a forwarded
+ * copy session rows only — durable rows already crossed by row (`warmRegion`
+ * rebuilds them in every region).
+ */
+const dispatchKeeps = (forwarded: boolean | undefined) =>
+    forwarded
+        ? (row: DispatchSubscription): boolean => row.socketId !== undefined
+        : deliverable;
+
 /** Handler depths below this run on every plan, so no plan is looked up. */
 const HANDLER_DEPTH_NEVER_BINDS = Math.min(
     EVENTS_HANDLER_DEPTH.limit,
@@ -1362,7 +1395,7 @@ const parseExpiresAt = (value: unknown): number | null => {
 export class EventsService extends PuterService {
     readonly #cache = new SubscriptionCache();
     readonly #deliveryAuth = new DeliveryAuthCache();
-    readonly #compiled = new Map<string, CompiledMatch>();
+    readonly #compiled = new MatcherCache();
     readonly #lookups = new Map<string, Promise<boolean>>();
     readonly #refreshTimers = new Map<string, ReturnType<typeof setInterval>>();
     /** Holder identities the metering lines are written as. */
@@ -1844,25 +1877,35 @@ export class EventsService extends PuterService {
         if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
-        const { row, bump } = await this.stores.durableSubscription.create({
-            holderUserId,
-            ownerUserId: anchor.ownerUserId,
-            appUid,
-            subject: anchor.subject,
-            token: anchor.token,
-            anchorUid: anchor.uid,
-            anchorPath: anchor.path,
-            match: anchor.match,
-            op: anchor.op,
-            delivery,
-            targets,
-            handlerName,
-            context,
-            permission: anchor.permission,
-            expiresAt,
-            limits,
-            ...(includeValue ? { includeValue } : {}),
-        });
+        let created: { row: DurableSubscription; bump: GenerationBump };
+        try {
+            created = await this.stores.durableSubscription.create({
+                holderUserId,
+                ownerUserId: anchor.ownerUserId,
+                appUid,
+                subject: anchor.subject,
+                token: anchor.token,
+                anchorUid: anchor.uid,
+                anchorPath: anchor.path,
+                match: anchor.match,
+                op: anchor.op,
+                delivery,
+                targets,
+                handlerName,
+                context,
+                permission: anchor.permission,
+                expiresAt,
+                limits,
+                ...(includeValue ? { includeValue } : {}),
+            });
+        } catch (err) {
+            // Its row was written and taken back out; a region that cached
+            // it in between has to hear that it is gone.
+            if (err instanceof DurableQuotaRaceLost && err.bump)
+                this.#publishGeneration(err.bump, true);
+            throw err;
+        }
+        const { row, bump } = created;
         this.#publishGeneration(bump, true);
 
         return { sub: toDurableView(row) };
@@ -1995,7 +2038,12 @@ export class EventsService extends PuterService {
                 : EVENTS_FETCH_LIMIT_DEFAULT,
             EVENTS_FETCH_LIMIT_CAP,
         );
-        const cursored = Number(decodeCursor(request.after, 'after')?.id);
+        const cursored = Number(
+            openCursor(
+                request.cursor ?? request.after,
+                this.config.jwt_secret_v2,
+            )?.id,
+        );
 
         // One extra row answers "is there another page" without a count.
         const rows = await this.stores.notification.listScoped(user.id, {
@@ -2012,7 +2060,12 @@ export class EventsService extends PuterService {
         return {
             items: visible.map((row, i) => projectNotifRow(row, user.uuid!, i)),
             ...(rows.length > limit && last
-                ? { cursor: encodeCursor({ id: Number(last.id) }) }
+                ? {
+                      cursor: sealCursor(
+                          { id: Number(last.id) },
+                          this.config.jwt_secret_v2,
+                      ),
+                  }
                 : {}),
         };
     }
@@ -3384,24 +3437,25 @@ export class EventsService extends PuterService {
             rawSubject,
         );
 
-        // The resolver answers where a subscription keys, not whose it is, so
-        // the owner comes from the anchor node itself — and that is the
-        // keyspace the row is indexed in, because dispatch only ever knows
-        // whose resource changed.
-        const entry = await resolveNode(this.stores.fsEntry, {
-            uid: anchor.uid,
-        });
-        if (!entry)
-            throw new HttpError(404, `No such entry: ${anchor.path}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-
         const permission = await assertSubscribeAuthorized(
             actor,
             { uid: anchor.uid, path: anchor.path },
             rawSubject,
             this.#aclDeps(),
         );
+
+        // The resolver answers where a subscription keys, not whose it is, so
+        // the owner comes from the anchor node itself — and that is the
+        // keyspace the row is indexed in, because dispatch only ever knows
+        // whose resource changed. An anchor gone since it resolved reads as
+        // the subject the caller sent, the same answer a missing one gets.
+        const entry = await resolveNode(this.stores.fsEntry, {
+            uid: anchor.uid,
+        });
+        if (!entry)
+            throw new HttpError(404, `No such entry: ${rawSubject}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
 
         // Compile now so an unusable pattern fails this call rather than every
         // event under the anchor.
@@ -3679,15 +3733,26 @@ export class EventsService extends PuterService {
 
         if (local.length === 0) return false;
 
-        let rows = await this.stores.eventSubscription.getForTokens(
+        const keep = dispatchKeeps(options.forwarded);
+        const rows = await this.stores.eventSubscription.getForTokens(
             ownerUserId,
             local,
+            { perToken: FS_ROWS_PER_TOKEN, keep },
         );
-        // A forwarded copy evaluates session rows only: durable rows already
-        // crossed by row (`warmRegion` rebuilds them in every region).
-        if (options.forwarded)
-            rows = rows.filter((row) => row.socketId !== undefined);
-        if (rows.length === 0) return false;
+        // Only a removal can invalidate an anchor, so nothing else pays for
+        // this — and it settles every row keyed on the uid now gone, not just
+        // the ones one event could reach.
+        const removed =
+            key === 'fs.remove.node' ? fsAnchorToken(entry.uid) : null;
+        const settling =
+            removed !== null && local.includes(removed)
+                ? await this.stores.eventSubscription.getForTokens(
+                      ownerUserId,
+                      [removed],
+                      options.forwarded ? { keep } : {},
+                  )
+                : [];
+        if (rows.length === 0 && settling.length === 0) return false;
 
         await this.#route(
             subject,
@@ -3697,11 +3762,8 @@ export class EventsService extends PuterService {
             (matched) => this.#stillAuthorized(matched, context),
         );
 
-        // Only a removal can invalidate an anchor, so nothing else pays for
-        // this — and this pass is already holding the rows that key on the uid
-        // now gone.
-        if (key === 'fs.remove.node')
-            await this.#settleDeletedAnchor(context, rows);
+        if (settling.length > 0)
+            await this.#settleDeletedAnchor(context, settling);
         return true;
     }
 
@@ -3755,44 +3817,74 @@ export class EventsService extends PuterService {
         };
 
         const tokensPerKey = contexts.map((context) => subject.tokens(context));
-        const { local, remote } =
-            await this.stores.eventSubscription.watchedFor(ownerUserId, [
-                ...new Set(tokensPerKey.flat()),
-            ]);
+        const { local, remote, remoteValues } =
+            await this.stores.eventSubscription.watchedFor(
+                ownerUserId,
+                [...new Set(tokensPerKey.flat())],
+                { values: true },
+            );
         if (local.length === 0 && remote.size === 0) return false;
 
         if (!options.forwarded && remote.size > 0)
             contexts.forEach((context, i) => {
                 const regions = new Set<string>();
-                for (const token of tokensPerKey[i])
+                const asking = new Set<string>();
+                for (const token of tokensPerKey[i]) {
                     for (const region of remote.get(token) ?? [])
                         regions.add(region);
+                    for (const region of remoteValues.get(token) ?? [])
+                        asking.add(region);
+                }
                 if (regions.size === 0) return;
-                this.services.eventForward.forwardEvent([...regions], {
-                    family: 'kv',
-                    ownerUserId,
-                    actingUserId: options.actingUserId,
-                    id: context.id,
-                    ts: context.ts,
-                    kv: {
-                        userUuid: namespace.userUuid,
-                        appUid: namespace.appUid,
-                        kvKey: context.kvKey,
-                        op: context.op,
-                        ...valueAt(i),
-                        ...(context.noShare ? { noShare: true as const } : {}),
-                    },
-                });
+                // The value goes only where a row asked for it; everywhere
+                // else it would cross regions to be discarded on arrival.
+                const value = [...regions].some((region) => asking.has(region))
+                    ? valueAt(i)
+                    : undefined;
+                const forward = (
+                    to: string[],
+                    carried?: { value: unknown },
+                ) => {
+                    if (to.length === 0) return;
+                    this.services.eventForward.forwardEvent(to, {
+                        family: 'kv',
+                        ownerUserId,
+                        actingUserId: options.actingUserId,
+                        id: context.id,
+                        ts: context.ts,
+                        kv: {
+                            userUuid: namespace.userUuid,
+                            appUid: namespace.appUid,
+                            kvKey: context.kvKey,
+                            op: context.op,
+                            ...carried,
+                            ...(context.noShare
+                                ? { noShare: true as const }
+                                : {}),
+                        },
+                    });
+                };
+                if (!value) {
+                    forward([...regions]);
+                    return;
+                }
+                forward([...regions].filter((region) => !asking.has(region)));
+                forward(
+                    [...regions].filter((region) => asking.has(region)),
+                    value,
+                );
             });
 
         if (local.length === 0) return false;
 
-        let rows = await this.stores.eventSubscription.getForTokens(
+        const rows = await this.stores.eventSubscription.getForTokens(
             ownerUserId,
             local,
+            {
+                perToken: KV_ROWS_PER_TOKEN,
+                keep: dispatchKeeps(options.forwarded),
+            },
         );
-        if (options.forwarded)
-            rows = rows.filter((row) => row.socketId !== undefined);
         if (rows.length === 0) return false;
 
         const limits = await this.#kvRouteLimits(
@@ -4464,15 +4556,13 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         separator: string | null,
     ): CompiledMatch {
-        const cached = this.#compiled.get(row.subId);
-        if (cached && cached.pattern === row.match) return cached;
-        const compiled = compileMatch(row.match as string, {
-            separator,
-            // A wildcard-free FS filter is a path that didn't exist yet.
-            literalCoversSubtree: isFsToken(row.token),
-        });
-        this.#compiled.set(row.subId, compiled);
-        return compiled;
+        return this.#compiled.get(row.subId, row.match as string, (pattern) =>
+            compileMatch(pattern, {
+                separator,
+                // A wildcard-free FS filter is a path that didn't exist yet.
+                literalCoversSubtree: isFsToken(row.token),
+            }),
+        );
     }
 
     #gap(
@@ -4964,7 +5054,7 @@ export class EventsService extends PuterService {
         reason: SubscriptionEndReason,
         notify = true,
     ): Promise<void> {
-        this.#compiled.delete(row.subId);
+        this.#compiled.forget(row.subId);
         this.#deliveryAuth.forget(row.subId);
 
         if (row.durable !== true) {
@@ -5721,6 +5811,7 @@ export class EventsService extends PuterService {
             ? { ...delivery.envelope, skipHandler: true }
             : delivery.envelope;
 
+        let fannedOut: Promise<void> | null = null;
         if (delivery.socket) {
             try {
                 void this.services.socket
@@ -5735,17 +5826,7 @@ export class EventsService extends PuterService {
             // Every connected subscriber gets a `broadcast`, and the ones this
             // region cannot reach are wherever presence says they are.
             if (delivery.remote)
-                void this.services.eventForward
-                    .fanOut({
-                        holderUserId: delivery.meter.holderUserId,
-                        appUid: delivery.meter.appUid,
-                        subId: delivery.envelope.subId,
-                        event: delivery.envelope.event,
-                        ...(skipHandler ? { skipHandler: true as const } : {}),
-                    })
-                    .catch((err: unknown) => {
-                        console.warn('[events] forward failed', err);
-                    });
+                fannedOut = this.#fanOut(delivery, skipHandler);
         }
 
         let invoked = false;
@@ -5763,9 +5844,69 @@ export class EventsService extends PuterService {
         }
 
         // Nothing carried it, so nothing was delivered — and a delivery that
-        // did not happen is not billed.
+        // did not happen is not billed, nor is a socket copy nobody was
+        // connected to take.
         if (delivery.socket || invoked)
-            this.#delivered(delivery.envelope, delivery.meter, delivery.bill);
+            this.#delivered(
+                delivery.envelope,
+                delivery.meter,
+                delivery.bill &&
+                    (invoked ||
+                        (await this.#socketReached(delivery, fannedOut))),
+            );
+    }
+
+    /** Hand a `broadcast` to every other region holding a socket for it. */
+    async #fanOut(
+        delivery: AddressedDelivery,
+        skipHandler: boolean,
+    ): Promise<void> {
+        try {
+            await this.services.eventForward.fanOut({
+                holderUserId: delivery.meter.holderUserId,
+                appUid: delivery.meter.appUid,
+                subId: delivery.envelope.subId,
+                event: delivery.envelope.event,
+                ...(skipHandler ? { skipHandler: true as const } : {}),
+            });
+        } catch (err) {
+            console.warn('[events] forward failed', err);
+        }
+    }
+
+    /**
+     * Whether a socket copy had anyone to reach: this node, any node in this
+     * region, or — for a row every connection gets — a region presence names.
+     * Without peers nothing counts connections region-wide, so a miss here
+     * proves nothing and the delivery is billed as it always was.
+     */
+    async #socketReached(
+        delivery: AddressedDelivery,
+        fannedOut: Promise<void> | null,
+    ): Promise<boolean> {
+        const forward = this.services.eventForward;
+        if (!forward.active) return true;
+        if (this.services.socket.has(delivery.target)) return true;
+        const { holderUserId, appUid } = delivery.meter;
+        try {
+            if (
+                await this.stores.presence.holdsConnection(
+                    holderUserId,
+                    presenceApp(appUid),
+                )
+            )
+                return true;
+            if (!fannedOut) return false;
+            // After the fan-out, so its presence read is the one answered.
+            await fannedOut;
+            return (await forward.regionsFor(holderUserId, appUid)).length > 0;
+        } catch (err) {
+            console.warn(
+                '[events] could not tell whether a delivery reached anyone',
+                err,
+            );
+            return true;
+        }
     }
 
     /**
@@ -5774,7 +5915,8 @@ export class EventsService extends PuterService {
      * filtered out, coalesced away, rate limited or refused for credit gets
      * here, and a gap marker — a notice of loss rather than a delivery — is
      * reported without a line. `bill` is false for a `single` retry: the event
-     * it carries was already charged for on an earlier attempt.
+     * it carries was already charged for on an earlier attempt. It is false too
+     * for a socket copy no connection was there to take.
      */
     #delivered(
         envelope: DeliveryEnvelope,
@@ -6070,7 +6212,7 @@ export class EventsService extends PuterService {
     // -- Plumbing ----------------------------------------------------
 
     #forget(subId: string): void {
-        this.#compiled.delete(subId);
+        this.#compiled.forget(subId);
         this.#deliveryAuth.forget(subId);
         this.#coalesce().cancelGroup(subId);
         this.#endNotices.delete(subId);
@@ -6079,6 +6221,7 @@ export class EventsService extends PuterService {
     /** A sibling process ended this subscription; stop queueing for it here too. */
     #endedElsewhere(subId: string): void {
         this.#ended.mark(subId);
+        this.#compiled.forget(subId);
         this.#coalescer?.cancelGroup(subId);
         // Cancelling may be the last thing this subId was owed here.
         this.#releaseEnded(subId);

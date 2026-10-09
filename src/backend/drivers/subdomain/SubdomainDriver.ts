@@ -40,10 +40,10 @@ import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import {
-    decodeCursor,
-    encodeCursor,
     normalizeLimit,
     normalizeOffset,
+    openCursor,
+    sealCursor,
 } from '../../util/pagination.js';
 
 const SUBDOMAIN_MAX_LEN = 64;
@@ -276,8 +276,9 @@ export class SubdomainDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 5000;
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = decodeCursor(
+        const payload = openCursor(
             args.cursor as string | null | undefined,
+            this.config.jwt_secret_v2,
         ) as { id?: number } | undefined;
         if (payload && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
@@ -320,7 +321,10 @@ export class SubdomainDriver extends PuterDriver {
         if (paginated && rows.length > limit) {
             rows = rows.slice(0, limit);
             const last = rows[rows.length - 1]!;
-            cursor = encodeCursor({ id: Number(last.id) });
+            cursor = sealCursor(
+                { id: Number(last.id) },
+                this.config.jwt_secret_v2,
+            );
         }
 
         const items = await this.#hydrateRows(rows);

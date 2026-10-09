@@ -25,6 +25,7 @@ import type { IConfig } from '../../types.js';
 import {
     EventSubscriptionStore,
     SESSION_SUBSCRIPTION_TTL_SECONDS,
+    valueWatchToken,
     type DurableSubscription,
     type SessionSubscription,
 } from './EventSubscriptionStore.js';
@@ -759,6 +760,169 @@ describe('the watched-set race', () => {
         await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
             second,
         ]);
+    });
+});
+
+describe('rows asking for kv values', () => {
+    const VALUE = valueWatchToken('f#anchor');
+    const asking = (over: Partial<SessionSubscription> = {}) =>
+        makeSub({ includeValue: true, ...over });
+
+    it('announces the value watch with the first row asking, and not again', async () => {
+        const first = await store.add(asking());
+        const second = await store.add(asking({ socketId: 'socket-b' }));
+
+        expect(first.announce).toEqual([
+            { token: 'f#anchor', op: 'add' },
+            { token: VALUE, op: 'add' },
+        ]);
+        expect(second.announce).toBeUndefined();
+    });
+
+    it('never announces one for a row that did not ask', async () => {
+        const bump = await store.add(makeSub());
+
+        expect(bump.announce).toEqual([{ token: 'f#anchor', op: 'add' }]);
+    });
+
+    it('withdraws it with the last row asking, and keeps the plain watch', async () => {
+        const valued = asking();
+        await store.add(valued);
+        await store.add(makeSub({ socketId: 'socket-b' }));
+
+        const bump = await store.remove(valued);
+
+        expect(bump?.announce).toEqual([{ token: VALUE, op: 'drop' }]);
+    });
+
+    it('keeps it while another row still asks', async () => {
+        const valued = asking();
+        await store.add(valued);
+        await store.add(asking({ socketId: 'socket-b' }));
+
+        const bump = await store.remove(valued);
+
+        expect(bump?.announce).toBeUndefined();
+    });
+
+    it('withdraws it when the socket holding the row is reaped', async () => {
+        await store.add(asking());
+        await store.add(makeSub({ socketId: 'socket-b' }));
+
+        const [bump] = await store.reapSocket(USER, 'socket-a');
+
+        expect(bump.announce).toEqual([{ token: VALUE, op: 'drop' }]);
+    });
+
+    it('moves it with a row carried to another anchor', async () => {
+        const valued = asking();
+        await store.add(valued);
+
+        const { moved, bumps } = await store.reanchorSession(valued, {
+            ...valued,
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+        });
+
+        expect(moved).toBe(true);
+        expect(bumps[0].announce).toEqual(
+            expect.arrayContaining([
+                { token: 'f#anchor', op: 'drop' },
+                { token: VALUE, op: 'drop' },
+                { token: 'f#parent', op: 'add' },
+                { token: valueWatchToken('f#parent'), op: 'add' },
+            ]),
+        );
+    });
+
+    it('reasserts it on refresh only for a socket whose rows ask', async () => {
+        await store.add(asking());
+        await store.add(makeSub({ socketId: 'socket-b' }));
+
+        expect(await store.refresh(USER, 'socket-a')).toEqual([
+            { ownerUserId: USER, token: 'f#anchor' },
+            { ownerUserId: USER, token: VALUE },
+        ]);
+        expect(await store.refresh(USER, 'socket-b')).toEqual([
+            { ownerUserId: USER, token: 'f#anchor' },
+        ]);
+    });
+
+    it('answers which peers asked for values alongside which watch', async () => {
+        await store.noteRemoteWatch(USER, 'f#anchor', 'east', 'add');
+        await store.noteRemoteWatch(USER, 'f#anchor', 'south', 'add');
+        await store.noteRemoteWatch(USER, VALUE, 'east', 'add');
+
+        const watched = await store.watchedFor(USER, ['f#anchor'], {
+            values: true,
+        });
+
+        expect(watched.remote.get('f#anchor')?.sort()).toEqual([
+            'east',
+            'south',
+        ]);
+        expect(watched.remoteValues.get('f#anchor')).toEqual(['east']);
+    });
+});
+
+describe('reading rows for dispatch', () => {
+    const durableRows = (count: number): DurableSubscription[] =>
+        Array.from(
+            { length: count },
+            (_, i) =>
+                ({
+                    ...makeSub({ subId: `durable-${i}` }),
+                    socketId: undefined,
+                    durable: true,
+                    delivery: 'broadcast',
+                    targets: ['socket'],
+                    handlerName: null,
+                    context: null,
+                    expiresAt: null,
+                    suspendedAt: null,
+                    suspendedReason: null,
+                    createdAt: 0,
+                }) as DurableSubscription,
+        );
+
+    it('reads a bounded share of a token everyone watches', async () => {
+        await store.cacheDurable(durableRows(600));
+
+        const bounded = await store.getForTokens(USER, ['f#anchor'], {
+            perToken: 50,
+        });
+
+        expect(bounded).toHaveLength(50);
+        expect(new Set(bounded.map((row) => row.subId)).size).toBe(50);
+        await expect(
+            store.getForTokens(USER, ['f#anchor']),
+        ).resolves.toHaveLength(600);
+    });
+
+    it('counts only the rows it was asked to keep', async () => {
+        await store.cacheDurable(durableRows(300));
+        const session = makeSub({ subId: 'session-1' });
+        await store.add(session);
+
+        const kept = await store.getForTokens(USER, ['f#anchor'], {
+            perToken: 50,
+            keep: (row) => row.socketId !== undefined,
+        });
+
+        expect(kept).toEqual([session]);
+    });
+
+    it('bounds each token on its own', async () => {
+        await store.cacheDurable(durableRows(100));
+        await store.add(makeSub({ token: 'f#other', anchorUid: 'other' }));
+
+        const rows = await store.getForTokens(USER, ['f#anchor', 'f#other'], {
+            perToken: 10,
+        });
+
+        expect(rows.filter((row) => row.token === 'f#anchor')).toHaveLength(10);
+        expect(rows.filter((row) => row.token === 'f#other')).toHaveLength(1);
     });
 });
 

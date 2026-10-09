@@ -26,7 +26,7 @@ The `subId` of the subscription, from `onPersistent()` or [`puter.events.list()`
 
 A `Promise` that resolves when the subscription is gone.
 
-An id this caller doesn't hold (already ended, or created by another app) is reported as not existing, so the call doesn't reveal which subscriptions exist. It rejects with `{ message, code }`:
+An id this caller doesn't hold (already ended, or created by another app) is reported as not existing, so the call doesn't reveal which subscriptions exist. If it rejects with any other code, the subscription is still running, and so is any handler it runs on this page. It rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |

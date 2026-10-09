@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
+import { decodeCursor } from '../../util/pagination.ts';
 
 describe('ShareStore', () => {
     let server;
@@ -505,6 +506,8 @@ describe('ShareStore', () => {
                 seen.push(...page.items.map((r) => r.uid));
                 cursor = page.cursor;
                 if (!cursor) break;
+                // Sealed: it reads as nothing but a cursor.
+                expect(() => decodeCursor(cursor)).toThrow();
             }
 
             expect(seen).toEqual(uids);
@@ -583,6 +586,7 @@ describe('ShareStore', () => {
                 seen.push(...page.items.map((r) => r.uid));
                 cursor = page.cursor;
                 if (!cursor) break;
+                expect(() => decodeCursor(cursor)).toThrow();
             }
 
             expect(seen).toEqual(uids);

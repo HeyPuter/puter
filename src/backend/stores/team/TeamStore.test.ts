@@ -21,6 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
+import { decodeCursor } from '../../util/pagination.ts';
 import { checkHandle } from './TeamStore.ts';
 
 describe('TeamStore', () => {
@@ -505,6 +506,8 @@ describe('TeamStore', () => {
         expect(first.items).toHaveLength(2);
         expect(first.total).toBe(3);
         expect(first.cursor).toBeTruthy();
+        // Sealed: it reads as nothing but a cursor.
+        expect(() => decodeCursor(first.cursor)).toThrow();
 
         const second = await store.listTeamsForUser(member.id, {
             cursor: first.cursor,
@@ -672,11 +675,41 @@ describe('TeamStore', () => {
             const page = await store.listMembers(team.uid, { limit: 2, cursor });
             seen.push(...page.items.map((m) => m.user_id));
             cursor = page.cursor;
+            if (cursor) expect(() => decodeCursor(cursor)).toThrow();
             pages++;
         } while (cursor && pages < 10);
 
         expect(seen.sort()).toEqual([...ids].sort());
         expect(pages).toBe(3);
+    });
+
+    it('pages the directory on a sealed cursor', async () => {
+        const team = await store.create({
+            ownerUserId: owner.id,
+            name: 'Directory',
+            handle: freeHandle(),
+        });
+        for (let i = 0; i < 3; i++)
+            await store.addMember(team.uid, (await makeUser()).id, {
+                orgOwned: true,
+            });
+
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        let pages = 0;
+        do {
+            const page = await store.listDirectory(team.uid, {
+                limit: 2,
+                cursor,
+            });
+            seen.push(...page.items.map((m) => m.uuid));
+            cursor = page.cursor;
+            if (cursor) expect(() => decodeCursor(cursor)).toThrow();
+            pages++;
+        } while (cursor && pages < 10);
+
+        expect(new Set(seen).size).toBe(seen.length);
+        expect(pages).toBeGreaterThan(1);
     });
 
     it('caps the page size rather than trusting the caller', async () => {

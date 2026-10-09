@@ -97,3 +97,34 @@ describe('minting rejects a value the column would truncate', () => {
         ).rejects.toSatisfy(codeOf('events_value_too_large'));
     });
 });
+
+describe('the owner listing', () => {
+    it('pages on a cursor that says nothing about where the row sits', async () => {
+        const appUid = 'app-listing-cursor';
+        for (let i = 0; i < 3; i++)
+            await store().mint(
+                input({
+                    appUid,
+                    keyPrefix: `cursor-${i}:`,
+                    permission: `kv-share:owner-uuid:${appUid}:cursor-${i}`,
+                }),
+            );
+
+        const first = await store().listForOwner(ownerUserId, {
+            appUid,
+            limit: 2,
+        });
+        expect(first.cursor).toBeDefined();
+        expect(
+            Buffer.from(first.cursor!, 'base64').toString('utf8'),
+        ).not.toContain('"id"');
+
+        const second = await store().listForOwner(ownerUserId, {
+            appUid,
+            limit: 2,
+            cursor: first.cursor,
+        });
+        expect(second.items.map((row) => row.keyPrefix)).toEqual(['cursor-2:']);
+        expect(second.cursor).toBeUndefined();
+    });
+});

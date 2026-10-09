@@ -8,6 +8,7 @@ vi.mock('./lib/api.js', () => ({
 }));
 
 const { EventHandlers } = await import('./lib/handlers.js');
+const { fetch: fetchMissed } = await import('./fetch.js');
 const { list } = await import('./list.js');
 const { onPersistent } = await import('./onPersistent.js');
 const { unsubscribe } = await import('./unsubscribe.js');
@@ -36,6 +37,7 @@ const makeModule = (fsRead) => {
         onPersistent,
         unsubscribe,
         list,
+        fetch: fetchMissed,
     };
     module.handlers = new EventHandlers(module);
     return module;
@@ -295,6 +297,69 @@ describe('unsubscribe', () => {
         await module.unsubscribe('app-1#a');
 
         expect(module.channel.deregistered).toEqual(['app-1#a']);
+    });
+
+    it('keeps routing a subscription the server did not end', async () => {
+        const module = makeModule();
+        const refused = Object.assign(new Error('Too many subscription changes'), {
+            code: 'too_many_requests',
+        });
+        mockRequest.mockRejectedValue(refused);
+
+        const error = await rejects(() => module.unsubscribe('app-1#a'));
+
+        expect(error).toBe(refused);
+        expect(module.channel.deregistered).toEqual([]);
+    });
+
+    it('stops routing one the server says is already gone', async () => {
+        const module = makeModule();
+        mockRequest.mockRejectedValue(
+            Object.assign(new Error('No such subscription'), {
+                code: 'subscription_does_not_exist',
+            }),
+        );
+
+        const error = await rejects(() => module.unsubscribe('app-1#a'));
+
+        expect(error.code).toBe('subscription_does_not_exist');
+        expect(module.channel.deregistered).toEqual(['app-1#a']);
+    });
+});
+
+describe('fetch', () => {
+    const queryOf = (index = 0) => mockRequest.mock.calls[index][3];
+
+    it('continues from a page`s `cursor` passed back as `cursor`', async () => {
+        await makeModule().fetch({ subject: 'notif:account', cursor: 'next' });
+
+        expect(routeOf()).toBe('/events/fetch');
+        expect(queryOf()).toEqual({ subject: 'notif:account', after: 'next' });
+    });
+
+    it('still takes it as `after`, the name it first shipped under', async () => {
+        await makeModule().fetch({ subject: 'notif:account', after: 'next' });
+
+        expect(queryOf()).toEqual({ subject: 'notif:account', after: 'next' });
+    });
+
+    it('goes by `cursor` when both are given', async () => {
+        await makeModule().fetch({
+            subject: 'notif:account',
+            cursor: 'from-cursor',
+            after: 'from-after',
+        });
+
+        expect(queryOf()).toMatchObject({ after: 'from-cursor' });
+    });
+
+    it('refuses a `cursor` that is not a string before calling anything', async () => {
+        const error = await rejects(() =>
+            makeModule().fetch({ subject: 'notif:account', cursor: 42 }),
+        );
+
+        expect(error.code).toBe('invalid_request');
+        expect(mockRequest).not.toHaveBeenCalled();
     });
 });
 

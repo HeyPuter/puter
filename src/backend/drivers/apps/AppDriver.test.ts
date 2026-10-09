@@ -23,6 +23,7 @@ import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { decodeCursor } from '../../util/pagination.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -1388,6 +1389,8 @@ describe('AppDriver.select pagination', () => {
             )) as { items: Array<{ name: string }>; cursor?: string };
             seen.push(...page.items.map((r) => r.name));
             cursor = page.cursor;
+            // Sealed: it reads as nothing but a cursor.
+            if (cursor) expect(() => decodeCursor(cursor)).toThrow();
         } while (cursor);
         expect(seen).toEqual(names);
     });
