@@ -706,10 +706,13 @@ export type EventMap = {
      * Sessions were revoked for a user. Anything holding one of them open — a
      * live socket, say — should drop it: `revoked_at` is otherwise only read on
      * the next handshake.
+     *
+     * `outer.*` rather than `outer.pubsub.*` on purpose: the eviction runs
+     * through the socket.io Redis adapter a cluster shares, so one node
+     * disconnecting covers every node in it — fanning out to siblings would
+     * just have each of them repeat the same cluster-wide disconnect.
      */
-    'auth.sessions.revoked': { user_id: number; session_uids: string[] };
-    /** The same revocation, carried to sibling nodes and peer clusters. */
-    'outer.pubsub.auth.sessions.revoked': {
+    'outer.auth.sessions.revoked': {
         user_id: number;
         session_uids: string[];
     };

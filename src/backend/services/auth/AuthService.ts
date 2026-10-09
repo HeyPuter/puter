@@ -732,13 +732,8 @@ export class AuthService extends PuterService {
             user_id: revoked.userId,
             session_uids: revoked.uuids,
         };
-        this.clients.event?.emit('auth.sessions.revoked', payload, {});
         // Whoever holds the socket may not be whoever revoked the session.
-        this.clients.event?.emit(
-            'outer.pubsub.auth.sessions.revoked',
-            payload,
-            {},
-        );
+        this.clients.event?.emit('outer.auth.sessions.revoked', payload, {});
     }
 
     /**

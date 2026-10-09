@@ -834,19 +834,17 @@ export class SocketService extends PuterService {
             },
         );
 
-        // Both channels: the local one for the node that did the revoking,
-        // the fanned-out one for every other node holding its sockets.
-        for (const key of [
-            'auth.sessions.revoked',
-            'outer.pubsub.auth.sessions.revoked',
-        ] as const) {
-            this.clients.event.on(key, (_key: string, data: unknown) => {
+        // Fires on this node and carries to peer clusters; the adapter
+        // reaches the rest of this one.
+        this.clients.event.on(
+            'outer.auth.sessions.revoked',
+            (_key: string, data: unknown) => {
                 const { user_id } = data as { user_id: number };
                 this.#evictUserSockets(user_id).catch((err: unknown) => {
                     console.error('[socket] session eviction failed', err);
                 });
-            });
-        }
+            },
+        );
 
         this.clients.event.on(
             'auth.access-token.revoked',

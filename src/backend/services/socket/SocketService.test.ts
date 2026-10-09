@@ -671,10 +671,10 @@ describe('SocketService (live socket.io)', () => {
         const socket = await connect({ auth_token: `Bearer ${evicted.token}` });
         expect(socket.connected).toBe(true);
 
-        // As the fan-out delivers it: the node holding this socket is not
+        // As a peer cluster delivers it: the node holding this socket is not
         // the one that revoked the session.
         server.clients.event.emit(
-            'outer.pubsub.auth.sessions.revoked',
+            'outer.auth.sessions.revoked',
             { user_id: row!.id, session_uids: ['whatever'] },
             {},
         );
