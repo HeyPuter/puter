@@ -3817,34 +3817,62 @@ export class EventsService extends PuterService {
         };
 
         const tokensPerKey = contexts.map((context) => subject.tokens(context));
-        const { local, remote } =
-            await this.stores.eventSubscription.watchedFor(ownerUserId, [
-                ...new Set(tokensPerKey.flat()),
-            ]);
+        const { local, remote, remoteValues } =
+            await this.stores.eventSubscription.watchedFor(
+                ownerUserId,
+                [...new Set(tokensPerKey.flat())],
+                { values: true },
+            );
         if (local.length === 0 && remote.size === 0) return false;
 
         if (!options.forwarded && remote.size > 0)
             contexts.forEach((context, i) => {
                 const regions = new Set<string>();
-                for (const token of tokensPerKey[i])
+                const asking = new Set<string>();
+                for (const token of tokensPerKey[i]) {
                     for (const region of remote.get(token) ?? [])
                         regions.add(region);
+                    for (const region of remoteValues.get(token) ?? [])
+                        asking.add(region);
+                }
                 if (regions.size === 0) return;
-                this.services.eventForward.forwardEvent([...regions], {
-                    family: 'kv',
-                    ownerUserId,
-                    actingUserId: options.actingUserId,
-                    id: context.id,
-                    ts: context.ts,
-                    kv: {
-                        userUuid: namespace.userUuid,
-                        appUid: namespace.appUid,
-                        kvKey: context.kvKey,
-                        op: context.op,
-                        ...valueAt(i),
-                        ...(context.noShare ? { noShare: true as const } : {}),
-                    },
-                });
+                // The value goes only where a row asked for it; everywhere
+                // else it would cross regions to be discarded on arrival.
+                const value = [...regions].some((region) => asking.has(region))
+                    ? valueAt(i)
+                    : undefined;
+                const forward = (
+                    to: string[],
+                    carried?: { value: unknown },
+                ) => {
+                    if (to.length === 0) return;
+                    this.services.eventForward.forwardEvent(to, {
+                        family: 'kv',
+                        ownerUserId,
+                        actingUserId: options.actingUserId,
+                        id: context.id,
+                        ts: context.ts,
+                        kv: {
+                            userUuid: namespace.userUuid,
+                            appUid: namespace.appUid,
+                            kvKey: context.kvKey,
+                            op: context.op,
+                            ...carried,
+                            ...(context.noShare
+                                ? { noShare: true as const }
+                                : {}),
+                        },
+                    });
+                };
+                if (!value) {
+                    forward([...regions]);
+                    return;
+                }
+                forward([...regions].filter((region) => !asking.has(region)));
+                forward(
+                    [...regions].filter((region) => asking.has(region)),
+                    value,
+                );
             });
 
         if (local.length === 0) return false;

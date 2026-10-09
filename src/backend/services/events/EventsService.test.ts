@@ -33,6 +33,7 @@ import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
     EventSubscriptionStore,
+    valueWatchToken,
     type DurableSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
 import type { KvShareHandle } from '../../stores/events/KvShareHandleStore.js';
@@ -2807,6 +2808,42 @@ describe('the cross-app kv gate', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toEqual([]);
+    });
+
+    it('sends no value to a peer whose rows did not ask for one', async () => {
+        await store.noteRemoteWatch(
+            userId,
+            kvAnchorToken(`user-${userId}`, OWN_APP, 'cart'),
+            'east',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { values: [{ items: 3 }] });
+
+        expect(forwarded).toHaveLength(1);
+        expect(forwarded[0].regions).toEqual(['east']);
+        expect(forwarded[0].item.kv).not.toHaveProperty('value');
+    });
+
+    it('sends the value only to the peers whose rows asked for it', async () => {
+        const token = kvAnchorToken(`user-${userId}`, OWN_APP, 'cart');
+        for (const region of ['east', 'south'])
+            await store.noteRemoteWatch(userId, token, region, 'add');
+        await store.noteRemoteWatch(
+            userId,
+            valueWatchToken(token),
+            'east',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { values: [{ items: 3 }] });
+
+        const to = (region: string) =>
+            forwarded.find((call) => call.regions.includes(region));
+        expect(forwarded).toHaveLength(2);
+        expect(to('east')?.regions).toEqual(['east']);
+        expect(to('east')?.item.kv).toMatchObject({ value: { items: 3 } });
+        expect(to('south')?.item.kv).not.toHaveProperty('value');
     });
 
     it('marks a private key on the way to a peer region', async () => {
