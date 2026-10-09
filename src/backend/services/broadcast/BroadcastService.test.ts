@@ -632,6 +632,164 @@ describe('BroadcastService outbound flush', () => {
     });
 });
 
+// -- Outbound flush, more than one peer -------------------------------
+
+describe('BroadcastService outbound flush with a failing peer', () => {
+    const HEALTHY_HOST = 'broadcast-healthy.invalid';
+    const FAILING_HOST = 'broadcast-failing.invalid';
+    const MAX_QUEUED = 10_000;
+
+    let server: PuterServer;
+    let failingPeerDown = false;
+    /** Event-key lists of every request each peer accepted, in order. */
+    let delivered: Record<string, string[][]> = {};
+    let failedAttempts = 0;
+    /** While set, the failing peer's request hangs until it resolves. */
+    let failingPeerGate: Promise<void> | null = null;
+    let failingPeerStalled = false;
+
+    const eventIds = (rawBody: string): string[] =>
+        (
+            JSON.parse(rawBody) as {
+                events: { data: { cacheKey: string[] } }[];
+            }
+        ).events.map((e) => e.data.cacheKey[0]);
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    {
+                        peerId: 'peer-healthy',
+                        webhook: true,
+                        webhook_url: `http://${HEALTHY_HOST}/broadcast/webhook`,
+                        webhook_secret: 'healthy-secret',
+                    },
+                    {
+                        peerId: 'peer-failing',
+                        webhook: true,
+                        webhook_url: `http://${FAILING_HOST}/broadcast/webhook`,
+                        webhook_secret: 'failing-secret',
+                    },
+                ],
+                outbound_flush_ms: 25,
+            },
+        } as never);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    beforeEach(() => {
+        failingPeerDown = false;
+        delivered = { [HEALTHY_HOST]: [], [FAILING_HOST]: [] };
+        failedAttempts = 0;
+        failingPeerGate = null;
+        failingPeerStalled = false;
+        axiosRequestMock.mockReset();
+        axiosRequestMock.mockImplementation(
+            async (request: { url: string; data: string }) => {
+                const host = new URL(request.url).hostname;
+                if (host === FAILING_HOST && failingPeerDown) {
+                    if (failingPeerGate) {
+                        failingPeerStalled = true;
+                        await failingPeerGate;
+                    }
+                    failedAttempts += 1;
+                    throw new Error('peer unreachable');
+                }
+                delivered[host]?.push(eventIds(request.data));
+                return { status: 200, statusText: 'OK', data: 'ok' };
+            },
+        );
+    });
+
+    afterEach(() => {
+        axiosRequestMock.mockReset();
+    });
+
+    const waitFor = async (predicate: () => boolean, timeoutMs = 5000) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            if (predicate()) return;
+            await new Promise((r) => setTimeout(r, 10));
+        }
+        throw new Error('Timed out waiting for outbound flush');
+    };
+
+    const emit = (id: string) =>
+        server.clients.event.emit(
+            'outer.cacheUpdate' as never,
+            { cacheKey: [id] } as never,
+            {},
+        );
+
+    const deliveriesOf = (host: string, id: string) =>
+        delivered[host]!.filter((ids) => ids.includes(id)).length;
+
+    it('does not resend to a healthy peer what only a failing peer missed', async () => {
+        failingPeerDown = true;
+        emit('isolation-x');
+
+        await waitFor(
+            () =>
+                deliveriesOf(HEALTHY_HOST, 'isolation-x') === 1 &&
+                failedAttempts >= 3,
+        );
+        expect(deliveriesOf(HEALTHY_HOST, 'isolation-x')).toBe(1);
+
+        failingPeerDown = false;
+        await waitFor(() => deliveriesOf(FAILING_HOST, 'isolation-x') > 0);
+        expect(deliveriesOf(HEALTHY_HOST, 'isolation-x')).toBe(1);
+    });
+
+    it('drops the oldest events on overflow, not the newest', async () => {
+        failingPeerDown = true;
+        let release!: () => void;
+        failingPeerGate = new Promise((r) => (release = r));
+        for (let i = 0; i < 3; i++) emit(`overflow-old-${i}`);
+        await waitFor(() => failingPeerStalled);
+
+        // Arrives while the old events' failing send is still in flight.
+        for (let i = 0; i < MAX_QUEUED; i++) emit(`overflow-new-${i}`);
+        failingPeerGate = null;
+        release();
+        await waitFor(() => failedAttempts >= 3);
+
+        failingPeerDown = false;
+        await waitFor(
+            () =>
+                deliveriesOf(FAILING_HOST, `overflow-new-${MAX_QUEUED - 1}`) >
+                0,
+        );
+        const received = delivered[FAILING_HOST]!.flat();
+        for (let i = 0; i < 3; i++) {
+            expect(received).not.toContain(`overflow-old-${i}`);
+        }
+        const fresh = received.filter((id) => id.startsWith('overflow-new-'));
+        expect(fresh).toEqual(
+            Array.from({ length: MAX_QUEUED }, (_, i) => `overflow-new-${i}`),
+        );
+    });
+
+    it('delivers a backlog in arrival order, a repeat after what came between', async () => {
+        failingPeerDown = true;
+        emit('order-x');
+        emit('order-y');
+        await waitFor(() => failedAttempts >= 1);
+        emit('order-x');
+
+        failingPeerDown = false;
+        await waitFor(() => deliveriesOf(FAILING_HOST, 'order-x') > 0);
+        const received = delivered[FAILING_HOST]!.flat().filter((id) =>
+            id.startsWith('order-'),
+        );
+        expect(received).toEqual(['order-y', 'order-x']);
+    });
+});
+
 // -- Header validation ------------------------------------------------
 
 describe('BroadcastService.verifyAndEmit — header validation', () => {

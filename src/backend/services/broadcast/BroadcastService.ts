@@ -31,6 +31,11 @@ interface BroadcastEvent {
     meta: Record<string, unknown>;
 }
 
+interface QueuedEvent {
+    event: BroadcastEvent;
+    seq: number;
+}
+
 interface IncomingPayload {
     events?: unknown;
     key?: string;
@@ -77,9 +82,10 @@ const DEFAULT_REGION_ID = 'local';
  * Cross-node event replication via signed HTTP webhooks.
  *
  * **Outbound** — subscribes to local `outer.*` events on the event bus. Each
- * event is added to a small in-memory map (deduped by serialized shape), then
- * flushed every `outbound_flush_ms` as a single POST per configured peer. Each
- * POST carries:
+ * event is added to every peer's in-memory queue (deduped by serialized shape),
+ * then flushed every `outbound_flush_ms` as a single POST per configured peer.
+ * A peer's events leave its queue only once that peer accepts them. Each POST
+ * carries:
  *
  * - `X-Broadcast-Peer-Id` — this server's own peerId
  * - `X-Broadcast-Timestamp` — unix seconds, peer rejects ±5min
@@ -106,15 +112,20 @@ export class BroadcastService extends PuterService {
     /** Identifier used to tell what server a redis fan-out is coming from. */
     #redisSourceId: string = `${this.config.serverId}:${randomUUID()}`;
 
-    /** Coalesced outbound events, keyed by serialized shape. */
-    #outboundEventsByDedupKey = new Map<string, BroadcastEvent>();
+    /**
+     * Undelivered events per peer, keyed by serialized shape, oldest first — a
+     * peer that fails keeps its own backlog without replaying it to others.
+     */
+    #outboundQueues = new Map<IBroadcastPeerConfig, Map<string, QueuedEvent>>();
+    /** Orders queue entries, so a delivery only clears what it actually sent. */
+    #outboundSeq = 0;
     #outboundFlushTimer: ReturnType<typeof setTimeout> | null = null;
     #outboundIsFlushing = false;
     #dedupFallbackCounter = 0;
 
     #webhookReplayWindowSeconds = 300;
     #outboundFlushMs = 2000;
-    /** Bound on re-queued events, so a peer that stays down can't grow it. */
+    /** Bound on one peer's queue, so a peer that stays down can't grow it. */
     #outboundMaxQueued = 10_000;
     #webhookProtocol: 'http' | 'https' = 'https';
     #webhookHostHeader: string | null = null;
@@ -406,8 +417,42 @@ export class BroadcastService extends PuterService {
 
         const event: BroadcastEvent = { key, data, meta: safeMeta };
         const dedupKey = this.#createDedupKey(event);
-        this.#outboundEventsByDedupKey.set(dedupKey, event);
+        const seq = ++this.#outboundSeq;
+        for (const peer of this.#webhookPeers) {
+            let queue = this.#outboundQueues.get(peer);
+            if (!queue) {
+                queue = new Map();
+                this.#outboundQueues.set(peer, queue);
+            }
+            // Re-insert so a repeat moves to the tail: queue order stays
+            // arrival order, and the front is always the oldest.
+            queue.delete(dedupKey);
+            queue.set(dedupKey, { event, seq });
+            this.#trimOutboundQueue(peer, queue);
+        }
         this.#scheduleOutboundFlush();
+    }
+
+    #trimOutboundQueue(
+        peer: IBroadcastPeerConfig,
+        queue: Map<string, QueuedEvent>,
+    ): void {
+        let overflow = queue.size - this.#outboundMaxQueued;
+        if (overflow <= 0) return;
+        console.warn(
+            `[broadcast] outbound queue for peer ${peer.peerId ?? 'unknown'} over ${this.#outboundMaxQueued}; dropping ${overflow} oldest`,
+        );
+        for (const key of queue.keys()) {
+            if (overflow-- <= 0) break;
+            queue.delete(key);
+        }
+    }
+
+    #hasQueuedOutbound(): boolean {
+        for (const queue of this.#outboundQueues.values()) {
+            if (queue.size > 0) return true;
+        }
+        return false;
     }
 
     #createDedupKey(event: BroadcastEvent): string {
@@ -430,58 +475,50 @@ export class BroadcastService extends PuterService {
     }
 
     async #flushOutboundEvents(): Promise<void> {
-        if (
-            this.#outboundIsFlushing ||
-            this.#outboundEventsByDedupKey.size === 0
-        )
-            return;
+        if (this.#outboundIsFlushing || !this.#hasQueuedOutbound()) return;
 
         this.#outboundIsFlushing = true;
         try {
-            const events = [...this.#outboundEventsByDedupKey.values()];
-            this.#outboundEventsByDedupKey.clear();
-
-            let undelivered = false;
-            for (const peer of this.#webhookPeers) {
-                try {
-                    await this.#sendWebhookToPeer(peer, events);
-                } catch (err) {
-                    const peerId = peer.peerId ?? 'unknown';
-                    undelivered = true;
-                    console.warn(
-                        `[broadcast] webhook send to peer ${peerId} failed`,
-                        err,
-                    );
-                }
-            }
-            // A lost flat-perm invalidation has no TTL to heal it.
-            if (undelivered) this.#requeueOutbound(events);
+            await Promise.all(
+                [...this.#outboundQueues].map(([peer, queue]) =>
+                    this.#flushPeer(peer, queue),
+                ),
+            );
         } finally {
             this.#outboundIsFlushing = false;
-            // Anything that arrived during flush gets the next tick.
-            if (this.#outboundEventsByDedupKey.size > 0) {
-                this.#scheduleOutboundFlush();
-            }
+            // Undelivered events, and anything that arrived during the
+            // flush, get the next tick.
+            if (this.#hasQueuedOutbound()) this.#scheduleOutboundFlush();
         }
     }
 
-    /** Put undelivered events back for the next flush, oldest dropped first. */
-    #requeueOutbound(events: BroadcastEvent[]): void {
-        for (const event of events) {
-            const dedupKey = this.#createDedupKey(event);
-            // Whatever arrived since is fresher — never overwrite it.
-            if (this.#outboundEventsByDedupKey.has(dedupKey)) continue;
-            this.#outboundEventsByDedupKey.set(dedupKey, event);
+    /**
+     * Send one peer its queue. Events stay queued until this peer accepts them
+     * — a lost flat-perm invalidation has no TTL to heal it.
+     */
+    async #flushPeer(
+        peer: IBroadcastPeerConfig,
+        queue: Map<string, QueuedEvent>,
+    ): Promise<void> {
+        if (queue.size === 0) return;
+        const sent = [...queue];
+        try {
+            await this.#sendWebhookToPeer(
+                peer,
+                sent.map(([, queued]) => queued.event),
+            );
+        } catch (err) {
+            console.warn(
+                `[broadcast] webhook send to peer ${peer.peerId ?? 'unknown'} failed`,
+                err,
+            );
+            return;
         }
-        let overflow =
-            this.#outboundEventsByDedupKey.size - this.#outboundMaxQueued;
-        if (overflow <= 0) return;
-        console.warn(
-            `[broadcast] outbound queue over ${this.#outboundMaxQueued}; dropping ${overflow} oldest`,
-        );
-        for (const key of this.#outboundEventsByDedupKey.keys()) {
-            if (overflow-- <= 0) break;
-            this.#outboundEventsByDedupKey.delete(key);
+        for (const [dedupKey, queued] of sent) {
+            // A repeat that arrived mid-flush is newer than what was sent.
+            if (queue.get(dedupKey)?.seq === queued.seq) {
+                queue.delete(dedupKey);
+            }
         }
     }
 
