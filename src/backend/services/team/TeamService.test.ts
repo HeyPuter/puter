@@ -3,19 +3,18 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify it under the
- * terms of the GNU Affero General Public License as published by the Free
- * Software Foundation, either version 3 of the License, or (at your option) any
- * later version.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
- * details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see
- * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -670,9 +669,7 @@ describe('TeamService', () => {
     });
 
     it('stops demanding confirmation when the address is released', async () => {
-        // `releaseUnconfirmedSeatEmail` hands the address back to the inbox's
-        // owner. A demand left behind would outlive what it was demanding,
-        // and `/send-confirm-email` has no address to send a new code to.
+        // A demand left behind outlives the address it names.
         const { team } = await makeTeam();
         const username = `rel_${Math.random().toString(36).slice(2, 9)}`;
         const created = await service.provisionAccount(team.uid, owner.id, {
@@ -680,9 +677,9 @@ describe('TeamService', () => {
             email: `${username}@test.local`,
         });
 
-        expect(
-            await service.releaseUnconfirmedSeatEmail(created.userId),
-        ).toBe(true);
+        expect(await service.releaseUnconfirmedSeatEmail(created.userId)).toBe(
+            true,
+        );
 
         const row = await server.stores.user.getByProperty(
             'id',
@@ -1311,6 +1308,77 @@ describe('TeamService', () => {
 
         // And the account itself is disabled, not destroyed.
         expect(await server.stores.user.getById(created.userId)).toBeTruthy();
+    });
+
+    it('leaves the seat usable when no transport could carry a code', async () => {
+        // A gate nothing can lift: `/send-confirm-email` needs the transport
+        // that is missing, so the demand would never be satisfiable.
+        const { team } = await makeTeam();
+        const email = server.clients.email;
+        (server.clients as { email?: unknown }).email = undefined;
+        try {
+            const username = `notr_${Math.random().toString(36).slice(2, 9)}`;
+            const created = await service.provisionAccount(team.uid, owner.id, {
+                username,
+                email: `${username}@test.local`,
+            });
+            const row = await server.stores.user.getByProperty(
+                'id',
+                created.userId,
+                { force: true },
+            );
+            expect(row?.email).toBe(`${username}@test.local`);
+            expect(Boolean(row?.requires_email_confirmation)).toBe(false);
+        } finally {
+            (server.clients as { email?: unknown }).email = email;
+        }
+    });
+
+    it('lets the owner retarget an address the seat never confirmed', async () => {
+        const { team } = await makeTeam();
+        const username = `retgt_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}-typo@test.local`,
+        });
+        const fixed = `${username}-right@test.local`;
+        await service.updateSeatEmail(
+            team.uid,
+            owner.id,
+            created.userId,
+            fixed,
+        );
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(row?.email).toBe(fixed);
+        expect(row?.email_confirm_code).toBeTruthy();
+        expect(Boolean(row?.email_confirmed)).toBe(false);
+    });
+
+    it('refuses to retarget an address the seat confirmed', async () => {
+        const { team } = await makeTeam();
+        const username = `conf_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.stores.user.update(created.userId, {
+            email_confirmed: true,
+            requires_email_confirmation: false,
+        });
+
+        await expect(
+            service.updateSeatEmail(
+                team.uid,
+                owner.id,
+                created.userId,
+                `${username}-other@test.local`,
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
     });
 
     // -- notifications -------------------------------------------------

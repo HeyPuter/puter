@@ -93,6 +93,7 @@ export const AUDIT_ACTIVATE = 'activate';
 
 /** Written before the row it names goes; `_keep` is what preserves it. */
 export const AUDIT_DELETE_ACCOUNT = 'delete_account';
+export const AUDIT_UPDATE_SEAT_EMAIL = 'update_seat_email';
 
 /** A disclosure change, so it is recorded like anything else the team does. */
 export const AUDIT_DIRECTORY_ON = 'directory_enabled';
@@ -323,6 +324,7 @@ export class TeamService extends PuterService {
         if (Number.isFinite(override) && override > 0) return override;
 
         const plan = await this.#ownerPlan(ownerUserId);
+        // A named cap is deliberate; only the fallback turns on paid.
         const planCap = Number(plan?.policy?.teamSeatCap);
         if (Number.isFinite(planCap) && planCap > 0) return planCap;
 
@@ -344,14 +346,13 @@ export class TeamService extends PuterService {
         try {
             const owner = await this.stores.user.getById(ownerUserId);
             if (!owner?.uuid) return null;
-            // The whole row, not an id/uuid stub: a resolver may key on any
-            // field, and one that misses makes the cap depend on whether
-            // something else cached this user's plan first.
+            // The whole row: a resolver may key on any field.
             const actor = { user: owner } as never;
-            const [policy, paid] = await Promise.all([
-                this.services.metering.getActorSubscription(actor),
-                this.services.metering.actorHasPaidSubscription(actor),
-            ]);
+            // Sequential: run together both miss the cache and can disagree.
+            const policy =
+                await this.services.metering.getActorSubscription(actor);
+            const paid =
+                await this.services.metering.actorHasPaidSubscription(actor);
             return { policy, paid };
         } catch (e) {
             console.warn('[team] seat cap plan lookup failed:', e);
@@ -1019,21 +1020,20 @@ export class TeamService extends PuterService {
             });
         }
 
-        // An address a team typed in is a claim about someone else's inbox,
-        // so the seat confirms it before it counts for anything. No address is
-        // still fine: the team is the trust anchor for the account itself.
-        const confirmCode = email
-            ? String(crypto.randomInt(100000, 1000000))
-            : null;
+        // Gated only when a code can reach the address the team claimed.
+        const confirmCode =
+            email && this.clients.email
+                ? String(crypto.randomInt(100000, 1000000))
+                : null;
         const user = await this.stores.user.create({
             username: input.username,
             uuid: uuidv4(),
             password: null,
             email: email || null,
             clean_email: email ? cleanEmail(email) : null,
-            requires_email_confirmation: Boolean(email),
+            requires_email_confirmation: Boolean(confirmCode),
             email_confirmed: false,
-            ...(email
+            ...(confirmCode
                 ? {
                       email_confirm_code: confirmCode,
                       email_confirm_token: uuidv4(),
@@ -1153,6 +1153,61 @@ export class TeamService extends PuterService {
         await this.#dropSessions(targetUserId);
         await this.#notifyUser(user, 'team_password_reset', team);
         return { temporaryPassword };
+    }
+
+    /** Retarget a seat's unconfirmed address; a confirmed one is theirs. */
+    async updateSeatEmail(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+        rawEmail: unknown,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+        if (user.email && user.email_confirmed) {
+            throw new HttpError(409, 'That address is already confirmed', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        const email = typeof rawEmail === 'string' ? rawEmail.trim() : '';
+        if (email && !isStorableEmail(email)) {
+            throw new HttpError(400, 'Invalid email', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (email && (await this.stores.user.findEmailOwner(email))) {
+            throw new HttpError(409, 'That email is already in use', {
+                legacyCode: 'email_already_in_use',
+            });
+        }
+
+        const confirmCode =
+            email && this.clients.email
+                ? String(crypto.randomInt(100000, 1000000))
+                : null;
+        await this.stores.user.update(targetUserId, {
+            email: email || null,
+            clean_email: email ? cleanEmail(email) : null,
+            requires_email_confirmation: Boolean(confirmCode),
+            email_confirmed: false,
+            email_confirm_code: confirmCode,
+            email_confirm_token: confirmCode ? uuidv4() : null,
+        });
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_UPDATE_SEAT_EMAIL,
+        });
+        if (confirmCode) {
+            await this.#notifyUser(
+                { ...user, email } as UserRow,
+                'email_verification_code',
+                team,
+                { code: confirmCode },
+            );
+        }
     }
 
     /**

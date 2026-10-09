@@ -667,12 +667,8 @@ export class UserStore extends PuterStore {
 
     /**
      * Remove an address the account never confirmed. Guarded so an address
-     * confirmed in between stays. Returns false when nothing was removed.
-     *
-     * The demand goes with it: it names the address being removed, and one left
-     * behind outlives what it asked for -- the gate reads
-     * `requires_email_confirmation && !email_confirmed`, and there is no longer
-     * an address to send a code to.
+     * confirmed in between stays. Returns false when nothing was removed. The
+     * demand goes too: it names the address, and outlives it otherwise.
      */
     async clearUnconfirmedEmail(userId: number): Promise<boolean> {
         const unconfirmed =
