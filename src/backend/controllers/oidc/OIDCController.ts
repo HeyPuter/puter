@@ -824,7 +824,9 @@ if (window.opener) {
      *    (provider, sub) to that user.
      * 3. Email matches an account whose email is UNCONFIRMED → refuse. We don't
      *    know who owns an unconfirmed address, so linking would let whoever
-     *    controls the OIDC identity hijack a pending signup.
+     *    controls the OIDC identity hijack a pending signup. The exception is a
+     *    team seat's address with a provider-verified email: the seat gives it
+     *    up and step 4 runs.
      * 4. Otherwise create a new user and link.
      *
      * Step 2 also requires `email_verified !== false` on the OIDC side,
@@ -862,7 +864,16 @@ if (window.opener) {
                 claimedEmail,
                 { force: attempt > 0 },
             );
-            if (byEmail) {
+            // A seat's unconfirmed address was typed by its team; an inbox the
+            // provider verified takes it back and signs up fresh.
+            const releasedFromSeat =
+                byEmail !== null &&
+                !byEmail.email_confirmed &&
+                userinfo.email_verified === true &&
+                (await this.services.team.releaseUnconfirmedSeatEmail(
+                    byEmail.id,
+                ));
+            if (byEmail && !releasedFromSeat) {
                 if (!byEmail.email_confirmed) {
                     return {
                         error: 'An account with this email exists but the email is not yet confirmed. Please sign in with your password to confirm it first.',

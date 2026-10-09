@@ -1137,6 +1137,7 @@ export class AuthController extends PuterController {
         if (!is_temp) {
             pseudo_user = await this.#resolveSignupEmailClaim(body.email, {
                 force: true,
+                releaseSeat: true,
             });
         }
 
@@ -3254,7 +3255,7 @@ export class AuthController extends PuterController {
         // reject on ANY confirmed account (OIDC accounts have
         // password=null but are real) — not just password-holders.
         const canonical = cleanEmail(email);
-        const existingEmail = await this.stores.user.findEmailOwner(email);
+        const existingEmail = await this.#signupEmailHolder(email);
         if (
             existingEmail &&
             existingEmail.id !== user.id &&
@@ -3272,8 +3273,9 @@ export class AuthController extends PuterController {
 
         // bcrypt above is slow enough for someone else to take the address in
         // the meantime, so re-check against the primary before the write.
-        const raced = await this.stores.user.findEmailOwner(email, {
+        const raced = await this.#signupEmailHolder(email, {
             force: true,
+            releaseSeat: true,
         });
         if (
             raced &&
@@ -5291,13 +5293,13 @@ export class AuthController extends PuterController {
      *
      * Called twice per signup: once early, to fail fast before the validate
      * hook and bcrypt, and once against the primary immediately before the
-     * write.
+     * write, which is also where a seat gives up an unconfirmed address.
      */
     async #resolveSignupEmailClaim(
         email: string,
-        opts: { force?: boolean } = {},
+        opts: { force?: boolean; releaseSeat?: boolean } = {},
     ): Promise<UserRow | null> {
-        const existing = await this.stores.user.findEmailOwner(email, opts);
+        const existing = await this.#signupEmailHolder(email, opts);
         if (!existing) return null;
         // A provisioned account looks exactly like a claimable placeholder --
         // no password, unconfirmed -- but claiming it hands a stranger that
@@ -5315,6 +5317,33 @@ export class AuthController extends PuterController {
             );
         }
         return existing;
+    }
+
+    /**
+     * The account holding `email` that a signup has to contend with. A seat
+     * whose address its team typed and nobody confirmed doesn't count; with
+     * `releaseSeat` the seat gives the address up so the signup can take it.
+     */
+    async #signupEmailHolder(
+        email: string,
+        opts: { force?: boolean; releaseSeat?: boolean } = {},
+    ): Promise<UserRow | null> {
+        let force = opts.force;
+        for (;;) {
+            const holder = await this.stores.user.findEmailOwner(email, {
+                force,
+            });
+            if (!holder || holder.email_confirmed) return holder;
+            if (!(await this.stores.team.getOrgSeat(holder.id))) return holder;
+            if (!opts.releaseSeat) return null;
+            if (
+                !(await this.services.team.releaseUnconfirmedSeatEmail(
+                    holder.id,
+                ))
+            )
+                return holder;
+            force = true;
+        }
     }
 
     /**

@@ -1180,6 +1180,97 @@ describe('OIDCController login callback', () => {
         expect(captured.redirectStatus).toBe(302);
         expect(captured.redirectUrl).toContain('auth_error=1');
     });
+
+    /** A team seat holding `email` unconfirmed, as provisioning leaves it. */
+    const seatHolding = async (email: string) => {
+        const tag = Math.random().toString(36).slice(2, 8);
+        const owner = await server.stores.user.create({
+            username: `owner-${tag}`,
+            uuid: uuidv4(),
+            password: 'hashed',
+            email: `owner-${tag}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+        });
+        const seat = await server.stores.user.create({
+            username: `seat-${tag}`,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            free_storage: 100 * 1024 * 1024,
+        });
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+        // Provisioning issues a temporary password once the seat exists.
+        await server.stores.user.update(seat.id, { password: 'hashed' });
+        return seat;
+    };
+
+    const callbackWith = async (
+        sub: string,
+        claims: Record<string, unknown>,
+    ) => {
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: 'http://test.local/',
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            ...claims,
+        } as never);
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        return captured;
+    };
+
+    it("signs up a provider-verified inbox a seat holds unconfirmed, taking the seat's address", async () => {
+        const email = `seat-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const seat = await seatHolding(email);
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+
+        const captured = await callbackWith(sub, {
+            email,
+            email_verified: true,
+        });
+
+        expect(captured.cookies).toHaveLength(1);
+        const created = await oidc().findUserByProviderSub('custom', sub);
+        expect(created?.id).not.toBe(seat.id);
+        expect(created?.email).toBe(email);
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
+        expect(after?.email ?? null).toBeNull();
+    });
+
+    it('leaves the seat its address when the provider did not verify the email', async () => {
+        const email = `seat-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const seat = await seatHolding(email);
+
+        const captured = await callbackWith(
+            `sub-${Math.random().toString(36).slice(2, 8)}`,
+            { email },
+        );
+
+        expect(captured.redirectUrl).toContain('auth_error=1');
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
+        expect(after?.email).toBe(email);
+    });
 });
 
 // -- Browser binding / login-CSRF --------------------------------------

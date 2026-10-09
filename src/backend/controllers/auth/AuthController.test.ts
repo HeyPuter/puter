@@ -10166,3 +10166,116 @@ describe('AuthController — app-data grants', () => {
         expect(await grantedPermissions(grantee.uid)).toContain(permission);
     });
 });
+
+// -- An address a team seat holds without confirming it --
+
+describe('AuthController — a seat address nobody confirmed', () => {
+    /** A seat whose address its team typed in; unconfirmed. */
+    const makeSeat = async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        // A seat is created password-less and given a temporary one after.
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+        await server.stores.user.update(seat.id, {
+            password: await bcrypt.hash('temporary-password', 8),
+        });
+        return seat;
+    };
+
+    const emailOf = async (id: number) =>
+        (await server.stores.user.getById(id, { force: true }))!.email ?? null;
+
+    it('signup takes the address, and the seat gives it up', async () => {
+        const seat = await makeSeat();
+        const username = `own_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: seat.email!,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+
+        const owner = await server.stores.user.getByUsername(username);
+        expect(owner?.email).toBe(seat.email);
+        expect(await emailOf(seat.id)).toBeNull();
+    });
+
+    it('signup still refuses an address the seat confirmed', async () => {
+        const seat = await makeSeat();
+        await server.stores.user.update(seat.id, { email_confirmed: 1 });
+
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `own_${uniq()}`,
+                    email: seat.email!,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await emailOf(seat.id)).toBe(seat.email);
+    });
+
+    it('a signup refused before the write leaves the seat its address', async () => {
+        const seat = await makeSeat();
+        await withSignupValidateOverride(
+            (event) => {
+                event.allow = false;
+            },
+            async () => {
+                await expect(
+                    controller.handleSignup(
+                        makeReq({
+                            username: `own_${uniq()}`,
+                            email: seat.email!,
+                            password: 'correct-horse-battery',
+                        }),
+                        makeRes(),
+                    ),
+                ).rejects.toBeTruthy();
+            },
+        );
+        expect(await emailOf(seat.id)).toBe(seat.email);
+    });
+
+    it('saving a temp account takes the address too', async () => {
+        const seat = await makeSeat();
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUuid = (tempRes.body as { user: { uuid: string } }).user.uuid;
+        const tempRow = await server.stores.user.getByUuid(tempUuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await controller.handleSaveAccount(
+            makeReq(
+                {
+                    username: `save_${uniq()}`,
+                    email: seat.email!,
+                    password: 'another-strong-password',
+                },
+                { actor },
+            ),
+            makeRes(),
+        );
+        expect(await emailOf(tempRow!.id)).toBe(seat.email);
+        expect(await emailOf(seat.id)).toBeNull();
+    });
+});
