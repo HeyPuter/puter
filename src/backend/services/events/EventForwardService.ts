@@ -58,11 +58,12 @@ import type { DeliverableEvent, GapMarker } from './registry.js';
  * - **Nothing is broadcast on the chance someone is listening.** An empty row is
  *   no hop at all, which is the common case, and a deployment with no peers
  *   configured never gets as far as reading one.
- * - **Wrong rows are corrected on the read path.** A peer that answers "no
- *   socket" from its own registry is authoritative, and its region is removed
- *   with a write conditional on the version that was read. A peer that times
- *   out is not: a timeout is ambiguous, and evicting on it would blackhole a
- *   healthy region for the length of a partition and beyond it.
+ * - **Wrong rows are corrected by the region they name.** A region that receives
+ *   a forward for a pair it holds nothing for retires its own item; no region
+ *   writes another's, since a compare-and-set against a stale replica could
+ *   replace a fresher join. A peer that never answers stays in the row until
+ *   its item ages out: a timeout is ambiguous, and evicting on it would
+ *   blackhole a healthy region for the length of a partition.
  *
  * No delivery state crosses a region. A `single`'s lease, retry counter and
  * queue live where it was emitted; a peer holding the socket relays the
@@ -190,10 +191,10 @@ export class EventForwardService extends PuterService {
     // -- Presence transitions ----------------------------------------
 
     /**
-     * One more connection for the pair. Only the one that crosses zero in this
-     * region writes: every reconnect after it is a counter increment. Crossing
-     * zero says a transition happened on this node; the region-shared pin is
-     * what says whether a sibling node already wrote it in.
+     * One more connection for the pair. Only a connect that finds the
+     * region-shared pin free writes: normally the first, since every reconnect
+     * after it finds the pin held, but also the next one after a join that
+     * failed and gave the pin back.
      */
     async noteConnect(actor: Actor): Promise<void> {
         if (!this.active) return;
@@ -209,24 +210,35 @@ export class EventForwardService extends PuterService {
             this.#leaveTimers.delete(pair.key);
         }
 
-        const count = await this.stores.presence.addConnection(
-            pair.userId,
-            pair.appUid,
-        );
-        if (count !== 1) return;
+        await this.stores.presence.addConnection(pair.userId, pair.appUid);
+        if (!(await this.#join(pair))) return;
+        await this.#bump(pair.userId);
+    }
+
+    /**
+     * Write this region into the pair's row if no node here already has. The
+     * pin goes back when the write fails, or every later connect would skip
+     * it.
+     */
+    async #join(pair: PresencePair): Promise<boolean> {
         if (
             !(await this.stores.presence.acquireJoinPin(
                 pair.userId,
                 pair.appUid,
             ))
         )
-            return;
-        await this.stores.presence.join(
-            pair.userUuid,
-            pair.appUid,
-            this.region,
-        );
-        await this.#bump(pair.userId);
+            return false;
+        try {
+            await this.stores.presence.join(
+                pair.userUuid,
+                pair.appUid,
+                this.region,
+            );
+        } catch (err) {
+            await this.stores.presence.releaseJoinPin(pair.userId, pair.appUid);
+            throw err;
+        }
+        return true;
     }
 
     /**
@@ -293,19 +305,8 @@ export class EventForwardService extends PuterService {
         // transition, which for a long-lived tab may never come.
         if (
             await this.stores.presence.holdsConnection(pair.userId, pair.appUid)
-        ) {
-            if (
-                await this.stores.presence.acquireJoinPin(
-                    pair.userId,
-                    pair.appUid,
-                )
-            )
-                await this.stores.presence.join(
-                    pair.userUuid,
-                    pair.appUid,
-                    this.region,
-                );
-        }
+        )
+            await this.#join(pair);
         await this.#bump(pair.userId);
     }
 
@@ -345,16 +346,37 @@ export class EventForwardService extends PuterService {
     /**
      * The region to try for one `single` attempt, or `null` when the candidates
      * are spent. Ordered most-recently-connected first, which is the socket
-     * most likely to still be there.
+     * most likely to still be there. Skips by name rather than by position: the
+     * row can change between attempts.
      */
     async candidateRegion(
         holderUserId: number,
         appUid: string | null,
-        attempt: number,
+        tried: readonly string[],
     ): Promise<string | null> {
         if (!this.active) return null;
         const regions = await this.regionsFor(holderUserId, appUid);
-        return regions[attempt] ?? null;
+        return regions.find((region) => !tried.includes(region)) ?? null;
+    }
+
+    /**
+     * Whether any node in this region holds a socket for the pair. The socket
+     * registry only knows this node's. False where presence is not kept.
+     */
+    async heldInRegion(
+        userId: number,
+        appUid: string | null,
+    ): Promise<boolean> {
+        if (!this.active) return false;
+        try {
+            return await this.stores.presence.holdsConnection(
+                userId,
+                presenceApp(appUid),
+            );
+        } catch (err) {
+            console.warn('[events] presence count read failed', err);
+            return false;
+        }
     }
 
     /** Send one `single` to a named region, carrying what settles it. */
@@ -474,10 +496,9 @@ export class EventForwardService extends PuterService {
     /**
      * Regions other than this one holding a socket for the pair, read through
      * the generation-keyed cache and narrowed to regions this deployment can
-     * still address. An unaddressable name would otherwise sit at the head of
-     * the recency-sorted row forever: nothing can reach it, so nothing ever
-     * answers `noSocket`, and lazy repair never fires. A fresh table read
-     * prunes any it finds, through the same conditional delete `#repair` uses.
+     * still address. An unaddressable name is skipped, not pruned: it may be a
+     * region this one's peer list does not know yet, and its item is only its
+     * own to retire. A decommissioned region's items age out on their `ttl`.
      */
     async regionsFor(
         holderUserId: number,
@@ -499,11 +520,6 @@ export class EventForwardService extends PuterService {
             return [];
         }
         this.#cache.write(holderUserId, app, epoch, row);
-
-        for (const region of Object.keys(row.regions))
-            if (region !== this.region && !this.isPeer(region))
-                void this.#repair(region, holderUserId, appUid);
-
         return this.#addressableRegions(row);
     }
 
@@ -517,9 +533,9 @@ export class EventForwardService extends PuterService {
 
     /**
      * Apply one peer's batch. Deliveries go out over this region's own sockets;
-     * acks settle where the lease actually lives, which is here. The reply
-     * names the pairs this region holds nothing for — the only signal that lets
-     * the sender edit the row.
+     * acks settle where the lease actually lives, which is here. A delivery for
+     * a pair this region holds nothing for means its own item is stale, and
+     * this region retires it.
      *
      * Deliveries keep the batch's order, so a subscription's events reach its
      * socket as emitted; settles are each a row read, a queue write and a
@@ -612,9 +628,9 @@ export class EventForwardService extends PuterService {
             if (outcome.status === 'rejected')
                 console.warn('[events] relayed ack failed', outcome.reason);
 
-        // One `#holdsSocket` check per (user, app) pair in the batch, not per
-        // item — a busy subscription can carry many deliveries for the same
-        // pair in one window.
+        // One check per (user, app) pair in the batch, not per item — a busy
+        // subscription can carry many deliveries for the same pair in one
+        // window.
         const pairs = new Map<
             string,
             { userId: number; appUid: string | null }
@@ -629,59 +645,57 @@ export class EventForwardService extends PuterService {
                     });
             }
 
-        const candidates = [...pairs.values()];
         const checks = await runWithConcurrencyLimitSettled(
-            candidates,
+            [...pairs.values()],
             EventForwardService.RECEIVE_CONCURRENCY,
-            (pair) => this.#holdsSocket(pair),
+            (pair) => this.#retireIfIdle(pair),
         );
-        const noSocket: Array<{ userId: number; appUid: string | null }> = [];
-        candidates.forEach((pair, i) => {
-            const outcome = checks[i];
-            if (outcome.status === 'fulfilled' && !outcome.value)
-                noSocket.push(pair);
-            else if (outcome.status === 'rejected')
+        for (const outcome of checks)
+            if (outcome.status === 'rejected')
                 console.warn(
-                    '[events] holdsSocket check failed',
+                    '[events] presence self-retire failed',
                     outcome.reason,
                 );
-        });
 
         const reply: ForwardReply = {};
-        if (noSocket.length > 0) reply.noSocket = noSocket;
         if (noWatch.length > 0) reply.noWatch = noWatch;
         return reply;
     }
 
     /**
-     * Whether this region has anywhere to put deliveries for the pair. The
-     * per-region connection counter is the honest answer: the socket registry
-     * on one node says nothing about the others. A `false` tells the emitting
-     * region to repair its row, so it also releases this region's join pin — or
-     * the next connect here would skip writing itself back in.
+     * Retire this region's own item for a pair a peer forwarded to and nothing
+     * here holds. The region-wide connection count is the honest answer: the
+     * socket registry on one node says nothing about the others. The leave
+     * itself runs the same pin-ordered path a disconnect does, so a connect
+     * racing it is written back in.
      */
-    async #holdsSocket(pair: {
+    async #retireIfIdle(pair: {
         userId: number;
         appUid: string | null;
-    }): Promise<boolean> {
+    }): Promise<void> {
         if (this.services.socket.has(forwardTarget(pair.userId, pair.appUid)))
-            return true;
+            return;
         const app = presenceApp(pair.appUid);
-        // Still in the row on purpose: a pair inside its disconnect window is
-        // one this region expects back, and has not written itself out for.
-        if (this.#leaveTimers.has(`${pair.userId}|${app}`)) return true;
+        const key = `${pair.userId}|${app}`;
+        // A pair inside its disconnect window is one this region expects back;
+        // the leave already scheduled decides.
+        if (this.#leaveTimers.has(key)) return;
+        if (await this.stores.presence.holdsConnection(pair.userId, app))
+            return;
+        if (!(await this.stores.presence.claimRetire(pair.userId, app))) return;
+
         try {
-            const holds = await this.stores.presence.holdsConnection(
-                pair.userId,
-                app,
-            );
-            if (!holds)
-                await this.stores.presence.releaseJoinPin(pair.userId, app);
-            return holds;
-        } catch {
-            // Unable to tell is not "definitely not": a repair has to be
-            // affirmative, so this reports a socket rather than inviting one.
-            return true;
+            const userUuid = await this.#uuidOf(pair.userId);
+            if (!userUuid) return;
+            await this.#leaveIfStillGone({
+                userId: pair.userId,
+                userUuid,
+                appUid: app,
+                key,
+            });
+        } catch (err) {
+            await this.stores.presence.releaseRetireClaim(pair.userId, app);
+            throw err;
         }
     }
 
@@ -733,54 +747,15 @@ export class EventForwardService extends PuterService {
             batch,
         )) as ForwardReply | null;
 
-        for (const missing of reply?.noSocket ?? [])
-            await this.#repair(peerId, missing.userId, missing.appUid);
-
         // A peer answering "I hold no session for this token" is
-        // authoritative the same way `noSocket` is — this region's own
-        // remote-watch entry for it is stale, so it stops sending there.
+        // authoritative — this region's own remote-watch entry for it is
+        // stale, so it stops sending there.
         for (const stale of reply?.noWatch ?? [])
             await this.stores.eventSubscription
                 .noteRemoteWatch(stale.userId, stale.token, peerId, 'drop')
                 .catch((err: unknown) => {
                     console.warn('[events] remote-watch repair failed', err);
                 });
-    }
-
-    /**
-     * Take a region out of a row it is no longer addressable in — either it
-     * answered `noSocket` for itself, or a fresh read found a name that is not
-     * a peer at all. Conditional on the `connectedAt` that was read: a connect
-     * racing this repair writes a fresh one, and the repair loses harmlessly
-     * rather than blackholing a socket that just arrived.
-     */
-    async #repair(
-        region: string,
-        userId: number,
-        appUid: string | null,
-    ): Promise<void> {
-        const app = presenceApp(appUid);
-        if (!this.#cache.claimRepair(userId, app, region)) return;
-
-        const userUuid = await this.#uuidOf(userId);
-        if (!userUuid) return;
-        const row = this.#cache.read(userId, app);
-        const connectedAt = row?.regions[region];
-        if (connectedAt === undefined) return;
-
-        try {
-            const applied = await this.stores.presence.leave(
-                userUuid,
-                app,
-                region,
-                connectedAt,
-            );
-            if (!applied) return;
-            this.#cache.forget(userId, app, region);
-            await this.#bump(userId);
-        } catch (err) {
-            console.warn('[events] presence repair failed', err);
-        }
     }
 
     /**

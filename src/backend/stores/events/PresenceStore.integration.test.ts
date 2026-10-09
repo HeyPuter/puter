@@ -226,6 +226,20 @@ describe('the join pin', () => {
     });
 });
 
+describe('the retire claim', () => {
+    it('is taken once per window', async () => {
+        expect(await presence().claimRetire(seq, appUid())).toBe(true);
+        expect(await presence().claimRetire(seq, appUid())).toBe(false);
+    });
+
+    it('is claimable again once released', async () => {
+        await presence().claimRetire(seq, appUid());
+        await presence().releaseRetireClaim(seq, appUid());
+
+        expect(await presence().claimRetire(seq, appUid())).toBe(true);
+    });
+});
+
 describe('this region`s connection count', () => {
     it('crosses zero once, however many connections come and go', async () => {
         const store = presence();
@@ -247,6 +261,18 @@ describe('this region`s connection count', () => {
         // A double reap must not drive it below zero and hide the next connect.
         expect(await store.removeConnection(seq, appUid())).toBe(0);
         expect(await store.addConnection(seq, appUid())).toBe(1);
+    });
+
+    it('keeps a connection that lands while the last one is being dropped', async () => {
+        const store = presence();
+        await store.addConnection(seq, appUid());
+
+        await Promise.all([
+            store.removeConnection(seq, appUid()),
+            store.addConnection(seq, appUid()),
+        ]);
+
+        expect(await store.holdsConnection(seq, appUid())).toBe(true);
     });
 
     it('counts each app of one user separately', async () => {

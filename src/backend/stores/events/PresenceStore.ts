@@ -39,8 +39,11 @@ import { KV_GLOBAL_APP_KEY } from '../systemKv/SystemKVStore.js';
  * same join), a claim-gated refresh renews a long-lived item once per window,
  * and reads are keyed by a per-user generation bumped on every transition.
  *
- * A region that dies without disconnecting leaves its item behind; the next
- * forward to it answers "no socket" and the emitting region retires the item.
+ * Only the region an item names ever writes it. A compare-and-set from another
+ * region is evaluated against that region's replica, which can be stale, and
+ * its write would then replace a fresher join. A region whose sockets went
+ * without disconnecting retires its own item when a forward next reaches it;
+ * one that never answers ages out on the item's `ttl`.
  */
 
 // -- Keys -------------------------------------------------------------
@@ -80,13 +83,17 @@ const refreshClaimKey = (
     region: string,
 ): string => `ev:ptl:{${userId}}:${appUid}:${region}`;
 
+/** Region-shared claim on checking this region's own item after a forward. */
+const retireClaimKey = (userId: number | string, appUid: string): string =>
+    `ev:prt:{${userId}}:${appUid}`;
+
 // -- Lifetimes --------------------------------------------------------
 
 /**
  * How long a region's connection count survives untouched. A live socket
  * refreshes it on every concurrency-slot renewal, so this is only reached by a
- * node that died holding sockets — and a count stuck high is what lazy repair
- * corrects, so the backstop stays generous.
+ * node that died holding sockets. Until then the count stays high, the region
+ * answers forwards as if it held a socket, and nothing retires its item.
  */
 const CONNECTION_COUNT_TTL_SECONDS = 24 * 60 * 60;
 
@@ -117,6 +124,33 @@ const PRESENCE_ITEM_TTL_SECONDS = 48 * 60 * 60;
  */
 const PRESENCE_ITEM_REFRESH_SECONDS = 12 * 60 * 60;
 
+/**
+ * How often forwards for a pair this region holds nothing for may cost it a
+ * table read. Matches how long a peer trusts its cached row, so a peer still
+ * forwarding after one window has re-read the table since.
+ */
+const RETIRE_CLAIM_SECONDS = 60;
+
+// -- Scripts ----------------------------------------------------------
+
+/**
+ * Drop one connection and delete the count at zero in one step, so a connect
+ * landing between the two is never deleted with it.
+ */
+const REMOVE_CONNECTION_SCRIPT = `
+local count = redis.call('DECR', KEYS[1])
+if count <= 0 then
+    redis.call('DEL', KEYS[1])
+    return 0
+end
+redis.call('EXPIRE', KEYS[1], ARGV[1])
+return count
+`;
+
+interface PresenceScripts {
+    presenceRemoveConnection(key: string, ttlSeconds: string): Promise<number>;
+}
+
 // -- Row --------------------------------------------------------------
 
 /** One pair's presence, reassembled from its regions' items. */
@@ -126,6 +160,19 @@ export interface PresenceRow {
 }
 
 export class PresenceStore extends PuterStore {
+    #definedScripts = false;
+
+    #scripts(): PresenceScripts {
+        if (!this.#definedScripts) {
+            this.#definedScripts = true;
+            this.clients.redis.defineCommand('presenceRemoveConnection', {
+                numberOfKeys: 1,
+                lua: REMOVE_CONNECTION_SCRIPT,
+            });
+        }
+        return this.clients.redis as unknown as PresenceScripts;
+    }
+
     // -- The row -----------------------------------------------------
 
     /** The pair's row, reassembled from every region's own item. */
@@ -167,9 +214,10 @@ export class PresenceStore extends PuterStore {
     }
 
     /**
-     * Take a region's item out of the row, but only while it still carries the
-     * `connectedAt` that was read. False means a fresher connect won the race,
-     * which is exactly the outcome that must not be overwritten.
+     * Take this region's item out of the row, but only while it still carries
+     * the `connectedAt` that was read. False means a fresher connect won the
+     * race, which is exactly the outcome that must not be overwritten. Called
+     * only by the region the item names: see the class comment.
      */
     async leave(
         userUuid: string,
@@ -206,19 +254,41 @@ export class PresenceStore extends PuterStore {
 
     /**
      * Release the pin once this region has actually left the row (or found it
-     * already gone), or once it has told a peer it holds nothing for the pair.
-     * Either way, the next connect for the pair in this region is free to write
-     * a fresh join.
+     * already gone), or once its join failed. Either way, the next connect for
+     * the pair in this region is free to write a fresh join.
      */
     async releaseJoinPin(userId: number, appUid: string): Promise<void> {
         await this.clients.redis.del(pinKey(userId, appUid));
     }
 
+    // -- Retire claim (region-shared) ----------------------------------
+
+    /**
+     * Claim this window's one check of this region's own item, after a peer
+     * forwarded for a pair the region holds nothing for. Keeps a busy stream
+     * from costing a table read per batch.
+     */
+    async claimRetire(userId: number, appUid: string): Promise<boolean> {
+        const result = await this.clients.redis.set(
+            retireClaimKey(userId, appUid),
+            '1',
+            'EX',
+            RETIRE_CLAIM_SECONDS,
+            'NX',
+        );
+        return result === 'OK';
+    }
+
+    /** Hand the claim back after a failed check, so the next forward retries. */
+    async releaseRetireClaim(userId: number, appUid: string): Promise<void> {
+        await this.clients.redis.del(retireClaimKey(userId, appUid));
+    }
+
     // -- This region's connections -----------------------------------
 
     /**
-     * Count one more connection for the pair in this region, and say whether it
-     * is the one that crossed zero — the only connect that owes a write.
+     * Count one more connection for the pair in this region. The count is what
+     * says whether the region still holds the pair once a socket goes.
      *
      * The existing concurrency slots cannot answer this: they expose no count,
      * key on the user rather than the pair, and fail open, which is wrong in
@@ -231,18 +301,17 @@ export class PresenceStore extends PuterStore {
         return Number(count);
     }
 
-    /** Drop one connection. Zero is the count that owes the region's removal. */
+    /**
+     * Drop one connection. Zero is the count that owes the region's removal.
+     * Gone at zero, so the keyspace stays proportional to connected pairs — and
+     * a count driven negative by a double-reap resets with it.
+     */
     async removeConnection(userId: number, appUid: string): Promise<number> {
-        const key = connectionsKey(userId, appUid);
-        const count = Number(await this.clients.redis.decr(key));
-        // Gone at zero, so the keyspace stays proportional to connected pairs
-        // — and a count driven negative by a double-reap resets with it.
-        if (count <= 0) {
-            await this.clients.redis.del(key);
-            return 0;
-        }
-        await this.clients.redis.expire(key, CONNECTION_COUNT_TTL_SECONDS);
-        return count;
+        const count = await this.#scripts().presenceRemoveConnection(
+            connectionsKey(userId, appUid),
+            String(CONNECTION_COUNT_TTL_SECONDS),
+        );
+        return Number(count);
     }
 
     /** Whether this region still holds any socket for the pair. */
@@ -281,7 +350,7 @@ export class PresenceStore extends PuterStore {
 
         // Extends `ttl` without disturbing `connectedAt` (the leave path's
         // compare-and-set token); a retired-but-unswept item revives carrying
-        // its old token, so a stale repair may retire it once more.
+        // its old token, so a stale leave may retire it once more.
         try {
             await this.stores.kv.refreshReservedItem(
                 presenceItemKey(refresh.userUuid, appUid, refresh.region),

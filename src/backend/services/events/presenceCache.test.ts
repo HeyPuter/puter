@@ -122,47 +122,6 @@ describe('the presence cache', () => {
         expect(cache.read(7, 'app-a')).toBeNull();
     });
 
-    it('gives one window one repair per region', () => {
-        const cache = new PresenceCache();
-        cache.write(7, 'app-a', cache.generationOf(7), row({ east: 10 }));
-
-        expect(cache.claimRepair(7, 'app-a', 'east')).toBe(true);
-        expect(cache.claimRepair(7, 'app-a', 'east')).toBe(false);
-        expect(cache.claimRepair(7, 'app-a', 'east')).toBe(false);
-        // A different region is its own claim.
-        expect(cache.claimRepair(7, 'app-a', 'south')).toBe(true);
-    });
-
-    it('lets the next window repair again', () => {
-        const cache = new PresenceCache();
-        cache.write(7, 'app-a', cache.generationOf(7), row({ east: 10 }));
-        expect(cache.claimRepair(7, 'app-a', 'east')).toBe(true);
-
-        cache.bump(7);
-        cache.write(7, 'app-a', cache.generationOf(7), row({ east: 10 }));
-
-        expect(cache.claimRepair(7, 'app-a', 'east')).toBe(true);
-    });
-
-    it('refuses a repair for something it holds no row for', () => {
-        const cache = new PresenceCache();
-        expect(cache.claimRepair(7, 'app-a', 'east')).toBe(false);
-    });
-
-    it('stops naming a region the moment one is repaired away', () => {
-        const cache = new PresenceCache();
-        cache.write(
-            7,
-            'app-a',
-            cache.generationOf(7),
-            row({ east: 10, south: 11 }),
-        );
-
-        cache.forget(7, 'app-a', 'east');
-
-        expect(cache.read(7, 'app-a')?.regions).toEqual({ south: 11 });
-    });
-
     it('evicts least-recently-read once it is full', () => {
         const cache = new PresenceCache(2);
         cache.write(1, 'a', 0, row({ west: 1 }));

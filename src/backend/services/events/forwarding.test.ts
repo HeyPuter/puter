@@ -96,51 +96,75 @@ interface StoredItem {
 let table: Map<string, StoredItem>;
 let tableReads: number;
 let tableWrites: number;
+/** Which region wrote which item, for the one-writer-per-item rule. */
+let itemWrites: Array<{ region: string; key: string }>;
+/** Writes the table refuses before it takes any again. */
+let refusedWrites: number;
 
 /**
  * The reserved-item path, as the key-value store exposes it. Stubbed at the
  * store boundary so both regions share one table; the real path against the
  * real table is covered by the presence integration suite.
+ *
+ * A region with a `replica` reads and evaluates its conditions against that
+ * lagging copy instead, and a write it makes replaces the whole item — the
+ * last-writer-wins resolution a replicated table applies.
  */
-const kvStub = () => ({
-    queryReservedItems: async <T extends Record<string, unknown>>(
-        prefix: string,
-    ): Promise<T[]> => {
-        tableReads++;
-        const now = Date.now() / 1000;
-        const items: T[] = [];
-        for (const [key, item] of table.entries()) {
-            if (!key.startsWith(prefix)) continue;
-            if (item.ttl && item.ttl <= now) continue;
-            items.push({ key, connectedAt: item.connectedAt } as unknown as T);
+const kvStub = (region: Region) => {
+    const view = () => region.replica ?? table;
+    const write = (key: string, item: StoredItem): void => {
+        if (refusedWrites > 0) {
+            refusedWrites--;
+            throw new Error('table refused the write');
         }
-        return items;
-    },
-    putReservedItem: async (
-        key: string,
-        attributes: Record<string, unknown>,
-    ): Promise<void> => {
         tableWrites++;
-        table.set(key, {
-            connectedAt: Number(attributes.connectedAt),
-            ttl: Number(attributes.ttl),
-        });
-    },
-    retireReservedItemIf: async (
-        key: string,
-        _condition: string,
-        conditionValues: Record<string, unknown>,
-    ): Promise<boolean> => {
-        tableWrites++;
-        const item = table.get(key);
-        if (!item || item.connectedAt !== conditionValues[':expected'])
-            return false;
-        // 1, not 0: a falsy ttl reads as "no expiry" everywhere else here,
-        // the same convention the real store follows.
-        table.set(key, { ...item, ttl: 1 });
-        return true;
-    },
-});
+        itemWrites.push({ region: region.name, key });
+        table.set(key, item);
+        region.replica?.set(key, item);
+    };
+    return {
+        queryReservedItems: async <T extends Record<string, unknown>>(
+            prefix: string,
+        ): Promise<T[]> => {
+            tableReads++;
+            const now = Date.now() / 1000;
+            const items: T[] = [];
+            for (const [key, item] of view().entries()) {
+                if (!key.startsWith(prefix)) continue;
+                if (item.ttl && item.ttl <= now) continue;
+                items.push({
+                    key,
+                    connectedAt: item.connectedAt,
+                } as unknown as T);
+            }
+            return items;
+        },
+        putReservedItem: async (
+            key: string,
+            attributes: Record<string, unknown>,
+        ): Promise<void> => {
+            write(key, {
+                connectedAt: Number(attributes.connectedAt),
+                ttl: Number(attributes.ttl),
+            });
+        },
+        retireReservedItemIf: async (
+            key: string,
+            _condition: string,
+            conditionValues: Record<string, unknown>,
+        ): Promise<boolean> => {
+            const item = view().get(key);
+            if (!item || item.connectedAt !== conditionValues[':expected']) {
+                tableWrites++;
+                return false;
+            }
+            // 1, not 0: a falsy ttl reads as "no expiry" everywhere else here,
+            // the same convention the real store follows.
+            write(key, { ...item, ttl: 1 });
+            return true;
+        },
+    };
+};
 
 // -- Regions ----------------------------------------------------------
 
@@ -165,6 +189,13 @@ interface Region {
     /** `outer.*` emits held here instead of reaching peers, when `deferBus`. */
     busQueue: Array<{ key: string; data: unknown; meta: object }>;
     deferBus: boolean;
+    /** This region's lagging copy of the table, when a test gives it one. */
+    replica?: Map<string, StoredItem>;
+    /**
+     * Runs once this region has answered a batch, before the sender reads the
+     * reply.
+     */
+    afterReceive?: () => Promise<void>;
 }
 
 let regions: Map<string, Region>;
@@ -293,7 +324,7 @@ const makeRegion = (
     } as never;
 
     const presence = new PresenceStore(fullConfig, clients, {
-        kv: kvStub(),
+        kv: kvStub(region),
     } as never);
     const pending = new PendingDeliveryStore(fullConfig, clients, {} as never);
     const subscriptions = new EventSubscriptionStore(
@@ -326,7 +357,9 @@ const makeRegion = (
             if (!target) throw new Error(`no such peer ${peerId}`);
             // The controller passes the peer the signature proved, not the
             // one the body names.
-            return target.forward.receive(batch, name);
+            const reply = await target.forward.receive(batch, name);
+            await target.afterReceive?.();
+            return reply;
         },
     };
 
@@ -350,7 +383,7 @@ const makeRegion = (
     };
 
     const stores = {
-        kv: kvStub(),
+        kv: kvStub(region),
         presence,
         pendingDelivery: pending,
         eventSubscription: subscriptions,
@@ -589,6 +622,8 @@ beforeEach(() => {
     table = new Map();
     tableReads = 0;
     tableWrites = 0;
+    itemWrites = [];
+    refusedWrites = 0;
     regions = new Map();
     rows = new Map();
     workerOutcome = 'deferred';
@@ -738,6 +773,22 @@ describe('what a connection writes', () => {
         await off.forward.noteConnect(actorFor());
 
         expect(tableWrites).toBe(0);
+    });
+
+    it('lets the next connection write the region in after a join the table refused', async () => {
+        const east = makeRegion('east', ['west']);
+        makeRegion('west', ['east']);
+
+        refusedWrites = 1;
+        await expect(east.forward.noteConnect(actorFor())).rejects.toThrow(
+            'table refused the write',
+        );
+        expect(rowFor().regions).toEqual({});
+
+        // A second tab for the same pair, while the first is still open.
+        await east.forward.noteConnect(actorFor());
+
+        expect(rowFor().regions).toEqual({ east: expect.any(Number) });
     });
 
     it('a flapping client across two nodes in one region writes at most one join per real transition', async () => {
@@ -921,7 +972,7 @@ describe('a delivery the worker takes', () => {
 // -- Lazy repair ------------------------------------------------------
 
 describe('a row naming a region that holds nothing', () => {
-    it('is corrected once, on the region saying so itself', async () => {
+    it('is corrected once, by the region it names', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         await east.forward.noteConnect(actorFor());
@@ -992,8 +1043,8 @@ describe('a row naming a region that holds nothing', () => {
         await east.presence.removeConnection(userId, PRESENCE_NO_APP);
         await register(west);
 
-        // West's forward comes back `noSocket`, repairs the row, and — as a
-        // side effect of east answering that itself — releases east's pin.
+        // West's forward reaches east, which retires its own item and
+        // releases its pin along with it.
         await dispatch(west);
         await posted(west);
         await vi.waitFor(() => expect(rowFor().regions).toEqual({}));
@@ -1006,6 +1057,71 @@ describe('a row naming a region that holds nothing', () => {
 
         expect(rowFor().regions.east).toEqual(expect.any(Number));
         expect(rowFor().regions.east).not.toBe(original);
+    });
+
+    it('is never written by the region forwarding to it, whose replica may be stale', async () => {
+        const west = makeRegion('west', ['east']);
+        // East's presence bump reaches west after its reply does, as it would
+        // over the real channels.
+        const east = makeRegion('east', ['west'], {}, { deferBus: true });
+        await east.forward.noteConnect(actorFor());
+        // East's sockets went without it ever reporting them.
+        east.rooms.clear();
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP);
+        await register(west);
+
+        // West's copy of the table stops at this point, and a socket arrives
+        // in east as soon as east has answered west's forward.
+        west.replica = new Map(table);
+        east.afterReceive = async () => {
+            east.afterReceive = undefined;
+            east.rooms.add(String(userId));
+            await east.forward.noteConnect(actorFor());
+        };
+
+        await dispatch(west);
+        await posted(west);
+        await quiet(200);
+
+        expect(rowFor().regions.east).toEqual(expect.any(Number));
+        expect(
+            itemWrites.filter(
+                (write) => !write.key.endsWith(`#${write.region}`),
+            ),
+        ).toEqual([]);
+    });
+
+    it('keeps a region whose socket arrives on another node while it checks', async () => {
+        const west = makeRegion('west', ['east']);
+        const eastA = makeRegion('east', ['west']);
+        await eastA.forward.noteConnect(actorFor());
+        eastA.rooms.clear();
+        await eastA.presence.removeConnection(userId, PRESENCE_NO_APP);
+        // West's forwards land on this node.
+        const eastB = makeRegion('east', ['west']);
+        await register(west);
+
+        // A socket connects on the other node right after this one read the
+        // region's count at zero.
+        const holds = eastB.presence.holdsConnection.bind(eastB.presence);
+        let raced = false;
+        vi.spyOn(eastB.presence, 'holdsConnection').mockImplementation(
+            async (id: number, app: string) => {
+                const held = await holds(id, app);
+                if (!held && !raced) {
+                    raced = true;
+                    eastA.rooms.add(String(userId));
+                    await eastA.forward.noteConnect(actorFor());
+                }
+                return held;
+            },
+        );
+
+        await dispatch(west);
+        await posted(west);
+        await quiet(200);
+
+        expect(rowFor().regions.east).toEqual(expect.any(Number));
     });
 
     it('is not repaired away while the region holding it is still inside its own disconnect window', async () => {
@@ -1062,6 +1178,52 @@ describe('a delivery owed to exactly one consumer', () => {
 
         expect(west.posts).toEqual([]);
         expect(west.sent[0]).toMatchObject({ ackRequired: true });
+    });
+
+    it('takes a socket on another node of the emitting region before any other region', async () => {
+        const west = makeRegion('west', ['east']);
+        const eastA = makeRegion('east', ['west']);
+        const eastB = makeRegion('east', ['west']);
+        west.rooms.add(String(userId));
+        await west.forward.noteConnect(actorFor());
+        eastB.rooms.add(String(userId));
+        await eastB.forward.noteConnect(actorFor());
+        await single(eastA);
+
+        await dispatch(eastA);
+        // Addressed at the room, which reaches whichever node holds it.
+        await arrived(eastA);
+
+        expect(eastA.sent[0]).toMatchObject({ ackRequired: true });
+        expect(eastA.posts).toEqual([]);
+        expect(eastA.invoked).toEqual([]);
+    });
+
+    it('moves on to the next region when the one it tried leaves the row', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        const south = makeRegion('south', ['west', 'east']);
+        east.rooms.add(String(userId));
+        south.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        await quiet(5);
+        await south.forward.noteConnect(actorFor());
+        await single(west);
+
+        await dispatch(west);
+        await arrived(south);
+
+        // South's client goes without acking, and south leaves the row.
+        south.rooms.clear();
+        await south.forward.noteDisconnect(actorFor());
+        await vi.waitFor(() => expect(rowFor().regions.south).toBeUndefined());
+
+        jump(61_000);
+        await west.events.sweepPending();
+        await arrived(east);
+
+        expect(east.sent[0]).toMatchObject({ ackRequired: true });
+        expect(west.invoked).toEqual([]);
     });
 
     it('hands off to the most recently connected region when it holds none', async () => {
@@ -1298,20 +1460,22 @@ describe('presence moving in another region', () => {
 // -- Decommissioned regions --------------------------------------------
 
 describe('a row naming a region that is not a peer', () => {
-    it('never offers it as a candidate, and prunes it out of the table', async () => {
+    it('never offers it as a candidate, and leaves its item to the region it names', async () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
         await register(west);
 
-        // A region taken out of the peer list — decommissioned, or never one
-        // to begin with — whose item nothing ever cleaned up.
-        table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'ghost'), {
+        // A region added after west last loaded its peer list: its item is
+        // live, and only it may retire it.
+        table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'north'), {
             connectedAt: Date.now(),
             ttl: Math.floor(Date.now() / 1000) + 999,
         });
 
         expect(await west.forward.regionsFor(userId, null)).toEqual([]);
-        await vi.waitFor(() => expect(rowFor().regions.ghost).toBeUndefined());
+        await quiet(50);
+        expect(rowFor().regions.north).toEqual(expect.any(Number));
+        expect(itemWrites).toEqual([]);
     });
 
     it('still offers a peer alongside a non-peer name in the same row', async () => {

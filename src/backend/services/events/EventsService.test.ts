@@ -309,6 +309,7 @@ const buildService = (
                 noteConnect: async () => undefined,
                 noteDisconnect: async () => undefined,
                 candidateRegion: async () => null,
+                heldInRegion: async () => false,
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
