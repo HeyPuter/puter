@@ -254,7 +254,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -682,9 +687,12 @@ interface IConfigOptional {
     teams_enabled: boolean;
     /** Live teams one user may own. Default 1. */
     max_teams_per_user?: number;
-    /** Seats a team whose owner pays nothing may provision. Default 4. */
+    /** Seats a team whose owner pays nothing may provision. Default 3. */
     max_seats_per_team_free?: number;
-    /** Seats a paying owner's team may provision. Default 40. */
+    /**
+     * Seats a paying owner's team may provision. Default 40; a plan's
+     * `teamSeatCap` wins.
+     */
     max_seats_per_team_paid?: number;
     /** One flat cap whatever the owner pays; overrides both of the above. */
     max_seats_per_team?: number;
@@ -803,9 +811,9 @@ interface IConfigOptional {
     /**
      * Accept the pre-owner-binding signature format on signed file URLs
      * alongside the current owner-bound one. Default true, so URLs minted
-     * before owner binding shipped keep working. Set false once those have
-     * aged out — the old format has no owner check, so a signed folder URL
-     * keeps authorizing reads after the folder moves to another owner.
+     * before owner binding shipped keep working. Set false once those have aged
+     * out — the old format has no owner check, so a signed folder URL keeps
+     * authorizing reads after the folder moves to another owner.
      */
     legacy_file_signatures?: boolean;
     /** Name of the session cookie the auth probe reads. */
@@ -1280,8 +1288,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

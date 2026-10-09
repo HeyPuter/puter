@@ -321,8 +321,8 @@ Available only where the deployment has teams turned on; elsewhere `puter.teams`
 | Team mutations                             | 60/min, 500/day |
 | Team reads                                 | 600/min |
 | Teams one account may own                  | 1 |
-| Seats per team, free owner                 | 4 |
-| Seats per team, paid owner                 | 40 |
+| Seats per team, free owner                 | 3 |
+| Seats per team, paid owner                 | Set by the owner's plan; 40 if the plan sets none |
 | Member password resets                     | 20/day |
 
 The mutation and read budgets are per user, per app, not per team: administering several teams spends one budget.
@@ -330,7 +330,7 @@ The mutation and read budgets are per user, per app, not per team: administering
 - **Seats.** A seat is a Puter account the team creates and its owner pays for. Over the seat limit, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both errors include the limit in `fields.limit`.
 - **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier.
 - **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it never disables anyone; a team over the new limit just can't add seats until it's back under.
-- **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; `max_seats_per_team` sets one flat limit that overrides both. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
+- **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; a plan registered with `teamSeatCap` uses its own instead. `max_seats_per_team` sets one flat limit that overrides all of them. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
 - **Password resets.** A reset returns a temporary password once, valid for 24 hours. Until the member sets their own password, every request except signing in fails with `password_change_required`.
 - **Required 2FA.** A team can require two-factor authentication for the accounts it created (not for members who joined with their own accounts). Until a seat sets it up, every request except signing in and setting up 2FA fails with `two_factor_required`. The owner needs 2FA to turn this on, and can clear a member's second factor if they lose their device; the reset is logged and the member is emailed.
 - **Deleting a team** frees the owner's team slot but not the seats. Its accounts are disabled, not removed, and keep their files and usernames.
