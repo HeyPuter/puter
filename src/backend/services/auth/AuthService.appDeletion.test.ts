@@ -138,6 +138,25 @@ const createApp = async () => {
     return { app, actor: makeActor({ user: owner! }) };
 };
 
+/** A file in the user's AppData for `appUid`, and an app-minted read token. */
+const mintAppDataReadToken = async (
+    appToken: string,
+    username: string,
+    appUid: string,
+) => {
+    const userRow = await env.server.stores.user.getByUsername(username);
+    const entry = (await env.server.services.fs.touch(userRow!.id, {
+        path: `/${username}/AppData/${appUid}/${uuidv4()}.txt`,
+        createMissingParents: true,
+    } as never)) as { uuid: string };
+    const res = await api('/auth/create-access-token', appToken, {
+        permissions: [`fs:${entry.uuid}:read`],
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const { token } = (await res.json()) as { token: string };
+    return { file: entry.uuid, token };
+};
+
 const authenticate = (token: string) =>
     env.server.services.auth.authenticate(token) as Promise<{
         actor?: unknown;
@@ -211,6 +230,74 @@ describe('an app uid that returns after its app was deleted', () => {
             key: 'card',
         });
         expect(getA.status).toBe(401);
+    });
+
+    it('stops an access token the deleted app minted from authenticating as the next app', async () => {
+        const devA = env.users.other;
+        const visitor = env.users.user;
+        const devB = await createTestUser(env.server, {
+            username: `devb${uuidv4().slice(0, 8)}`,
+            password: 'dev-b-password-123',
+        });
+
+        const sub = `shop-${uuidv4().slice(0, 8)}`;
+        const origin = `http://${sub}.site.puter.localhost`;
+
+        const aCreate = await call(devA.token, 'puter-subdomains', 'create', {
+            object: {
+                subdomain: sub,
+                root_dir: await mkSiteDir(devA.username),
+            },
+        });
+        expect(aCreate.status, aCreate.text).toBe(200);
+        const { token: appTokenA, app_uid: uid } = await signIn(
+            visitor.token,
+            origin,
+        );
+        const { file, token: scopedA } = await mintAppDataReadToken(
+            appTokenA,
+            visitor.username,
+            uid,
+        );
+
+        const delApp = await call(devA.token, 'puter-apps', 'delete', { uid });
+        expect(delApp.status, delApp.text).toBe(200);
+        const delSite = await call(devA.token, 'puter-subdomains', 'delete', {
+            id: { subdomain: sub },
+        });
+        expect(delSite.status, delSite.text).toBe(200);
+        await backdateSession(sessionUid(appTokenA), 3600);
+        await backdateSession(sessionUid(scopedA), 3600);
+
+        // The next developer's sign-in brings the uid back.
+        const bCreate = await call(devB.token, 'puter-subdomains', 'create', {
+            object: {
+                subdomain: sub,
+                root_dir: await mkSiteDir(devB.username),
+            },
+        });
+        expect(bCreate.status, bCreate.text).toBe(200);
+        expect((await signIn(devB.token, origin)).app_uid).toBe(uid);
+
+        expect((await authenticate(scopedA)).reauth?.reason).toBe(
+            'session_revoked',
+        );
+        const stat = await api('/stat', scopedA, { uid: file });
+        expect(stat.status).toBe(401);
+    });
+
+    it('keeps an access token its unchanged app minted', async () => {
+        const { app, actor } = await createApp();
+        const appToken = await env.server.services.auth.getUserAppToken(
+            actor,
+            app.uid,
+        );
+        const { token } = await mintAppDataReadToken(
+            appToken,
+            env.users.user.username,
+            app.uid,
+        );
+        expect((await authenticate(token)).actor).toBeTruthy();
     });
 
     it("keeps an unchanged app's session and token", async () => {

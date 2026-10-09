@@ -666,6 +666,21 @@ export class UserStore extends PuterStore {
     }
 
     /**
+     * Remove an address the account never confirmed. Guarded so an address
+     * confirmed in between stays. Returns false when nothing was removed.
+     */
+    async clearUnconfirmedEmail(userId: number): Promise<boolean> {
+        const unconfirmed =
+            '`email` IS NOT NULL AND `email_confirmed` = ' +
+            this.clients.db.booleanLiteral(false);
+        return this.#write(
+            userId,
+            { email: null, clean_email: null },
+            unconfirmed,
+        );
+    }
+
+    /**
      * Assign a referral code to an account that doesn't have one yet.
      *
      * Two guards, for two different races:
@@ -691,8 +706,9 @@ export class UserStore extends PuterStore {
 
     /**
      * Shared write path for `update` / `claimPlaceholder` /
-     * `claimReferralCode`. `guard` is extra SQL ANDed into the WHERE clause;
-     * the write is reported as lost when it matches no row.
+     * `clearUnconfirmedEmail` / `claimReferralCode`. `guard` is extra SQL ANDed
+     * into the WHERE clause; the write is reported as lost when it matches no
+     * row.
      */
     async #write(
         userId: number,

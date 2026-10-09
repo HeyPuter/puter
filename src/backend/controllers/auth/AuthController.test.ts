@@ -1687,6 +1687,118 @@ describe('AuthController.handleLoginOtp + handleLoginRecoveryCode', () => {
         );
         expect(res2.body).toEqual({ proceed: false });
     });
+
+    /** A password login for a 2FA account, returning its `otp-login` JWT. */
+    const startOtpLogin = async () => {
+        const { user } = await makeUserAndActor();
+        const secret = otpCreateSecret(user.username).secret;
+        await server.stores.user.update(user.id, {
+            otp_enabled: 1,
+            otp_secret: secret,
+        });
+        const otpToken = async () => {
+            const res = makeRes();
+            await controller.handleLogin(
+                makeReq({
+                    username: user.username,
+                    password: 'correct-horse-battery',
+                }),
+                res,
+            );
+            return (res.body as { otp_jwt_token: string }).otp_jwt_token;
+        };
+        return { user, secret, otpToken };
+    };
+
+    it('an otp-login token completes one sign-in only', async () => {
+        const { user, secret, otpToken } = await startOtpLogin();
+        const token = await otpToken();
+
+        const res = makeRes();
+        await controller.handleLoginOtp(
+            makeReq({ token, code: liveTotp(user.username, secret) }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+
+        await expect(
+            controller.handleLoginOtp(
+                makeReq({ token, code: liveTotp(user.username, secret) }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('a wrong code leaves the token usable for a retry', async () => {
+        const { user, secret, otpToken } = await startOtpLogin();
+        const token = await otpToken();
+
+        const wrong = makeRes();
+        await controller.handleLoginOtp(
+            makeReq({ token, code: '000000' }),
+            wrong,
+        );
+        expect(wrong.body).toEqual({ proceed: false });
+
+        const res = makeRes();
+        await controller.handleLoginOtp(
+            makeReq({ token, code: liveTotp(user.username, secret) }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
+
+    it('wrong codes count against the account across tokens and both routes', async () => {
+        const { user, secret, otpToken } = await startOtpLogin();
+        const { hashRecoveryCode } =
+            await import('../../services/auth/OTPUtil.js');
+        await server.stores.user.update(user.id, {
+            otp_recovery_codes: hashRecoveryCode('RECOVER1'),
+        });
+
+        for (let i = 0; i < 10; i++) {
+            const res = makeRes();
+            const handler =
+                i % 2 === 0
+                    ? controller.handleLoginOtp
+                    : controller.handleLoginRecoveryCode;
+            await handler.call(
+                controller,
+                makeReq({ token: await otpToken(), code: '000000' }),
+                res,
+            );
+            expect(res.body).toEqual({ proceed: false });
+        }
+
+        // Spent: even the right code is refused until the window passes.
+        await expect(
+            controller.handleLoginOtp(
+                makeReq({
+                    token: await otpToken(),
+                    code: liveTotp(user.username, secret),
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 429 });
+        await expect(
+            controller.handleLoginRecoveryCode(
+                makeReq({ token: await otpToken(), code: 'RECOVER1' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 429 });
+
+        // Another account keeps its own budget.
+        const other = await startOtpLogin();
+        const res = makeRes();
+        await controller.handleLoginOtp(
+            makeReq({
+                token: await other.otpToken(),
+                code: liveTotp(other.user.username, other.secret),
+            }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
 });
 
 // ── Step-up (elevation) ─────────────────────────────────────────────
@@ -6026,6 +6138,63 @@ describe('AuthController password recovery', () => {
         expect(after!.pass_recovery_token).toBeTruthy();
     });
 
+    it('send-pass-recovery-email: a second send keeps the outstanding token', async () => {
+        const { user } = await makeUserAndActor();
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(undefined as never);
+        try {
+            await controller.handleSendPassRecoveryEmail(
+                makeReq({ email: user.email! }),
+                makeRes(),
+            );
+            const first = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            await controller.handleSendPassRecoveryEmail(
+                makeReq({ email: user.email! }),
+                makeRes(),
+            );
+            const second = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            expect(first!.pass_recovery_token).toBeTruthy();
+            expect(second!.pass_recovery_token).toBe(
+                first!.pass_recovery_token,
+            );
+            expect(send).toHaveBeenCalledTimes(2);
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('send-pass-recovery-email: stops mailing one account after five sends, with the same answer', async () => {
+        const { user } = await makeUserAndActor();
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(undefined as never);
+        try {
+            for (let i = 0; i < 6; i++) {
+                const res = makeRes();
+                await controller.handleSendPassRecoveryEmail(
+                    makeReq(
+                        { username: user.username },
+                        { ip: `10.77.${i}.${Math.floor(Math.random() * 200)}` },
+                    ),
+                    res,
+                );
+                expect((res.body as { message: string }).message).toMatch(
+                    /If that account exists/i,
+                );
+            }
+            expect(
+                send.mock.calls.filter((c) => c[0] === user.email),
+            ).toHaveLength(5);
+        } finally {
+            send.mockRestore();
+        }
+    });
+
     it('send-pass-recovery-email: refuses a team seat, and writes no token', async () => {
         // The seat's address is admin-supplied and unverified; recovery there
         // would be a takeover channel. Its recovery is the admin's reset.
@@ -9222,8 +9391,10 @@ describe('AuthController.handleRevokeSession additional branches', () => {
 
 describe('AuthController auth_id preservation on reauth', () => {
     const password = 'correct-horse-battery';
-    const mintReauth = (uuid: string): string =>
-        server.services.auth.signReauthToken(uuid);
+    const mintReauth = (
+        uuid: string,
+        reason: 'session_expired' | 'session_revoked' = 'session_expired',
+    ): string => server.services.auth.signReauthToken(uuid, reason);
 
     it('handleLogin with matching reauth_token completes login as the same user', async () => {
         const u = `aid_${Math.random().toString(36).slice(2, 10)}`;
@@ -9427,6 +9598,42 @@ describe('AuthController auth_id preservation on reauth', () => {
 
         const tempUser2 = await server.stores.user.getByUuid(tempUuid);
         expect(tempUser2!.id).toBe(markerId);
+    });
+
+    it('handleSignup is_temp refuses a reauth_token from a revoked session', async () => {
+        const ip = `127.0.${Math.floor(Math.random() * 200)}.9`;
+        const first = makeRes();
+        await controller.handleSignup(
+            makeReq({ is_temp: true }, { ip }),
+            first,
+        );
+        const tempUuid = (first.body as { user: { uuid: string } }).user.uuid;
+
+        await expect(
+            controller.handleSignup(
+                makeReq(
+                    {
+                        is_temp: true,
+                        reauth_token: mintReauth(tempUuid, 'session_revoked'),
+                    },
+                    { ip },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+
+        // A token that names no reason is refused the same way.
+        const noReason = server.services.token.sign(
+            'otp',
+            { auth_id: tempUuid, purpose: 'reauth' },
+            { expiresIn: '10m' },
+        );
+        await expect(
+            controller.handleSignup(
+                makeReq({ is_temp: true, reauth_token: noReason }, { ip }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
     });
 
     it('handleSignup is_temp + reauth_token pointing at a permanent user is rejected', async () => {
@@ -9957,5 +10164,118 @@ describe('AuthController — app-data grants', () => {
             permission,
         });
         expect(await grantedPermissions(grantee.uid)).toContain(permission);
+    });
+});
+
+// -- An address a team seat holds without confirming it --
+
+describe('AuthController — a seat address nobody confirmed', () => {
+    /** A seat whose address its team typed in; unconfirmed. */
+    const makeSeat = async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        // A seat is created password-less and given a temporary one after.
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+        await server.stores.user.update(seat.id, {
+            password: await bcrypt.hash('temporary-password', 8),
+        });
+        return seat;
+    };
+
+    const emailOf = async (id: number) =>
+        (await server.stores.user.getById(id, { force: true }))!.email ?? null;
+
+    it('signup takes the address, and the seat gives it up', async () => {
+        const seat = await makeSeat();
+        const username = `own_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: seat.email!,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+
+        const owner = await server.stores.user.getByUsername(username);
+        expect(owner?.email).toBe(seat.email);
+        expect(await emailOf(seat.id)).toBeNull();
+    });
+
+    it('signup still refuses an address the seat confirmed', async () => {
+        const seat = await makeSeat();
+        await server.stores.user.update(seat.id, { email_confirmed: 1 });
+
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `own_${uniq()}`,
+                    email: seat.email!,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await emailOf(seat.id)).toBe(seat.email);
+    });
+
+    it('a signup refused before the write leaves the seat its address', async () => {
+        const seat = await makeSeat();
+        await withSignupValidateOverride(
+            (event) => {
+                event.allow = false;
+            },
+            async () => {
+                await expect(
+                    controller.handleSignup(
+                        makeReq({
+                            username: `own_${uniq()}`,
+                            email: seat.email!,
+                            password: 'correct-horse-battery',
+                        }),
+                        makeRes(),
+                    ),
+                ).rejects.toBeTruthy();
+            },
+        );
+        expect(await emailOf(seat.id)).toBe(seat.email);
+    });
+
+    it('saving a temp account takes the address too', async () => {
+        const seat = await makeSeat();
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUuid = (tempRes.body as { user: { uuid: string } }).user.uuid;
+        const tempRow = await server.stores.user.getByUuid(tempUuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await controller.handleSaveAccount(
+            makeReq(
+                {
+                    username: `save_${uniq()}`,
+                    email: seat.email!,
+                    password: 'another-strong-password',
+                },
+                { actor },
+            ),
+            makeRes(),
+        );
+        expect(await emailOf(tempRow!.id)).toBe(seat.email);
+        expect(await emailOf(seat.id)).toBeNull();
     });
 });

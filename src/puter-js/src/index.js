@@ -2,6 +2,7 @@ import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
 import { hasOpaqueOrigin } from './lib/auth-popup.js';
 import { fetchUrl } from './lib/networkUtils.js';
+import { handleToolRequest } from './lib/toolBridge.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import { isFramedDocument } from './lib/appModeGate.js';
 import {
@@ -34,7 +35,7 @@ import { Teams } from './modules/teams/index.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
-import Peer from './modules/Peer.js';
+import Peer from './modules/Peer/index.js';
 import { registerComponents } from './ui/registerComponents.js';
 
 class SimpleLogger {
@@ -1034,10 +1035,13 @@ export class Puter {
                 console.error('Error accessing localStorage:', error);
             }
         }
-        // initialize loop for updating caches for major directories
-        if (this.env === 'gui') {
-            // check and update gui fs cache regularly
-            setInterval(puter.checkAndUpdateGUIFScache, 10000);
+        // initialize loop for updating caches for major directories; the GUI
+        // sets the token many times, but one loop is enough
+        if (this.env === 'gui' && !this.guiFSCacheTimer_) {
+            this.guiFSCacheTimer_ = setInterval(
+                () => this.checkAndUpdateGUIFScache(),
+                10000,
+            );
         }
         this._emitAuthStateChanged();
 
@@ -1908,6 +1912,14 @@ export class Puter {
     };
 
     /**
+     * The loop running `checkAndUpdateGUIFScache`, once a token is set.
+     *
+     * @internal
+     * @type {ReturnType<typeof setInterval> | null}
+     */
+    guiFSCacheTimer_ = null;
+
+    /**
      * Checks and updates the GUI FS cache for most-commonly used paths
      *
      * @internal
@@ -2011,41 +2023,10 @@ if (puterParent) {
     console.log('I have a parent, registering tools');
     puterParent.on('message', async (event) => {
         console.log('Got tool req ', event);
-        if (event.$ === 'requestTools') {
-            console.log('Responding with tools');
-            puterParent.postMessage({
-                $: 'providedTools',
-                tools: JSON.parse(JSON.stringify(puter.tools)),
-            });
-        }
-
-        if (event.$ === 'executeTool') {
-            console.log('xecuting tools');
-            /**
-             * Puter tools format
-             *
-             * @type {[
-             *     {
-             *         exec: Function;
-             *         function: {
-             *             description: string;
-             *             name: string;
-             *             parameters: { properties: any; required: string[] };
-             *             type: string;
-             *         };
-             *     },
-             * ]}
-             */
-            const [tool] = puter.tools.filter(
-                (e) => e.function.name === event.toolName,
-            );
-
-            const response = await tool.exec(event.parameters);
-            puterParent.postMessage({
-                $: 'toolResponse',
-                response,
-                tag: event.tag,
-            });
+        try {
+            await handleToolRequest(puter.tools, puterParent, event);
+        } catch (e) {
+            console.error(e);
         }
     });
     puterParent.postMessage({ $: 'ready' });
@@ -2055,6 +2036,7 @@ globalThis.addEventListener &&
     globalThis.addEventListener('message', async (event) => {
         // if the message is not from Puter, then ignore it
         if (event.origin !== puter.defaultGUIOrigin) return;
+        if (!event.data || typeof event.data !== 'object') return;
 
         if (event.data.msg && event.data.msg === 'requestOrigin') {
             event.source.postMessage(
@@ -2084,9 +2066,14 @@ globalThis.addEventListener &&
 
             // Call onAuth callback
             if (puter.onAuth && typeof puter.onAuth === 'function') {
-                puter.getUser().then((user) => {
-                    puter.onAuth(user);
-                });
+                // Not awaited: the waiting sign-ins below settle first.
+                (async () => {
+                    try {
+                        puter.onAuth(await puter.getUser());
+                    } catch (e) {
+                        console.error(e);
+                    }
+                })();
             }
 
             puter.puterAuthState.isPromptOpen = false;

@@ -15,20 +15,15 @@ export default class EventListener {
     // Array of all supported event names.
     #eventNames;
 
-    // Map of eventName -> array of listeners
-    #eventListeners;
+    /** @type {Map<string, Function[]>} */
+    #eventListeners = new Map();
 
     /** @param {(keyof EventMap & string)[] | string[]} eventNames */
     constructor (eventNames) {
         this.#eventNames = eventNames;
-
-        this.#eventListeners = (() => {
-            const map = new Map();
-            for ( let eventName of this.#eventNames ) {
-                map[eventName] = [];
-            }
-            return map;
-        })();
+        for ( const eventName of this.#eventNames ) {
+            this.#eventListeners.set(eventName, []);
+        }
     }
 
     /**
@@ -44,9 +39,10 @@ export default class EventListener {
             console.error(`Event name '${eventName}' not supported`);
             return;
         }
-        this.#eventListeners[eventName].forEach((listener) => {
+        // A snapshot, so a handler that removes itself doesn't skip the next.
+        for ( const listener of [...this.#eventListeners.get(eventName)] ) {
             listener(data);
-        });
+        }
     }
 
     /**
@@ -63,7 +59,7 @@ export default class EventListener {
             console.error(`Event name '${eventName}' not supported`);
             return;
         }
-        this.#eventListeners[eventName].push(callback);
+        this.#eventListeners.get(eventName).push(callback);
         return this;
     }
 
@@ -80,7 +76,7 @@ export default class EventListener {
             console.error(`Event name '${eventName}' not supported`);
             return;
         }
-        const listeners = this.#eventListeners[eventName];
+        const listeners = this.#eventListeners.get(eventName);
         const index = listeners.indexOf(callback);
         if ( index !== -1 ) {
             listeners.splice(index, 1);

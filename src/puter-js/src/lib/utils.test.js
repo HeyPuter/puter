@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeDriverMethod } from './utils.js';
+import { initXhr, makeDriverMethod, setupXhrEventHandlers } from './utils.js';
 
 /**
  * Pins the callback contract of `makeDriverMethod`: driver methods are
@@ -112,5 +112,72 @@ describe('makeDriverMethod legacy callbacks', () => {
             expect(success).not.toHaveBeenCalled();
             expect(wireArgs(requests)).toEqual({ key: 'k' });
         });
+    });
+});
+
+describe('setupXhrEventHandlers', () => {
+    it('settles a blob read whose response declares no content type', async () => {
+        const listeners = {};
+        const xhr = {
+            responseType: 'blob',
+            status: 200,
+            response: new Blob(['bytes']),
+            getResponseHeader: () => null,
+            addEventListener: (type, fn) => { listeners[type] = fn; },
+        };
+        const result = new Promise((resolve, reject) => {
+            setupXhrEventHandlers(xhr, undefined, undefined, resolve, reject);
+        });
+        listeners.load.call(xhr, { target: xhr });
+        const pending = new Promise(resolve => setTimeout(() => resolve('pending'), 100));
+        expect(await Promise.race([result, pending])).toBe(xhr.response);
+    });
+});
+
+describe('legacy request idle timeout', () => {
+    // An XHR that is sent but never answered.
+    class SilentXHR extends EventTarget {
+        readyState = 0;
+        upload = { addEventListener () {} };
+        open () { this.readyState = 1; }
+        setRequestHeader () {}
+        getResponseHeader () { return null; }
+        send () {}
+        abort () { this.dispatchEvent(new Event('abort')); }
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        globalThis.XMLHttpRequest = SilentXHR;
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it.each(['post', 'get'])('rejects a silent %s with request_timeout after 15 min', async (method) => {
+        const onError = vi.fn();
+        let outcome;
+        const xhr = initXhr('/stat', 'https://api.test', 'tok', method);
+        const request = new Promise((resolve, reject) => {
+            setupXhrEventHandlers(xhr, undefined, onError, resolve, reject);
+        });
+        (async () => {
+            try {
+                outcome = { value: await request };
+            } catch (error) {
+                outcome = { error };
+            }
+        })();
+        xhr.send('{}');
+
+        await vi.advanceTimersByTimeAsync(15 * 60_000 - 1);
+        expect(outcome).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+
+        const error = { message: 'Request timed out.', code: 'request_timeout' };
+        expect(outcome).toEqual({ error });
+        expect(onError).toHaveBeenCalledOnce();
+        expect(onError).toHaveBeenCalledWith(error);
+        expect(vi.getTimerCount()).toBe(0);
     });
 });

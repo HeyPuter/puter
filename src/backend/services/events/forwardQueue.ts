@@ -135,13 +135,12 @@ export interface ForwardBatch {
 }
 
 /**
- * What a peer answers. `noSocket` names the pairs it holds no connection for,
- * read off its own socket registry — the only signal that authorises a repair.
- * `noWatch` names anchor tokens the receiver holds no session row for at all —
- * the sender prunes those out of its remote-watch index the same way.
+ * What a peer answers. `noWatch` names anchor tokens the receiver holds no
+ * session row for at all — the sender prunes those out of its remote-watch
+ * index. A pair the receiver holds no socket for is not reported: the receiver
+ * retires its own presence item instead.
  */
 export interface ForwardReply {
-    noSocket?: Array<{ userId: number; appUid: string | null }>;
     noWatch?: Array<{ userId: number; token: string }>;
 }
 

@@ -182,8 +182,8 @@ export interface ClaimedDelivery {
     event: DeliverableEvent;
     /** Socket attempts already spent, which is what decides the next one. */
     socketAttempts: number;
-    /** Remote candidates already spent, which is what indexes the next one. */
-    remoteAttempts: number;
+    /** Remote regions already tried, which the next candidate skips. */
+    triedRegions: string[];
     /** Handler runs behind the event, carried to the one it may invoke. */
     handlerDepth: number;
 }
@@ -212,8 +212,8 @@ export interface PendingHead {
 interface StoredEntry {
     event: DeliverableEvent;
     socketAttempts: number;
-    /** Remote candidates spent; absent on entries written before this field. */
-    remoteAttempts?: number;
+    /** Remote regions tried; absent on entries written before this field. */
+    triedRegions?: string[];
     /** Handler attempts spent, which is what the retry wait is derived from. */
     handlerAttempts?: number;
     /** Set once this entry has been charged for, however many attempts follow. */
@@ -364,7 +364,7 @@ export class PendingDeliveryStore extends PuterStore {
             entryId,
             event: entry.event,
             socketAttempts: entry.socketAttempts,
-            remoteAttempts: entry.remoteAttempts ?? 0,
+            triedRegions: entry.triedRegions ?? [],
             handlerDepth: entry.handlerDepth ?? 0,
         };
     }
@@ -396,23 +396,27 @@ export class PendingDeliveryStore extends PuterStore {
     }
 
     /**
-     * Count one remote candidate spent. Separate from `socketAttempts`, which a
-     * local attempt also spends — this is what indexes the next presence
-     * candidate, so a local attempt that stops being possible cannot shift it.
+     * Record one remote region tried. Separate from `socketAttempts`, which a
+     * local attempt also spends, and by name rather than by count: the row the
+     * next candidate is picked from can change between attempts.
      */
-    async recordRemoteAttempt(subId: string, entryId: string): Promise<number> {
+    async recordRemoteAttempt(
+        subId: string,
+        entryId: string,
+        region: string,
+    ): Promise<string[]> {
         const entry = parseEntry(
             await this.clients.redis.hget(entriesKey(subId), entryId),
         );
-        if (!entry) return 0;
+        if (!entry) return [];
 
-        const remoteAttempts = (entry.remoteAttempts ?? 0) + 1;
+        const triedRegions = [...(entry.triedRegions ?? []), region];
         await this.clients.redis.hset(
             entriesKey(subId),
             entryId,
-            JSON.stringify({ ...entry, remoteAttempts }),
+            JSON.stringify({ ...entry, triedRegions }),
         );
-        return remoteAttempts;
+        return triedRegions;
     }
 
     /**
@@ -429,7 +433,7 @@ export class PendingDeliveryStore extends PuterStore {
         await this.clients.redis.hset(
             entriesKey(subId),
             entryId,
-            JSON.stringify({ ...entry, socketAttempts: 0, remoteAttempts: 0 }),
+            JSON.stringify({ ...entry, socketAttempts: 0, triedRegions: [] }),
         );
     }
 

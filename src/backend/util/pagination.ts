@@ -17,6 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import {
+    createCipheriv,
+    createDecipheriv,
+    hkdfSync,
+    randomBytes,
+} from 'node:crypto';
 import { HttpError } from '../core/http';
 
 /**
@@ -57,6 +63,97 @@ export const decodeCursor = (
             });
         }
     }
+};
+
+// -- Sealed cursors ---------------------------------------------------
+
+const SEALED_CURSOR_VERSION = 1;
+const SEAL_IV_BYTES = 12;
+const SEAL_TAG_BYTES = 16;
+const SEAL_HEADER_BYTES = 1 + SEAL_IV_BYTES + SEAL_TAG_BYTES;
+
+let sealKeyMemo: { secret: string; key: Buffer } | null = null;
+
+/** Derived under its own label, so no other use of `secret` shares this key. */
+const sealKey = (secret: string): Buffer => {
+    if (sealKeyMemo?.secret !== secret)
+        sealKeyMemo = {
+            secret,
+            key: Buffer.from(
+                hkdfSync('sha256', secret, '', 'puter:pagination-cursor', 32),
+            ),
+        };
+    return sealKeyMemo.key;
+};
+
+/**
+ * A cursor its holder cannot read, for keysets over a global sequence: a plain
+ * one would let two pages show how fast the whole table grows. Encrypted and
+ * authenticated, so an altered cursor is refused like any malformed one.
+ * Without a secret it is a plain `encodeCursor` cursor.
+ */
+export const sealCursor = (
+    payload: Record<string, unknown> | undefined,
+    secret: string | undefined,
+): string | undefined => {
+    if (!payload || Object.keys(payload).length === 0) return undefined;
+    if (!secret) return encodeCursor(payload);
+    const iv = randomBytes(SEAL_IV_BYTES);
+    const cipher = createCipheriv('aes-256-gcm', sealKey(secret), iv);
+    const body = Buffer.concat([
+        cipher.update(JSON.stringify(payload), 'utf8'),
+        cipher.final(),
+    ]);
+    return Buffer.concat([
+        Buffer.from([SEALED_CURSOR_VERSION]),
+        iv,
+        cipher.getAuthTag(),
+        body,
+    ]).toString('base64url');
+};
+
+const unsealCursor = (
+    cursor: string,
+    secret: string,
+): Record<string, unknown> | null => {
+    const raw = Buffer.from(cursor, 'base64url');
+    if (raw.length <= SEAL_HEADER_BYTES || raw[0] !== SEALED_CURSOR_VERSION)
+        return null;
+    try {
+        const decipher = createDecipheriv(
+            'aes-256-gcm',
+            sealKey(secret),
+            raw.subarray(1, 1 + SEAL_IV_BYTES),
+        );
+        decipher.setAuthTag(raw.subarray(1 + SEAL_IV_BYTES, SEAL_HEADER_BYTES));
+        const parsed: unknown = JSON.parse(
+            Buffer.concat([
+                decipher.update(raw.subarray(SEAL_HEADER_BYTES)),
+                decipher.final(),
+            ]).toString('utf8'),
+        );
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Read a cursor `sealCursor` produced. A plain cursor still reads, so a client
+ * holding one from before cursors were sealed does not start over.
+ */
+export const openCursor = (
+    cursor: string | Record<string, unknown> | null | undefined,
+    secret: string | undefined,
+    label = 'cursor',
+): Record<string, unknown> | undefined => {
+    if (typeof cursor === 'string' && secret) {
+        const opened = unsealCursor(cursor.trim(), secret);
+        if (opened) return opened;
+    }
+    return decodeCursor(cursor, label);
 };
 
 export const normalizeLimit = (

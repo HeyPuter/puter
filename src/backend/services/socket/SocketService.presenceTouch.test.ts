@@ -135,12 +135,13 @@ describe('the concurrency-slot renew timer touching presence', () => {
             { timeout: 5_000, interval: 50 },
         );
 
-        // Not just the counter: the third argument is what carries the item
+        // Not just the socket: the last argument is what carries the item
         // refresh, and a timer wired straight at the store would omit it.
         const refreshing = touch.mock.calls.find(
             ([id, app]) => id === userId && app === PRESENCE_NO_APP,
         );
-        expect(refreshing?.[2]).toEqual({
+        expect(refreshing?.[2]).toEqual(socket.id);
+        expect(refreshing?.[3]).toEqual({
             userUuid: row!.uuid,
             region: broadcastConfig.webhook.peerId,
         });

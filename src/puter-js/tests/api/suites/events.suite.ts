@@ -1262,6 +1262,37 @@ export default suite('events', {
         );
     },
 
+    'pages on `cursor`, the name every list takes it under': async (t) => {
+        const firstTitle = unique('cursor-one');
+        const secondTitle = unique('cursor-two');
+        await postNotification(t, firstTitle);
+        await postNotification(t, secondTitle);
+
+        const all = await readAllNotifications(t);
+        const index = all.findIndex(
+            (event) =>
+                (event.notification as { title?: string }).title === firstTitle,
+        );
+        t.assert.ok(index >= 0, 'the first notification is in the mailbox');
+
+        const page = await t.puter.events.fetch({
+            subject: 'notif:account',
+            limit: index + 1,
+        });
+        t.assert.ok(page.cursor, 'more to come, so a cursor comes back');
+
+        const next = await t.puter.events.fetch({
+            subject: 'notif:account',
+            cursor: page.cursor,
+        });
+        t.assert.equal(
+            (next.items[0]?.notification as { title?: string } | undefined)
+                ?.title,
+            secondTitle,
+            'the page after the cursor starts at the next row',
+        );
+    },
+
     'refuses to publish into an app this account does not own': async (t) => {
         const error = await t.assert.rejects(() =>
             t.puter.events.handlers.publish('ingestUpload', HANDLER, {

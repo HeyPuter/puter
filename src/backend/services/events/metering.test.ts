@@ -31,8 +31,11 @@ import {
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
-import { isHttpError } from '../../core/http/HttpError.js';
-import type { DurableSubscriptionInput } from '../../stores/events/DurableSubscriptionStore.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import {
+    DurableQuotaRaceLost,
+    type DurableSubscriptionInput,
+} from '../../stores/events/DurableSubscriptionStore.js';
 import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
@@ -56,6 +59,9 @@ let resumed: string[];
 let plan: string;
 /** Accounts that still have budget, by user id. */
 let solvent: Set<number>;
+/** Set to have the next create lose the last slot after its insert. */
+let raceLost: boolean;
+let emitted: Array<{ key: string; data: unknown }>;
 
 const anchorUid = (): string => `docs-${seq}`;
 const anchorPath = (): string => `/u${userId}/Documents`;
@@ -117,17 +123,30 @@ beforeEach(() => {
     resumed = [];
     plan = 'paid_plan';
     solvent = new Set([userId]);
+    raceLost = false;
+    emitted = [];
 
     service = new EventsService(
         { events: { enabled: true } } as IConfig,
         {
             redis: {},
-            event: { on: vi.fn(), emit: vi.fn() },
+            event: {
+                on: vi.fn(),
+                emit: (key: string, data: unknown) =>
+                    emitted.push({ key, data }),
+            },
             alarm: { create: vi.fn() },
         } as never,
         {
             durableSubscription: {
                 create: async (input: DurableSubscriptionInput) => {
+                    if (raceLost)
+                        throw new DurableQuotaRaceLost(
+                            new HttpError(429, 'full', {
+                                legacyCode: 'events_subscription_limit',
+                            }),
+                            { userId: input.ownerUserId, generation: 7 },
+                        );
                     created.push(input);
                     const row = durableRow({
                         appUid: input.appUid,
@@ -193,6 +212,7 @@ beforeEach(() => {
                 noteConnect: async () => undefined,
                 noteDisconnect: async () => undefined,
                 candidateRegion: async () => null,
+                heldInRegion: async () => false,
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
@@ -295,6 +315,18 @@ describe('what a plan lets an account subscribe to', () => {
         expect(created[0].limits).toEqual({
             perUser: EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit,
             perApp: EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.limit,
+        });
+    });
+
+    it('tells other regions about a row it lost the last slot with', async () => {
+        raceLost = true;
+
+        await expect(subscribe()).rejects.toSatisfy(
+            codeOf('events_subscription_limit'),
+        );
+        expect(emitted).toContainEqual({
+            key: 'outer.pubsub.events.generationBumped',
+            data: { userId, generation: 7, durable: true },
         });
     });
 

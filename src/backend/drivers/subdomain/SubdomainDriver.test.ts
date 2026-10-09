@@ -28,6 +28,7 @@ import {
     PROFILES_SUBDOMAIN,
 } from '../../util/systemSite.js';
 import { setupTestServer } from '../../testUtil.js';
+import { decodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { SubdomainDriver } from './SubdomainDriver.js';
 
@@ -448,6 +449,8 @@ describe('SubdomainDriver.select pagination', () => {
             )) as { items: Array<{ subdomain: string }>; cursor?: string };
             seen.push(...page.items.map((r) => r.subdomain));
             cursor = page.cursor;
+            // Sealed: it reads as nothing but a cursor.
+            if (cursor) expect(() => decodeCursor(cursor)).toThrow();
         } while (cursor);
         expect(seen.sort()).toEqual([...subs].sort());
     });

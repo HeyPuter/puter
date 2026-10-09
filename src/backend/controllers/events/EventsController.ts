@@ -108,7 +108,8 @@ export class EventsController extends PuterController {
      * GET /events/fetch — what the caller missed, one page at a time.
      *
      * Stateless: no subscription, no stored position, nothing written. The
-     * cursor comes back to the caller and goes out again as `after`.
+     * cursor comes back to the caller and goes out again as `cursor` (or
+     * `after`, the name it first shipped under).
      */
     @Get('/fetch', {
         subdomain: 'api',
@@ -122,6 +123,7 @@ export class EventsController extends PuterController {
 
         const page = await this.services.events.fetchMissed(actor, {
             subject: typeof query.subject === 'string' ? query.subject : '',
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             after: typeof query.after === 'string' ? query.after : undefined,
             limit: normalizeLimit(query.limit, {
                 cap: EVENTS_FETCH_LIMIT_CAP,

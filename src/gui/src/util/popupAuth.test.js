@@ -24,6 +24,7 @@ import {
     deliversTokenAtBoot,
     deliversTokenToOpener,
     offersFederatedSignInInPopup,
+    relationshipIsConsent,
     runsUserAppTokenExchange,
 } from './popupAuth.js';
 
@@ -44,7 +45,8 @@ describe('deliversTokenAtBoot', () => {
     });
 
     it('delivers at boot for the flows that exist to authenticate', () => {
-        for ( const action of [undefined, 'sign-in', 'login', 'signup'] ) {
+        // `''` is an empty `?action=`, which the popup treats as no action.
+        for ( const action of [undefined, '', 'sign-in', 'login', 'signup'] ) {
             expect(deliversTokenAtBoot(action)).toBe(true);
         }
     });
@@ -122,11 +124,78 @@ describe('runsUserAppTokenExchange', () => {
         for ( const action of [
             undefined,
             'sign-in',
+            'login',
+            'signup',
             'show-open-file-picker',
             'show-directory-picker',
             'show-save-file-picker',
             'request-permission',
         ] ) {
+            expect(runsUserAppTokenExchange(action)).toBe(true);
+        }
+    });
+});
+
+describe('any other popup action', () => {
+    // These show no account picker, so a boot-time hand-off would sign the
+    // opener in without asking.
+    const OTHER_ACTIONS = [
+        'foo',
+        'authme',
+        'copyauth',
+        'change-username',
+        'set-new-password',
+        'password-recovery',
+    ];
+
+    it('hands the opener no token', () => {
+        for ( const action of OTHER_ACTIONS ) {
+            expect(deliversTokenToOpener(action)).toBe(false);
+            expect(deliversTokenAtBoot(action)).toBe(false);
+            expect(defersTokenToOpener(action)).toBe(false);
+        }
+    });
+
+    it('skips the exchange, so opening one connects nothing', () => {
+        for ( const action of OTHER_ACTIONS ) {
+            expect(runsUserAppTokenExchange(action)).toBe(false);
+        }
+    });
+});
+
+describe('relationshipIsConsent', () => {
+    // How initgui decides whether a boot-time hand-off goes ahead.
+    const handsOverAtBoot = (action, { picked, hasRelationship, showedAccountPicker }) =>
+        deliversTokenAtBoot(action) &&
+        (picked || relationshipIsConsent({ hasRelationship, showedAccountPicker }));
+
+    it('gives no token when the user dismissed the account picker', () => {
+        const state = { picked: false, hasRelationship: true, showedAccountPicker: true };
+        expect(relationshipIsConsent(state)).toBe(false);
+        for ( const action of [undefined, 'sign-in'] ) {
+            expect(handsOverAtBoot(action, state)).toBe(false);
+        }
+    });
+
+    it('gives a token when the user picked an account', () => {
+        for ( const hasRelationship of [true, false] ) {
+            const state = { picked: true, hasRelationship, showedAccountPicker: true };
+            expect(handsOverAtBoot('sign-in', state)).toBe(true);
+        }
+    });
+
+    it('counts the relationship as consent when no picker was shown', () => {
+        const state = { picked: false, hasRelationship: true, showedAccountPicker: false };
+        expect(relationshipIsConsent(state)).toBe(true);
+        expect(handsOverAtBoot('login', state)).toBe(true);
+        expect(relationshipIsConsent({ ...state, hasRelationship: false })).toBe(false);
+    });
+
+    it('leaves the picker popups to answer with the pick', () => {
+        const state = { picked: false, hasRelationship: true, showedAccountPicker: false };
+        for ( const action of PICKER_ACTIONS ) {
+            expect(handsOverAtBoot(action, state)).toBe(false);
+            expect(defersTokenToOpener(action)).toBe(true);
             expect(runsUserAppTokenExchange(action)).toBe(true);
         }
     });

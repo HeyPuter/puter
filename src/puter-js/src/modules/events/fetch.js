@@ -10,8 +10,9 @@ import { request } from './lib/api.js';
  *
  * A plain query, not a subscription: nothing is registered, no position is kept
  * for you, and the same call from anywhere returns the same answer. Keep the
- * `cursor` a page comes back with and pass it as `after` to continue; a page
- * with no `cursor` is the end of what there is.
+ * `cursor` a page comes back with and pass it back as `cursor` to continue; a
+ * page with no `cursor` is the end of what there is. `after` is the older name
+ * for the same option and still works.
  *
  * Only subjects with a store behind them can answer. Today that is `notif:` —
  * the notification mailbox — and any other family is refused rather than
@@ -40,13 +41,18 @@ export async function fetch (options) {
     if ( opts.limit !== undefined && typeof opts.limit !== 'number' ) {
         throw new PuterJSError('`limit` must be a number', 'invalid_request');
     }
+    if ( opts.cursor !== undefined && typeof opts.cursor !== 'string' ) {
+        throw new PuterJSError('`cursor` must be a string', 'invalid_request');
+    }
     if ( opts.after !== undefined && typeof opts.after !== 'string' ) {
         throw new PuterJSError('`after` must be a string', 'invalid_request');
     }
+    const cursor = opts.cursor ?? opts.after;
 
+    // Sent as `after`, which every server version reads.
     const page = await request(this.puter, '/events/fetch', undefined, {
         subject,
-        ...(opts.after !== undefined ? { after: opts.after } : {}),
+        ...(cursor !== undefined ? { after: cursor } : {}),
         ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
     });
 

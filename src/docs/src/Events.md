@@ -235,19 +235,19 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            let after;
+            let cursor;
             let seen = 0;
             do {
                 const page = await puter.events.fetch({
                     subject: 'notif:account',
-                    after,
+                    cursor,
                 });
                 for (const event of page.items) {
                     puter.print(`${event.type}: ${event.notification.title}<br>`);
                     seen++;
                 }
-                after = page.cursor;
-            } while (after);
+                cursor = page.cursor;
+            } while (cursor);
 
             if (!seen) puter.print('nothing missed<br>');
         })();

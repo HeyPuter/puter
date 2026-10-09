@@ -31,6 +31,7 @@ import {
 } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
+import { decodeCursor } from '../../util/pagination.ts';
 
 describe('TeamService', () => {
     let server: PuterServer;
@@ -905,21 +906,21 @@ describe('TeamService', () => {
                 username: `cap_${Math.random().toString(36).slice(2, 9)}`,
             });
 
-        // makeTeam seeds one seat, so three more reaches four.
-        const fillToFour = async (teamUid: string) => {
-            for (let i = 0; i < 3; i++) await addSeat(teamUid);
+        // makeTeam seeds one seat, so two more reaches three.
+        const fillToThree = async (teamUid: string) => {
+            for (let i = 0; i < 2; i++) await addSeat(teamUid);
         };
 
-        it('stops a free owner at four seats', async () => {
+        it('stops a free owner at three seats', async () => {
             const { team } = await makeTeam();
-            await fillToFour(team.uid);
+            await fillToThree(team.uid);
             await expect(addSeat(team.uid)).rejects.toMatchObject({
                 statusCode: 409,
-                fields: { limit: 4 },
+                fields: { limit: 3 },
             });
         });
 
-        it('lets a paid owner past four', async () => {
+        it('lets a paid owner past three', async () => {
             const { team } = await makeTeam();
             const metering = server.services.metering as unknown as {
                 registerPolicy: (p: Record<string, unknown>) => void;
@@ -938,7 +939,7 @@ describe('TeamService', () => {
             );
             metering.invalidateActorSubscription(ownerUuid);
 
-            await fillToFour(team.uid);
+            await fillToThree(team.uid);
             await expect(addSeat(team.uid)).resolves.toMatchObject({
                 username: expect.any(String),
             });
@@ -1154,6 +1155,7 @@ describe('TeamService', () => {
             seen.push(...result.items.map((e) => e.action));
             cursor = result.cursor;
             if (!cursor) break;
+            expect(() => decodeCursor(cursor)).toThrow();
         }
         expect(seen.sort()).toEqual([
             'provision',
@@ -1389,10 +1391,16 @@ describe('TeamService', () => {
         const first = await service.listAudit(team.uid, owner.id, { limit: 1 });
         expect(first.items).toHaveLength(1);
         expect(first.cursor).toBeTruthy();
+        // Sealed: it reads as nothing but a cursor.
+        expect(() => decodeCursor(first.cursor)).toThrow();
 
         // Older entries stay reachable instead of dropping off the view.
-        const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
+        const second = await service.listAudit(team.uid, owner.id, {
+            limit: 1,
+            cursor: first.cursor,
+        });
         expect(second.items).toHaveLength(1);
+        expect(second.items[0]).not.toEqual(first.items[0]);
     });
 
 });

@@ -88,10 +88,10 @@ let workerOutcome: WorkerInvocationOutcome = 'deferred';
 let candidateRegionImpl: (
     holderUserId: number,
     appUid: string | null,
-    attempt: number,
+    tried: readonly string[],
 ) => Promise<string | null> = async () => null;
-/** The attempt index each `candidateRegion` call carried, in order. */
-let candidateRegionCalls: number[] = [];
+/** The regions already tried that each `candidateRegion` call carried. */
+let candidateRegionCalls: string[][] = [];
 
 const entry = (over: Partial<FSEntry> = {}): FSEntry =>
     ({
@@ -268,11 +268,12 @@ beforeEach(async () => {
                 candidateRegion: async (
                     holderUserId: number,
                     appUid: string | null,
-                    attempt: number,
+                    tried: readonly string[],
                 ) => {
-                    candidateRegionCalls.push(attempt);
-                    return candidateRegionImpl(holderUserId, appUid, attempt);
+                    candidateRegionCalls.push([...tried]);
+                    return candidateRegionImpl(holderUserId, appUid, tried);
                 },
+                heldInRegion: async () => false,
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
@@ -511,8 +512,8 @@ describe('a delivery owed to exactly one consumer', () => {
 
     it('does not skip a remote candidate when the local socket disappears between attempts', async () => {
         const regions = ['east', 'west'];
-        candidateRegionImpl = async (_holderUserId, _appUid, attempt) =>
-            regions[attempt] ?? null;
+        candidateRegionImpl = async (_holderUserId, _appUid, tried) =>
+            regions.find((region) => !tried.includes(region)) ?? null;
         await register({ targets: ['socket', 'worker'] });
 
         await dispatch();
@@ -528,7 +529,7 @@ describe('a delivery owed to exactly one consumer', () => {
 
         // The first remote candidate, not the second — nothing was actually
         // spent on a remote region before this.
-        expect(candidateRegionCalls).toEqual([0]);
+        expect(candidateRegionCalls).toEqual([[]]);
     });
 
     it('goes straight to the handler when nothing is connected', async () => {

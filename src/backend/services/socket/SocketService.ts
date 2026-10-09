@@ -615,7 +615,7 @@ export class SocketService extends PuterService {
                 // for as long as a socket does. A no-op with no peers
                 // configured, which is where presence costs nothing at all.
                 void this.services.eventForward
-                    ?.touchPresence(userId, appUid)
+                    ?.touchPresence(userId, appUid, socket.id)
                     .catch((err: unknown) => {
                         console.warn('[socket] presence touch failed', err);
                     });

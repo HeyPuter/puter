@@ -1,10 +1,6 @@
-/** @typedef {{ title?: string, method?: string }} UsageLimitDialogOptions */
+import { escapeHtml } from '../lib/html.js';
 
-const escapeHtml = (text) => String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+/** @typedef {{ title?: string, method?: string }} UsageLimitDialogOptions */
 
 class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
     /**

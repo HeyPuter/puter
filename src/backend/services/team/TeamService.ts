@@ -30,7 +30,7 @@ import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
-const FREE_SEAT_CAP = 4;
+const FREE_SEAT_CAP = 3;
 const PAID_SEAT_CAP = 40;
 
 // Seat teardown is independent per member, so a delete need not be serial.
@@ -53,9 +53,10 @@ import type {
     TeamRow,
 } from '../../stores/team/TeamStore';
 import {
-    decodeCursor,
     encodeCursor,
     normalizeLimit,
+    openCursor,
+    sealCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import type { UserRow } from '../../stores/user/UserStore';
@@ -308,12 +309,20 @@ export class TeamService extends PuterService {
         return Number.isFinite(n) && n > 0 ? n : 1;
     }
 
-    /** Depends on whether the owner pays; `max_seats_per_team` overrides both. */
+    /**
+     * The owner's plan's `teamSeatCap`, else whether it pays picks the free or
+     * paid cap. `max_seats_per_team` overrides all of it.
+     */
     async #seatCap(ownerUserId: number): Promise<number> {
         const override = Number(this.config.max_seats_per_team);
         if (Number.isFinite(override) && override > 0) return override;
 
-        const paid = await this.#ownerPays(ownerUserId);
+        const policy = await this.#ownerPolicy(ownerUserId);
+        const planCap = Number(policy?.teamSeatCap);
+        if (Number.isFinite(planCap) && planCap > 0) return planCap;
+
+        // A resolved policy outside the free set is a plan someone pays for.
+        const paid = policy ? subscriptionSatisfies(policy.id, true) : false;
         const key = paid
             ? 'max_seats_per_team_paid'
             : 'max_seats_per_team_free';
@@ -322,22 +331,22 @@ export class TeamService extends PuterService {
         return paid ? PAID_SEAT_CAP : FREE_SEAT_CAP;
     }
 
-    /** A resolved policy outside the free set is a plan someone is paying for. */
-    async #ownerPays(ownerUserId: number): Promise<boolean> {
+    /** Null when unreadable, which caps as free: over-provisioning is worse. */
+    async #ownerPolicy(
+        ownerUserId: number,
+    ): Promise<{ id: string; teamSeatCap?: number } | null> {
         try {
             const owner = await this.stores.user.getById(ownerUserId);
-            if (!owner?.uuid) return false;
+            if (!owner?.uuid) return null;
             // The whole row, not an id/uuid stub: a resolver may key on any
             // field, and one that misses makes the cap depend on whether
             // something else cached this user's plan first.
-            const policy = await this.services.metering.getActorSubscription({
+            return await this.services.metering.getActorSubscription({
                 user: owner,
             } as never);
-            return subscriptionSatisfies(policy.id, true);
         } catch (e) {
-            // Smaller cap on an unreadable plan: over-provisioning is worse.
             console.warn('[team] seat cap plan lookup failed:', e);
-            return false;
+            return null;
         }
     }
 
@@ -760,7 +769,11 @@ export class TeamService extends PuterService {
             normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
             AUDIT_PAGE_SIZE;
         const cursor =
-            decodeCursor(opts.cursor, 'member activity cursor') ?? {};
+            openCursor(
+                opts.cursor,
+                this.config.jwt_secret_v2,
+                'member activity cursor',
+            ) ?? {};
         const fromAudit = typeof cursor.a === 'number' ? cursor.a : undefined;
         const fromSignIn = typeof cursor.s === 'number' ? cursor.s : null;
 
@@ -831,7 +844,9 @@ export class TeamService extends PuterService {
 
         return {
             items: page.map((row) => row.entry),
-            ...(more ? { cursor: encodeCursor(next) } : {}),
+            ...(more
+                ? { cursor: sealCursor(next, this.config.jwt_secret_v2) }
+                : {}),
         };
     }
 
@@ -868,16 +883,18 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map((row): MemberActivityEntry => ({
-                action: row.action,
-                reason: row.reason,
-                created_at: epochSeconds(row.created_at),
-                username: name(row.user_id_keep),
-                actor_username: name(row.actor_user_id),
-                // Only a sign-in carries these; the shape stays uniform.
-                ip: null,
-                user_agent: null,
-            })),
+            items: page.items.map(
+                (row): MemberActivityEntry => ({
+                    action: row.action,
+                    reason: row.reason,
+                    created_at: epochSeconds(row.created_at),
+                    username: name(row.user_id_keep),
+                    actor_username: name(row.actor_user_id),
+                    // Only a sign-in carries these; the shape stays uniform.
+                    ip: null,
+                    user_agent: null,
+                }),
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
@@ -1042,6 +1059,17 @@ export class TeamService extends PuterService {
             username: user.username,
             temporaryPassword,
         };
+    }
+
+    /**
+     * Take an unconfirmed address off a seat. The team typed it and nobody
+     * proved it, so it mustn't keep the inbox's owner from signing up with it.
+     * Returns false, changing nothing, unless `userId` is a seat whose address
+     * is unconfirmed.
+     */
+    async releaseUnconfirmedSeatEmail(userId: number): Promise<boolean> {
+        if (!(await this.stores.team.getOrgSeat(userId))) return false;
+        return this.stores.user.clearUnconfirmedEmail(userId);
     }
 
     /** Issues a fresh credential, invalidating the previous one. */

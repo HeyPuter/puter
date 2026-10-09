@@ -18,7 +18,7 @@
  */
 
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
 // render credits or fall back to dollars.
@@ -77,6 +77,10 @@ const TabUsage = {
                     <div class="usage-progbar-wrapper">
                         <div class="usage-progbar" style="width: 0;"></div>
                     </div>
+                    <p class="usage-addon-credits" style="display: none;">
+                        <span class="usage-addon-left"></span>
+                        <span class="usage-addon-note">&middot; ${i18n('addon_credits_note')}</span>
+                    </p>
                     <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">Usage Details</h3>
                     <div class="driver-usage-details-content visible">
                     </div>
@@ -280,6 +284,7 @@ function renderUsageTable () {
 async function update_usage_details ($el_window) {
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
         const budget = usageBudget(res.usage, res.allowanceInfo);
+        const addonLeft = addonCreditsRemaining(res.allowanceInfo);
         // The server reports credits (already scaled) or raw amounts (no
         // multiplier configured), and says which via the unit flag.
         const inCredits = usageIsCredits(res.allowanceInfo);
@@ -290,13 +295,18 @@ async function update_usage_details ($el_window) {
 
         $('#total-usage').html(amount(budget.used));
         $('#total-capacity').html(inCredits
-            ? `${amount(budget.capacity)} ${i18n('credits')}`
+            ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
             : amount(budget.capacity));
         $('.usage-progbar-percent').html(`${budget.percent }%`);
         $('.usage-progbar').css({
             width: `${budget.barPercent }%`,
             'background-color': window.usage_bar_color(budget.barPercent),
         });
+
+        $('.usage-addon-credits').toggle(addonLeft !== null);
+        if ( addonLeft !== null ) {
+            $('.usage-addon-left').html(i18n('addon_credits_available', { amount: amount(addonLeft) }));
+        }
 
         // Store raw data for sorting
         usageTableData = [];

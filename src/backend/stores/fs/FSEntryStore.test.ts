@@ -24,7 +24,7 @@ import { configContainer } from '../../exports.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types';
-import { encodeCursor } from '../../util/pagination.js';
+import { decodeCursor, encodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSEntry, FSEntryCreateInput } from './FSEntry.js';
 import { FSEntryStore } from './FSEntryStore.js';
@@ -1155,6 +1155,8 @@ describe('FSEntryStore listing and pagination', () => {
             'b.txt',
         ]);
         expect(first.cursor).toBeTruthy();
+        // Sealed: it reads as nothing but a cursor.
+        expect(() => decodeCursor(first.cursor)).toThrow();
 
         const second = await store.listChildrenPage(parent.uuid, {
             limit: 2,
@@ -1318,6 +1320,7 @@ describe('FSEntryStore listing and pagination', () => {
             );
             seen.push(...page.entries.map((entry) => entry.name));
             cursor = page.cursor;
+            if (cursor) expect(() => decodeCursor(cursor)).toThrow();
         } while (cursor);
         expect(seen).toEqual(['a.txt', 'b.txt', 'c.txt', 'deep.txt', 'sub']);
     });

@@ -321,8 +321,8 @@ Available only where the deployment has teams turned on; elsewhere `puter.teams`
 | Team mutations                             | 60/min, 500/day |
 | Team reads                                 | 600/min |
 | Teams one account may own                  | 1 |
-| Seats per team, free owner                 | 4 |
-| Seats per team, paid owner                 | 40 |
+| Seats per team, free owner                 | 3 |
+| Seats per team, paid owner                 | Set by the owner's plan; 40 if the plan sets none |
 | Member password resets                     | 20/day |
 
 The mutation and read budgets are per user, per app, not per team: administering several teams spends one budget.
@@ -330,7 +330,7 @@ The mutation and read budgets are per user, per app, not per team: administering
 - **Seats.** A seat is a Puter account the team creates and its owner pays for. Over the seat limit, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both errors include the limit in `fields.limit`.
 - **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier.
 - **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it never disables anyone; a team over the new limit just can't add seats until it's back under.
-- **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; `max_seats_per_team` sets one flat limit that overrides both. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
+- **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; a plan registered with `teamSeatCap` uses its own instead. `max_seats_per_team` sets one flat limit that overrides all of them. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
 - **Password resets.** A reset returns a temporary password once, valid for 24 hours. Until the member sets their own password, every request except signing in fails with `password_change_required`.
 - **Required 2FA.** A team can require two-factor authentication for the accounts it created (not for members who joined with their own accounts). Until a seat sets it up, every request except signing in and setting up 2FA fails with `two_factor_required`. The owner needs 2FA to turn this on, and can clear a member's second factor if they lose their device; the reset is logged and the member is emailed.
 - **Deleting a team** frees the owner's team slot but not the seats. Its accounts are disabled, not removed, and keep their files and usernames.
@@ -466,7 +466,7 @@ Deliveries are billed to the account holding the subscription:
 
 µ¢ is a microcent (a millionth of a cent). Session subscriptions bill at the broadcast rate. Handler runs bill separately as worker usage.
 
-Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, and gap markers.
+Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, and gap markers.
 
 When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
 
@@ -512,6 +512,19 @@ Every account has a filesystem quota (100 MiB free; paid plans add more). It cou
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 
+## Request timeouts
+
+Puter.js stops a request that makes no progress for too long and rejects it with `code: "request_timeout"`. The clock restarts whenever the request moves: a state change, response bytes arriving, or upload progress where the runtime reports it. A download or stream that keeps moving is never cut off, however long it takes. The file contents `puter.fs.upload()` and `puter.fs.write()` send are not subject to this limit.
+
+| Request                                                                                                           | Stopped after this long without progress |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Reads: read-only calls such as `puter.kv.get()`, `puter.kv.list()`, `puter.apps.get()` and `puter.hosting.list()` | 60 s                                     |
+| Everything else, including writes, AI calls, streamed responses and every `puter.fs` call                         | 15 min                                   |
+
+A read is held to 60 s only while progress can be seen: before the response headers arrive, and after them once the body has started arriving. Node.js, service workers and Puter Workers report no progress for a non-streamed body, so there a read moves to the 15 min limit once its headers are in.
+
+A read that times out is retried once. A write or AI call that times out is never retried, because the server may already have done the work: check before repeating it. A stream that stalls throws `{ message, code: "request_timeout" }` from its loop.
+
 ## What happens when you hit a limit
 
 | Status | `code`                  | Meaning                               | What to do |
@@ -520,6 +533,7 @@ An upload reserves its declared size, minus the size of any file it replaces, fr
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; the allowance resets next month. |
 | `402`  | `subscription_required` | The endpoint requires a paid plan     | The user upgrades. Retrying or waiting doesn't help. |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades. |
+| none   | `request_timeout`       | No progress within the [request timeout](#request-timeouts) | Retry if the call is safe to repeat. A write or AI call may already have run. |
 
 Errors are JSON: `{ "error": …, "message": …, "code": … }`.
 

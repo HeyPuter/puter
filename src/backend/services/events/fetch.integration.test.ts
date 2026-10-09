@@ -222,6 +222,81 @@ describe('fetching a mailbox slice', () => {
         expect(uidsOf(after)).toEqual([uids[4], late]);
     });
 
+    it('pages on `cursor`, the name every other list takes it under', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) uids.push(await seed(userId, { i }));
+
+        const first = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 2,
+        });
+        const second = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 2,
+            cursor: first.body.cursor,
+        });
+
+        expect(second.status).toBe(200);
+        expect(uidsOf(second)).toEqual(uids.slice(2));
+        expect(second.body.cursor).toBeUndefined();
+    });
+
+    it('hands out a cursor that says nothing about where the row sits', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) await seed(userId, { i });
+
+        const page = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 1,
+        });
+
+        const decoded = Buffer.from(
+            String(page.body.cursor),
+            'base64',
+        ).toString('utf8');
+        expect(decoded).not.toContain('"id"');
+    });
+
+    it('still reads a cursor issued before cursors were sealed', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) uids.push(await seed(userId, { i }));
+        const [row] = await env.server.clients.db.read(
+            'SELECT `id` FROM `notification` WHERE `uid` = ?',
+            [uids[0]],
+        );
+        const plain = Buffer.from(
+            JSON.stringify({ id: Number(row.id) }),
+        ).toString('base64');
+
+        const page = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            after: plain,
+        });
+
+        expect(uidsOf(page)).toEqual(uids.slice(1));
+    });
+
+    it('refuses a cursor that was altered', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) await seed(userId, { i });
+        const page = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 1,
+        });
+        const raw = Buffer.from(String(page.body.cursor), 'base64url');
+        raw[raw.length - 1] ^= 1;
+
+        const altered = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            cursor: raw.toString('base64url'),
+        });
+
+        expect(altered.status).toBe(400);
+        expect(altered.body.code).toBe('bad_request');
+    });
+
     it('writes nothing — a fetch is a read, twice over', async () => {
         await clearMailboxes();
         await seed(userId, { title: 'unread' });

@@ -41,3 +41,49 @@ describe('the verification gates in initgui', () => {
         }
     });
 });
+
+describe('the popup token hand-off in postAuthActions', () => {
+    const postAuthActions = src.slice(
+        src.indexOf('const postAuthActions = async'),
+        src.indexOf('window.initgui = async'),
+    );
+    const gate = postAuthActions.indexOf(
+        'if (deliversTokenAtBoot(action) && !consented)',
+    );
+
+    it('asks for consent on every action that hands over a token at boot', () => {
+        // A gate keyed on action names lets every unnamed action through.
+        expect(gate).toBeGreaterThan(-1);
+        expect(postAuthActions).not.toContain('is_signin_popup');
+    });
+
+    it('checks consent before the exchange and both hand-offs', () => {
+        const steps = [
+            postAuthActions.indexOf('fetch(`${window.api_origin}/login/set`'),
+            postAuthActions.indexOf('runsUserAppTokenExchange(action)'),
+            postAuthActions.search(/success: true,\s+token: data\.token/),
+        ];
+        for (const step of steps) {
+            expect(step).toBeGreaterThan(gate);
+        }
+    });
+});
+
+describe('the account pickers in a popup', () => {
+    const PICKER = 'picked_a_user_for_sdk_login = await UIWindowSessionList(';
+
+    it('record that they were shown', () => {
+        // A dismissed picker has to outrank an existing relationship, so the
+        // relationship check needs to know one was shown.
+        const chunks = src.split(PICKER);
+        expect(chunks.length - 1).toBe(2);
+        for (const before of chunks.slice(0, -1)) {
+            expect(before.trimEnd()).toMatch(/showed_account_picker = true;$/);
+        }
+    });
+
+    it('only let the relationship stand in when no picker was shown', () => {
+        expect(src).toContain('showedAccountPicker: showed_account_picker');
+        expect(src).not.toMatch(/if \(window\.userAppToken\) \{\s*window\.popup_signin_consent = true;/);
+    });
+});

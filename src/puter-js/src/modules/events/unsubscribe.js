@@ -22,8 +22,15 @@ export async function unsubscribe (subId) {
             'subscription_does_not_exist',
         );
     }
-    // Otherwise this page keeps running the handler for a subscription that
-    // no longer exists, and the connection it needed that for is never idle.
+    // Routing stops once the server has let go of it: a refused request
+    // leaves the subscription live, so this page keeps running its handler.
+    try {
+        await request(this.puter, '/events/unsubscribe', { subId });
+    } catch ( error ) {
+        if ( error?.code === 'subscription_does_not_exist' ) {
+            this.channel.deregisterDurable(subId);
+        }
+        throw error;
+    }
     this.channel.deregisterDurable(subId);
-    await request(this.puter, '/events/unsubscribe', { subId });
 }

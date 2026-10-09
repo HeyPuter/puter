@@ -29,10 +29,6 @@ import type { PresenceRow } from '../../stores/events/PresenceStore.js';
  * region's bump had replicated would otherwise stay cached under a matching
  * epoch.
  *
- * The entry also carries which regions it has already asked to be repaired, so
- * a busy stream does not storm conditional writes at one row; a bump clears
- * it.
- *
  * Bounded, and evicted least-recently-used: a `Map` iterates in insertion
  * order, so re-inserting on read moves an entry to the young end. `#users` is
  * capped the same way, since `bump()` inserts users for peers' transitions
@@ -48,8 +44,6 @@ interface CacheEntry {
      * `PRESENCE_CACHE_MAX_AGE_MS`.
      */
     readAt: number;
-    /** Regions this window has already spent its one repair write on. */
-    repaired: Set<string>;
 }
 
 interface UserEntry {
@@ -131,7 +125,6 @@ export class PresenceCache {
             epoch,
             row,
             readAt: Date.now(),
-            repaired: new Set(),
         });
     }
 
@@ -154,26 +147,6 @@ export class PresenceCache {
             epoch: (user?.epoch ?? 0) + 1,
             redisGeneration: generation ?? user?.redisGeneration ?? null,
         });
-    }
-
-    /**
-     * Take this window's one repair for a (user, app, region), or refuse it
-     * because the window already spent it.
-     */
-    claimRepair(userId: number, appUid: string, region: string): boolean {
-        const entry = this.#entries.get(entryKey(userId, appUid));
-        if (!entry || entry.epoch !== this.generationOf(userId)) return false;
-        if (entry.repaired.has(region)) return false;
-        entry.repaired.add(region);
-        return true;
-    }
-
-    /** Drop a region from the cached row, so the window stops forwarding to it. */
-    forget(userId: number, appUid: string, region: string): void {
-        const entry = this.#entries.get(entryKey(userId, appUid));
-        if (!entry) return;
-        const { [region]: _dropped, ...rest } = entry.row.regions;
-        entry.row = { ...entry.row, regions: rest };
     }
 
     clear(): void {

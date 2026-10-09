@@ -39,10 +39,10 @@ import { PuterDriver } from '../types.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
-    decodeCursor,
-    encodeCursor,
     normalizeLimit,
     normalizeOffset,
+    openCursor,
+    sealCursor,
 } from '../../util/pagination.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
@@ -575,8 +575,9 @@ export class WorkerDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 });
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = decodeCursor(
+        const payload = openCursor(
             args.cursor as string | null | undefined,
+            this.config.jwt_secret_v2,
         ) as { id?: number } | undefined;
         if (payload && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
@@ -624,9 +625,10 @@ export class WorkerDriver extends PuterDriver {
             );
             if (paginated && rows.length > pageSize) {
                 rows = rows.slice(0, pageSize);
-                cursor = encodeCursor({
-                    id: Number(rows[rows.length - 1]!.id),
-                });
+                cursor = sealCursor(
+                    { id: Number(rows[rows.length - 1]!.id) },
+                    this.config.jwt_secret_v2,
+                );
             }
         }
 

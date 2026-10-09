@@ -612,3 +612,71 @@ describe('2FA enrollment over HTTP', () => {
         expect(released.status).toBe(200);
     });
 });
+
+/**
+ * A temp account re-attaches through `/signup` only from a session that ran
+ * out, not from one that was revoked.
+ */
+describe('temp-account reauth over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv();
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    }, 120_000);
+
+    const signup = (body: Record<string, unknown>) =>
+        fetch(new URL('/signup', env.origin), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+    it('a revoked temp session cannot be revived with its reauth_token', async () => {
+        const first = await signup({ is_temp: true });
+        expect(first.status).toBe(200);
+        const { token } = (await first.json()) as { token: string };
+
+        const decoded = env.server.services.token.verify('auth', token) as {
+            session_uid: string;
+        };
+        await env.server.services.auth.revokeSession(decoded.session_uid);
+
+        const who = await fetch(new URL('/whoami', env.apiOrigin), {
+            headers: { authorization: `Bearer ${token}` },
+        });
+        expect(who.status).toBe(401);
+        const { reauth_token } = (await who.json()) as {
+            reauth_token?: string;
+        };
+        expect(typeof reauth_token).toBe('string');
+
+        const revive = await signup({ is_temp: true, reauth_token });
+        expect(revive.status).toBe(401);
+    });
+
+    it('an expired temp session re-attaches to the same account', async () => {
+        const first = await signup({ is_temp: true });
+        expect(first.status).toBe(200);
+        const { user } = (await first.json()) as { user: { uuid: string } };
+
+        const reauth_token = env.server.services.auth.signReauthToken(
+            user.uuid,
+            'session_expired',
+        );
+        const again = await signup({ is_temp: true, reauth_token });
+        expect(again.status).toBe(200);
+        const body = (await again.json()) as {
+            token: string;
+            user: { uuid: string };
+        };
+        expect(body.user.uuid).toBe(user.uuid);
+        const who = await fetch(new URL('/whoami', env.apiOrigin), {
+            headers: { authorization: `Bearer ${body.token}` },
+        });
+        expect(who.status).toBe(200);
+    });
+});

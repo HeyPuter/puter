@@ -19,7 +19,12 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
-import { encodeCursor, decodeCursor } from '../../util/pagination';
+import {
+    decodeCursor,
+    encodeCursor,
+    openCursor,
+    sealCursor,
+} from '../../util/pagination';
 import { PuterStore } from '../types';
 
 /** Default page size for the keyset listings. */
@@ -112,7 +117,10 @@ export class ShareStore extends PuterStore {
         const last = items[items.length - 1];
         return {
             items,
-            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+            cursor:
+                hasMore && last
+                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
+                    : undefined,
         };
     }
 
@@ -181,7 +189,10 @@ export class ShareStore extends PuterStore {
         const last = items[items.length - 1];
         return {
             items,
-            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+            cursor:
+                hasMore && last
+                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
+                    : undefined,
         };
     }
 
@@ -1147,7 +1158,11 @@ export class ShareStore extends PuterStore {
      * client's iteration from the top.
      */
     #afterId(cursor) {
-        const decoded = decodeCursor(cursor, 'share cursor');
+        const decoded = openCursor(
+            cursor,
+            this.config.jwt_secret_v2,
+            'share cursor',
+        );
         if (decoded === undefined) return 0;
         const id = Number(decoded.id);
         if (!Number.isInteger(id) || id < 0) {

@@ -73,8 +73,8 @@ export class BroadcastController extends PuterController {
     /**
      * Event deliveries one region addressed at this one, on the same signed
      * channel as the webhook above but carrying socket traffic rather than bus
-     * events. The answer names the pairs this region holds no socket for, which
-     * is what lets the sender correct its presence row.
+     * events. The answer names the anchor tokens this region holds no session
+     * row for, which is what lets the sender prune its remote-watch index.
      */
     @Post('/events', { subdomain: '*' })
     async events(req: Request, res: Response): Promise<void> {
