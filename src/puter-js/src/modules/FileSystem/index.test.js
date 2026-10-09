@@ -59,21 +59,27 @@ afterEach(() => {
 describe('cache update timer', () => {
     it('keeps a single interval across repeated auth-state changes', () => {
         const fs = makeModule();
-        // `vi.getTimerCount()` is global and constructing the module schedules
-        // a timer of its own, so the cache interval is counted as a delta from
-        // construction rather than as an absolute.
-        const baseline = vi.getTimerCount();
+        // Each auth change also sends the cache timestamp request, whose idle
+        // clock is a timer too, so intervals are counted on their own.
+        const started = vi.spyOn(globalThis, 'setInterval');
+        const cleared = vi.spyOn(globalThis, 'clearInterval');
+        const running = () => started.mock.calls.length - cleared.mock.calls.length;
 
-        fs.onAuthStateChanged();
-        const timer = fs.cacheUpdateTimer;
-        fs.onAuthStateChanged();
-        fs.onAuthStateChanged();
+        try {
+            fs.onAuthStateChanged();
+            const timer = fs.cacheUpdateTimer;
+            fs.onAuthStateChanged();
+            fs.onAuthStateChanged();
 
-        expect(vi.getTimerCount()).toBe(baseline + 1);
-        expect(fs.cacheUpdateTimer).not.toBe(timer);
+            expect(running()).toBe(1);
+            expect(fs.cacheUpdateTimer).not.toBe(timer);
 
-        fs.stopCacheUpdateTimer();
-        expect(vi.getTimerCount()).toBe(baseline);
+            fs.stopCacheUpdateTimer();
+            expect(running()).toBe(0);
+        } finally {
+            started.mockRestore();
+            cleared.mockRestore();
+        }
     });
 
     it('refreshes the cache timestamp while running', () => {

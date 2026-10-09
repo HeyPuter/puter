@@ -1,7 +1,7 @@
 import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
 import {
-    buildXhr, driverCall, isVerificationGateCode, parseResponse, resolveReauth,
-    resolveVerificationGate,
+    buildXhr, driverCall, isVerificationGateCode, parseResponse, requestTimeoutError,
+    resolveReauth, resolveVerificationGate,
 } from './networkUtils.js';
 
 /**
@@ -212,6 +212,21 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
             });
         }
         return handle_error(error_cb, reject_func, this);
+    });
+
+    // The idle timeout ends a request by aborting it (see `watchIdle`).
+    xhr.addEventListener('abort', function () {
+        if ( ! xhr._puterTimedOut ) return;
+        const error = requestTimeoutError();
+        if ( globalThis.puter?.apiCallLogger?.isEnabled() && xhr._puterRequestId ) {
+            globalThis.puter.apiCallLogger.logRequest({
+                service: xhr._puterRequestId.service,
+                operation: xhr._puterRequestId.operation,
+                params: xhr._puterRequestId.params,
+                error,
+            });
+        }
+        return handle_error(error_cb, reject_func, error);
     });
 }
 

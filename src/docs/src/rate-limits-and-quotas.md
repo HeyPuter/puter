@@ -512,6 +512,19 @@ Every account has a filesystem quota (100 MiB free; paid plans add more). It cou
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 
+## Request timeouts
+
+Puter.js stops a request that makes no progress for too long and rejects it with `code: "request_timeout"`. The clock restarts whenever the request moves: a state change, response bytes arriving, or upload progress where the runtime reports it. A download or stream that keeps moving is never cut off, however long it takes. The file contents `puter.fs.upload()` and `puter.fs.write()` send are not subject to this limit.
+
+| Request                                                                                                           | Stopped after this long without progress |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Reads: read-only calls such as `puter.kv.get()`, `puter.kv.list()`, `puter.apps.get()` and `puter.hosting.list()` | 60 s                                     |
+| Everything else, including writes, AI calls, streamed responses and every `puter.fs` call                         | 15 min                                   |
+
+A read is held to 60 s only while progress can be seen: before the response headers arrive, and after them once the body has started arriving. Node.js, service workers and Puter Workers report no progress for a non-streamed body, so there a read moves to the 15 min limit once its headers are in.
+
+A read that times out is retried once. A write or AI call that times out is never retried, because the server may already have done the work: check before repeating it. A stream that stalls throws `{ message, code: "request_timeout" }` from its loop.
+
 ## What happens when you hit a limit
 
 | Status | `code`                  | Meaning                               | What to do |
@@ -520,6 +533,7 @@ An upload reserves its declared size, minus the size of any file it replaces, fr
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; the allowance resets next month. |
 | `402`  | `subscription_required` | The endpoint requires a paid plan     | The user upgrades. Retrying or waiting doesn't help. |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades. |
+| none   | `request_timeout`       | No progress within the [request timeout](#request-timeouts) | Retry if the call is safe to repeat. A write or AI call may already have run. |
 
 Errors are JSON: `{ "error": …, "message": …, "code": … }`.
 
