@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -268,7 +269,13 @@ describe('ShareStore', () => {
             const dirUuid = uuidv4();
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
-                [dirUuid, `d-${dirUuid.slice(0, 8)}`, `/x/${dirUuid}`, issuer.id, now],
+                [
+                    dirUuid,
+                    `d-${dirUuid.slice(0, 8)}`,
+                    `/x/${dirUuid}`,
+                    issuer.id,
+                    now,
+                ],
             );
             const dirRows = await server.clients.db.read(
                 'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
@@ -279,7 +286,14 @@ describe('ShareStore', () => {
             const childUuid = uuidv4();
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, NULL, ?, 0, ?, ?, ?)',
-                [childUuid, `f-${childUuid.slice(0, 8)}`, issuer.id, now, dirId, dirUuid],
+                [
+                    childUuid,
+                    `f-${childUuid.slice(0, 8)}`,
+                    issuer.id,
+                    now,
+                    dirId,
+                    dirUuid,
+                ],
             );
             const childRows = await server.clients.db.read(
                 'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
@@ -295,9 +309,9 @@ describe('ShareStore', () => {
             });
 
             const rows = await store.listByFsentrySubtree(dirId);
-            expect(
-                rows.some((r) => Number(r.fsentry_id) === childId),
-            ).toBe(true);
+            expect(rows.some((r) => Number(r.fsentry_id) === childId)).toBe(
+                true,
+            );
         });
 
         it('records an active share and lists it for the holder', async () => {
@@ -316,6 +330,43 @@ describe('ShareStore', () => {
 
             const page = await store.listByHolder(holder.id);
             expect(page.items.map((r) => r.uid)).toContain(created.uid);
+        });
+
+        it('lets a link share lose its app, and never take another one', async () => {
+            const entry = await makeEntry(issuer);
+            const appOf = (row) => {
+                const data =
+                    typeof row.data === 'string'
+                        ? JSON.parse(row.data || '{}')
+                        : (row.data ?? {});
+                return data.issuedByApp ?? null;
+            };
+
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: 'app-one',
+            });
+            expect(appOf(await store.getAnyone(entry.id))).toBe('app-one');
+
+            // The same app again keeps it.
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'write',
+                issuerAppUid: 'app-one',
+            });
+            expect(appOf(await store.getAnyone(entry.id))).toBe('app-one');
+
+            // A different one does not take it.
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: 'app-two',
+            });
+            expect(appOf(await store.getAnyone(entry.id))).toBeNull();
         });
 
         it('moves an existing share to a new mode instead of duplicating it', async () => {

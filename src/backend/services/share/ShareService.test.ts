@@ -1178,9 +1178,9 @@ describe('ShareService', () => {
             const listed = await listSharedByMe(owner.actor, {
                 includeTotal: true,
             });
-            expect(
-                listed.items.map((r) => r.holder?.username),
-            ).toContain(third.user.username);
+            expect(listed.items.map((r) => r.holder?.username)).toContain(
+                third.user.username,
+            );
             expect(listed.total).toBeGreaterThanOrEqual(2);
         });
 
@@ -1882,7 +1882,35 @@ describe('ShareService', () => {
 
         // One row records one issuance, so attribution follows the most
         // recent one — in both directions.
-        it('re-attributes a grant to whoever issued it last', async () => {
+        it('does not let an app claim a share the user made in person', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            // The user's own share, made without any app involved.
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'write',
+            });
+            const [mine] = (await listSharedByMe(owner.actor, { appUid: null }))
+                .items;
+
+            // The app re-shares the same pair; the row is still the user's.
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual([]);
+            await expect(
+                revokeByUid(asApp(owner, app), mine.uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('lets a grant lose its app, and never take one back', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
             const app = await makeApp(owner.user.id);
@@ -1913,18 +1941,21 @@ describe('ShareService', () => {
                 revokeByUid(asApp(owner, app), uid),
             ).rejects.toMatchObject({ statusCode: 404 });
 
-            // And back: re-shared through the app, the same row is the app's
-            // again.
+            // Not back: re-crediting would let the app withdraw it.
             await share(asApp(owner, app), {
                 uid: file.uuid,
                 recipient: { username: recipient.user.username },
                 mode: 'read',
             });
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual([]);
             expect(
-                (await listSharedByMe(asApp(owner, app))).items.map(
+                (await listSharedByMe(owner.actor, { appUid: null })).items.map(
                     (i) => i.uid,
                 ),
             ).toEqual([uid]);
+            await expect(
+                revokeByUid(asApp(owner, app), uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
         });
 
         // Every uid the caller may not act on answers alike, or the endpoint
@@ -2231,6 +2262,73 @@ describe('ShareService', () => {
 
         expect(await canRead(delegate.actor, file.path)).toBe(false);
         expect(await canRead(third.actor, file.path)).toBe(false);
+    });
+
+    it("leaves a re-share resting on the delegate's own grant below", async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        // Two separate grants: the folder, and the file inside it.
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+        expect(await canRead(third.actor, file.path)).toBe(true);
+
+        // The folder grant goes; the one on the file does not.
+        await unshare(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        expect(await canRead(delegate.actor, dir.path)).toBe(false);
+        expect(await canRead(delegate.actor, file.path)).toBe(true);
+        expect(await canRead(third.actor, file.path)).toBe(true);
+    });
+
+    it("leaves the delegate's invite below a revoked folder standing", async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        for (const uid of [dir.uuid, file.uuid]) {
+            await share(owner.actor, {
+                uid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+        }
+        // An invite, not a grant: nobody has claimed it yet.
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: `nobody-${Math.random()}@test.local` },
+            mode: 'read',
+        });
+        const before = await server.stores.share.listPendingOnFsentry(file.id);
+        expect(before.length).toBeGreaterThan(0);
+
+        await unshare(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        // The file grant stands, so the invite made under it does too.
+        expect(
+            await server.stores.share.listPendingOnFsentry(file.id),
+        ).toHaveLength(before.length);
     });
 
     it('keeps the index row when the actor could not revoke anything', async () => {
@@ -5639,6 +5737,5 @@ describe('ShareService', () => {
             expect(listed.some((row) => row.pending)).toBe(false);
             expect(JSON.stringify(listed)).not.toContain(email);
         });
-
     });
 });
