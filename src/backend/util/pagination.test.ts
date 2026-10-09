@@ -4,6 +4,8 @@ import {
     encodeCursor,
     normalizeLimit,
     normalizeOffset,
+    openCursor,
+    sealCursor,
 } from './pagination';
 import { HttpError } from '../core/http';
 
@@ -37,6 +39,64 @@ describe('pagination util', () => {
             expect(() => decodeCursor('!!!not-a-cursor!!!')).toThrowError(
                 HttpError,
             );
+        });
+    });
+
+    describe('sealCursor / openCursor', () => {
+        const SECRET = 'cursor-test-secret';
+
+        it('round-trips a payload', () => {
+            const sealed = sealCursor({ id: 1234567 }, SECRET);
+            expect(openCursor(sealed, SECRET)).toEqual({ id: 1234567 });
+        });
+
+        it('carries nothing a holder can read back', () => {
+            const sealed = sealCursor({ id: 1234567 }, SECRET)!;
+            expect(
+                Buffer.from(sealed, 'base64url').toString('latin1'),
+            ).not.toContain('1234567');
+            expect(() => decodeCursor(sealed)).toThrowError(HttpError);
+        });
+
+        it('does not repeat itself for the same position', () => {
+            expect(sealCursor({ id: 1 }, SECRET)).not.toBe(
+                sealCursor({ id: 1 }, SECRET),
+            );
+        });
+
+        it('refuses a cursor altered in transit', () => {
+            const raw = Buffer.from(
+                sealCursor({ id: 9 }, SECRET)!,
+                'base64url',
+            );
+            raw[raw.length - 1] ^= 1;
+            expect(() =>
+                openCursor(raw.toString('base64url'), SECRET),
+            ).toThrowError(HttpError);
+        });
+
+        it('refuses a cursor sealed under another secret', () => {
+            const sealed = sealCursor({ id: 9 }, 'some-other-secret');
+            expect(() => openCursor(sealed, SECRET)).toThrowError(HttpError);
+        });
+
+        it('still reads a plain cursor issued before sealing', () => {
+            expect(openCursor(encodeCursor({ id: 7 }), SECRET)).toEqual({
+                id: 7,
+            });
+        });
+
+        it('answers no cursor the way decodeCursor does', () => {
+            expect(sealCursor({}, SECRET)).toBeUndefined();
+            expect(openCursor(undefined, SECRET)).toBeUndefined();
+            expect(openCursor(null, SECRET)).toBeUndefined();
+            expect(openCursor('  ', SECRET)).toBeUndefined();
+        });
+
+        it('falls back to a plain cursor without a secret', () => {
+            const plain = sealCursor({ id: 3 }, undefined);
+            expect(plain).toBe(encodeCursor({ id: 3 }));
+            expect(openCursor(plain, undefined)).toEqual({ id: 3 });
         });
     });
 

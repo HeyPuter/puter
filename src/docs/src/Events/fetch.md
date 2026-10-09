@@ -8,7 +8,7 @@ platforms: [websites, apps, nodejs, workers]
 
 Reads events a subject has stored, a page at a time. A subscription only delivers while something is listening; `fetch()` catches up on what happened while the client was closed or offline.
 
-It's a plain query: nothing is registered, no position is saved, and calling it twice returns the same result. You keep the `cursor` and pass it back as `after`.
+It's a plain query: nothing is registered, no position is saved, and calling it twice returns the same result. You keep the `cursor` and pass it back as `cursor`.
 
 A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, reads an empty page whatever the subject, whether the account or an app created it.
 
@@ -26,7 +26,8 @@ puter.events.fetch(options)
 #### `options` (Object) (required)
 
 - `subject` (String) (required): What to read: `notif:account` (the account's notifications), `notif:app-user` (the ones belonging to the app you're running as), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app).
-- `after` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
+- `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
+- `after` (String): The older name for `cursor`, still accepted. If both are given, `cursor` is used.
 - `limit` (Number): Events per page. Defaults to 50, max 200.
 
 ## Return value
@@ -34,7 +35,7 @@ puter.events.fetch(options)
 A `Promise` for `{ items, cursor }`:
 
 - `items`: the events, **oldest first**, in the same shape as live deliveries.
-- `cursor`: pass it as `after` to read the next page. It's absent on the last page.
+- `cursor`: pass it back as `cursor` to read the next page. It's absent on the last page. Treat it as opaque.
 
 Each item is a notification event:
 
@@ -78,19 +79,19 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            let after;
+            let cursor;
             let seen = 0;
             do {
                 const page = await puter.events.fetch({
                     subject: 'notif:account',
-                    after,
+                    cursor,
                 });
                 for (const event of page.items) {
                     puter.print(`${event.type}: ${event.notification.title}<br>`);
                     seen++;
                 }
-                after = page.cursor;
-            } while (after);
+                cursor = page.cursor;
+            } while (cursor);
 
             if (!seen) puter.print('nothing missed<br>');
         })();

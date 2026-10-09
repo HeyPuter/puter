@@ -113,6 +113,15 @@ const safeParseRegions = (raw: string): Record<string, number> | null => {
     }
 };
 
+/** A row we cannot read is a row we cannot deliver against. */
+const parseRow = (raw: string): DispatchSubscription | null => {
+    try {
+        return JSON.parse(raw) as DispatchSubscription;
+    } catch {
+        return null;
+    }
+};
+
 /** `ev:s` members name the row they point at, and the keyspace it is in. */
 interface SocketRef {
     ownerUserId: number;
@@ -879,12 +888,31 @@ export class EventSubscriptionStore extends PuterStore {
         await this.clients.redis.expire(key, REMOTE_WATCH_TTL_SECONDS);
     }
 
-    /** The rows behind a set of watched tokens, session and durable alike. */
+    /**
+     * The rows behind a set of watched tokens, session and durable alike.
+     *
+     * With `perToken`, each token yields at most that many rows `keep` accepts,
+     * scanned rather than read whole: every recipient of a shared folder
+     * indexes under its owner's token, and one event only ever uses so many of
+     * them.
+     */
     async getForTokens(
         ownerUserId: number,
         tokens: readonly string[],
+        options: {
+            perToken?: number;
+            keep?: (row: DispatchSubscription) => boolean;
+        } = {},
     ): Promise<DispatchSubscription[]> {
         if (tokens.length === 0) return [];
+        if (options.perToken !== undefined)
+            return this.#scanForTokens(
+                ownerUserId,
+                tokens,
+                Math.max(1, Math.floor(options.perToken)),
+                options.keep ?? (() => true),
+            );
+
         const pipeline = this.clients.redis.pipeline();
         for (const token of tokens)
             pipeline.hvals(tokenKey(ownerUserId, token));
@@ -893,12 +921,57 @@ export class EventSubscriptionStore extends PuterStore {
         const subs: DispatchSubscription[] = [];
         for (const [, raw] of results) {
             for (const row of (raw as string[] | null) ?? []) {
-                try {
-                    subs.push(JSON.parse(row) as DispatchSubscription);
-                } catch {
-                    // A row we cannot read is a row we cannot deliver against.
-                }
+                const parsed = parseRow(row);
+                if (parsed && (options.keep?.(parsed) ?? true))
+                    subs.push(parsed);
             }
+        }
+        return subs;
+    }
+
+    /**
+     * One pipelined first page per token, which is the whole hash for any token
+     * small enough to be stored compactly; only a larger one is scanned
+     * further, and only until it has given enough.
+     */
+    async #scanForTokens(
+        ownerUserId: number,
+        tokens: readonly string[],
+        perToken: number,
+        keep: (row: DispatchSubscription) => boolean,
+    ): Promise<DispatchSubscription[]> {
+        const pipeline = this.clients.redis.pipeline();
+        for (const token of tokens)
+            pipeline.hscan(
+                tokenKey(ownerUserId, token),
+                '0',
+                'COUNT',
+                perToken,
+            );
+        const results = (await pipeline.exec()) ?? [];
+
+        const subs: DispatchSubscription[] = [];
+        for (const [i, token] of tokens.entries()) {
+            const [err, first] = results[i] ?? [];
+            let page = err ? null : (first as [string, string[]] | null);
+            // A scan can name an entry twice.
+            const taken = new Map<string, DispatchSubscription>();
+            while (page) {
+                const [cursor, flat] = page;
+                for (let j = 1; j < flat.length; j += 2) {
+                    if (taken.size >= perToken) break;
+                    const row = parseRow(flat[j]);
+                    if (row && keep(row)) taken.set(row.subId, row);
+                }
+                if (cursor === '0' || taken.size >= perToken) break;
+                page = await this.clients.redis.hscan(
+                    tokenKey(ownerUserId, token),
+                    cursor,
+                    'COUNT',
+                    perToken,
+                );
+            }
+            subs.push(...taken.values());
         }
         return subs;
     }

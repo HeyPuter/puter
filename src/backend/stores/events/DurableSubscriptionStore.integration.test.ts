@@ -411,6 +411,48 @@ describe('the per-account cap', () => {
         ).rejects.toSatisfy(codeOf('events_subscription_limit'));
     });
 
+    it('never lets concurrent creates take more than the slots left', async () => {
+        const limits = { perUser: 5, perApp: 5 };
+        await fill(limits.perUser - 1);
+
+        const outcomes = await Promise.allSettled(
+            Array.from({ length: 6 }, () =>
+                durable().create(input({ limits })),
+            ),
+        );
+
+        const created = outcomes.filter(
+            (outcome) => outcome.status === 'fulfilled',
+        );
+        expect(created.length).toBeLessThanOrEqual(1);
+        for (const outcome of outcomes)
+            if (outcome.status === 'rejected')
+                expect(
+                    codeOf('events_subscription_limit')(outcome.reason),
+                ).toBe(true);
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: limits.perUser - 1 + created.length,
+        });
+    });
+
+    it('takes a row that lost the race back out of every cache it reached', async () => {
+        const limits = { perUser: 1, perApp: 1 };
+
+        const outcomes = await Promise.allSettled([
+            durable().create(input({ limits })),
+            durable().create(input({ limits })),
+        ]);
+
+        const kept = outcomes.flatMap((outcome) =>
+            outcome.status === 'fulfilled' ? [outcome.value.row.subId] : [],
+        );
+        const rows = await cache().getForTokens(userId, [token()]);
+        expect(rows.map((row) => row.subId)).toEqual(kept);
+        for (const outcome of outcomes)
+            if (outcome.status === 'rejected')
+                expect(outcome.reason.bump).toMatchObject({ userId });
+    });
+
     it('counts the holder, not the owner, and one app`s share of it', async () => {
         const appUid = `app-${uuidv4()}`;
         await durable().create(input({ holderUserId: otherUserId }));
@@ -529,6 +571,16 @@ describe('the holder listing', () => {
         });
         expect(last.items.map((row) => row.subId)).toEqual([rows[4].subId]);
         expect(last.cursor).toBeUndefined();
+    });
+
+    it('hands out a cursor that says nothing about where the row sits', async () => {
+        await makeRows(2);
+
+        const first = await durable().listForHolder(userId, { limit: 1 });
+
+        expect(
+            Buffer.from(first.cursor!, 'base64').toString('utf8'),
+        ).not.toContain('"id"');
     });
 
     it('adds a total only when asked, over the scope and not the page', async () => {

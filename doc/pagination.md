@@ -48,8 +48,11 @@ The envelope trigger depends on the endpoint's history:
 ## Cursors
 
 Cursors are opaque base64-encoded JSON, produced and consumed only by the
-backend (`src/backend/util/pagination.ts`). What a cursor wraps is an
-implementation detail per store:
+backend (`src/backend/util/pagination.ts`). A cursor over a global sequence
+(an auto-increment `id`) is sealed with `sealCursor`/`openCursor` instead, so
+two pages can't be decoded into how fast the table grows; `openCursor` still
+reads a plain cursor. What a cursor wraps is an implementation detail per
+store:
 
 - DynamoDB-backed lists wrap `LastEvaluatedKey`.
 - SQL-backed lists wrap a keyset position — `(sortValue, id)` of the last
@@ -91,7 +94,8 @@ hit, the response simply carries a cursor — still convention-legal.
 ## Adding pagination to a new endpoint
 
 1. Use `encodeCursor`/`decodeCursor`/`normalizeLimit`/`normalizeOffset` from
-   `src/backend/util/pagination.ts`.
+   `src/backend/util/pagination.ts` — `sealCursor`/`openCursor` when the
+   cursor wraps a global id.
 2. Push equality filters into the query so pages and counts operate on the
    true result set; only genuinely per-actor filtering may remain post-query
    (short-pages rule covers it).

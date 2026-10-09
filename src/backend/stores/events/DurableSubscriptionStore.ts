@@ -26,8 +26,8 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
 import type { FsOp } from '../../services/events/subjects.js';
 import {
-    encodeCursor,
-    decodeCursor,
+    openCursor,
+    sealCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types.js';
@@ -191,6 +191,22 @@ const quotaReached = (limit: number, scope: 'account' | 'app'): HttpError =>
         { legacyCode: 'events_subscription_limit' },
     );
 
+/**
+ * The quota refusal for a create that concurrent creates beat to the last slot
+ * after its own insert. Its row is already gone again; `bump` still has to be
+ * published, because another region may have cached the row in between.
+ */
+export class DurableQuotaRaceLost extends HttpError {
+    readonly bump: GenerationBump | null;
+
+    constructor(refusal: HttpError, bump: GenerationBump | null) {
+        super(refusal.statusCode, refusal.message, {
+            legacyCode: refusal.legacyCode,
+        });
+        this.bump = bump;
+    }
+}
+
 // -- Row mapping ------------------------------------------------------
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
@@ -293,18 +309,8 @@ export class DurableSubscriptionStore extends PuterStore {
             permission: input.permission,
         });
 
-        const perUser = Math.min(
-            input.limits?.perUser ?? EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
-            EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
-        );
-        const perApp = input.limits?.perApp ?? perUser;
-        const held = await this.countForHolder(
-            input.holderUserId,
-            input.appUid,
-        );
-        if (held.total >= perUser) throw quotaReached(perUser, 'account');
-        if (input.appUid !== null && held.forApp >= perApp)
-            throw quotaReached(perApp, 'app');
+        const refusal = await this.#overQuota(input, 0);
+        if (refusal) throw refusal;
 
         const row: DurableSubscription = {
             durable: true,
@@ -351,6 +357,12 @@ export class DurableSubscriptionStore extends PuterStore {
             expires_at: row.expiresAt,
             created_at: row.createdAt,
         });
+
+        // Concurrent creates can all pass the count above. Counted again with
+        // this row in it, each one past the cap takes itself back out — at
+        // the last slot that may refuse more than it had to, never fewer.
+        const lost = await this.#overQuota(input, 1);
+        if (lost) throw new DurableQuotaRaceLost(lost, await this.remove(row));
 
         // Write-through, and over the whole owner rather than the one row: it
         // costs the same indexed read as a warm would, on a path rate-limited
@@ -575,7 +587,9 @@ export class DurableSubscriptionStore extends PuterStore {
             ),
             DURABLE_LIST_LIMIT_CAP,
         );
-        const after = asNumber(decodeCursor(options.cursor)?.id);
+        const after = asNumber(
+            openCursor(options.cursor, this.config.jwt_secret_v2)?.id,
+        );
 
         // The scope half of the predicate is what the total counts over; the
         // cursor half only positions one page inside it.
@@ -604,9 +618,10 @@ export class DurableSubscriptionStore extends PuterStore {
             items: page.map(toRow),
         };
         if (rows.length > limit)
-            result.cursor = encodeCursor({
-                id: Number(page[page.length - 1].id),
-            });
+            result.cursor = sealCursor(
+                { id: Number(page[page.length - 1].id) },
+                this.config.jwt_secret_v2,
+            );
 
         if (options.includeTotal) {
             const [count] = await this.clients.db.read(
@@ -793,6 +808,31 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     // -- Internals ---------------------------------------------------
+
+    /**
+     * The refusal for a create whose holder is at a cap, or `null`. `own` is
+     * how many of the counted rows are this create's — none before its insert,
+     * one after.
+     */
+    async #overQuota(
+        input: DurableSubscriptionInput,
+        own: 0 | 1,
+    ): Promise<HttpError | null> {
+        const perUser = Math.min(
+            input.limits?.perUser ?? EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+            EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+        );
+        const perApp = input.limits?.perApp ?? perUser;
+        const held = await this.countForHolder(
+            input.holderUserId,
+            input.appUid,
+        );
+        if (held.total - own >= perUser)
+            return quotaReached(perUser, 'account');
+        if (input.appUid !== null && held.forApp - own >= perApp)
+            return quotaReached(perApp, 'app');
+        return null;
+    }
 
     /**
      * Primary, unlike the timed sweeps: this runs the moment an app is deleted,

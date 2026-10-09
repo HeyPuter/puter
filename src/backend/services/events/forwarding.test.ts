@@ -194,6 +194,8 @@ interface Region {
     /** Rooms this region terminates a socket for. */
     rooms: Set<string>;
     sent: DeliveryEnvelope[];
+    /** Usage lines this region wrote, by the holder they were billed to. */
+    metered: Array<{ userId: number | undefined; usageType: string }>;
     invoked: WorkerInvocation[];
     alarms: ReturnType<typeof vi.fn>;
     /** Peers whose POSTs never come back — a timeout, not a refusal. */
@@ -289,6 +291,7 @@ const makeRegion = (
         posts: [],
         rooms: new Set(),
         sent: [],
+        metered: [],
         invoked: [],
         alarms: vi.fn(),
         unreachable: new Set(),
@@ -390,7 +393,16 @@ const makeRegion = (
         },
         notification: { notify: vi.fn() },
         metering: {
-            bufferIncrementUsages: () => undefined,
+            bufferIncrementUsages: (
+                actor: Actor,
+                usages: Array<{ usageType: string }>,
+            ) => {
+                for (const usage of usages)
+                    region.metered.push({
+                        userId: actor.user?.id,
+                        usageType: usage.usageType,
+                    });
+            },
             hasAnyUsageCached: async () => true,
         },
     };
@@ -932,6 +944,89 @@ describe('a broadcast delivery', () => {
         await quiet(200);
 
         expect(tableReads).toBe(1);
+    });
+});
+
+describe('what a broadcast delivery bills', () => {
+    /** Past the coalescing window, with the send and its meter settled. */
+    const flushed = async (region: Region): Promise<void> => {
+        await arrived(region);
+        await quiet(100);
+    };
+
+    it('bills nothing when no connection anywhere could take it', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.sent).toHaveLength(1);
+        expect(west.metered).toEqual([]);
+    });
+
+    it('bills one a connection on another node of this region takes', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        // Counted for the region, but not on the node that sends.
+        await west.forward.noteConnect(actorFor());
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toEqual([
+            { userId, usageType: 'events:delivery:broadcast' },
+        ]);
+    });
+
+    it('bills one only another region holds the socket for, once, where it was sent', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+        await arrived(east);
+
+        expect(west.metered).toHaveLength(1);
+        expect(east.metered).toEqual([]);
+    });
+
+    it('bills nothing for a session row whose connection is gone', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await subscribeSession(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toEqual([]);
+    });
+
+    it('bills a session row while its connection is still here', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        const { socketId } = await subscribeSession(west);
+        west.rooms.add(socketId);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toHaveLength(1);
+    });
+
+    it('bills as it always has where nothing counts connections', async () => {
+        const alone = makeRegion('west', []);
+        await register(alone);
+
+        await dispatch(alone);
+        await flushed(alone);
+
+        expect(alone.metered).toHaveLength(1);
     });
 });
 

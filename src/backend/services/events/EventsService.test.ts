@@ -636,6 +636,33 @@ describe('subscribing', () => {
         );
     });
 
+    it('answers an anchor gone mid-subscribe with the subject it was sent, not where it was', async () => {
+        const { documents } = seedTree();
+        // Resolvable by path, gone by uid: deleted between the two reads.
+        entries.delete(`uid:${documents.uid}`);
+
+        await expect(subscribe('fs:~/Documents')).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 404 &&
+                err.legacyCode === 'subject_does_not_exist' &&
+                err.message === 'No such entry: fs:~/Documents',
+        );
+    });
+
+    it('asks whether the caller may watch an anchor before saying it is gone', async () => {
+        const { documents } = seedTree();
+        denied.set(documents.path, 'forbidden');
+        entries.delete(`uid:${documents.uid}`);
+
+        await expect(subscribe('fs:~/Documents')).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 403 &&
+                err.legacyCode === 'forbidden',
+        );
+    });
+
     it('stores the anchor`s owner, not the subscriber, as the keyspace', async () => {
         const { documents } = seedTree();
         const owner = userId + 500;
@@ -1638,6 +1665,93 @@ describe('limits', () => {
                 .map((s) => s.envelope.subId),
         );
         expect([...gapped].some((id) => written.has(id))).toBe(false);
+    });
+
+    it('reads no more of a crowded token than one event can use', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        await seedSubscriptions(400, {
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+        const reads = vi.spyOn(store, 'getForTokens');
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const read = await reads.mock.results[0].value;
+        expect(read.length).toBeLessThan(400);
+        const ops = sent.map((s) => s.envelope.event.op);
+        expect(ops.filter((op) => op === 'write')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
+        expect(ops.filter((op) => op === 'gap')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
+    });
+
+    it('settles every row on a removed anchor, past what one event reads', async () => {
+        const { documents } = seedTree();
+        const token = `f#${documents.uid}`;
+        await seedSubscriptions(300, {
+            token,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+
+        await service.dispatchFs('fs.remove.node', documents, {
+            actingUserId: userId,
+            ancestors: async () => ancestorChain(documents.path),
+        });
+
+        await expect(store.getForTokens(userId, [token])).resolves.toEqual([]);
+    });
+
+    it('finds a forwarded copy`s session rows behind any number of durable ones', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const token = `f#${documents.uid}`;
+        await store.cacheDurable(
+            Array.from(
+                { length: 300 },
+                (_, i) =>
+                    ({
+                        durable: true,
+                        subId: `durable-${seq}-${i}`,
+                        holderUserId: userId,
+                        ownerUserId: userId,
+                        subject: `fs:${documents.path}`,
+                        token,
+                        anchorUid: documents.uid,
+                        anchorPath: documents.path,
+                        match: null,
+                        op: null,
+                        appUid: null,
+                        permission: 'list',
+                        delivery: 'broadcast',
+                        targets: ['socket'],
+                        handlerName: null,
+                        context: null,
+                        expiresAt: null,
+                        suspendedAt: null,
+                        suspendedReason: null,
+                        createdAt: 0,
+                    }) as DurableSubscription,
+            ),
+        );
+        const sub = await subscribe(`fs:${documents.path}`);
+
+        await service.dispatchFs('fs.write.file', file, {
+            actingUserId: userId,
+            ancestors: async () => ancestorChain(file.path),
+            forwarded: true,
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.map((s) => s.envelope.subId)).toEqual([sub.subId]);
     });
 
     it('never gaps a row whose grant was revoked', async () => {

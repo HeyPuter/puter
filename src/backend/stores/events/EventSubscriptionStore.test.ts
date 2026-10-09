@@ -762,6 +762,66 @@ describe('the watched-set race', () => {
     });
 });
 
+describe('reading rows for dispatch', () => {
+    const durableRows = (count: number): DurableSubscription[] =>
+        Array.from(
+            { length: count },
+            (_, i) =>
+                ({
+                    ...makeSub({ subId: `durable-${i}` }),
+                    socketId: undefined,
+                    durable: true,
+                    delivery: 'broadcast',
+                    targets: ['socket'],
+                    handlerName: null,
+                    context: null,
+                    expiresAt: null,
+                    suspendedAt: null,
+                    suspendedReason: null,
+                    createdAt: 0,
+                }) as DurableSubscription,
+        );
+
+    it('reads a bounded share of a token everyone watches', async () => {
+        await store.cacheDurable(durableRows(600));
+
+        const bounded = await store.getForTokens(USER, ['f#anchor'], {
+            perToken: 50,
+        });
+
+        expect(bounded).toHaveLength(50);
+        expect(new Set(bounded.map((row) => row.subId)).size).toBe(50);
+        await expect(
+            store.getForTokens(USER, ['f#anchor']),
+        ).resolves.toHaveLength(600);
+    });
+
+    it('counts only the rows it was asked to keep', async () => {
+        await store.cacheDurable(durableRows(300));
+        const session = makeSub({ subId: 'session-1' });
+        await store.add(session);
+
+        const kept = await store.getForTokens(USER, ['f#anchor'], {
+            perToken: 50,
+            keep: (row) => row.socketId !== undefined,
+        });
+
+        expect(kept).toEqual([session]);
+    });
+
+    it('bounds each token on its own', async () => {
+        await store.cacheDurable(durableRows(100));
+        await store.add(makeSub({ token: 'f#other', anchorUid: 'other' }));
+
+        const rows = await store.getForTokens(USER, ['f#anchor', 'f#other'], {
+            perToken: 10,
+        });
+
+        expect(rows.filter((row) => row.token === 'f#anchor')).toHaveLength(10);
+        expect(rows.filter((row) => row.token === 'f#other')).toHaveLength(1);
+    });
+});
+
 describe('the generation counter', () => {
     it('advances on every registration and removal', async () => {
         const first = await store.add(makeSub({ subId: 'a' }));
