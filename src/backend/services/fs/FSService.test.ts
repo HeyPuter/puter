@@ -1281,6 +1281,43 @@ describe('FSService storage allowance', () => {
         ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
     });
 
+    it('leaves the file alone when a session signed before staging aborts', async () => {
+        // Rolling deploy: the old code signed against the live key.
+        const user = await quotaUser(64);
+        await user.write('straddle-abort.txt', 'kept');
+        const entry = await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents/straddle-abort.txt`,
+        );
+
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/straddle-abort.txt`,
+                size: 40,
+                overwrite: true,
+            },
+        });
+        // Hand abort the session shape the previous release wrote.
+        const real =
+            await limitedServer.stores.fsEntry.getPendingEntryBySessionId(
+                started.sessionId,
+            );
+        vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'getPendingEntryBySessionId',
+        ).mockResolvedValue({ ...real, objectKey: entry.uuid });
+
+        const deleteObject = vi.spyOn(
+            limitedServer.stores.s3Object,
+            'deleteObject',
+        );
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        expect(
+            deleteObject.mock.calls.some((call) => call[1] === entry.uuid),
+        ).toBe(false);
+        vi.restoreAllMocks();
+    });
+
     it('a failed pending-row write releases its reservation', async () => {
         const user = await quotaUser(64);
         const createPendingEntry = vi

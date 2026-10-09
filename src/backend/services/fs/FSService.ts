@@ -3431,8 +3431,8 @@ export class FSService extends PuterService {
                         bucket,
                         session.objectKey,
                     );
-                } else {
-                    // Its own key, overwrite or not, so this is never live.
+                } else if (session.objectKey !== session.overwriteTargetUid) {
+                    // Never the live key, unless the session predates staging.
                     await this.stores.s3Object.deleteObject(
                         bucket,
                         session.objectKey,
