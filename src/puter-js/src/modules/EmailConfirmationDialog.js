@@ -1,3 +1,5 @@
+import { escapeHtml } from '../lib/html.js';
+
 class EmailConfirmationDialog extends (globalThis.HTMLElement || Object) {
     constructor (message) {
         super();
@@ -198,7 +200,7 @@ class EmailConfirmationDialog extends (globalThis.HTMLElement || Object) {
                     </svg>
                 </div>
                 <h2>Confirm Your Email</h2>
-                <p class="message">${this.message}</p>
+                <p class="message">${escapeHtml(this.message)}</p>
                 <div class="buttons">
                     <button class="button button-primary" id="confirm-email-btn">Go to Puter.com</button>
                     <button class="button button-cancel" id="close-btn">Close</button>

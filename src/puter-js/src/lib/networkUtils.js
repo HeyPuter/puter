@@ -158,12 +158,85 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
     return null;
 }
 
+// -- Idle timeout --
+// A request that makes no progress for its limit is aborted and fails with
+// `request_timeout`; any progress restarts the clock. Read-safe requests get
+// the short limit only while progress is observable: before headers, or once
+// body progress has been seen (the XHR shim reports none for a buffered body).
+const READ_IDLE_TIMEOUT_MS = 60_000;
+const IDLE_TIMEOUT_MS = 15 * 60_000;
+
+const requestTimeoutError = () => ({
+    message: 'Request timed out.',
+    code: 'request_timeout',
+});
+
+/**
+ * Starts the idle clock for a request about to be sent. On expiry the XHR is
+ * flagged `_puterTimedOut` and aborted, so its `abort` listeners can tell a
+ * timeout from a cancellation.
+ *
+ * @param {XMLHttpRequest} xhr
+ * @param {{ timeout?: number }} spec - `timeout` replaces both limits; `0`
+ *   turns the clock off.
+ * @param {boolean} readSafe - Eligible for the short limit.
+ * @param {boolean} watchUpload - Count upload progress too.
+ * @returns {() => void} Stops the clock.
+ */
+function watchIdle(xhr, spec, readSafe, watchUpload) {
+    if (spec.timeout === 0) return () => {};
+    let timer;
+    let stopped = false;
+    let bodyProgress = false;
+    const limit = () => {
+        if (spec.timeout !== undefined) return spec.timeout;
+        if (!readSafe) return IDLE_TIMEOUT_MS;
+        if (xhr.readyState < 2) return READ_IDLE_TIMEOUT_MS;
+        if (isNdjson(xhr.getResponseHeader('content-type'))) {
+            return IDLE_TIMEOUT_MS;
+        }
+        return bodyProgress ? READ_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+    };
+    const stop = () => {
+        stopped = true;
+        clearTimeout(timer);
+    };
+    const arm = () => {
+        if (stopped) return;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            stop();
+            xhr._puterTimedOut = true;
+            xhr.abort();
+        }, limit());
+    };
+    const onBody = () => {
+        bodyProgress = true;
+        arm();
+    };
+    xhr.addEventListener('readystatechange', () => {
+        // DONE comes before load/error/abort; the XHR shim reaches it on a
+        // failed fetch, where its headers can't be read.
+        if (xhr.readyState === 4) return stop();
+        if (xhr.readyState === 3) bodyProgress = true;
+        arm();
+    });
+    xhr.addEventListener('progress', onBody);
+    if (watchUpload) xhr.upload?.addEventListener('progress', arm);
+    for (const type of ['load', 'error', 'abort', 'timeout']) {
+        xhr.addEventListener(type, stop);
+    }
+    arm();
+    return stop;
+}
+
 /**
  * The one XHR builder both `initXhr` (utils.js) and `fetchUrl` wrap. Opens the
  * request, applies headers/credentials/responseType, and stashes the whole
  * `spec` on `xhr._puterReq` as the single replay representation — any attempt
  * (reauth, transient) rebuilds it by calling `buildXhr(spec)` again, which
- * re-reads the live token when `includePuterAuth`.
+ * re-reads the live token when `includePuterAuth`. Sending it starts the idle
+ * clock (see `watchIdle`).
  *
  * @param {Object} spec
  * @param {string} spec.url - Full request URL.
@@ -177,9 +250,13 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
  * @param {boolean} [spec.withCredentials=true] Default is `true`
  * @param {string} [spec.responseType=''] Default is `''`
  * @param {Object} [spec.logId] - Pre-built apiCallLogger request id.
+ * @param {number} [spec.timeout] - Idle limit in ms, replacing the defaults;
+ *   `0` turns it off.
+ * @param {{ readSafe?: boolean }} [opts] - `readSafe` selects the short idle
+ *   limit.
  * @returns {XMLHttpRequest}
  */
-function buildXhr(spec) {
+function buildXhr(spec, { readSafe = false } = {}) {
     const {
         url,
         method = 'GET',
@@ -215,7 +292,16 @@ function buildXhr(spec) {
     const origSend = xhr.send.bind(xhr);
     xhr.send = function (body) {
         spec.body = body;
-        return origSend(body);
+        // An upload listener makes the browser preflight a cross-origin
+        // request. One carrying a bearer is preflighted already; driver calls
+        // go out as simple requests and must stay that way.
+        const stopIdle = watchIdle(xhr, spec, readSafe, !!bearer);
+        try {
+            return origSend(body);
+        } catch (e) {
+            stopIdle();
+            throw e;
+        }
     };
 
     if (globalThis.puter?.apiCallLogger?.isEnabled()) {
@@ -314,7 +400,10 @@ async function parseResponse(xhr) {
     }
 
     const contentType = xhr.getResponseHeader('content-type');
-    if (contentType.startsWith('application/json')) {
+    // No declared type (a bodiless 204, a proxy that strips it): a success is
+    // opaque bytes, an error body is read like a JSON one.
+    const untypedError = !contentType && !(xhr.status >= 200 && xhr.status < 300);
+    if (contentType?.startsWith('application/json') || untypedError) {
         const text = await xhr.response.text();
         try {
             return JSON.parse(text);
@@ -322,7 +411,7 @@ async function parseResponse(xhr) {
             return text;
         }
     }
-    if (contentType.startsWith('application/octet-stream')) {
+    if (!contentType || contentType.startsWith('application/octet-stream')) {
         return xhr.response;
     }
     return { success: true, result: xhr.response };
@@ -417,17 +506,17 @@ const sleep = (ms, signal) =>
             return reject(
                 signal.reason ?? new DOMException('Aborted', 'AbortError'),
             );
-        const t = setTimeout(resolve, ms);
-        signal?.addEventListener(
-            'abort',
-            () => {
-                clearTimeout(t);
-                reject(
-                    signal.reason ?? new DOMException('Aborted', 'AbortError'),
-                );
-            },
-            { once: true },
-        );
+        const onAbort = () => {
+            clearTimeout(t);
+            reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        };
+        // `once` only cleans up when abort fires; a caller reusing one signal
+        // across requests would otherwise collect a listener per retry.
+        const t = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
     });
 
 const retryDelay = (attempt) => RETRY_DELAYS_MS[attempt - 1];
@@ -520,13 +609,16 @@ async function resolveVerificationGate(code, factors) {
 /**
  * Send one attempt. Resolves with a terminal outcome: { streamed: true, xhr,
  * lineStream } — NDJSON, resolved at HEADERS_RECEIVED { xhr, status } —
- * buffered response (any HTTP status) { networkError: true, xhr } — transport
- * error Rejects only on abort. Per-line semantics (usage/email prompts,
- * `toString`) belong to the caller's `shapeStream`.
+ * buffered response (any HTTP status) { networkError: true, timedOut?, xhr } —
+ * transport error or idle timeout. Rejects only on abort. Per-line semantics
+ * (usage/email prompts, `toString`) belong to the caller's `shapeStream`.
+ *
+ * @param {Object} spec
+ * @param {boolean} [readSafe=false] - Selects the short idle limit.
  */
-function sendOnce(spec) {
+function sendOnce(spec, readSafe = false) {
     return new Promise((resolve, reject) => {
-        const xhr = buildXhr(spec);
+        const xhr = buildXhr(spec, { readSafe });
 
         let streamed = false;
         let responseComplete = false;
@@ -609,16 +701,17 @@ function sendOnce(spec) {
             responseComplete = true;
             signalStreamUpdate?.();
         });
-        xhr.addEventListener('timeout', () => {
-            const error = { message: 'Network request timed out.', code: 'network_error' };
-            failStream(error);
-            resolve({ networkError: true, xhr });
-        });
+        const timedOut = () => {
+            failStream(requestTimeoutError());
+            resolve({ networkError: true, timedOut: true, xhr });
+        };
+        xhr.addEventListener('timeout', timedOut);
         xhr.addEventListener('error', () => {
             failStream({ message: 'Network request failed.', code: 'network_error' });
             resolve({ networkError: true, xhr });
         });
         xhr.addEventListener('abort', () => {
+            if (xhr._puterTimedOut) return timedOut();
             const error = spec.signal?.reason ??
                 new DOMException('Aborted', 'AbortError');
             failStream(error);
@@ -654,6 +747,14 @@ function sendOnce(spec) {
 async function classifyRetry(outcome, ctx) {
     if (outcome.streamed) return null; // committed stream — never retried
 
+    // An idle timeout replays once, on the read-safe rule: a fresh connection
+    // is the cure for a dead one, and a stall that repeats isn't transient.
+    if (outcome.timedOut) {
+        if (ctx.done.has('timeout')) return null;
+        const decision = transientRetry(ctx);
+        if (decision) ctx.done.add('timeout');
+        return decision;
+    }
     if (outcome.networkError) return transientRetry(ctx);
 
     const { xhr, status } = outcome;
@@ -719,10 +820,11 @@ async function classifyRetry(outcome, ctx) {
  * outcome, and retries on reauth / transient causes; otherwise hands the
  * outcome to `shape`.
  *
- * @param {Object} spec - BuildXhr spec (+ optional buildBody, signal).
+ * @param {Object} spec - BuildXhr spec (+ optional buildBody, signal,
+ *   timeout).
  * @param {Object} opts
  * @param {boolean} [opts.retrySafe=false] - Eligible for transient backoff
- *   retry. Default is `false`
+ *   retry and the short idle limit. Default is `false`
  * @param {boolean} [opts.retryGated=true] - Eligible for 429 backoff retry,
  *   regardless of method (the gate rejects before the handler runs). Default is
  *   `true`
@@ -746,7 +848,7 @@ async function sendWithRetry(
     };
     while (true) {
         ctx.attempt++;
-        const outcome = await sendOnce(spec);
+        const outcome = await sendOnce(spec, retrySafe);
         if (outcome.streamed)
             return shapeStream(outcome.lineStream, outcome.xhr);
         const decision = await classifyRetry(outcome, ctx);
@@ -833,6 +935,8 @@ function dedupe(key, factory, { windowMs = 2000 } = {}) {
  *   401 may raise sign-in UI. Pass `false` for requests the user didn't ask for
  *   (boot telemetry, cache warmers): the stale token is dropped silently and
  *   the 401 surfaces to the caller instead. Default is `true`
+ * @param {number} [opts.timeout] - Idle limit in ms, replacing the defaults
+ *   (see `watchIdle`); `0` turns it off.
  * @param {Object} [opts.paginate] - Reserved for a later sprint step (ignored).
  * @returns {Promise<PuterResponse>}
  */
@@ -850,6 +954,7 @@ function fetchUrl(url, opts = {}) {
         retry,
         dedupe: dedupeOpt,
         interactiveReauth = true,
+        timeout,
     } = opts;
 
     const logId = logContext ?? {
@@ -869,6 +974,7 @@ function fetchUrl(url, opts = {}) {
         signal,
         logId,
         interactiveReauth,
+        timeout,
     };
 
     // Read-safety: idempotent methods auto-retry; a POST read opts in with
@@ -889,6 +995,16 @@ function fetchUrl(url, opts = {}) {
                 return makeResponse(xhr, lineStream);
             },
             shape: async (outcome) => {
+                if (outcome.timedOut) {
+                    if (loggingOn())
+                        logRequest(logId, { error: requestTimeoutError() });
+                    // A TypeError, as `fetch` rejects with, carrying the code.
+                    const error = new TypeError(
+                        `Network request to ${url} timed out`,
+                    );
+                    error.code = 'request_timeout';
+                    throw error;
+                }
                 if (outcome.networkError) {
                     if (loggingOn())
                         logRequest(logId, {
@@ -1068,9 +1184,11 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
  *     transform?: (result: unknown) => unknown;
  *     onError?: (error: unknown) => void;
  *     upgradePrompt?: UpgradePromptContext;
+ *     timeout?: number;
  * }} [opts]
  *   `readonly` marks the method retry-safe on transient failures (a
  *   rate/concurrency 429 replays either way — see GATE_REJECT_STATUS),
+ *   `timeout` replaces the idle limits in ms (`0` turns it off),
  *   `transform` post-processes a successful result, `onError` is the legacy
  *   error callback the module APIs accept alongside the promise, and
  *   `upgradePrompt` is how the upgrade prompt names this method (defaulting to
@@ -1084,6 +1202,7 @@ async function driverCall(call, opts = {}) {
         transform,
         onError,
         upgradePrompt,
+        timeout,
     } = opts;
     const puter = callInstance(call);
     const promptContext = {
@@ -1118,6 +1237,7 @@ async function driverCall(call, opts = {}) {
         responseType,
         // Rebuilt per attempt, so a reauth replay carries the fresh token.
         buildBody: () => callBody(call, puter),
+        timeout,
     };
 
     return await sendWithRetry(spec, {
@@ -1127,6 +1247,11 @@ async function driverCall(call, opts = {}) {
         // Reauth and transient retries are already spent by the time the
         // engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {
+            if (outcome.timedOut) {
+                const error = requestTimeoutError();
+                logCall(call, { error });
+                return fail(error);
+            }
             if (outcome.networkError) {
                 logCall(call, { error: { message: 'Network error occurred' } });
                 return fail(outcome.xhr);
@@ -1225,6 +1350,7 @@ export {
     fetchUrl,
     isVerificationGateCode,
     parseResponse,
+    requestTimeoutError,
     resolveReauth,
     resolveVerificationGate,
     sendWithRetry,

@@ -123,8 +123,12 @@ if the provider stops sending the response before it is complete. Check for
 error chunks in your `for await...of` loop before treating the response as complete.
 
 If the network connection fails after streaming starts, the loop throws
-`{ message, code: "network_error" }`. Use `try...catch` around the call and loop
-to handle these failures.
+`{ message, code: "network_error" }`. If the stream sends nothing for 15
+minutes, it throws `{ message, code: "request_timeout" }`; a call that gets no
+response at all for 15 minutes rejects the same way. Neither is retried, since
+the model may already have run (see
+[Request timeouts](/rate-limits-and-quotas/#request-timeouts)). Use
+`try...catch` around the call and loop to handle these failures.
 
 ### Stopping a stream
 

@@ -349,7 +349,7 @@ export class AppConnection extends EventListener {
 
         // TODO: Set this.#puterOrigin to the puter origin
 
-        (globalThis.document) && window.addEventListener('message', event => {
+        const onMessage = event => {
             // Relayed by the host environment; a window that guessed an
             // appInstanceID must not be able to forge one directly.
             if ( event.source !== this.messageTarget ) return;
@@ -376,12 +376,15 @@ export class AppConnection extends EventListener {
                 }
 
                 this.#isOpen = false;
+                // Nothing arrives for a closed app; don't hold the window.
+                window.removeEventListener('message', onMessage);
                 this.emit('close', {
                     appInstanceID: this.targetAppInstanceID,
                     statusCode: event.data.statusCode,
                 });
             }
-        });
+        };
+        (globalThis.document) && window.addEventListener('message', onMessage);
     }
 
     /**
@@ -597,6 +600,14 @@ export class UIModule extends EventListener {
         };
     }
 
+    // Runs and drops the callback waiting on reply `msgId`, if any.
+    #settleCallback (msgId, value) {
+        const callback = msgId ? this.#callbackFunctions[msgId] : undefined;
+        if ( ! callback ) return;
+        delete this.#callbackFunctions[msgId];
+        callback(value);
+    }
+
     #postMessageAsync (name, args = {}) {
         return new Promise(resolve => {
             this.#postMessageWithCallback(name, resolve, args);
@@ -627,7 +638,7 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget);
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, { once: true });
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -697,12 +708,12 @@ export class UIModule extends EventListener {
 
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
-        (globalThis.document) && window.addEventListener('message', async (e) => {
+        const handleMessage = async (e) => {
             if ( ! this.#isTrustedMessageSource(e) ) return;
             if ( ! e.data ) return;
             // `error`
             if ( e.data.error ) {
-                throw e.data.error;
+                console.error(e.data.error);
             }
             // `focus` event
             else if ( e.data.msg && e.data.msg === 'focus' ) {
@@ -828,28 +839,20 @@ export class UIModule extends EventListener {
             // getAppDataSucceeded
             else if ( e.data.msg === 'getAppDataSucceeded' ) {
                 let appDataItem = new FSItem(e.data.item);
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](appDataItem);
-                }
+                this.#settleCallback(e.data.original_msg_id, appDataItem);
             }
             // instancesOpenSucceeded
             else if ( e.data.msg === 'instancesOpenSucceeded' ) {
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](e.data.instancesOpen);
-                }
+                this.#settleCallback(e.data.original_msg_id, e.data.instancesOpen);
             }
             // readAppDataFileSucceeded
             else if ( e.data.msg === 'readAppDataFileSucceeded' ) {
                 let appDataItem = new FSItem(e.data.item);
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](appDataItem);
-                }
+                this.#settleCallback(e.data.original_msg_id, appDataItem);
             }
             // readAppDataFileFailed
             else if ( e.data.msg === 'readAppDataFileFailed' ) {
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](null);
-                }
+                this.#settleCallback(e.data.original_msg_id, null);
             }
             // Determine if this is a response to a previous message and if so, is there
             // a callback function for this message? if answer is yes to both then execute the callback
@@ -983,6 +986,15 @@ export class UIModule extends EventListener {
                 this.emit('connection', {
                     conn, accept, reject,
                 });
+            }
+        };
+        // Nothing awaits a message listener, so a throw would only surface as
+        // an unhandled rejection.
+        (globalThis.document) && window.addEventListener('message', async (e) => {
+            try {
+                await handleMessage(e);
+            } catch (err) {
+                console.error(err);
             }
         });
 

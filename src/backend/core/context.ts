@@ -76,6 +76,18 @@ export interface KnownContextFields {
     strictUpstreamErrors: boolean;
 }
 
+// Every key of `KnownContextFields`, checked both ways by the compiler, so
+// `get` and `set` can never disagree about where a known key lives.
+const KNOWN_KEY_FLAGS: Record<keyof KnownContextFields, true> = {
+    actor: true,
+    req: true,
+    requestId: true,
+    driverName: true,
+    abortSignal: true,
+    strictUpstreamErrors: true,
+};
+const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_KEY_FLAGS));
+
 // -- Context store ---------------------------------------------------
 
 interface ContextStore {
@@ -85,13 +97,21 @@ interface ContextStore {
 
 const als = new AsyncLocalStorage<ContextStore>();
 
+const storeValue = (store: ContextStore, key: string, value: unknown) => {
+    if (KNOWN_KEYS.has(key)) {
+        (store.known as Record<string, unknown>)[key] = value;
+    } else {
+        store.extra.set(key, value);
+    }
+};
+
 // -- Public API ------------------------------------------------------
 
 /**
  * Static-style context accessor.
  *
- * Well-known keys (`actor`, `req`, `requestId`) return typed values. Any other
- * string key hits the generic map and returns `unknown`.
+ * Well-known keys (`KnownContextFields`) return typed values. Any other string
+ * key hits the generic map and returns `unknown`.
  */
 export class Context {
     /**
@@ -111,7 +131,7 @@ export class Context {
         if (key === undefined) return als.getStore();
         const store = als.getStore();
         if (!store) return undefined;
-        if (key in store.known) {
+        if (KNOWN_KEYS.has(key)) {
             return (store.known as Record<string, unknown>)[key];
         }
         return store.extra.get(key);
@@ -134,11 +154,7 @@ export class Context {
                 `Context.set('${key}', ...) called outside a request scope`,
             );
         }
-        if (key === 'actor' || key === 'req' || key === 'requestId') {
-            (store.known as Record<string, unknown>)[key] = value;
-        } else {
-            store.extra.set(key, value);
-        }
+        storeValue(store, key, value);
     }
 
     /**
@@ -174,9 +190,10 @@ export const runWithContext = <T>(
     initial: Partial<KnownContextFields>,
     fn: () => T,
 ): T => {
-    const store: ContextStore = {
-        known: { ...initial },
-        extra: new Map(),
-    };
+    const store: ContextStore = { known: {}, extra: new Map() };
+    // Routed like `set`, so an untyped caller's extra key stays readable.
+    for (const [key, value] of Object.entries(initial)) {
+        storeValue(store, key, value);
+    }
     return als.run(store, fn);
 };

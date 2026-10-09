@@ -52,14 +52,16 @@ export class UtilRPC {
     }
 
     /**
-     * Registers a function under a callback id `source` can invoke.
+     * Registers a function under a callback id `source` can invoke. Pass
+     * `once` for a reply, so the id is freed after its first call.
      *
      * @param {(value: unknown) => void} resolve
      * @param {Window} [source]
+     * @param {{ once?: boolean }} [options]
      * @returns {string}
      */
-    registerCallback (resolve, source) {
-        return this.callbackManager.register_callback(resolve, source);
+    registerCallback (resolve, source, options) {
+        return this.callbackManager.register_callback(resolve, source, options);
     }
 
     /**
