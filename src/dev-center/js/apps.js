@@ -921,6 +921,7 @@ async function edit_app_section (cur_app_name, tab = 'deploy') {
                             {
                                 rootItems = `${children[0].name}, ${children[1].name}, and ${children.length - 2} more item${children.length - 2 > 1 ? 's' : ''}`;
                             }
+                            rootItems = html_encode(rootItems);
 
                             $('.drop-area').removeClass('drop-area-hover');
                             $('.drop-area').addClass('drop-area-ready-to-deploy');
