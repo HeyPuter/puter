@@ -207,6 +207,32 @@ describe('ShareService', () => {
         expect(listed.items.map((i) => i.entryUid)).toContain(file.uuid);
     });
 
+    it('tells the account how much is shared with it, and an app only its page', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const app = await makeApp(recipient.user.id);
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        const asAccount = await server.services.share.listSharedWithMe(
+            recipient.actor,
+            { includeTotal: true },
+        );
+        expect(asAccount.total).toBeGreaterThanOrEqual(1);
+
+        // The app reads what it was handed, not the size of the rest.
+        const asTheApp = await server.services.share.listSharedWithMe(
+            asApp(recipient, app),
+            { includeTotal: true },
+        );
+        expect(asTheApp.total).toBeUndefined();
+    });
+
     it('carries the entry metadata the file browser renders', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -1126,6 +1152,64 @@ describe('ShareService', () => {
             runWithContext({ actor }, () =>
                 server.services.share.listSharedByMe(actor, opts),
             );
+
+        it('still finds a row written before the owner was recorded', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // What a writer that predates the column leaves behind.
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL',
+            );
+
+            const listed = await listSharedByMe(owner.actor, {
+                includeTotal: true,
+            });
+            expect(
+                listed.items.map((r) => r.holder?.username),
+            ).toContain(third.user.username);
+            expect(listed.total).toBeGreaterThanOrEqual(2);
+        });
+
+        it("includes a delegate's share on an item the caller owns", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // Owner and delegate issued one each, both on the owner's entry.
+            const listed = await listSharedByMe(owner.actor, {
+                includeTotal: true,
+            });
+            const holders = listed.items.map((r) => r.holder?.username);
+            expect(holders).toContain(delegate.user.username);
+            expect(holders).toContain(third.user.username);
+            expect(listed.total).toBeGreaterThanOrEqual(2);
+        });
 
         it('gathers shares on unrelated items into one listing', async () => {
             const owner = await makeUser();
@@ -2758,6 +2842,41 @@ describe('ShareService', () => {
             });
         });
 
+        it('bounds mode changes on their own budget', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const cfg = (
+                server.services.share as unknown as {
+                    config: { share_remode_daily_limit?: number };
+                }
+            ).config;
+            const previous = cfg.share_remode_daily_limit;
+            cfg.share_remode_daily_limit = 1;
+            try {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                // Not new reach, so not the share budget -- but still a write.
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'write',
+                });
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: { email: recipient.email },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({ statusCode: 429 });
+            } finally {
+                cfg.share_remode_daily_limit = previous;
+            }
+        });
+
         it('counts creations, so revoking does not refund the slot', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
@@ -3602,6 +3721,46 @@ describe('ShareService', () => {
             expect(payload?.path).toBe(
                 `/${owner.user.username}/${dir.uuid}/${dir.name}/${file.name}`,
             );
+        });
+
+        it('does not tell a `see`-only folder recipient what is inside it', async () => {
+            const owner = await makeUser();
+            const seeOnly = await makeUser();
+            const lister = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const loose = await makeFile(owner.user);
+            const after = `${dir.path}/${loose.name}`;
+
+            for (const [who, mode] of [
+                [seeOnly, 'see'],
+                [lister, 'read'],
+            ] as const) {
+                await share(owner.actor, {
+                    uid: dir.uuid,
+                    recipient: { email: who.email },
+                    mode,
+                });
+            }
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.added',
+                loose.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...loose, path: after },
+                            fromPath: loose.path,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // The child's name and size are what `list` is for.
+            expect(audiences.flat()).toContain(lister.user.id);
+            expect(audiences.flat()).not.toContain(seeOnly.user.id);
         });
 
         it('tells a folder recipient when a file is moved into it', async () => {

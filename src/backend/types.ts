@@ -916,6 +916,8 @@ interface IConfigOptional {
      * use the built-in default.
      */
     share_daily_limit?: number;
+    /** Mode changes on existing shares; defaults to ten times the above. */
+    share_remode_daily_limit?: number;
 
     /**
      * How often a share may interrupt its recipient — the notification pushed

@@ -3728,6 +3728,53 @@ describe('FSService move', () => {
         expect(await entryAt(user, '/Desktop/moveddir/in.txt')).not.toBeNull();
     });
 
+    it('re-points the owner recorded on a share when a move re-owns the subtree', async () => {
+        const other = await makeUser();
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/ownerdir`,
+        });
+        const inside = await writeFile(
+            user,
+            `${user.home}/Documents/ownerdir/in.txt`,
+            'x',
+        );
+        const destination = (await entryAt(other, '/Documents'))!;
+
+        const ownerOf = async (uuid: string) => {
+            const rows = (await server.clients.db.read(
+                'SELECT s.`entry_owner_user_id` AS owner FROM `share` s ' +
+                    'JOIN `fsentries` f ON f.`id` = s.`fsentry_id` ' +
+                    'WHERE f.`uuid` = ?',
+                [uuid],
+            )) as Array<{ owner: number | null }>;
+            return rows[0]?.owner ?? null;
+        };
+        const shareOn = async (entry: { uuid: string }) =>
+            server.stores.share.upsertActive({
+                issuerUserId: user.userId,
+                holderUserId: other.userId,
+                recipientEmail: other.email,
+                fsentryId: (await server.stores.fsEntry.getEntryByUuid(
+                    entry.uuid,
+                ))!.id,
+                mode: 'read',
+            });
+
+        await shareOn(dir);
+        await shareOn(inside);
+        expect(await ownerOf(dir.uuid)).toBe(user.userId);
+        expect(await ownerOf(inside.uuid)).toBe(user.userId);
+
+        await fs.move(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        // The whole subtree changed hands, so both rows follow it.
+        expect(await ownerOf(dir.uuid)).toBe(other.userId);
+        expect(await ownerOf(inside.uuid)).toBe(other.userId);
+    });
+
     it('refuses a name that would steer the move out of the destination', async () => {
         const entry = await writeFile(
             user,
@@ -4647,7 +4694,10 @@ describe('FSService restructuring a shared tree', () => {
             }),
         );
 
-        expect(moved.path).toBe(`${owner.home}/Trash/${file.uuid}`);
+        // Always renamed in, so the name cannot report on the Trash.
+        expect(moved.path).toBe(
+            `${owner.home}/Trash/${file.uuid} (${file.uuid.slice(0, 8)})`,
+        );
         expect(moved.userId).toBe(owner.userId);
         expect(await stillThere(file.path)).toBe(false);
     });

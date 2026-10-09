@@ -4683,8 +4683,19 @@ export class FSService extends PuterService {
             });
         }
 
+        // Authorized without write there, so a collision must not answer.
+        const intoSomeoneElsesTrash =
+            isOwnersTrash(source, destinationParent) &&
+            destinationParent.userId !== userId;
+
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
+        // Always, not only on a collision, or the name answers it instead.
+        if (intoSomeoneElsesTrash) {
+            const ext = pathPosix.extname(name);
+            const stem = ext ? name.slice(0, -ext.length) : name;
+            name = `${stem} (${source.uuid.slice(0, 8)})${ext}`;
+        }
         const pathIn = (entryName: string) =>
             destinationParent.path === '/'
                 ? `/${entryName}`
@@ -4707,6 +4718,7 @@ export class FSService extends PuterService {
                 destinationParent,
                 name,
                 input,
+                { intoSomeoneElsesTrash },
             );
         }
 
@@ -4758,6 +4770,7 @@ export class FSService extends PuterService {
                     destinationParent,
                     name,
                     input,
+                    { intoSomeoneElsesTrash },
                 );
             }
             updated = await applyMove(name);
@@ -4770,6 +4783,15 @@ export class FSService extends PuterService {
                 source.path,
                 finalPath,
                 newOwnerId,
+            );
+        }
+
+        // The subtree changed hands, so the owner recorded on its shares did
+        // too. Stale there drops them from the new owner's outbound listing.
+        if (newOwnerId !== source.userId) {
+            await this.stores.share.reassignEntryOwnerUnder(
+                newOwnerId,
+                finalPath,
             );
         }
 
@@ -4810,7 +4832,12 @@ export class FSService extends PuterService {
         destinationParent: FSEntry,
         name: string,
         input: { overwrite?: boolean; dedupeName?: boolean },
+        opts: { intoSomeoneElsesTrash?: boolean } = {},
     ): Promise<string> {
+        // Ahead of `overwrite`: no write here, so a collision destroys nothing.
+        if (opts.intoSomeoneElsesTrash) {
+            return this.#findDedupedName(destinationParent, name);
+        }
         if (input.overwrite) {
             await this.remove(userId, { entry: occupant, recursive: true });
             return name;

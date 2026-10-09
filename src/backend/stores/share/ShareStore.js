@@ -130,13 +130,12 @@ export class ShareStore extends PuterStore {
      * which is the only place those are visible, since the permission tables
      * are keyed issuer to holder.
      *
-     * Two reads rather than one `OR` spanning the join, which no index can
-     * serve. The issued half is a pure range scan on `idx_share_issuer`. The
-     * delegated half probes `idx_share_fsentry` per owned node and sorts what
-     * it finds — bounded by how many shares exist on the user's nodes, which
-     * delegates alone can create. Unclaimed invites are included (an invite is
-     * something the user sent); the legacy invite rows that name no node are
-     * not.
+     * Separate reads rather than one `OR`, which no index can serve. Each is a
+     * range scan: the issued half on `idx_share_issuer`, the delegated half on
+     * `idx_share_entry_owner`, and a third covering rows written before that
+     * column existed, which is empty once none remain. Unclaimed invites are
+     * included (an invite is something the user sent); the legacy invite rows
+     * that name no node are not.
      *
      * `appUid` narrows to one app's grants; `null` asks for the ones no app
      * issued, and omitting it asks for every app.
@@ -148,9 +147,10 @@ export class ShareStore extends PuterStore {
         const size = this.#pageSize(limit);
         const afterId = this.#afterId(cursor);
         const own = this.#appFilter(appUid, '`data`');
+
         const joined = this.#appFilter(appUid, '`share`.`data`');
 
-        const [issued, delegated] = await Promise.all([
+        const [issued, delegated, unrecorded] = await Promise.all([
             this.clients.db.read(
                 'SELECT * FROM `share` WHERE `issuer_user_id` = ? AND ' +
                     '`fsentry_id` IS NOT NULL AND `id` > ?' +
@@ -159,8 +159,17 @@ export class ShareStore extends PuterStore {
                 [userId, afterId, ...own.params, size + 1],
             ),
             this.clients.db.read(
+                'SELECT * FROM `share` WHERE `entry_owner_user_id` = ? AND ' +
+                    '`issuer_user_id` <> ? AND `id` > ?' +
+                    own.sql +
+                    ' ORDER BY `id` LIMIT ?',
+                [userId, userId, afterId, ...own.params, size + 1],
+            ),
+            // Rows left by a writer predating the column; indexed on the NULL.
+            this.clients.db.read(
                 'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
                     '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
                     '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ? ' +
                     'AND `share`.`id` > ?' +
                     joined.sql +
@@ -172,7 +181,7 @@ export class ShareStore extends PuterStore {
         // The halves are disjoint and each ordered by id, so merging them and
         // cutting at `size` is the true next page: whatever either half lost to
         // its own limit sorts after the cut and returns on the following one.
-        const merged = [...issued, ...delegated].sort(
+        const merged = [...issued, ...delegated, ...unrecorded].sort(
             (a, b) => Number(a.id) - Number(b.id),
         );
         const hasMore = merged.length > size;
@@ -197,7 +206,7 @@ export class ShareStore extends PuterStore {
     async countOutbound(userId, { appUid } = {}) {
         const own = this.#appFilter(appUid, '`data`');
         const joined = this.#appFilter(appUid, '`share`.`data`');
-        const [issued, delegated] = await Promise.all([
+        const [issued, delegated, unrecorded] = await Promise.all([
             this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
                     '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL' +
@@ -205,14 +214,26 @@ export class ShareStore extends PuterStore {
                 [userId, ...own.params],
             ),
             this.clients.db.read(
+                'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
+                    '`entry_owner_user_id` = ? AND `issuer_user_id` <> ?' +
+                    own.sql,
+                [userId, userId, ...own.params],
+            ),
+            // As `listOutbound`: rows written before the column existed.
+            this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` JOIN `fsentries` ON ' +
                     '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
                     '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?' +
                     joined.sql,
                 [userId, userId, ...joined.params],
             ),
         ]);
-        return Number(issued[0]?.count ?? 0) + Number(delegated[0]?.count ?? 0);
+        return (
+            Number(issued[0]?.count ?? 0) +
+            Number(delegated[0]?.count ?? 0) +
+            Number(unrecorded[0]?.count ?? 0)
+        );
     }
 
     /**
@@ -249,6 +270,8 @@ export class ShareStore extends PuterStore {
                 userId,
                 userId,
                 userId,
+                userId,
+                userId,
                 ...(after === null ? [] : [after]),
                 size + 1,
             ],
@@ -275,7 +298,7 @@ export class ShareStore extends PuterStore {
             'SELECT COUNT(*) AS `count` FROM (SELECT DISTINCT `app_uid` FROM (' +
                 this.#outboundAppsSql() +
                 ') AS `outbound`) AS `apps`',
-            [userId, userId, userId],
+            [userId, userId, userId, userId, userId],
         );
         return Number(rows[0]?.count ?? 0);
     }
@@ -606,8 +629,18 @@ export class ShareStore extends PuterStore {
         const uid = uuidv4();
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`fsentry_id`, `mode`, `data`) VALUES (?, ?, ?, ?, ?, ?)',
-            [uid, issuerUserId, recipientEmail, fsentryId, mode, data],
+                '`fsentry_id`, `mode`, `data`, `entry_owner_user_id`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ' +
+                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?))',
+            [
+                uid,
+                issuerUserId,
+                recipientEmail,
+                fsentryId,
+                mode,
+                data,
+                fsentryId,
+            ],
         );
         return { row: await this.getByUid(uid), created: true };
     }
@@ -664,8 +697,11 @@ export class ShareStore extends PuterStore {
         );
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`holder_user_id`, `fsentry_id`, `mode`, `data`, `applied_at`) ' +
-                'VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ' +
+                '`holder_user_id`, `fsentry_id`, `mode`, `data`, ' +
+                '`entry_owner_user_id`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ' +
+                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?), ' +
+                'CURRENT_TIMESTAMP) ' +
                 this.clients.db.upsertClause(
                     ['holder_user_id', 'fsentry_id', 'issuer_user_id'],
                     ['mode', 'data'],
@@ -678,6 +714,7 @@ export class ShareStore extends PuterStore {
                 fsentryId,
                 mode,
                 data,
+                fsentryId,
                 mode,
                 data,
             ],
@@ -713,8 +750,11 @@ export class ShareStore extends PuterStore {
         );
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`holder_group_id`, `fsentry_id`, `mode`, `data`, `applied_at`) ' +
-                'VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ' +
+                '`holder_group_id`, `fsentry_id`, `mode`, `data`, ' +
+                '`entry_owner_user_id`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ' +
+                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?), ' +
+                'CURRENT_TIMESTAMP) ' +
                 this.clients.db.upsertClause(
                     ['holder_group_id', 'fsentry_id', 'issuer_user_id'],
                     ['mode', 'data'],
@@ -728,6 +768,7 @@ export class ShareStore extends PuterStore {
                 fsentryId,
                 mode,
                 data,
+                fsentryId,
                 mode,
                 data,
             ],
@@ -869,6 +910,24 @@ export class ShareStore extends PuterStore {
      * @param {number} issuerUserId
      * @param {number} fsentryId
      */
+    /**
+     * Re-point `entry_owner_user_id` at `newOwnerId` for every share on `path`
+     * or anything under it. A move into someone else's tree re-owns the whole
+     * subtree, and a stale owner here silently drops rows from the outbound
+     * listing it keys.
+     *
+     * @param {number} newOwnerId @param {string} path
+     */
+    async reassignEntryOwnerUnder(newOwnerId, path) {
+        const escaped = path.replace(/([!%_])/g, '!$1');
+        await this.clients.db.write(
+            'UPDATE `share` SET `entry_owner_user_id` = ? WHERE `fsentry_id` ' +
+                'IN (SELECT `id` FROM `fsentries` WHERE `path` = ? OR ' +
+                "`path` LIKE ? ESCAPE '!')",
+            [newOwnerId, path, `${escaped}/%`],
+        );
+    }
+
     async deletePendingByIssuerSubtree(issuerUserId, fsentryId) {
         // Read-then-delete rather than a CTE inside the DELETE, which the
         // dialects disagree on. The gap between the two only ever leaves an
@@ -995,8 +1054,11 @@ export class ShareStore extends PuterStore {
         );
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`fsentry_id`, `anyone`, `mode`, `data`, `applied_at`) ' +
-                'VALUES (?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP) ' +
+                '`fsentry_id`, `anyone`, `mode`, `data`, ' +
+                '`entry_owner_user_id`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, 1, ?, ?, ' +
+                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?), ' +
+                'CURRENT_TIMESTAMP) ' +
                 this.clients.db.upsertClause(
                     ['fsentry_id', 'anyone'],
                     ['mode', 'data', 'issuer_user_id'],
@@ -1009,6 +1071,7 @@ export class ShareStore extends PuterStore {
                 fsentryId,
                 mode,
                 data,
+                fsentryId,
                 mode,
                 data,
                 issuerUserId,
@@ -1048,9 +1111,9 @@ export class ShareStore extends PuterStore {
      * @param {number} [amount]
      * @returns {Promise<number>} The count after incrementing
      */
-    async incrementDailyShareCount(userId, amount = 1) {
+    async incrementDailyShareCount(userId, amount = 1, scope = 'quota') {
         const { res } = await this.stores.kv.incr({
-            key: this.#dailyQuotaKey(userId),
+            key: this.#dailyQuotaKey(userId, scope),
             pathAndAmountMap: { count: amount },
             // Two days, so a counter written just before midnight still ages
             // out on its own.
@@ -1060,10 +1123,10 @@ export class ShareStore extends PuterStore {
         return typeof count === 'number' ? count : amount;
     }
 
-    /** @param {number} userId */
-    #dailyQuotaKey(userId) {
+    /** @param {number} userId @param {string} scope */
+    #dailyQuotaKey(userId, scope = 'quota') {
         const day = new Date().toISOString().slice(0, 10);
-        return `share:quota:${userId}:${day}`;
+        return `share:${scope}:${userId}:${day}`;
     }
 
     // -- Internals ----------------------------------------------------
@@ -1147,7 +1210,7 @@ export class ShareStore extends PuterStore {
 
     /**
      * Both outbound halves projected onto their issuing app. Takes the same
-     * three bound user ids as `listOutbound`, in that order.
+     * five bound user ids as `listOutbound`, in that order.
      */
     #outboundAppsSql() {
         const own = this.clients.db.nullCoalesce(
@@ -1161,8 +1224,11 @@ export class ShareStore extends PuterStore {
         return (
             `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
             '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL UNION ALL ' +
+            `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
+            '`entry_owner_user_id` = ? AND `issuer_user_id` <> ? UNION ALL ' +
             `SELECT ${joined} AS \`app_uid\` FROM \`share\` JOIN \`fsentries\` ` +
             'ON `fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+            '`share`.`entry_owner_user_id` IS NULL AND ' +
             '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?'
         );
     }

@@ -865,13 +865,16 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
  * Numbers each distinct path prefix, so comparing prefixes costs one lookup per
  * segment.
  */
-class PathPrefixIds {
+export class PathPrefixIds {
     #ids = new Map<string, number>();
+    /** Characters keyed on; keying on the id is what keeps this proportional. */
+    keyChars = 0;
     /** `ids[d]` names `tokens.slice(0, d)`; the root is 0. */
     of(tokens: PathToken[]): number[] {
         const ids = [0];
         for (const token of tokens) {
             const step = `${ids[ids.length - 1]}${token.type === 'index' ? '[' : '.'}${token.value}`;
+            this.keyChars += step.length;
             let id = this.#ids.get(step);
             if (id === undefined) {
                 id = this.#ids.size + 1;

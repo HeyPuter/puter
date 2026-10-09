@@ -230,6 +230,10 @@ export const entryPermissions = (uuid: string): string[] => [
     `manage:fs:${uuid}`,
 ];
 
+/** `see` says a node is there; `list` is what says what is inside it. */
+const showsContents = (mode: unknown): boolean =>
+    ['list', 'read', 'write', MANAGE_PERM_PREFIX].includes(String(mode));
+
 /**
  * The permission a share of `mode` actually grants — which is what authority to
  * issue that share has to be measured against.
@@ -800,6 +804,8 @@ export class ShareService extends PuterService {
             if (!root || !Number.isFinite(holderId)) continue;
             if (holderId === entry.userId) continue;
             if (!live.has(`${holderId}:${root.id}`)) continue;
+            // `see` says the folder is there, not what is inside it.
+            if (root.id !== entry.id && !showsContents(row.mode)) continue;
             const current = rootByHolder.get(holderId);
             if (!current || root.path.length > current.path.length) {
                 rootByHolder.set(holderId, root);
@@ -948,8 +954,9 @@ export class ShareService extends PuterService {
         // this recipient already had reach here.
         const hadAccess =
             indexed || (await this.#hasGrantFrom(entry, holder.id, issuerId));
+        // Not new reach, so not the share budget -- but still a write.
         const releaseQuota = hadAccess
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -1810,7 +1817,8 @@ export class ShareService extends PuterService {
         return {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(opts.includeTotal
+            // Account-wide, so only for a caller acting as the account.
+            ...(opts.includeTotal && isAccountContext(actor)
                 ? {
                       total: await this.stores.share.countByHolder(holderId, {
                           groupIds,
@@ -2811,7 +2819,7 @@ export class ShareService extends PuterService {
         // Moving an existing link to another mode is not new reach.
         const existing = await this.stores.share.getAnyone(entry.id);
         const releaseQuota = existing
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
         try {
             const row = await this.stores.share.upsertAnyone({
@@ -2891,7 +2899,7 @@ export class ShareService extends PuterService {
             userActor,
         );
         const releaseQuota = hadAccess
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -3103,7 +3111,7 @@ export class ShareService extends PuterService {
                 Number(row.issuer_user_id) === issuerId,
         );
         const releaseQuota = already
-            ? null
+            ? await this.#reserveRemodeQuota(issuerId)
             : await this.#reserveDailyQuota(issuerId);
 
         try {
@@ -3562,6 +3570,22 @@ export class ShareService extends PuterService {
         return this.services.acl.check(actor, this.#descriptorFor(entry), mode);
     }
 
+    /** Re-issuing an existing share: its own budget, not the share one. */
+    #reserveRemodeQuota(userId: number): Promise<() => Promise<void>> {
+        return this.#reserveDailyQuota(userId, {
+            scope: 'remode',
+            limit: this.#remodeLimit(),
+        });
+    }
+
+    /** Mode changes get their own, looser budget; they are not new reach. */
+    #remodeLimit(): number {
+        const configured = this.config.share_remode_daily_limit;
+        if (typeof configured === 'number') return configured;
+        const base = this.config.share_daily_limit ?? DEFAULT_DAILY_SHARE_LIMIT;
+        return base * 10;
+    }
+
     /**
      * Take a slot out of today's budget, returning the release for it.
      *
@@ -3569,28 +3593,44 @@ export class ShareService extends PuterService {
      * distinct numbers and only those at or under the limit proceed. Counting
      * first and writing after would let them all read the same count and pass.
      */
-    async #reserveDailyQuota(userId: number): Promise<() => Promise<void>> {
+    async #reserveDailyQuota(
+        userId: number,
+        opts: { scope?: string; limit?: number; code?: string } = {},
+    ): Promise<() => Promise<void>> {
+        const scope = opts.scope ?? 'quota';
         const limit =
-            this.config.share_daily_limit ?? DEFAULT_DAILY_SHARE_LIMIT;
+            opts.limit ??
+            this.config.share_daily_limit ??
+            DEFAULT_DAILY_SHARE_LIMIT;
         const noop = async () => {};
         if (limit <= 0) return noop;
 
         const release = async (): Promise<void> => {
             try {
-                await this.stores.share.incrementDailyShareCount(userId, -1);
+                await this.stores.share.incrementDailyShareCount(
+                    userId,
+                    -1,
+                    scope,
+                );
             } catch {
                 // A leaked slot costs the user one share until midnight;
                 // failing the request over it would cost them more.
             }
         };
 
-        const used = await this.stores.share.incrementDailyShareCount(userId);
+        const used = await this.stores.share.incrementDailyShareCount(
+            userId,
+            1,
+            scope,
+        );
         if (used > limit) {
             await release();
             throw new HttpError(
                 429,
                 `daily share limit reached (${limit}); try again tomorrow`,
-                { legacyCode: 'share_daily_limit_reached' },
+                {
+                    legacyCode: opts.code ?? 'share_daily_limit_reached',
+                },
             );
         }
         return release;
