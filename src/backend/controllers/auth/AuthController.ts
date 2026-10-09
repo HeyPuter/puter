@@ -37,6 +37,7 @@ import { isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
     checkRateLimit,
     consumeRouteRateLimit,
+    peekRateLimit,
     peekRouteRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import {
@@ -120,6 +121,7 @@ import {
     type FsCreateKind,
 } from '../../services/permission/fsPathPermission.js';
 import type { AclMode } from '../../services/acl/ACLService';
+import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
@@ -266,6 +268,28 @@ const CHANGE_USERNAME_ATTEMPT_LIMIT = {
     window: 60 * 60_000,
     key: 'user',
 } as const;
+
+/**
+ * Wrong second-factor codes per account, shared by `/login/otp` and
+ * `/login/recovery-code`. Charged only on a wrong code.
+ */
+const SECOND_FACTOR_FAILURE_LIMIT = {
+    scope: 'login-2fa-failure',
+    limit: 10,
+    window: 30 * 60_000,
+} as const;
+
+/** Recovery mails per account per hour, across every requester. */
+const PASS_RECOVERY_EMAIL_TARGET_LIMIT = {
+    scope: 'send-pass-recovery-email-target',
+    limit: 5,
+    window: 60 * 60_000,
+} as const;
+
+/** Lifetime of the `otp-login` JWT `/login` hands back. */
+const OTP_LOGIN_TOKEN_TTL = '5m';
+// Covers the token's lifetime plus verify's clock tolerance.
+const OTP_LOGIN_TOKEN_USED_WINDOW_MS = 10 * 60_000;
 
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
@@ -518,9 +542,9 @@ export class AuthController extends PuterController {
             );
         }
 
-        const reauthAuthId = this.#extractAuthIdFromReauthToken(
-            req.body.reauth_token,
-        );
+        const reauthAuthId =
+            this.#verifySuppliedReauthToken(req.body.reauth_token)?.authId ??
+            null;
         await this.#enforceAuthIdMatch(req, user, reauthAuthId);
 
         // OTP branching — if 2FA enabled, return a short-lived OTP JWT.
@@ -531,10 +555,12 @@ export class AuthController extends PuterController {
             const otpClaims: Record<string, unknown> = {
                 user_uid: user.uuid,
                 purpose: 'otp-login',
+                // Keeps each token distinct for the single-use check.
+                jti: uuidv4(),
             };
             if (reauthAuthId) otpClaims.auth_id = reauthAuthId;
             const otp_jwt_token = this.services.token.sign('otp', otpClaims, {
-                expiresIn: '5m',
+                expiresIn: OTP_LOGIN_TOKEN_TTL,
             });
 
             res.status(202).json({
@@ -604,10 +630,13 @@ export class AuthController extends PuterController {
             });
         }
 
+        await this.#assertSecondFactorAttemptsRemain(user.uuid);
         if (!verifyOtp(user.username, user.otp_secret, code)) {
+            await this.#recordSecondFactorFailure(user.uuid);
             res.json({ proceed: false });
             return;
         }
+        await this.#consumeOtpLoginToken(token);
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
@@ -670,15 +699,18 @@ export class AuthController extends PuterController {
             });
         }
 
+        await this.#assertSecondFactorAttemptsRemain(user.uuid);
         const hashed = hashRecoveryCode(code);
         const codes = ((user.otp_recovery_codes as string) || '')
             .split(',')
             .filter(Boolean);
         const idx = codes.indexOf(hashed);
         if (idx === -1) {
+            await this.#recordSecondFactorFailure(user.uuid);
             res.json({ proceed: false });
             return;
         }
+        await this.#consumeOtpLoginToken(token);
 
         // Consume the recovery code
         codes.splice(idx, 1);
@@ -743,7 +775,8 @@ export class AuthController extends PuterController {
         // forced through the reauth flow, the GUI re-submits /signup with
         // is_temp=true plus the server-signed reauth_token from the 401.
         // Verifying the token (not a raw auth_id) means a leaked uuid alone
-        // can't re-attach a session to someone else's temp account.
+        // can't re-attach a session to someone else's temp account. Only a
+        // session that expired can be re-attached; a revoked one stays ended.
         // Permanent users must go through /login (they have credentials),
         // so we reject that path here.
         if (
@@ -751,13 +784,19 @@ export class AuthController extends PuterController {
             body.reauth_token !== undefined &&
             body.reauth_token !== null
         ) {
-            const reauthAuthId = this.#extractAuthIdFromReauthToken(
-                body.reauth_token,
-            );
-            if (!reauthAuthId) {
+            const claims = this.#verifySuppliedReauthToken(body.reauth_token);
+            if (!claims) {
                 throw new HttpError(400, 'Invalid `reauth_token`.', {
                     legacyCode: 'bad_request',
                 });
+            }
+            const { authId: reauthAuthId, reason } = claims;
+            if (reason !== 'session_expired') {
+                throw new HttpError(
+                    401,
+                    'This session was signed out and cannot be restored.',
+                    { legacyCode: 'session_revoked' },
+                );
             }
             await this.#checkAuthIdRateLimit(req);
             const existing = await this.stores.user.getByUuid(reauthAuthId);
@@ -2466,11 +2505,20 @@ export class AuthController extends PuterController {
 
     @Post('/send-pass-recovery-email', {
         subdomain: ['api', ''],
-        rateLimit: {
-            scope: 'send-pass-recovery-email',
-            limit: 10,
-            window: 60 * 60_000,
-        },
+        captcha: true,
+        rateLimit: [
+            {
+                scope: 'send-pass-recovery-email',
+                limit: 10,
+                window: 60 * 60_000,
+            },
+            {
+                scope: 'send-pass-recovery-email-ip',
+                limit: 30,
+                window: 60 * 60_000,
+                key: 'ip',
+            },
+        ],
     })
     async handleSendPassRecoveryEmail(
         req: Request,
@@ -2510,8 +2558,24 @@ export class AuthController extends PuterController {
             return;
         }
 
-        const pass_recovery_token = uuidv4();
-        await this.stores.user.update(user.id, { pass_recovery_token });
+        // Per account, whoever asks. Over it, answer the same way and send
+        // nothing, so the limit doesn't reveal which accounts exist.
+        const { scope, limit, window } = PASS_RECOVERY_EMAIL_TARGET_LIMIT;
+        if (!(await checkRateLimit(`${scope}:${user.id}`, limit, window))) {
+            res.json({ message: genericMessage });
+            return;
+        }
+
+        // Reuse an outstanding token so a new send doesn't void a link already
+        // in the inbox. Each link still expires on its own.
+        let pass_recovery_token =
+            typeof user.pass_recovery_token === 'string'
+                ? user.pass_recovery_token
+                : null;
+        if (!pass_recovery_token) {
+            pass_recovery_token = uuidv4();
+            await this.stores.user.update(user.id, { pass_recovery_token });
+        }
 
         const jwt = this.services.token.sign(
             'otp',
@@ -5325,21 +5389,54 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Extract the `auth_id` claim from a client-supplied reauth_token. Returns
-     * null when no token was supplied. Throws on invalid/expired tokens. The
+     * Refuse once an account's wrong-code budget is spent, before checking the
+     * code.
+     */
+    async #assertSecondFactorAttemptsRemain(userUid: string): Promise<void> {
+        const { scope, limit, window } = SECOND_FACTOR_FAILURE_LIMIT;
+        if (await peekRateLimit(`${scope}:${userUid}`, limit, window)) return;
+        throw new HttpError(429, 'Too many incorrect codes. Try again later.', {
+            legacyCode: 'too_many_requests',
+        });
+    }
+
+    async #recordSecondFactorFailure(userUid: string): Promise<void> {
+        const { scope, limit, window } = SECOND_FACTOR_FAILURE_LIMIT;
+        await checkRateLimit(`${scope}:${userUid}`, limit, window);
+    }
+
+    /** An `otp-login` JWT completes one sign-in; a second redemption is refused. */
+    async #consumeOtpLoginToken(token: string): Promise<void> {
+        const digest = crypto.createHash('sha256').update(token).digest('hex');
+        const firstUse = await checkRateLimit(
+            `login-otp-token-used:${digest}`,
+            1,
+            OTP_LOGIN_TOKEN_USED_WINDOW_MS,
+        );
+        if (!firstUse) {
+            throw new HttpError(400, 'Invalid token.', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
+    /**
+     * Verify a client-supplied reauth_token and return its claims. Returns null
+     * when no token was supplied. Throws on invalid/expired tokens. The
      * reauth_token is a server-signed JWT minted by the authProbe at 401 time —
      * accepting only the signed envelope (vs. a raw UUID) means a leaked
      * auth_id alone can't attach a session to an existing account.
      */
-    #extractAuthIdFromReauthToken(suppliedToken: unknown): string | null {
+    #verifySuppliedReauthToken(
+        suppliedToken: unknown,
+    ): { authId: string; reason: ReauthReason | undefined } | null {
         if (suppliedToken === undefined || suppliedToken === null) return null;
         if (typeof suppliedToken !== 'string' || !suppliedToken) {
             throw new HttpError(400, 'Invalid `reauth_token`.', {
                 legacyCode: 'bad_request',
             });
         }
-        const { authId } = this.services.auth.verifyReauthToken(suppliedToken);
-        return authId;
+        return this.services.auth.verifyReauthToken(suppliedToken);
     }
 
     /**

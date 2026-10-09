@@ -130,7 +130,10 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
                             signed = true;
                             try {
                                 signedToken = auth_id
-                                    ? authService.signReauthToken(auth_id)
+                                    ? authService.signReauthToken(
+                                          auth_id,
+                                          reason,
+                                      )
                                     : undefined;
                             } catch {
                                 // Losing the hint is survivable; the client

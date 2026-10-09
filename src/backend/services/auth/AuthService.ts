@@ -123,26 +123,31 @@ export class AuthService extends PuterService {
      * UUID — means a leaked UUID alone is not enough to attach a session to an
      * existing temp account; the attacker would also have to have intercepted a
      * live 401 from that user. The token's 10-minute TTL bounds that intercept
-     * window.
+     * window. `reason` is why the session was rejected, so a redeemer can tell
+     * a session that ran out from one that was revoked.
      */
-    signReauthToken(authId: string): string {
+    signReauthToken(authId: string, reason: ReauthReason): string {
         return this.services.token.sign(
             'otp',
-            { auth_id: authId, purpose: 'reauth' },
+            { auth_id: authId, purpose: 'reauth', reason },
             { expiresIn: '10m' },
         );
     }
 
     /**
-     * Verify a reauth token and return its `auth_id` claim. Throws an HttpError
-     * on signature failure, expiry, or wrong purpose.
+     * Verify a reauth token and return its `auth_id` and `reason` claims.
+     * Throws an HttpError on signature failure, expiry, or wrong purpose.
      */
-    verifyReauthToken(token: string): { authId: string } {
-        let decoded: { auth_id?: string; purpose?: string };
+    verifyReauthToken(token: string): {
+        authId: string;
+        reason: ReauthReason | undefined;
+    } {
+        let decoded: { auth_id?: string; purpose?: string; reason?: string };
         try {
             decoded = this.services.token.verify<{
                 auth_id?: string;
                 purpose?: string;
+                reason?: string;
             }>('otp', token);
         } catch {
             throw new HttpError(401, 'Invalid reauth token', {
@@ -154,7 +159,12 @@ export class AuthService extends PuterService {
                 legacyCode: 'token_invalid',
             });
         }
-        return { authId: decoded.auth_id };
+        const reason =
+            decoded.reason === 'session_revoked' ||
+            decoded.reason === 'session_expired'
+                ? decoded.reason
+                : undefined;
+        return { authId: decoded.auth_id, reason };
     }
 
     @Span('auth.authenticate')
