@@ -28,7 +28,7 @@ import {
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
-import { decodeCursor, encodeCursor } from '../../util/pagination';
+import { openCursor, sealCursor } from '../../util/pagination';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -667,7 +667,11 @@ export class PermissionStore extends PuterStore {
             Math.max(1, Math.floor(Number(opts.limit) || AUDIT_PAGE_SIZE)),
             MAX_AUDIT_PAGE_SIZE,
         );
-        const decoded = decodeCursor(opts.cursor, 'audit cursor');
+        const decoded = openCursor(
+            opts.cursor,
+            this.config.jwt_secret_v2,
+            'audit cursor',
+        );
         const beforeId = Number(decoded?.id ?? 0) || null;
         const { sql, params } = this.#auditWhere(filter);
 
@@ -684,7 +688,10 @@ export class PermissionStore extends PuterStore {
         const last = items[items.length - 1];
         return {
             items,
-            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+            cursor:
+                hasMore && last
+                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
+                    : undefined,
         };
     }
 

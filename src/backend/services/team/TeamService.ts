@@ -53,9 +53,10 @@ import type {
     TeamRow,
 } from '../../stores/team/TeamStore';
 import {
-    decodeCursor,
     encodeCursor,
     normalizeLimit,
+    openCursor,
+    sealCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import type { UserRow } from '../../stores/user/UserStore';
@@ -768,7 +769,11 @@ export class TeamService extends PuterService {
             normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
             AUDIT_PAGE_SIZE;
         const cursor =
-            decodeCursor(opts.cursor, 'member activity cursor') ?? {};
+            openCursor(
+                opts.cursor,
+                this.config.jwt_secret_v2,
+                'member activity cursor',
+            ) ?? {};
         const fromAudit = typeof cursor.a === 'number' ? cursor.a : undefined;
         const fromSignIn = typeof cursor.s === 'number' ? cursor.s : null;
 
@@ -839,7 +844,9 @@ export class TeamService extends PuterService {
 
         return {
             items: page.map((row) => row.entry),
-            ...(more ? { cursor: encodeCursor(next) } : {}),
+            ...(more
+                ? { cursor: sealCursor(next, this.config.jwt_secret_v2) }
+                : {}),
         };
     }
 

@@ -19,9 +19,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import {
-    encodeCursor,
-    decodeCursor,
     normalizeLimit,
+    openCursor,
+    sealCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types';
@@ -440,7 +440,11 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
-        const page = decodeCursor(opts.cursor, 'team member cursor');
+        const page = openCursor(
+            opts.cursor,
+            this.config.jwt_secret_v2,
+            'team member cursor',
+        );
         const after = typeof page?.id === 'number' ? page.id : null;
 
         // One row past the limit is how we know a further page exists.
@@ -461,7 +465,10 @@ export class TeamStore extends PuterStore {
         const items = rows.slice(0, limit);
         const cursor =
             rows.length > limit
-                ? encodeCursor({ id: items[items.length - 1].id })
+                ? sealCursor(
+                      { id: items[items.length - 1].id },
+                      this.config.jwt_secret_v2,
+                  )
                 : undefined;
         return { items, cursor };
     }
@@ -478,7 +485,11 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
-        const page = decodeCursor(opts.cursor, 'team directory cursor');
+        const page = openCursor(
+            opts.cursor,
+            this.config.jwt_secret_v2,
+            'team directory cursor',
+        );
         const after = typeof page?.id === 'number' ? page.id : null;
 
         const rows = (await this.clients.db.read(
@@ -497,7 +508,10 @@ export class TeamStore extends PuterStore {
         const items = rows.slice(0, limit);
         const cursor =
             rows.length > limit
-                ? encodeCursor({ id: items[items.length - 1].id })
+                ? sealCursor(
+                      { id: items[items.length - 1].id },
+                      this.config.jwt_secret_v2,
+                  )
                 : undefined;
         return { items, cursor };
     }
@@ -619,7 +633,11 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
-        const page = decodeCursor(opts.cursor, 'team cursor');
+        const page = openCursor(
+            opts.cursor,
+            this.config.jwt_secret_v2,
+            'team cursor',
+        );
         const after = typeof page?.id === 'number' ? page.id : null;
         const open = opts.openOnly ? ' AND g.`directory_enabled` = 1' : '';
 
@@ -638,7 +656,10 @@ export class TeamStore extends PuterStore {
         const items = rows.slice(0, limit);
         const cursor =
             rows.length > limit
-                ? encodeCursor({ id: items[items.length - 1].id })
+                ? sealCursor(
+                      { id: items[items.length - 1].id },
+                      this.config.jwt_secret_v2,
+                  )
                 : undefined;
 
         let total: number | undefined;
@@ -882,7 +903,11 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
             AUDIT_PAGE_SIZE;
-        const page = decodeCursor(opts.cursor, 'team audit cursor');
+        const page = openCursor(
+            opts.cursor,
+            this.config.jwt_secret_v2,
+            'team audit cursor',
+        );
         const before = typeof page?.id === 'number' ? page.id : null;
 
         // Unix seconds in SQL: the mysql driver reads a stored UTC datetime
@@ -906,7 +931,10 @@ export class TeamStore extends PuterStore {
         const items = rows.slice(0, limit);
         const cursor =
             rows.length > limit
-                ? encodeCursor({ id: items[items.length - 1].id })
+                ? sealCursor(
+                      { id: items[items.length - 1].id },
+                      this.config.jwt_secret_v2,
+                  )
                 : undefined;
         return { items, cursor };
     }

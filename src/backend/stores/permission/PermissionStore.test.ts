@@ -23,6 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
+import { decodeCursor } from '../../util/pagination.ts';
 
 describe('PermissionStore', () => {
     let server: PuterServer;
@@ -1267,6 +1268,8 @@ describe('PermissionStore', () => {
                 seen.push(...page.items.map((r) => r.id));
                 cursor = page.cursor;
                 if (!cursor) break;
+                // Sealed: it reads as nothing but a cursor.
+                expect(() => decodeCursor(cursor)).toThrow();
             }
 
             expect(seen).toHaveLength(3);

@@ -13,6 +13,7 @@ import { Actor, makeActor as resolveActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { decodeCursor } from '../../util/pagination.js';
 import { INTERNAL_ADMISSION_BYPASS } from './WorkerDriver.js';
 import type { WorkerDriver } from './WorkerDriver.js';
 
@@ -580,6 +581,8 @@ describe('WorkerDriver', () => {
                 )) as { items: Array<{ name: string }>; cursor?: string };
                 seen.push(...page.items.map((r) => r.name));
                 cursor = page.cursor;
+                // Sealed: it reads as nothing but a cursor.
+                if (cursor) expect(() => decodeCursor(cursor)).toThrow();
             } while (cursor);
             expect(seen).toEqual(names);
         });

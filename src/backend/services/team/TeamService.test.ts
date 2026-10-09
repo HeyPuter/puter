@@ -31,6 +31,7 @@ import {
 } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
+import { decodeCursor } from '../../util/pagination.ts';
 
 describe('TeamService', () => {
     let server: PuterServer;
@@ -1154,6 +1155,7 @@ describe('TeamService', () => {
             seen.push(...result.items.map((e) => e.action));
             cursor = result.cursor;
             if (!cursor) break;
+            expect(() => decodeCursor(cursor)).toThrow();
         }
         expect(seen.sort()).toEqual([
             'provision',
@@ -1389,10 +1391,16 @@ describe('TeamService', () => {
         const first = await service.listAudit(team.uid, owner.id, { limit: 1 });
         expect(first.items).toHaveLength(1);
         expect(first.cursor).toBeTruthy();
+        // Sealed: it reads as nothing but a cursor.
+        expect(() => decodeCursor(first.cursor)).toThrow();
 
         // Older entries stay reachable instead of dropping off the view.
-        const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
+        const second = await service.listAudit(team.uid, owner.id, {
+            limit: 1,
+            cursor: first.cursor,
+        });
         expect(second.items).toHaveLength(1);
+        expect(second.items[0]).not.toEqual(first.items[0]);
     });
 
 });
