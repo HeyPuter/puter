@@ -431,7 +431,12 @@ export interface IWorkersConfig {
      * worker logs.
      */
     loggingUrl?: string;
-    [key: string]: string | undefined;
+    /**
+     * Let locally run workers reach private-network (LAN) addresses. Off by
+     * default; public addresses and this machine are always reachable.
+     */
+    allowLanAccess?: boolean;
+    [key: string]: string | boolean | undefined;
 }
 
 /**

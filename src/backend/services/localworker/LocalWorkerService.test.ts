@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createServer, type Server } from 'node:http';
+import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -229,33 +229,23 @@ describe('LocalWorkerService.cfDeployLocal', () => {
         expect(after.status).toBe(404);
     }, 60_000);
 
-    it('lets a worker reach the API origin but no other private address', async () => {
-        const listen = async (): Promise<[Server, string]> => {
-            const srv = createServer((_req, res) => res.end('reached'));
-            await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
-            const { port } = srv.address() as AddressInfo;
-            return [srv, `http://127.0.0.1:${port}`];
-        };
-        const [apiServer, apiOrigin] = await listen();
-        const [otherServer, otherOrigin] = await listen();
-        const config = (
-            localWorkers as unknown as { config: { api_base_url: string } }
-        ).config;
-        const configuredApi = config.api_base_url;
-        config.api_base_url = apiOrigin;
+    it('reaches this machine, but not link-local or LAN addresses by default', async () => {
+        const local = createServer((_req, res) => res.end('reached'));
+        await new Promise<void>((r) => local.listen(0, '127.0.0.1', r));
+        const { port } = local.address() as AddressInfo;
         const name = `lws-egress-${Date.now()}`;
         try {
             await localWorkers.cfDeployLocal(
                 name,
                 'auth',
                 `addEventListener('fetch', (e) => e.respondWith((async () => {
-                    const probe = (url) => fetch(url).then(
-                        (r) => r.text(),
-                        () => 'refused',
-                    );
+                    const probe = (url) => fetch(url, {
+                        signal: AbortSignal.timeout(10000),
+                    }).then((r) => r.text(), (err) => String(err));
                     return Response.json({
-                        api: await probe('${apiOrigin}/x'),
-                        other: await probe('${otherOrigin}/x'),
+                        local: await probe('http://127.0.0.1:${port}/'),
+                        metadata: await probe('http://169.254.169.254/'),
+                        lan: await probe('http://10.0.0.1/'),
                     });
                 })()));`,
             );
@@ -263,15 +253,14 @@ describe('LocalWorkerService.cfDeployLocal', () => {
                 name,
                 new Request('http://worker.localhost/'),
             );
-            expect(await res.json()).toEqual({
-                api: 'reached',
-                other: 'refused',
-            });
+            const body = (await res.json()) as Record<string, string>;
+            expect(body.local).toBe('reached');
+            // Refused outright by the runtime, not left to time out.
+            expect(body.metadata).toMatch(/internal error/);
+            expect(body.lan).toMatch(/internal error/);
         } finally {
-            config.api_base_url = configuredApi;
             await localWorkers.cfDeleteLocal(name);
-            apiServer.close();
-            otherServer.close();
+            local.close();
         }
     }, 60_000);
 

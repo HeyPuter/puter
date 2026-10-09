@@ -47,10 +47,7 @@ import {
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 
-/**
- * Runtime settings every deployed worker gets, locally and upstream. The flag
- * keeps a worker's `fetch` off private and loopback addresses.
- */
+/** Runtime settings every deployed worker gets, locally and upstream. */
 export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
 export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
