@@ -19,7 +19,7 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
@@ -129,6 +129,8 @@ function buildUsageHTML() {
         '<span class="bento-usage-card-used bento-resources-used">-- Used</span>';
     h +=
         '<span class="bento-usage-card-details"><span class="bento-resources-percent">--%</span> of <span class="bento-resources-capacity">--</span></span>';
+    h +=
+        '<span class="bento-usage-card-details bento-resources-addon" style="display: none;"></span>';
     h += '</div>';
     h += '</div>';
 
@@ -605,6 +607,7 @@ const TabHome = {
         try {
             const res = await puter.auth.getMonthlyUsage();
             const budget = usageBudget(res.usage, res.allowanceInfo);
+            const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts
             // (no multiplier configured), and says which via the unit flag.
             const inCredits = usageIsCredits(res.allowanceInfo);
@@ -619,9 +622,15 @@ const TabHome = {
                 .find('.bento-resources-capacity')
                 .text(
                     inCredits
-                        ? `${amount(budget.capacity)} ${i18n('credits')}`
+                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
                         : amount(budget.capacity),
                 );
+            $el_window
+                .find('.bento-resources-addon')
+                .html(addonLeft === null
+                    ? ''
+                    : i18n('addon_credits_available', { amount: amount(addonLeft) }))
+                .toggle(addonLeft !== null);
             $el_window
                 .find('.bento-resources-percent')
                 .text(`${budget.percent}%`);
