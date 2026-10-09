@@ -752,10 +752,10 @@ describe('MeteringService', () => {
                 // The account is named by email — what someone reading the
                 // alert needs to look it up.
                 expect.stringContaining(overActor.user!.email!),
-                expect.stringContaining('exceeded their usage allowance'),
+                expect.stringContaining('exceeded their credits'),
                 expect.objectContaining({ totalUsage: expect.any(Number) }),
-                // Chat-only severity — records and de-dupes but doesn't page.
-                'info',
+                // Low-urgency page, not a chat-only record.
+                'warning',
             );
             alarmSpy.mockRestore();
         });
@@ -875,9 +875,9 @@ describe('MeteringService', () => {
 
             expect(alarmSpy).toHaveBeenCalledWith(
                 expect.stringContaining('usage exceeded'),
-                expect.stringContaining('exceeded their usage allowance'),
+                expect.stringContaining('exceeded their credits'),
                 expect.objectContaining({ purchasedCredits: credit }),
-                'info',
+                'warning',
             );
             alarmSpy.mockRestore();
         });

@@ -904,6 +904,19 @@ export const handle_completion_output = async (
 
     if (finally_fn) await finally_fn();
 
+    // Some OpenAI-compatible upstreams answer 200 with an error body and no
+    // choices. That's the upstream failing, not a crash of ours.
+    if (!completion?.choices?.length) {
+        const upstreamMessage = completion?.error?.message;
+        throw new HttpError(
+            400,
+            typeof upstreamMessage === 'string' && upstreamMessage
+                ? upstreamMessage
+                : 'no completion was returned',
+            { legacyCode: 'bad_response' },
+        );
+    }
+
     // Metered before moderation: the completion exists and the upstream has
     // billed us for it whether or not we go on to withhold it, and running
     // the moderation gate first meant a flagged completion was served to

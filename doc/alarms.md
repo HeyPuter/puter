@@ -36,9 +36,10 @@ pass one explicitly unless you really mean "page someone".
 ### Choosing one
 
 - Did the server fail to do its job in a way nobody expected? → `critical`
-- Is a background job, rate, or dependency degraded? → `warning`
-- Is this a user doing something notable (tripping an abuse heuristic,
-  overspending)? → `info`
+- Is a background job, rate, or dependency degraded, or has an account spent
+  far past its credits? → `warning`
+- Is this a user doing something notable (tripping an abuse heuristic)?
+  → `info`
 - Did one of *our own* limits reject a caller — a rate limit, a concurrency
   cap, a quota? → don't alarm at all. The limit doing its job is not an
   event; the 429 is the whole signal, and alarming on it only produces noise

@@ -1401,6 +1401,41 @@ describe('handle_completion_output non-stream', () => {
         expect(result.usage).toEqual({ input_tokens: 1, output_tokens: 2 });
     });
 
+    it.each([
+        ['missing', {}],
+        ['null', { choices: null }],
+        ['empty', { choices: [] }],
+    ])(
+        'throws bad_response when choices are %s',
+        async (_label, completion) => {
+            await expect(
+                handle_completion_output({
+                    deviations: undefined,
+                    stream: false,
+                    completion,
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_response',
+                message: 'no completion was returned',
+            });
+        },
+    );
+
+    it('carries an in-band upstream error message', async () => {
+        await expect(
+            handle_completion_output({
+                deviations: undefined,
+                stream: false,
+                completion: { error: { message: 'Provider returned error' } },
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_response',
+            message: 'Provider returned error',
+        });
+    });
+
     it('throws 400 when moderation flags the completion text', async () => {
         const completion = {
             choices: [{ message: { content: 'banned content' } }],
