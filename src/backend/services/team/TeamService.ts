@@ -18,6 +18,7 @@
  */
 
 import bcrypt from 'bcrypt';
+import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import {
     USERNAME_MAX_LENGTH,
@@ -356,7 +357,6 @@ export class TeamService extends PuterService {
             console.warn('[team] seat cap plan lookup failed:', e);
             return null;
         }
-    }
     }
 
     /** A rejected handle is 400, a taken one 409, never an unhandled 500. */
@@ -892,18 +892,16 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map(
-                (row): MemberActivityEntry => ({
-                    action: row.action,
-                    reason: row.reason,
-                    created_at: epochSeconds(row.created_at),
-                    username: name(row.user_id_keep),
-                    actor_username: name(row.actor_user_id),
-                    // Only a sign-in carries these; the shape stays uniform.
-                    ip: null,
-                    user_agent: null,
-                }),
-            ),
+            items: page.items.map((row): MemberActivityEntry => ({
+                action: row.action,
+                reason: row.reason,
+                created_at: epochSeconds(row.created_at),
+                username: name(row.user_id_keep),
+                actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
@@ -1021,14 +1019,26 @@ export class TeamService extends PuterService {
             });
         }
 
+        // An address a team typed in is a claim about someone else's inbox,
+        // so the seat confirms it before it counts for anything. No address is
+        // still fine: the team is the trust anchor for the account itself.
+        const confirmCode = email
+            ? String(crypto.randomInt(100000, 1000000))
+            : null;
         const user = await this.stores.user.create({
             username: input.username,
             uuid: uuidv4(),
             password: null,
             email: email || null,
             clean_email: email ? cleanEmail(email) : null,
-            // Never demanded: the team creating the account is the trust anchor.
-            requires_email_confirmation: false,
+            requires_email_confirmation: Boolean(email),
+            email_confirmed: false,
+            ...(email
+                ? {
+                      email_confirm_code: confirmCode,
+                      email_confirm_token: uuidv4(),
+                  }
+                : {}),
         });
 
         await generateDefaultFsentries(this.clients.db, this.stores.user, user);
@@ -1054,6 +1064,12 @@ export class TeamService extends PuterService {
         // Not mailed: nobody confirmed the address the owner typed in.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
         await this.#notifyUser(user, 'team_account_created', team);
+        // The seat cannot confirm a code it was never sent.
+        if (confirmCode) {
+            await this.#notifyUser(user, 'email_verification_code', team, {
+                code: confirmCode,
+            });
+        }
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {

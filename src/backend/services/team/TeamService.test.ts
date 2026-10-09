@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -127,7 +128,9 @@ describe('TeamService', () => {
         });
 
         // The check exists precisely because the schema cannot refuse this.
-        await expect(service.checkOwnerInvariant(team.uid)).resolves.toBe(false);
+        await expect(service.checkOwnerInvariant(team.uid)).resolves.toBe(
+            false,
+        );
     });
 
     // -- authority ----------------------------------------------------
@@ -171,7 +174,7 @@ describe('TeamService', () => {
         expect(row.suspended_reason).toBe('disabled_by_team');
     });
 
-    it('drops the disabled account\'s sessions', async () => {
+    it("drops the disabled account's sessions", async () => {
         const { team, member } = await makeTeam();
         await server.clients.db.write(
             'INSERT INTO `sessions` (`uuid`, `user_id`) VALUES (?, ?)',
@@ -206,7 +209,7 @@ describe('TeamService', () => {
         expect(row.suspended_reason).toBeNull();
     });
 
-    it('leaves the disabled account\'s files alone', async () => {
+    it("leaves the disabled account's files alone", async () => {
         const { team, member } = await makeTeam();
         await server.clients.db.write(
             'INSERT INTO `fsentries` (`uuid`, `name`, `user_id`, `modified`) VALUES (?, ?, ?, ?)',
@@ -277,7 +280,6 @@ describe('TeamService', () => {
         await service.enableMember(team.uid, owner.id, member.id);
         expect(Boolean((await suspensionOf(member.id)).suspended)).toBe(false);
     });
-
 
     // -- provisioning -------------------------------------------------
 
@@ -609,7 +611,7 @@ describe('TeamService', () => {
         expect(created.temporaryPassword).toEqual(expect.any(String));
     });
 
-    it('never demands confirmation, with or without an address', async () => {
+    it('demands confirmation of an address, and only when one is given', async () => {
         // The gate is `requires_email_confirmation && !email_confirmed`.
         const { team } = await makeTeam();
         const bare = `bare_${Math.random().toString(36).slice(2, 9)}`;
@@ -623,12 +625,48 @@ describe('TeamService', () => {
             email: `${withEmail}@test.local`,
         });
 
-        for (const id of [a.userId, b.userId]) {
-            const row = await server.stores.user.getByProperty('id', id, {
+        const rowOf = (id: number) =>
+            server.stores.user.getByProperty('id', id, { force: true });
+
+        // No address, nothing to confirm: the team vouches for the account.
+        const bareRow = await rowOf(a.userId);
+        expect(Boolean(bareRow?.requires_email_confirmation)).toBe(false);
+
+        // An address the team typed in is a claim about someone else's inbox.
+        const emailRow = await rowOf(b.userId);
+        expect(Boolean(emailRow?.requires_email_confirmation)).toBe(true);
+        expect(Boolean(emailRow?.email_confirmed)).toBe(false);
+        // And a code it can actually be confirmed with.
+        expect(emailRow?.email_confirm_code).toBeTruthy();
+    });
+
+    it('lets the seat clear the demand with the code it was sent', async () => {
+        const { team } = await makeTeam();
+        const username = `conf_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const rowOf = () =>
+            server.stores.user.getByProperty('id', created.userId, {
                 force: true,
             });
-            expect(Boolean(row?.requires_email_confirmation)).toBe(false);
-        }
+        const before = await rowOf();
+        expect(Boolean(before?.requires_email_confirmation)).toBe(true);
+        expect(Boolean(before?.email_confirmed)).toBe(false);
+
+        // What `/confirm-email` does once the seat hands back the code.
+        await server.stores.user.update(created.userId, {
+            email_confirmed: true,
+            email_confirm_code: null,
+        });
+
+        // The gate is `requires_email_confirmation && !email_confirmed`, so
+        // confirming clears it without the demand having to be withdrawn.
+        const after = await rowOf();
+        expect(Boolean(after?.requires_email_confirmation)).toBe(true);
+        expect(Boolean(after?.email_confirmed)).toBe(true);
     });
 
     it('keeps an address when one is given', async () => {
@@ -754,14 +792,20 @@ describe('TeamService', () => {
             await server.stores.user.invalidateById(owner.id);
             await service.updateTeam(team.uid, owner.id, { require2fa: true });
             expect(
-                Number((await server.stores.team.getOrgSeat(member.id))?.require_2fa),
+                Number(
+                    (await server.stores.team.getOrgSeat(member.id))
+                        ?.require_2fa,
+                ),
             ).toBe(1);
 
             // The seat row is cached, so turning it off has to bust it or the
             // member stays locked out until the TTL lapses.
             await service.updateTeam(team.uid, owner.id, { require2fa: false });
             expect(
-                Number((await server.stores.team.getOrgSeat(member.id))?.require_2fa),
+                Number(
+                    (await server.stores.team.getOrgSeat(member.id))
+                        ?.require_2fa,
+                ),
             ).toBe(0);
         });
     });
@@ -1009,9 +1053,9 @@ describe('TeamService', () => {
             'disable',
             'provision',
         ]);
-        expect(
-            forMember.every((e) => e.actor_username === ownerUsername),
-        ).toBe(true);
+        expect(forMember.every((e) => e.actor_username === ownerUsername)).toBe(
+            true,
+        );
     });
 
     it('shows a member only their own entries', async () => {
@@ -1027,7 +1071,10 @@ describe('TeamService', () => {
             email: `${b}@test.local`,
         });
 
-        const { items: own } = await service.listOwnAudit(team.uid, first.userId);
+        const { items: own } = await service.listOwnAudit(
+            team.uid,
+            first.userId,
+        );
         expect(own).toHaveLength(1);
         expect(own[0].username).toBe(a);
         // Internal ids must not reach a caller, as `toClientTeam` does for `id`.
@@ -1148,10 +1195,14 @@ describe('TeamService', () => {
         const seen: string[] = [];
         let cursor: string | undefined;
         for (let page = 0; page < 8; page++) {
-            const result = await service.listOwnAudit(team.uid, created.userId, {
-                limit: 1,
-                cursor,
-            });
+            const result = await service.listOwnAudit(
+                team.uid,
+                created.userId,
+                {
+                    limit: 1,
+                    cursor,
+                },
+            );
             seen.push(...result.items.map((e) => e.action));
             cursor = result.cursor;
             if (!cursor) break;
@@ -1276,11 +1327,22 @@ describe('TeamService', () => {
             mail.restore();
         }
 
-        expect(mail.sent).toHaveLength(1);
-        expect(mail.sent[0].to).toBe(`${username}@test.local`);
+        // The account notice, and the code the address is confirmed with.
+        expect(mail.sent).toHaveLength(2);
+        for (const sent of mail.sent) {
+            expect(sent.to).toBe(`${username}@test.local`);
+            // The owner already has the credential; it never goes to an
+            // address nobody has confirmed yet.
+            expect(sent.html).not.toContain(created.temporaryPassword);
+        }
         expect(mail.sent[0].html).toContain(username);
-        // Nobody confirmed this address; the owner has the credential already.
-        expect(mail.sent[0].html).not.toContain(created.temporaryPassword);
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(mail.sent[1].html).toContain(row!.email_confirm_code);
     });
 
     it('sends nothing when no address is given', async () => {
@@ -1402,5 +1464,4 @@ describe('TeamService', () => {
         expect(second.items).toHaveLength(1);
         expect(second.items[0]).not.toEqual(first.items[0]);
     });
-
 });
