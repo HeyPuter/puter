@@ -2427,6 +2427,12 @@ export class AuthService extends PuterService {
         return created - APP_SESSION_CLOCK_SKEW_SECONDS;
     }
 
+    #createdBefore(row: SessionRow | null, notBefore: number | null): boolean {
+        if (notBefore === null || !row) return false;
+        const createdAt = Number(row.created_at);
+        return createdAt > 0 && createdAt < notBefore;
+    }
+
     async #actorFromAccessTokenToken(
         decoded: AccessTokenPayload,
         ctx: { ip?: string; userAgent?: string } = {},
@@ -2437,6 +2443,7 @@ export class AuthService extends PuterService {
         if (!user) return { invalid: true };
 
         let session: SessionRow | null = null;
+        let parentSession: SessionRow | null = null;
         if (decoded.session_uid) {
             const rawRow = (await this.stores.session.getByUuidAny(
                 decoded.session_uid,
@@ -2468,6 +2475,7 @@ export class AuthService extends PuterService {
                 ) {
                     return { reauth: { reason: 'session_expired' } };
                 }
+                parentSession = parent;
             }
             session = rawRow;
         }
@@ -2478,6 +2486,15 @@ export class AuthService extends PuterService {
             if (!app) return { invalid: true };
             const blocked = await this.#appOriginBlock(app);
             if (blocked) return { blocked };
+            // As with app sessions: a token minted under an earlier app that
+            // held this uid doesn't authenticate as the current one.
+            const notBefore = this.#appSessionsNotBefore(app);
+            if (
+                this.#createdBefore(session, notBefore) ||
+                this.#createdBefore(parentSession, notBefore)
+            ) {
+                return { reauth: { reason: 'session_revoked' } };
+            }
             authorizer = this.#buildAppUnderUserActor(user, app, null);
         } else {
             authorizer = this.#buildUserActor(user, null);
