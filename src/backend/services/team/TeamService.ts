@@ -1061,6 +1061,17 @@ export class TeamService extends PuterService {
         };
     }
 
+    /**
+     * Take an unconfirmed address off a seat. The team typed it and nobody
+     * proved it, so it mustn't keep the inbox's owner from signing up with it.
+     * Returns false, changing nothing, unless `userId` is a seat whose address
+     * is unconfirmed.
+     */
+    async releaseUnconfirmedSeatEmail(userId: number): Promise<boolean> {
+        if (!(await this.stores.team.getOrgSeat(userId))) return false;
+        return this.stores.user.clearUnconfirmedEmail(userId);
+    }
+
     /** Issues a fresh credential, invalidating the previous one. */
     async reissueCredential(
         teamUid: string,
