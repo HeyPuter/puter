@@ -64,7 +64,10 @@ import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // -- Types ------------------------------------------------------------
 
-type SubscriptionPolicy = (typeof SUB_POLICIES)[number];
+type SubscriptionPolicy = (typeof SUB_POLICIES)[number] & {
+    /** Seats a team owned by an account on this plan may provision. */
+    teamSeatCap?: number;
+};
 
 export type SubscriptionResolver = (
     actor: Actor,

@@ -298,7 +298,7 @@ describe('team and seat caps', () => {
 
     // Only reachable with `max_seats_per_team` unset; the override wins.
     describe('with no configured override', () => {
-        const FREE = 4;
+        const FREE = 3;
 
         it('is not overridden by the shipped defaults', async () => {
             // A flat cap in config.default.json makes the plan branch below
@@ -338,7 +338,7 @@ describe('team and seat caps', () => {
             vi.restoreAllMocks();
         });
 
-        it('stops a free team at four seats', async () => {
+        it('stops a free team at three seats', async () => {
             const owner = await makeUser();
             const team = await makeTeam(owner.id);
             await withoutOverride(async () => {
@@ -368,6 +368,24 @@ describe('team and seat caps', () => {
                 await expect(
                     provision(team.uid, owner.id),
                 ).resolves.toBeTruthy();
+            });
+        });
+
+        it("takes the plan's own seat cap over the paid one", async () => {
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                vi.spyOn(
+                    server.services.metering,
+                    'getActorSubscription',
+                ).mockResolvedValue({ id: 'basic', teamSeatCap: 2 } as never);
+                await fill(team.uid, owner.id, 2);
+                await expect(
+                    provision(team.uid, owner.id),
+                ).rejects.toMatchObject({
+                    legacyCode: 'seat_limit_reached',
+                    fields: { limit: 2 },
+                });
             });
         });
 
