@@ -669,6 +669,31 @@ describe('TeamService', () => {
         expect(Boolean(after?.email_confirmed)).toBe(true);
     });
 
+    it('stops demanding confirmation when the address is released', async () => {
+        // `releaseUnconfirmedSeatEmail` hands the address back to the inbox's
+        // owner. A demand left behind would outlive what it was demanding,
+        // and `/send-confirm-email` has no address to send a new code to.
+        const { team } = await makeTeam();
+        const username = `rel_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        expect(
+            await service.releaseUnconfirmedSeatEmail(created.userId),
+        ).toBe(true);
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(row?.email).toBeNull();
+        // The gate is `requires_email_confirmation && !email_confirmed`.
+        expect(Boolean(row?.requires_email_confirmation)).toBe(false);
+    });
+
     it('keeps an address when one is given', async () => {
         const { team } = await makeTeam();
         const username = `kept_${Math.random().toString(36).slice(2, 9)}`;
