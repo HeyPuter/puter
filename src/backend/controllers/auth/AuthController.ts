@@ -29,6 +29,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
+    DEFAULT_ADMIN_USERNAMES,
     hasVerifiedCard,
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
@@ -285,6 +286,15 @@ const PASS_RECOVERY_EMAIL_TARGET_LIMIT = {
     limit: 5,
     window: 60 * 60_000,
 } as const;
+
+const BUILT_IN_ADMIN_USERNAMES: ReadonlySet<string> = new Set(
+    DEFAULT_ADMIN_USERNAMES,
+);
+
+/** Built-in admin accounts have no email password recovery. */
+const isBuiltInAdmin = (username: unknown): boolean =>
+    typeof username === 'string' &&
+    BUILT_IN_ADMIN_USERNAMES.has(username.toLowerCase());
 
 /** Lifetime of the `otp-login` JWT `/login` hands back. */
 const OTP_LOGIN_TOKEN_TTL = '5m';
@@ -2546,6 +2556,13 @@ export class AuthController extends PuterController {
             user = await this.stores.user.getByEmail(email);
         }
 
+        // Same answer as any account, nothing sent, and the attempt alarms.
+        if (user && isBuiltInAdmin(user.username)) {
+            this.#adminRecoveryAttempted(req, user.username as string);
+            res.json({ message: genericMessage });
+            return;
+        }
+
         if (!user || user.suspended || !user.email) {
             res.json({ message: genericMessage });
             return;
@@ -2607,6 +2624,31 @@ export class AuthController extends PuterController {
         res.json({ message: genericMessage });
     }
 
+    /**
+     * Pages on a recovery request for a built-in admin account. `dedup` per IP,
+     * so one source retrying is one incident.
+     */
+    #adminRecoveryAttempted(req: Request, target: string): void {
+        const ip = req.ip || req.socket?.remoteAddress || null;
+        try {
+            this.clients.alarm?.create(
+                `auth:admin-pass-recovery-attempt:${ip ?? 'unknown'}`,
+                'Password recovery requested for a built-in admin account',
+                {
+                    target,
+                    ip,
+                    user_agent: req.headers?.['user-agent'] ?? null,
+                    requester_uid: req.actor?.user?.uuid ?? null,
+                    requester_username: req.actor?.user?.username ?? null,
+                },
+                'critical',
+                { dedup: true },
+            );
+        } catch (e) {
+            console.warn('[send-pass-recovery-email] admin alarm failed:', e);
+        }
+    }
+
     @Post('/verify-pass-recovery-token', {
         subdomain: ['api', ''],
         rateLimit: {
@@ -2645,7 +2687,11 @@ export class AuthController extends PuterController {
         }
 
         const user = await this.stores.user.getByUuid(decoded?.user_uid);
-        if (!user || user.email !== decoded.email) {
+        if (
+            !user ||
+            user.email !== decoded.email ||
+            isBuiltInAdmin(user.username)
+        ) {
             throw new HttpError(400, 'Token is no longer valid.', {
                 legacyCode: 'bad_request',
             });
@@ -2707,7 +2753,11 @@ export class AuthController extends PuterController {
         }
 
         const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user || user.email !== decoded.email) {
+        if (
+            !user ||
+            user.email !== decoded.email ||
+            isBuiltInAdmin(user.username)
+        ) {
             throw new HttpError(400, 'Token is no longer valid.', {
                 legacyCode: 'bad_request',
             });

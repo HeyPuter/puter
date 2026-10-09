@@ -6223,6 +6223,104 @@ describe('AuthController password recovery', () => {
         expect(after!.pass_recovery_token).toBeFalsy();
     });
 
+    // `system` is seeded by migration; `admin` only by the self-hosted boot.
+    const builtInAdmin = async (username: 'admin' | 'system') => {
+        const existing = await server.stores.user.getByUsername(username);
+        const row =
+            existing ??
+            (await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: await bcrypt.hash('admin-password', 8),
+                email: null,
+                requires_email_confirmation: false,
+            }));
+        await server.stores.user.update(row.id, {
+            email: `${username}_${uniq()}@test.local`,
+            pass_recovery_token: null,
+        });
+        return (await server.stores.user.getById(row.id, { force: true }))!;
+    };
+
+    it('send-pass-recovery-email: sends nothing for a built-in admin account and alarms with the requester IP', async () => {
+        const ip = '203.0.113.7';
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(undefined as never);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            for (const name of ['admin', 'system'] as const) {
+                const admin = await builtInAdmin(name);
+                for (const body of [
+                    { username: name },
+                    { email: admin.email },
+                ]) {
+                    const res = makeRes();
+                    await controller.handleSendPassRecoveryEmail(
+                        makeReq(body, { ip }),
+                        res,
+                    );
+                    expect((res.body as { message: string }).message).toMatch(
+                        /If that account exists/i,
+                    );
+                }
+                const after = await server.stores.user.getById(admin.id, {
+                    force: true,
+                });
+                expect(after!.pass_recovery_token).toBeFalsy();
+                expect(alarm).toHaveBeenCalledWith(
+                    `auth:admin-pass-recovery-attempt:${ip}`,
+                    expect.any(String),
+                    expect.objectContaining({ target: name, ip }),
+                    'critical',
+                    { dedup: true },
+                );
+            }
+            expect(send).not.toHaveBeenCalled();
+            expect(alarm).toHaveBeenCalledTimes(4);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
+
+    it('set-pass-using-token: refuses a recovery token for a built-in admin account', async () => {
+        const admin = await builtInAdmin('admin');
+        const recoveryToken = uuidv4();
+        await server.stores.user.update(admin.id, {
+            pass_recovery_token: recoveryToken,
+        });
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: recoveryToken,
+                user_uid: admin.uuid,
+                email: admin.email,
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+
+        await expect(
+            controller.handleVerifyPassRecoveryToken(
+                makeReq({ token: jwt }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({ token: jwt, password: 'a-brand-new-password' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        const after = await server.stores.user.getById(admin.id, {
+            force: true,
+        });
+        expect(after!.password).toBe(admin.password);
+    });
+
     it('verify-pass-recovery-token: 400 on missing token', async () => {
         await expect(
             controller.handleVerifyPassRecoveryToken(makeReq({}), makeRes()),
