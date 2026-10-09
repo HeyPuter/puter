@@ -1017,8 +1017,28 @@ export class ShareStore extends PuterStore {
      *
      * @param {number} fsentryId
      */
+    /** How long after a link is withdrawn these reads go to the primary. */
+    static REVOKED_LINK_PRIMARY_WINDOW_SECONDS = 30;
+
+    #revokedLinkKey() {
+        return 'share:anyone:revoked-recently';
+    }
+
+    /** Past the replica while a link has just been withdrawn. */
+    async #readAnyone(sql, params) {
+        let recent = false;
+        try {
+            recent = !!(await this.clients.redis.get(this.#revokedLinkKey()));
+        } catch {
+            // Unreadable marker reads as no revoke; the row is still checked.
+        }
+        return recent
+            ? this.clients.db.pread(sql, params)
+            : this.clients.db.read(sql, params);
+    }
+
     async getAnyone(fsentryId) {
-        const rows = await this.clients.db.read(
+        const rows = await this.#readAnyone(
             'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1',
             [fsentryId],
         );
@@ -1033,7 +1053,7 @@ export class ShareStore extends PuterStore {
     async listAnyoneOnFsentries(fsentryIds) {
         if (fsentryIds.length === 0) return [];
         const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
+        const rows = await this.#readAnyone(
             `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
                 'AND `anyone` = 1 ORDER BY `id`',
             fsentryIds,
@@ -1054,7 +1074,7 @@ export class ShareStore extends PuterStore {
     async listAnyoneReaching(uuids) {
         if (uuids.length === 0) return [];
         const placeholders = uuids.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
+        const rows = await this.#readAnyone(
             'SELECT `share`.`mode`, `fsentries`.`uuid` AS `entry_uuid`, ' +
                 '`fsentries`.`user_id` AS `owner_user_id` FROM `share` ' +
                 'JOIN `fsentries` ON `fsentries`.`id` = `share`.`fsentry_id` ' +
@@ -1133,7 +1153,23 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
             [fsentryId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const removed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        if (removed) await this.#markLinkRevoked();
+        return removed;
+    }
+
+    /** Open the window in which link reads go to the primary. */
+    async #markLinkRevoked() {
+        try {
+            await this.clients.redis.set(
+                this.#revokedLinkKey(),
+                '1',
+                'EX',
+                ShareStore.REVOKED_LINK_PRIMARY_WINDOW_SECONDS,
+            );
+        } catch (e) {
+            console.warn('[share] link-revoke marker not set:', e);
+        }
     }
 
     // -- Daily quota --------------------------------------------------

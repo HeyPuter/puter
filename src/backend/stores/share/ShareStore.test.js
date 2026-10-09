@@ -332,6 +332,34 @@ describe('ShareStore', () => {
             expect(page.items.map((r) => r.uid)).toContain(created.uid);
         });
 
+        it('reads a link past the replica once one has been withdrawn', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                // Nothing withdrawn: the ordinary read serves it.
+                await store.getAnyone(entry.id);
+                expect(read).toHaveBeenCalled();
+                expect(pread).not.toHaveBeenCalled();
+
+                read.mockClear();
+                pread.mockClear();
+                await store.deleteAnyone(entry.id);
+                // Withdrawn just now, so the row is read where it is gone.
+                expect(await store.getAnyone(entry.id)).toBeNull();
+                expect(pread).toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
         it('lets a link share lose its app, and never take another one', async () => {
             const entry = await makeEntry(issuer);
             const appOf = (row) => {

@@ -152,6 +152,28 @@ describe('PermissionStore', () => {
             expect(rows[0].extra).toEqual({ v: 2 });
         });
 
+        it('re-fills the cache from the primary when a grant is revoked', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+            await store.upsertUserAppPerm(user.id, app.id, 'driver:kv', {});
+            // Warm it, so a revoke has something to leave behind.
+            await store.hasUserAppPerm(user.id, app.id, 'driver:kv');
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            try {
+                await store.deleteUserAppPerm(user.id, app.id, 'driver:kv');
+                read.mockClear();
+                // Answered from the re-filled cache, not from a replica that
+                // may still carry the row that was just removed.
+                expect(
+                    await store.hasUserAppPerm(user.id, app.id, 'driver:kv'),
+                ).toBe(false);
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
+        });
+
         it('deletes a single grant and every grant for an app', async () => {
             const user = await makeUser();
             const app = await makeApp(user.id);

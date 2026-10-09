@@ -708,6 +708,11 @@ export type EventMap = {
      * the next handshake.
      */
     'auth.sessions.revoked': { user_id: number; session_uids: string[] };
+    /** The same revocation, carried to sibling nodes and peer clusters. */
+    'outer.pubsub.auth.sessions.revoked': {
+        user_id: number;
+        session_uids: string[];
+    };
 
     /** One access token was revoked; only its own connections should drop. */
     'auth.access-token.revoked': { token_uid: string };

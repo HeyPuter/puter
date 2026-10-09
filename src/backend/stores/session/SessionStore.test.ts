@@ -205,6 +205,23 @@ describe('SessionStore', () => {
             expect(row.revoked_at).toBeGreaterThan(0);
         });
 
+        it('leaves the revoked row cached, so no replica can re-introduce it', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+            await target.getByUuid(session.uuid);
+
+            await target.removeByUuid(session.uuid);
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            try {
+                // Answered from the cache the revoke left, not from a read.
+                expect(await target.getByUuid(session.uuid)).toBeNull();
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
+        });
+
         it('is idempotent — second call does not overwrite revoked_at', async () => {
             const user = await makeUser();
             const session = await target.create(user.id);
