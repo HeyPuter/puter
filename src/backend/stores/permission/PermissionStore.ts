@@ -798,6 +798,25 @@ export class PermissionStore extends PuterStore {
         return rows.map((row) => this.#decodeExtra<LinkedUserAppPermRow>(row));
     }
 
+    /** Re-fill from the primary; a miss on a replica re-caches a stale row. */
+    async warmUserAppPermsFromPrimary(
+        userId: number,
+        appId: number,
+    ): Promise<void> {
+        try {
+            const rows = await this.listUserAppPermsFromPrimary(userId, appId);
+            await this.clients.redis.set(
+                this.#u2aCacheKey(userId, appId),
+                JSON.stringify(rows),
+                'EX',
+                U2A_CACHE_TTL_SECONDS,
+            );
+        } catch (e) {
+            // A key left absent is the safe miss: the next read goes to the DB.
+            console.warn('[permission] u2a cache re-fill failed:', e);
+        }
+    }
+
     async upsertUserAppPerm(
         userId: number,
         appId: number,
@@ -838,6 +857,7 @@ export class PermissionStore extends PuterStore {
             keys: [this.#u2aCacheKey(userId, appId)],
             broadcast: true,
         });
+        await this.warmUserAppPermsFromPrimary(userId, appId);
     }
 
     async deleteUserAppAll(userId: number, appId: number): Promise<void> {
@@ -849,6 +869,7 @@ export class PermissionStore extends PuterStore {
             keys: [this.#u2aCacheKey(userId, appId)],
             broadcast: true,
         });
+        await this.warmUserAppPermsFromPrimary(userId, appId);
     }
 
     /**

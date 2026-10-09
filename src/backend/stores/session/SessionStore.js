@@ -388,6 +388,27 @@ export class SessionStore extends PuterStore {
             [now, uuid],
         );
         await this.publishCacheKeys({ keys, broadcast: true });
+        await this.#cacheRevokedFromPrimary(uuid);
+    }
+
+    /**
+     * Seed the cache with the revoked row, read from the primary. Dropping the
+     * key alone leaves the next miss to a replica that may still show the row
+     * active, which would then be cached for a full TTL.
+     */
+    async #cacheRevokedFromPrimary(uuid) {
+        try {
+            const rows = await this.clients.db.pread(
+                'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                [uuid],
+            );
+            const normalized = this.#normalizeRow(rows[0]);
+            if (normalized?.revoked_at != null) {
+                await this.#writeCache(normalized);
+            }
+        } catch {
+            // No entry is the safe miss; the next read goes to the database.
+        }
     }
 
     /**

@@ -834,8 +834,10 @@ export class SocketService extends PuterService {
             },
         );
 
+        // Fires on this node and carries to peer clusters; the adapter
+        // reaches the rest of this one.
         this.clients.event.on(
-            'auth.sessions.revoked',
+            'outer.auth.sessions.revoked',
             (_key: string, data: unknown) => {
                 const { user_id } = data as { user_id: number };
                 this.#evictUserSockets(user_id).catch((err: unknown) => {

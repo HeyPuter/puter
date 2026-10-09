@@ -662,6 +662,28 @@ describe('SocketService (live socket.io)', () => {
         });
     });
 
+    it('drops the connection on a revocation that reached it from elsewhere', async () => {
+        const evicted = await createTestUser(server, {
+            username: 'sock-fanout',
+            password: 'sock-fanout-password',
+        });
+        const row = await server.stores.user.getByUsername(evicted.username);
+        const socket = await connect({ auth_token: `Bearer ${evicted.token}` });
+        expect(socket.connected).toBe(true);
+
+        // As a peer cluster delivers it: the node holding this socket is not
+        // the one that revoked the session.
+        server.clients.event.emit(
+            'outer.auth.sessions.revoked',
+            { user_id: row!.id, session_uids: ['whatever'] },
+            {},
+        );
+
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
     it('leaves other accounts alone when one is revoked', async () => {
         const kept = await createTestUser(server, {
             username: 'sock-kept',
