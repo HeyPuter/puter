@@ -43,6 +43,7 @@ import {
 import { setupTestServer } from '../../testUtil.js';
 import type { PuterServer } from '../../server.js';
 import type { IConfig } from '../../types.js';
+import { CONCURRENT_SLOT_TTL_MS } from '../../core/http/middleware/rateLimit.js';
 import { presenceItemKey } from './PresenceStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -52,6 +53,12 @@ let emitted: string[];
 let seq = 0;
 
 const presence = () => server.stores.presence;
+
+/** Move the clock without waiting: only `Date` is faked. */
+const jump = (ms: number): void => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + ms);
+};
 const userUuid = () => `presence-user-${seq}`;
 const appUid = () => `presence-app-${seq}`;
 
@@ -240,36 +247,40 @@ describe('the retire claim', () => {
     });
 });
 
-describe('this region`s connection count', () => {
-    it('crosses zero once, however many connections come and go', async () => {
-        const store = presence();
-        expect(await store.addConnection(seq, appUid())).toBe(1);
-        expect(await store.addConnection(seq, appUid())).toBe(2);
-        expect(await store.addConnection(seq, appUid())).toBe(3);
-
-        expect(await store.removeConnection(seq, appUid())).toBe(2);
-        expect(await store.removeConnection(seq, appUid())).toBe(1);
-        expect(await store.removeConnection(seq, appUid())).toBe(0);
+describe('this region`s live sockets', () => {
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
-    it('keeps nothing behind once the last connection goes', async () => {
+    it('crosses zero once, however many sockets come and go', async () => {
         const store = presence();
-        await store.addConnection(seq, appUid());
-        await store.removeConnection(seq, appUid());
+        expect(await store.addConnection(seq, appUid(), 'tab-1')).toBe(1);
+        expect(await store.addConnection(seq, appUid(), 'tab-2')).toBe(2);
+        expect(await store.addConnection(seq, appUid(), 'tab-3')).toBe(3);
+
+        expect(await store.removeConnection(seq, appUid(), 'tab-1')).toBe(2);
+        expect(await store.removeConnection(seq, appUid(), 'tab-2')).toBe(1);
+        expect(await store.removeConnection(seq, appUid(), 'tab-3')).toBe(0);
+    });
+
+    it('keeps nothing behind once the last socket goes', async () => {
+        const store = presence();
+        await store.addConnection(seq, appUid(), 'tab-1');
+        await store.removeConnection(seq, appUid(), 'tab-1');
 
         expect(await store.holdsConnection(seq, appUid())).toBe(false);
-        // A double reap must not drive it below zero and hide the next connect.
-        expect(await store.removeConnection(seq, appUid())).toBe(0);
-        expect(await store.addConnection(seq, appUid())).toBe(1);
+        // A double reap changes nothing and hides no later connect.
+        expect(await store.removeConnection(seq, appUid(), 'tab-1')).toBe(0);
+        expect(await store.addConnection(seq, appUid(), 'tab-2')).toBe(1);
     });
 
-    it('keeps a connection that lands while the last one is being dropped', async () => {
+    it('keeps a socket that lands while the last one is being dropped', async () => {
         const store = presence();
-        await store.addConnection(seq, appUid());
+        await store.addConnection(seq, appUid(), 'tab-1');
 
         await Promise.all([
-            store.removeConnection(seq, appUid()),
-            store.addConnection(seq, appUid()),
+            store.removeConnection(seq, appUid(), 'tab-1'),
+            store.addConnection(seq, appUid(), 'tab-2'),
         ]);
 
         expect(await store.holdsConnection(seq, appUid())).toBe(true);
@@ -277,7 +288,7 @@ describe('this region`s connection count', () => {
 
     it('counts each app of one user separately', async () => {
         const store = presence();
-        await store.addConnection(seq, appUid());
+        await store.addConnection(seq, appUid(), 'tab-1');
 
         expect(await store.holdsConnection(seq, `${appUid()}-other`)).toBe(
             false,
@@ -285,22 +296,74 @@ describe('this region`s connection count', () => {
         expect(await store.holdsConnection(seq, appUid())).toBe(true);
     });
 
-    it('survives a touch, which only ever refreshes an existing count', async () => {
+    it('stops counting a socket that stopped renewing, while one that renews keeps the pair', async () => {
         const store = presence();
-        await store.addConnection(seq, appUid());
+        // `dead` is on a node that crashed: no disconnect, no renewals.
+        await store.addConnection(seq, appUid(), 'dead');
+        await store.addConnection(seq, appUid(), 'live');
 
-        await store.touchConnection(seq, appUid());
+        jump(CONCURRENT_SLOT_TTL_MS / 2);
+        await store.touchConnection(seq, appUid(), 'live');
+        jump(CONCURRENT_SLOT_TTL_MS / 2 + 1_000);
+
+        expect(await store.holdsConnection(seq, appUid())).toBe(true);
+        // The live one going is the last one: the dead one does not count.
+        expect(await store.removeConnection(seq, appUid(), 'live')).toBe(0);
+        expect(await store.holdsConnection(seq, appUid())).toBe(false);
+    });
+
+    it('counts a socket again on its next renewal after it lapsed', async () => {
+        const store = presence();
+        await store.addConnection(seq, appUid(), 'tab-1');
+        jump(CONCURRENT_SLOT_TTL_MS + 1_000);
+        expect(await store.holdsConnection(seq, appUid())).toBe(false);
+
+        await store.touchConnection(seq, appUid(), 'tab-1');
 
         expect(await store.holdsConnection(seq, appUid())).toBe(true);
     });
+});
 
-    it('does nothing when there is nothing to touch', async () => {
-        // Self-hosted and no-peer deployments never write the counter at all;
-        // touching one that was never created must not create it.
+describe('the leaving mark', () => {
+    it('is set when the last socket goes inside a grace window', async () => {
         const store = presence();
-        await store.touchConnection(seq, appUid());
+        await store.addConnection(seq, appUid(), 'tab-1');
 
-        expect(await store.holdsConnection(seq, appUid())).toBe(false);
+        await store.removeConnection(seq, appUid(), 'tab-1', 10_000);
+
+        expect(await store.isLeaving(seq, appUid())).toBe(true);
+    });
+
+    it('is not set while another socket remains', async () => {
+        const store = presence();
+        await store.addConnection(seq, appUid(), 'tab-1');
+        await store.addConnection(seq, appUid(), 'tab-2');
+
+        await store.removeConnection(seq, appUid(), 'tab-1', 10_000);
+
+        expect(await store.isLeaving(seq, appUid())).toBe(false);
+    });
+
+    it('is cleared by the next connect', async () => {
+        const store = presence();
+        await store.addConnection(seq, appUid(), 'tab-1');
+        await store.removeConnection(seq, appUid(), 'tab-1', 10_000);
+
+        await store.addConnection(seq, appUid(), 'tab-2');
+
+        expect(await store.isLeaving(seq, appUid())).toBe(false);
+    });
+
+    it('lapses with its window', async () => {
+        const store = presence();
+        await store.addConnection(seq, appUid(), 'tab-1');
+        await store.removeConnection(seq, appUid(), 'tab-1', 50);
+
+        await vi.waitFor(
+            async () =>
+                expect(await store.isLeaving(seq, appUid())).toBe(false),
+            { timeout: 2_000, interval: 20 },
+        );
     });
 });
 
@@ -327,11 +390,17 @@ describe('a touch`s item refresh', () => {
         const app = appUid();
         await store.join(uuid, app, 'west', 11);
         // First touch in the window wins the claim and writes.
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
 
         const spy = vi.spyOn(server.stores.kv, 'refreshReservedItem');
         // Same window, same pair-region — the claim is already spent.
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
 
         expect(spy).not.toHaveBeenCalled();
     });
@@ -349,7 +418,10 @@ describe('a touch`s item refresh', () => {
         });
 
         const spy = vi.spyOn(server.stores.kv, 'refreshReservedItem');
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
 
         expect(spy).toHaveBeenCalledTimes(1);
         const item = await server.stores.kv.getReservedItem<{ ttl: number }>(
@@ -369,7 +441,10 @@ describe('a touch`s item refresh', () => {
         // stale `leave` both leave behind on a socket that never disconnected.
         await store.leave(uuid, app, 'west', 11);
 
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
 
         expect((await store.read(uuid, app)).regions.west).toBeDefined();
     });
@@ -381,7 +456,10 @@ describe('a touch`s item refresh', () => {
         // No join at all — the same state a real TTL sweep eventually leaves.
 
         const before = Date.now();
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
         const after = Date.now();
 
         const item = await server.stores.kv.getReservedItem<{
@@ -397,7 +475,10 @@ describe('a touch`s item refresh', () => {
         const app = appUid();
         await store.join(uuid, app, 'west', 11);
 
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
 
         expect((await store.read(uuid, app)).regions).toEqual({ west: 11 });
     });
@@ -414,23 +495,27 @@ describe('a touch`s item refresh', () => {
             .spyOn(server.stores.kv, 'refreshReservedItem')
             .mockRejectedValueOnce(new Error('table refused the write'));
         await expect(
-            store.touchConnection(seq, app, { userUuid: uuid, region: 'west' }),
+            store.touchConnection(seq, app, 'tab-1', {
+                userUuid: uuid,
+                region: 'west',
+            }),
         ).rejects.toThrow('table refused the write');
         failing.mockRestore();
 
         const retry = vi.spyOn(server.stores.kv, 'refreshReservedItem');
-        await store.touchConnection(seq, app, { userUuid: uuid, region: 'west' });
+        await store.touchConnection(seq, app, 'tab-1', {
+            userUuid: uuid,
+            region: 'west',
+        });
 
         expect(retry).toHaveBeenCalledTimes(1);
     });
 
-    it('does nothing when there is no claim to try — the two-arg form', async () => {
-        // The socket renew timer's own call site: no peer regions configured,
-        // so nothing here should ever ask for the item refresh.
+    it('does nothing to the table when there is no claim to try', async () => {
         const store = presence();
         const spy = vi.spyOn(server.stores.kv, 'refreshReservedItem');
 
-        await store.touchConnection(seq, appUid());
+        await store.touchConnection(seq, appUid(), 'tab-1');
 
         expect(spy).not.toHaveBeenCalled();
     });

@@ -1608,14 +1608,16 @@ export class EventsService extends PuterService {
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
         // subscribed yet is still somewhere, and that is what a peer needs.
-        void this.services.eventForward.noteConnect(actor).catch((err) => {
-            console.warn('[events] presence connect failed', err);
-        });
+        void this.services.eventForward
+            .noteConnect(actor, socket.id)
+            .catch((err) => {
+                console.warn('[events] presence connect failed', err);
+            });
 
         socket.once('disconnect', (() => {
             void this.reapSocket(userId, socket.id);
             void this.services.eventForward
-                .noteDisconnect(actor)
+                .noteDisconnect(actor, socket.id)
                 .catch((err) => {
                     console.warn('[events] presence disconnect failed', err);
                 });

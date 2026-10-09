@@ -41,7 +41,12 @@ import {
     type ForwardReply,
     type ForwardWatch,
 } from './forwardQueue.js';
-import { forwardReceived, forwardSent, sessionForward } from './metrics.js';
+import {
+    forwardReceived,
+    forwardSent,
+    presenceWrite,
+    sessionForward,
+} from './metrics.js';
 import { PresenceCache, remoteRegions } from './presenceCache.js';
 import type { DeliverableEvent, GapMarker } from './registry.js';
 
@@ -196,7 +201,7 @@ export class EventForwardService extends PuterService {
      * after it finds the pin held, but also the next one after a join that
      * failed and gave the pin back.
      */
-    async noteConnect(actor: Actor): Promise<void> {
+    async noteConnect(actor: Actor, socketId: string): Promise<void> {
         if (!this.active) return;
         const pair = this.#pairOf(actor);
         if (!pair) return;
@@ -210,7 +215,11 @@ export class EventForwardService extends PuterService {
             this.#leaveTimers.delete(pair.key);
         }
 
-        await this.stores.presence.addConnection(pair.userId, pair.appUid);
+        await this.stores.presence.addConnection(
+            pair.userId,
+            pair.appUid,
+            socketId,
+        );
         if (!(await this.#join(pair))) return;
         await this.#bump(pair.userId);
     }
@@ -238,24 +247,20 @@ export class EventForwardService extends PuterService {
             await this.stores.presence.releaseJoinPin(pair.userId, pair.appUid);
             throw err;
         }
+        presenceWrite.add(1, { op: 'join' });
         return true;
     }
 
     /**
      * One connection gone. The last one owes the region's removal, but not yet:
      * a reload is a disconnect followed immediately by a connect, and both
-     * writes are avoidable.
+     * writes are avoidable. The grace window is marked region-wide, so a
+     * forward landing on another node inside it does not retire the item.
      */
-    async noteDisconnect(actor: Actor): Promise<void> {
+    async noteDisconnect(actor: Actor, socketId: string): Promise<void> {
         if (!this.active) return;
         const pair = this.#pairOf(actor);
         if (!pair) return;
-
-        const count = await this.stores.presence.removeConnection(
-            pair.userId,
-            pair.appUid,
-        );
-        if (count > 0 || this.#draining) return;
 
         const delay =
             EventForwardService.LEAVE_DELAY_MIN_MS +
@@ -265,6 +270,14 @@ export class EventForwardService extends PuterService {
                     EventForwardService.LEAVE_DELAY_MAX_MS -
                         EventForwardService.LEAVE_DELAY_MIN_MS,
                 );
+        const count = await this.stores.presence.removeConnection(
+            pair.userId,
+            pair.appUid,
+            socketId,
+            delay,
+        );
+        if (count > 0 || this.#draining) return;
+
         const timer = setTimeout(() => {
             this.#leaveTimers.delete(pair.key);
             void this.#leaveIfStillGone(pair).catch((err: unknown) => {
@@ -275,7 +288,10 @@ export class EventForwardService extends PuterService {
         this.#leaveTimers.set(pair.key, timer);
     }
 
-    async #leaveIfStillGone(pair: PresencePair): Promise<void> {
+    async #leaveIfStillGone(
+        pair: PresencePair,
+        op: 'leave' | 'retire' = 'leave',
+    ): Promise<void> {
         if (this.#draining) return;
         if (
             await this.stores.presence.holdsConnection(pair.userId, pair.appUid)
@@ -296,6 +312,7 @@ export class EventForwardService extends PuterService {
             this.region,
             connectedAt,
         );
+        presenceWrite.add(1, { op });
         if (!left) return; // a fresher join already replaced this one
 
         await this.stores.presence.releaseJoinPin(pair.userId, pair.appUid);
@@ -311,20 +328,27 @@ export class EventForwardService extends PuterService {
     }
 
     /**
-     * Renew this region's item for a socket that has stayed connected without a
-     * transition. `touchConnection` gates its own write behind a region-shared
-     * claim, so calling it on every renewal only ever costs a Redis command; a
-     * table write happens for whichever caller wins the claim, at most once per
-     * pair per region per refresh window.
+     * Renew one socket, and this region's item for a socket that has stayed
+     * connected without a transition. `touchConnection` gates its item write
+     * behind a region-shared claim, so calling it on every renewal only costs
+     * Redis commands; a table write happens for whichever caller wins the
+     * claim, at most once per pair per region per refresh window.
      */
-    async touchPresence(userId: number, appUid: string): Promise<void> {
+    async touchPresence(
+        userId: number,
+        appUid: string,
+        socketId: string,
+    ): Promise<void> {
         if (!this.active) return;
         const userUuid = await this.#uuidOf(userId);
         if (!userUuid) return;
-        await this.stores.presence.touchConnection(userId, appUid, {
-            userUuid,
-            region: this.region,
-        });
+        const refreshed = await this.stores.presence.touchConnection(
+            userId,
+            appUid,
+            socketId,
+            { userUuid, region: this.region },
+        );
+        if (refreshed) presenceWrite.add(1, { op: 'refresh' });
     }
 
     // -- Forwarding --------------------------------------------------
@@ -678,21 +702,20 @@ export class EventForwardService extends PuterService {
         const app = presenceApp(pair.appUid);
         const key = `${pair.userId}|${app}`;
         // A pair inside its disconnect window is one this region expects back;
-        // the leave already scheduled decides.
+        // the leave already scheduled, on this node or another, decides.
         if (this.#leaveTimers.has(key)) return;
         if (await this.stores.presence.holdsConnection(pair.userId, app))
             return;
+        if (await this.stores.presence.isLeaving(pair.userId, app)) return;
         if (!(await this.stores.presence.claimRetire(pair.userId, app))) return;
 
         try {
             const userUuid = await this.#uuidOf(pair.userId);
             if (!userUuid) return;
-            await this.#leaveIfStillGone({
-                userId: pair.userId,
-                userUuid,
-                appUid: app,
-                key,
-            });
+            await this.#leaveIfStillGone(
+                { userId: pair.userId, userUuid, appUid: app, key },
+                'retire',
+            );
         } catch (err) {
             await this.stores.presence.releaseRetireClaim(pair.userId, app);
             throw err;

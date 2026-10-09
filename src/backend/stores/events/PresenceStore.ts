@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { CONCURRENT_SLOT_TTL_MS } from '../../core/http/middleware/rateLimit.js';
 import { PuterStore } from '../types.js';
 import { KV_GLOBAL_APP_KEY } from '../systemKv/SystemKVStore.js';
 
@@ -34,10 +35,11 @@ import { KV_GLOBAL_APP_KEY } from '../systemKv/SystemKVStore.js';
  * the compare-and-set token a leave or repair checks.
  *
  * Table cost tracks session churn, not connected population: only the first
- * socket a region holds for a pair writes (a region-local counter answers
- * reconnects, and a region-shared pin keeps sibling nodes from each writing the
- * same join), a claim-gated refresh renews a long-lived item once per window,
- * and reads are keyed by a per-user generation bumped on every transition.
+ * socket a region holds for a pair writes (a region-local set of live sockets
+ * answers reconnects, and a region-shared pin keeps sibling nodes from each
+ * writing the same join), a claim-gated refresh renews a long-lived item once
+ * per window, and reads are keyed by a per-user generation bumped on every
+ * transition.
  *
  * Only the region an item names ever writes it. A compare-and-set from another
  * region is evaluated against that region's replica, which can be stale, and
@@ -62,8 +64,12 @@ export const presenceItemKey = (
     region: string,
 ): string => `${presenceRowPrefix(userUuid, appUid)}${region}`;
 
-const connectionsKey = (userId: number | string, appUid: string): string =>
-    `ev:pc:{${userId}}:${appUid}`;
+/**
+ * This region's live sockets for a pair, scored by last renewal. Not `ev:pc:`,
+ * which older nodes keep as an integer: neither may read the other's type.
+ */
+const socketsKey = (userId: number | string, appUid: string): string =>
+    `ev:pcs:{${userId}}:${appUid}`;
 
 const generationKey = (userId: number | string): string => `ev:pg:{${userId}}`;
 
@@ -87,15 +93,25 @@ const refreshClaimKey = (
 const retireClaimKey = (userId: number | string, appUid: string): string =>
     `ev:prt:{${userId}}:${appUid}`;
 
+/**
+ * Region-shared marker: the pair's last socket here went inside the leave grace
+ * window. Only the node that saw it go holds the timer; this is what the others
+ * check before retiring the item.
+ */
+const leavingKey = (userId: number | string, appUid: string): string =>
+    `ev:plg:{${userId}}:${appUid}`;
+
 // -- Lifetimes --------------------------------------------------------
 
 /**
- * How long a region's connection count survives untouched. A live socket
- * refreshes it on every concurrency-slot renewal, so this is only reached by a
- * node that died holding sockets. Until then the count stays high, the region
- * answers forwards as if it held a socket, and nothing retires its item.
+ * How long a socket counts without a renewal: the window a concurrency slot
+ * lives without one, which is three of the renew timer's intervals. A node that
+ * dies stops renewing, so its sockets stop counting.
  */
-const CONNECTION_COUNT_TTL_SECONDS = 24 * 60 * 60;
+const SOCKET_LIVE_MS = CONCURRENT_SLOT_TTL_MS;
+
+/** Backstop on the socket set itself; liveness is each member's score. */
+const SOCKETS_KEY_TTL_SECONDS = 24 * 60 * 60;
 
 /**
  * The generation outlives the sessions it orders: one that expired and
@@ -133,23 +149,59 @@ const RETIRE_CLAIM_SECONDS = 60;
 
 // -- Scripts ----------------------------------------------------------
 
+// Both drop members not renewed inside the window and answer with the live
+// count, in one step, so a transition is never read off a half-applied change.
+// KEYS[1] is the socket set, KEYS[2] the leaving marker.
+
+/** Add or renew one socket; the pair is no longer leaving. */
+const ADD_SOCKET_SCRIPT = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[3])
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+redis.call('EXPIRE', KEYS[1], ARGV[4])
+redis.call('DEL', KEYS[2])
+return redis.call('ZCARD', KEYS[1])
+`;
+
 /**
- * Drop one connection and delete the count at zero in one step, so a connect
- * landing between the two is never deleted with it.
+ * Drop one socket. With the last live member gone, drop the set and, given a
+ * grace window, mark the pair as leaving for it.
  */
-const REMOVE_CONNECTION_SCRIPT = `
-local count = redis.call('DECR', KEYS[1])
-if count <= 0 then
-    redis.call('DEL', KEYS[1])
-    return 0
+const REMOVE_SOCKET_SCRIPT = `
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[2])
+local count = redis.call('ZCARD', KEYS[1])
+if count > 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[3])
+    return count
 end
-redis.call('EXPIRE', KEYS[1], ARGV[1])
-return count
+redis.call('DEL', KEYS[1])
+if tonumber(ARGV[4]) > 0 then
+    redis.call('SET', KEYS[2], '1', 'PX', ARGV[4])
+end
+return 0
 `;
 
 interface PresenceScripts {
-    presenceRemoveConnection(key: string, ttlSeconds: string): Promise<number>;
+    presenceAddSocket(
+        socketsKey: string,
+        leavingKey: string,
+        socketId: string,
+        nowMs: string,
+        staleAtMs: string,
+        ttlSeconds: string,
+    ): Promise<number>;
+    presenceRemoveSocket(
+        socketsKey: string,
+        leavingKey: string,
+        socketId: string,
+        staleAtMs: string,
+        ttlSeconds: string,
+        leaveGraceMs: string,
+    ): Promise<number>;
 }
+
+/** Scores at or below this are sockets that stopped renewing. */
+const staleAt = (nowMs: number): number => nowMs - SOCKET_LIVE_MS;
 
 // -- Row --------------------------------------------------------------
 
@@ -165,9 +217,13 @@ export class PresenceStore extends PuterStore {
     #scripts(): PresenceScripts {
         if (!this.#definedScripts) {
             this.#definedScripts = true;
-            this.clients.redis.defineCommand('presenceRemoveConnection', {
-                numberOfKeys: 1,
-                lua: REMOVE_CONNECTION_SCRIPT,
+            this.clients.redis.defineCommand('presenceAddSocket', {
+                numberOfKeys: 2,
+                lua: ADD_SOCKET_SCRIPT,
+            });
+            this.clients.redis.defineCommand('presenceRemoveSocket', {
+                numberOfKeys: 2,
+                lua: REMOVE_SOCKET_SCRIPT,
             });
         }
         return this.clients.redis as unknown as PresenceScripts;
@@ -287,57 +343,85 @@ export class PresenceStore extends PuterStore {
     // -- This region's connections -----------------------------------
 
     /**
-     * Count one more connection for the pair in this region. The count is what
-     * says whether the region still holds the pair once a socket goes.
+     * Count one more socket for the pair in this region. Returns how many
+     * sockets now count, which is what says whether the region still holds the
+     * pair once one goes.
      *
      * The existing concurrency slots cannot answer this: they expose no count,
      * key on the user rather than the pair, and fail open, which is wrong in
      * precisely the situation presence exists for.
      */
-    async addConnection(userId: number, appUid: string): Promise<number> {
-        const key = connectionsKey(userId, appUid);
-        const count = await this.clients.redis.incr(key);
-        await this.clients.redis.expire(key, CONNECTION_COUNT_TTL_SECONDS);
+    async addConnection(
+        userId: number,
+        appUid: string,
+        socketId: string,
+    ): Promise<number> {
+        const now = Date.now();
+        const count = await this.#scripts().presenceAddSocket(
+            socketsKey(userId, appUid),
+            leavingKey(userId, appUid),
+            socketId,
+            String(now),
+            String(staleAt(now)),
+            String(SOCKETS_KEY_TTL_SECONDS),
+        );
         return Number(count);
     }
 
     /**
-     * Drop one connection. Zero is the count that owes the region's removal.
-     * Gone at zero, so the keyspace stays proportional to connected pairs — and
-     * a count driven negative by a double-reap resets with it.
+     * Drop one socket. Zero is the count that owes the region's removal, and
+     * sockets a dead node stopped renewing are not counted toward it. Dropping
+     * a socket twice changes nothing. At zero, `leaveGraceMs` marks the pair as
+     * leaving region-wide in the same step.
      */
-    async removeConnection(userId: number, appUid: string): Promise<number> {
-        const count = await this.#scripts().presenceRemoveConnection(
-            connectionsKey(userId, appUid),
-            String(CONNECTION_COUNT_TTL_SECONDS),
+    async removeConnection(
+        userId: number,
+        appUid: string,
+        socketId: string,
+        leaveGraceMs = 0,
+    ): Promise<number> {
+        const count = await this.#scripts().presenceRemoveSocket(
+            socketsKey(userId, appUid),
+            leavingKey(userId, appUid),
+            socketId,
+            String(staleAt(Date.now())),
+            String(SOCKETS_KEY_TTL_SECONDS),
+            String(Math.max(0, Math.ceil(leaveGraceMs))),
         );
         return Number(count);
     }
 
-    /** Whether this region still holds any socket for the pair. */
-    async holdsConnection(userId: number, appUid: string): Promise<boolean> {
-        const raw = await this.clients.redis.get(
-            connectionsKey(userId, appUid),
+    /** Whether the pair's last socket here went inside the leave grace window. */
+    async isLeaving(userId: number, appUid: string): Promise<boolean> {
+        return (
+            (await this.clients.redis.exists(leavingKey(userId, appUid))) > 0
         );
-        return raw !== null && Number(raw) > 0;
+    }
+
+    /** Whether any socket for the pair in this region renewed inside the window. */
+    async holdsConnection(userId: number, appUid: string): Promise<boolean> {
+        const live = await this.clients.redis.zcount(
+            socketsKey(userId, appUid),
+            staleAt(Date.now()) + 1,
+            '+inf',
+        );
+        return Number(live) > 0;
     }
 
     /**
-     * Push this region's connection count past another backstop window, from
-     * the renew timer that keeps a socket's concurrency slot alive. A no-op on
-     * a key that was never written. Pass `refresh` to also contend for the
-     * pair's item-refresh claim; only the one winner per window writes.
+     * Renew one socket, from the timer that keeps its concurrency slot alive. A
+     * renewal re-adds a socket whose renewals ran late enough to lapse. Pass
+     * `refresh` to also contend for the pair's item-refresh claim; only the one
+     * winner per window writes, and the return says whether this call did.
      */
     async touchConnection(
         userId: number,
         appUid: string,
+        socketId: string,
         refresh?: { userUuid: string; region: string },
-    ): Promise<void> {
-        await this.clients.redis.expire(
-            connectionsKey(userId, appUid),
-            CONNECTION_COUNT_TTL_SECONDS,
-        );
-        if (!refresh) return;
+    ): Promise<boolean> {
+        await this.addConnection(userId, appUid, socketId);
+        if (!refresh) return false;
 
         const claimed = await this.clients.redis.set(
             refreshClaimKey(userId, appUid, refresh.region),
@@ -346,7 +430,7 @@ export class PresenceStore extends PuterStore {
             PRESENCE_ITEM_REFRESH_SECONDS,
             'NX',
         );
-        if (claimed !== 'OK') return;
+        if (claimed !== 'OK') return false;
 
         // Extends `ttl` without disturbing `connectedAt` (the leave path's
         // compare-and-set token); a retired-but-unswept item revives carrying
@@ -369,6 +453,7 @@ export class PresenceStore extends PuterStore {
             );
             throw err;
         }
+        return true;
     }
 
     // -- Generation --------------------------------------------------
