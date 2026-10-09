@@ -667,7 +667,8 @@ export class UserStore extends PuterStore {
 
     /**
      * Remove an address the account never confirmed. Guarded so an address
-     * confirmed in between stays. Returns false when nothing was removed.
+     * confirmed in between stays. Returns false when nothing was removed. The
+     * demand goes too: it names the address, and outlives it otherwise.
      */
     async clearUnconfirmedEmail(userId: number): Promise<boolean> {
         const unconfirmed =
@@ -675,7 +676,13 @@ export class UserStore extends PuterStore {
             this.clients.db.booleanLiteral(false);
         return this.#write(
             userId,
-            { email: null, clean_email: null },
+            {
+                email: null,
+                clean_email: null,
+                requires_email_confirmation: false,
+                email_confirm_code: null,
+                email_confirm_token: null,
+            },
             unconfirmed,
         );
     }

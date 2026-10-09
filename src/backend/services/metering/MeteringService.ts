@@ -25,6 +25,7 @@ import { PuterService } from '../types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    DEFAULT_RESOLVER_PRIORITY,
     DETAIL_PATH_COUNTER,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
@@ -255,7 +256,10 @@ export class MeteringService extends PuterService {
     private usageBufferTimer: ReturnType<typeof setInterval> | null = null;
     private extraPolicies: SubscriptionPolicy[] = [];
     private subscriptionResolvers: SubscriptionResolver[] = [];
-    private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
+    private defaultSubscriptionResolvers: Array<{
+        fn: SubscriptionResolver;
+        priority: number;
+    }> = [];
 
     /**
      * Fire-and-forget aux writes (`handleAuxPromise`) still in flight. Nothing
@@ -267,7 +271,13 @@ export class MeteringService extends PuterService {
     /** Uuid → resolved policy + expiry; `lookupFailed` marks a fallback. */
     private subscriptionCache = new Map<
         string,
-        { policy: SubscriptionPolicy; expiresAt: number; lookupFailed: boolean }
+        {
+            policy: SubscriptionPolicy;
+            expiresAt: number;
+            lookupFailed: boolean;
+            /** No explicit subscription answered, so this is a default. */
+            fromDefault: boolean;
+        }
     >();
 
     /** Uuid → the last budget state announced, so a retry loop emits once. */
@@ -469,10 +479,17 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a _default_ subscription id,
-     * used when no explicit subscription is set. First non-empty wins.
+     * used when none is set. Lowest `priority` is asked first.
      */
-    registerDefaultSubscriptionResolver(fn: SubscriptionResolver): void {
-        this.defaultSubscriptionResolvers.push(fn);
+    registerDefaultSubscriptionResolver(
+        fn: SubscriptionResolver,
+        { priority = DEFAULT_RESOLVER_PRIORITY }: { priority?: number } = {},
+    ): void {
+        this.defaultSubscriptionResolvers.push({ fn, priority });
+        // Lowest first, so the winner is a stated number, not a boot order.
+        this.defaultSubscriptionResolvers.sort(
+            (a, b) => a.priority - b.priority,
+        );
     }
 
     // -- Public API: increment usage ----------------------------------
@@ -2043,6 +2060,15 @@ export class MeteringService extends PuterService {
         return (await this.#actorSubscriptionWithStatus(actor)).policy;
     }
 
+    /** On a plan somebody subscribed them to, not one a resolver inferred. */
+    async actorHasPaidSubscription(actor: Actor): Promise<boolean> {
+        const { policy, fromDefault } =
+            await this.#actorSubscriptionWithStatus(actor);
+        // A deployment that turned unlimited on means it.
+        if (policy.id === UNLIMITED_SUBSCRIPTION) return true;
+        return !fromDefault && !isFreeSubscription(policy.id);
+    }
+
     /**
      * `provisionalUntil` is set when the answer may not be this actor's plan
      * (failed lookup, or an actor missing its email or numeric id). Clean
@@ -2051,6 +2077,7 @@ export class MeteringService extends PuterService {
     async #actorSubscriptionWithStatus(actor: Actor): Promise<{
         policy: SubscriptionPolicy;
         provisionalUntil?: number;
+        fromDefault: boolean;
     }> {
         if (!actor.user?.uuid)
             throw new HttpError(403, 'Actor must be a user to get policy', {
@@ -2063,6 +2090,7 @@ export class MeteringService extends PuterService {
         if (cached && cached.expiresAt > now)
             return {
                 policy: cached.policy,
+                fromDefault: cached.fromDefault,
                 provisionalUntil: cached.lookupFailed
                     ? cached.expiresAt
                     : undefined,
@@ -2078,6 +2106,7 @@ export class MeteringService extends PuterService {
         ) {
             return {
                 policy: resolved.policy,
+                fromDefault: resolved.fromDefault,
                 provisionalUntil:
                     now + MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS,
             };
@@ -2091,7 +2120,10 @@ export class MeteringService extends PuterService {
             stillFresh.expiresAt > now &&
             !stillFresh.lookupFailed
         ) {
-            return { policy: stillFresh.policy };
+            return {
+                policy: stillFresh.policy,
+                fromDefault: stillFresh.fromDefault,
+            };
         }
 
         // Map preserves insertion order; FIFO-evict so a flood of one-shot
@@ -2111,18 +2143,22 @@ export class MeteringService extends PuterService {
         this.subscriptionCache.set(uuid, {
             policy: resolved.policy,
             lookupFailed: resolved.lookupFailed,
+            fromDefault: resolved.fromDefault,
             expiresAt,
         });
         return {
             policy: resolved.policy,
+            fromDefault: resolved.fromDefault,
             provisionalUntil: resolved.lookupFailed ? expiresAt : undefined,
         };
     }
 
     /** `lookupFailed`: a resolver or the allowance read threw, so it fell back. */
-    async #resolveActorSubscription(
-        actor: Actor,
-    ): Promise<{ policy: SubscriptionPolicy; lookupFailed: boolean }> {
+    async #resolveActorSubscription(actor: Actor): Promise<{
+        policy: SubscriptionPolicy;
+        lookupFailed: boolean;
+        fromDefault: boolean;
+    }> {
         const fallbackDefault = this.config.unlimitedMetering
             ? UNLIMITED_SUBSCRIPTION
             : actor.user?.email
@@ -2130,7 +2166,7 @@ export class MeteringService extends PuterService {
               : DEFAULT_TEMP_SUBSCRIPTION;
 
         const defaults = await this.firstResolver(
-            this.defaultSubscriptionResolvers,
+            this.defaultSubscriptionResolvers.map((entry) => entry.fn),
             actor,
         );
         const resolvedDefault = defaults.id || fallbackDefault;
@@ -2154,10 +2190,13 @@ export class MeteringService extends PuterService {
         // the built-in free policy keeps callers holding a real policy: the
         // alternative is `undefined` reaching every reader of `.id` and
         // `.monthUsageAllowance` as a 500 rather than a downgrade.
+        const explicit = availablePolicies.find((p) => p.id === resolvedUser);
         const policy =
-            availablePolicies.find((p) => p.id === resolvedUser) ??
+            explicit ??
             availablePolicies.find((p) => p.id === resolvedDefault) ??
             availablePolicies.find((p) => p.id === fallbackDefault);
+        // Of the policy that applied, not the id that was asked for.
+        const fromDefault = !user.id || !explicit;
         if (policy) {
             const withAllowance = await this.#withMonthAllowance(
                 actor.user.uuid!,
@@ -2166,6 +2205,7 @@ export class MeteringService extends PuterService {
             return {
                 policy: withAllowance.policy,
                 lookupFailed: resolverFailed || withAllowance.failed,
+                fromDefault,
             };
         }
         console.warn(
@@ -2176,6 +2216,7 @@ export class MeteringService extends PuterService {
         return {
             policy: REGISTERED_USER_FREE as SubscriptionPolicy,
             lookupFailed: resolverFailed,
+            fromDefault,
         };
     }
 

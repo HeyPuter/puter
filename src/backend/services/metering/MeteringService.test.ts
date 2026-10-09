@@ -16,6 +16,8 @@ import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
+    ORG_SEAT_FREE_SUBSCRIPTION,
+    UNLIMITED_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
@@ -45,9 +47,9 @@ const currentMonthString = (): string => {
 };
 
 /**
- * How many `incr` calls one buffered write of `types` costs against the
- * actor's own usage item(s): one totals write plus one per distinct detail
- * shard the types hash to.
+ * How many `incr` calls one buffered write of `types` costs against the actor's
+ * own usage item(s): one totals write plus one per distinct detail shard the
+ * types hash to.
  */
 const usageWriteCalls = (types: string[]): number =>
     1 + new Set(types.map((t) => detailShardOf(t))).size;
@@ -177,6 +179,124 @@ describe('MeteringService', () => {
             };
             const policy = await target.getActorSubscription(tempActor);
             expect(policy.id).toBe(DEFAULT_TEMP_SUBSCRIPTION);
+        });
+
+        it('runs the default resolvers in the order they asked for, not the order they arrived', async () => {
+            const seatLike = {
+                id: 'seat-like',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+            };
+            const domainLike = {
+                id: 'domain-like',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 2048,
+            };
+            target.registerPolicy(seatLike);
+            target.registerPolicy(domainLike);
+
+            // Registered first, as the extension layer is: it still loses.
+            target.registerDefaultSubscriptionResolver(
+                async () => 'domain-like',
+            );
+            target.registerDefaultSubscriptionResolver(
+                async () => 'seat-like',
+                {
+                    priority: 10,
+                },
+            );
+
+            const policy = await target.getActorSubscription(actor);
+            expect(policy.id).toBe('seat-like');
+        });
+
+        it('calls a plan nobody bought a default, however generous it is', async () => {
+            const generous = {
+                id: 'generous-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(generous);
+            target.registerDefaultSubscriptionResolver(
+                async () => 'generous-default',
+            );
+
+            const defaulted = makeActor();
+            expect(await target.getActorSubscription(defaulted)).toMatchObject({
+                id: 'generous-default',
+            });
+            expect(await target.actorHasPaidSubscription(defaulted)).toBe(
+                false,
+            );
+        });
+
+        it('calls the same plan paid once something subscribed the actor to it', async () => {
+            const generous = {
+                id: 'bought-plan',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(generous);
+            target.registerSubscriptionResolver(async () => 'bought-plan');
+
+            const subscribed = makeActor();
+            expect(await target.getActorSubscription(subscribed)).toMatchObject(
+                {
+                    id: 'bought-plan',
+                },
+            );
+            expect(await target.actorHasPaidSubscription(subscribed)).toBe(
+                true,
+            );
+        });
+
+        it('counts unlimited as paid, so a deployment that turned it on keeps its caps', async () => {
+            const cfg = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            const saved = cfg.unlimitedMetering;
+            cfg.unlimitedMetering = true;
+            try {
+                const anyone = makeActor();
+                expect((await target.getActorSubscription(anyone)).id).toBe(
+                    UNLIMITED_SUBSCRIPTION,
+                );
+                expect(await target.actorHasPaidSubscription(anyone)).toBe(
+                    true,
+                );
+            } finally {
+                cfg.unlimitedMetering = saved;
+            }
+        });
+
+        it('calls it a default when the explicit id names no registered policy', async () => {
+            const fallback = {
+                id: 'registered-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(fallback);
+            target.registerDefaultSubscriptionResolver(
+                async () => 'registered-default',
+            );
+            // As an extension that failed to load would name.
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+
+            const actorOnGhost = makeActor();
+            expect((await target.getActorSubscription(actorOnGhost)).id).toBe(
+                'registered-default',
+            );
+            expect(await target.actorHasPaidSubscription(actorOnGhost)).toBe(
+                false,
+            );
+        });
+
+        it('calls a free plan unpaid even when it was subscribed to', async () => {
+            target.registerSubscriptionResolver(
+                async () => ORG_SEAT_FREE_SUBSCRIPTION,
+            );
+            const seat = makeActor();
+            expect(await target.actorHasPaidSubscription(seat)).toBe(false);
         });
 
         it('uses the first non-empty subscription resolver', async () => {
@@ -1494,8 +1614,7 @@ describe('MeteringService', () => {
             expect(result.total).toBe(500);
             const adj = (result as Record<string, unknown>)
                 .manual_adjustment as
-                | { cost: number; units: number; count: number }
-                | undefined;
+                { cost: number; units: number; count: number } | undefined;
             expect(adj).toMatchObject({ cost: 500, units: 500, count: 1 });
         });
 
@@ -1650,11 +1769,10 @@ describe('MeteringService', () => {
                 expect(typeof value).toBe('object');
             }
 
-            const detailed =
-                await target.getActorCurrentMonthAppUsageDetails(
-                    appActor,
-                    'count-app',
-                );
+            const detailed = await target.getActorCurrentMonthAppUsageDetails(
+                appActor,
+                'count-app',
+            );
             expect(detailed.count).toBeUndefined();
 
             // appTotals reads the same item separately and still has count.
@@ -2794,9 +2912,8 @@ describe('MeteringService', () => {
             ctor.EXACT_READ_MIN_INTERVAL_MS = 60_000;
             try {
                 const bufActor: Actor = { user: makeUser() };
-                const allowance = (
-                    await target.getActorSubscription(bufActor)
-                ).monthUsageAllowance;
+                const allowance = (await target.getActorSubscription(bufActor))
+                    .monthUsageAllowance;
 
                 // Already near the allowance — every further call re-triggers
                 // the near-allowance check, and the first one already read
@@ -3711,8 +3828,7 @@ describe('MeteringService', () => {
                 const admitted = usages.filter((u) => usage[u.usageType]);
                 expect(admitted.length).toBeLessThanOrEqual(5);
                 const other = usage[OTHER_USAGE_TYPE] as
-                    | { cost: number }
-                    | undefined;
+                    { cost: number } | undefined;
                 expect(other).toBeDefined();
 
                 // Nothing was lost, only regrouped: every admitted type's
