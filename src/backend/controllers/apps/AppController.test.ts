@@ -338,7 +338,7 @@ describe('AppController POST /rao', () => {
         expect(rows).toHaveLength(1);
     });
 
-    it('counts one open per account per app per day, however many are posted', async () => {
+    it('keeps every open as a row, and counts one per account per day', async () => {
         const owner = await makeUser();
         const other = await makeUser();
         const app = await createApp(owner.actor);
@@ -359,16 +359,20 @@ describe('AppController POST /rao', () => {
         await open(other);
         await server.controllers.apps.drainPendingAppOpens();
 
+        // Every open is still a row: the recent-apps list orders on them.
         const rows = (await server.clients.db.read(
             'SELECT `user_id` FROM `app_opens` WHERE `app_uid` = ?',
             [app.uid],
         )) as Array<{ user_id: number }>;
-        // `open_count` is a row count and `user_count` is distinct accounts;
-        // repeating an open would move one against the other.
-        expect(rows).toHaveLength(2);
-        expect(new Set(rows.map((r) => r.user_id))).toEqual(
-            new Set([owner.userId, other.userId]),
-        );
+        expect(rows).toHaveLength(6);
+
+        // The count is accounts-per-day, so repeats do not move it against
+        // `user_count`.
+        const stats = await server.stores.app.getAppsStats([app.uid]);
+        expect(stats.get(app.uid)).toMatchObject({
+            open_count: 2,
+            user_count: 2,
+        });
     });
 
     // `app_opens` is analytics: the response carries nothing derived from it

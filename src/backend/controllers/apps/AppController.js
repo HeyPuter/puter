@@ -50,9 +50,6 @@ import DEFAULT_APP_ICON from './default-app-icon.js';
  * accumulate against whatever else a session is doing rather than arriving on
  * their own. Sized for a session working hard, not for a person clicking.
  */
-/** Long enough to cover the day the open belongs to, wherever the caller is. */
-const OPEN_DEDUPE_TTL_SECONDS = 48 * 60 * 60;
-
 const APP_READ_LIMIT = {
     scope: 'app-read',
     limit: 1_800,
@@ -107,7 +104,6 @@ export class AppController extends PuterController {
     #recordAppOpen(appUid, userId) {
         const ts = Math.floor(Date.now() / 1000);
         const work = (async () => {
-            if (await this.#openAlreadyCounted(appUid, userId, ts)) return;
             try {
                 await this.clients.db.write(
                     'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
@@ -131,27 +127,6 @@ export class AppController extends PuterController {
         this.#pendingOpenWrites.add(work);
         work.finally(() => this.#pendingOpenWrites.delete(work));
         return work;
-    }
-
-    /** Whether this account's open of this app is already counted today. */
-    async #openAlreadyCounted(appUid, userId, ts) {
-        const day = new Date(ts * 1000).toISOString().slice(0, 10);
-        const key = `app-open:${appUid}:${userId}:${day}`;
-        try {
-            // Set only when absent, so the first open of the day wins the race.
-            const first = await this.clients.redis.set(
-                key,
-                '1',
-                'EX',
-                OPEN_DEDUPE_TTL_SECONDS,
-                'NX',
-            );
-            return !first;
-        } catch (e) {
-            // Counting twice beats not counting at all.
-            console.warn('[rao] open-dedupe marker unavailable:', e);
-            return false;
-        }
     }
 
     /** Await every in-flight app-open write. */
