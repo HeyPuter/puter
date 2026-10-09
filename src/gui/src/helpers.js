@@ -18,6 +18,7 @@
  */
 
 import { createUploadThumbnailGenerator } from './services/pdfThumbnails/index.js';
+import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/itemIcon.js';
@@ -1200,7 +1201,7 @@ window.available_templates = () => {
 
                 const itemStructure = {
                     path: _path,
-                    html: `${extension.toUpperCase()} ${html_encode(name)}`,
+                    html: `${html_encode(extension.toUpperCase())} ${html_encode(name)}`,
                     extension: extension,
                     name: element.name,
                 };
@@ -2843,10 +2844,12 @@ window.unzipItem = async function (itemPath) {
             let perItemProgress = window.zippingProgressConfig.WRITING / Object.keys(unzipped).length;
             let queuedFileWrites = [];
             Object.keys(unzipped).forEach(fileItem => {
+                const entryPath = archiveEntryPath(fileItem);
+                if ( entryPath === null ) return;
                 try {
                     let fileData = new Blob([new Uint8Array(unzipped[fileItem], unzipped[fileItem].byteOffset, unzipped[fileItem].length)]);
                     progwin?.set_status(i18n('writing', fileItem));
-                    queuedFileWrites.push(new File([fileData], fileItem));
+                    queuedFileWrites.push(new File([fileData], entryPath));
                     currentProgress += perItemProgress;
                     progwin?.set_progress(currentProgress.toPrecision(2));
                 } catch (e) {
@@ -3098,10 +3101,11 @@ window.untarItem = async function (itemPath) {
         let queuedFileWrites = [];
 
         for ( let fileItem of files ) {
-            if ( ! fileItem.isDir ) {
+            const entryPath = archiveEntryPath(fileItem.name);
+            if ( !fileItem.isDir && entryPath !== null ) {
                 let fileData = new Blob([fileItem.content]);
                 progwin?.set_status(i18n('writing', fileItem.name));
-                queuedFileWrites.push(new File([fileData], fileItem.name));
+                queuedFileWrites.push(new File([fileData], entryPath));
                 currentProgress += perItemProgress;
                 progwin?.set_progress(currentProgress.toPrecision(2));
             }
