@@ -314,7 +314,10 @@ async function parseResponse(xhr) {
     }
 
     const contentType = xhr.getResponseHeader('content-type');
-    if (contentType.startsWith('application/json')) {
+    // No declared type (a bodiless 204, a proxy that strips it): a success is
+    // opaque bytes, an error body is read like a JSON one.
+    const untypedError = !contentType && !(xhr.status >= 200 && xhr.status < 300);
+    if (contentType?.startsWith('application/json') || untypedError) {
         const text = await xhr.response.text();
         try {
             return JSON.parse(text);
@@ -322,7 +325,7 @@ async function parseResponse(xhr) {
             return text;
         }
     }
-    if (contentType.startsWith('application/octet-stream')) {
+    if (!contentType || contentType.startsWith('application/octet-stream')) {
         return xhr.response;
     }
     return { success: true, result: xhr.response };
@@ -417,17 +420,17 @@ const sleep = (ms, signal) =>
             return reject(
                 signal.reason ?? new DOMException('Aborted', 'AbortError'),
             );
-        const t = setTimeout(resolve, ms);
-        signal?.addEventListener(
-            'abort',
-            () => {
-                clearTimeout(t);
-                reject(
-                    signal.reason ?? new DOMException('Aborted', 'AbortError'),
-                );
-            },
-            { once: true },
-        );
+        const onAbort = () => {
+            clearTimeout(t);
+            reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        };
+        // `once` only cleans up when abort fires; a caller reusing one signal
+        // across requests would otherwise collect a listener per retry.
+        const t = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
     });
 
 const retryDelay = (attempt) => RETRY_DELAYS_MS[attempt - 1];

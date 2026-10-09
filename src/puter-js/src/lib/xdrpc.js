@@ -54,15 +54,17 @@ export class CallbackManager {
     /**
      * Registers `callback` and binds it to `source`, the only window whose
      * messages may invoke it later. A callback registered without a source
-     * can never be invoked from outside this document.
+     * can never be invoked from outside this document. A `once` callback is
+     * dropped after its first call; anything else lives as long as the page.
      *
      * @param {Function} callback
      * @param {Window} [source]
+     * @param {{ once?: boolean }} [options]
      * @returns {string}
      */
-    register_callback (callback, source) {
+    register_callback (callback, source, { once = false } = {}) {
         const id = randomCallbackId();
-        this.callbacks.set(id, { callback, source });
+        this.callbacks.set(id, { callback, source, once });
         return id;
     }
 
@@ -80,6 +82,7 @@ export class CallbackManager {
             // Only the window the callback was dehydrated for may invoke it,
             // otherwise a sibling frame could drive another app's callbacks.
             if ( ! entry || event.source !== entry.source ) return;
+            if ( entry.once ) this.callbacks.delete(data.id);
             entry.callback(...(Array.isArray(data.args) ? data.args : []));
         });
     }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeDriverMethod } from './utils.js';
+import { makeDriverMethod, setupXhrEventHandlers } from './utils.js';
 
 /**
  * Pins the callback contract of `makeDriverMethod`: driver methods are
@@ -112,5 +112,24 @@ describe('makeDriverMethod legacy callbacks', () => {
             expect(success).not.toHaveBeenCalled();
             expect(wireArgs(requests)).toEqual({ key: 'k' });
         });
+    });
+});
+
+describe('setupXhrEventHandlers', () => {
+    it('settles a blob read whose response declares no content type', async () => {
+        const listeners = {};
+        const xhr = {
+            responseType: 'blob',
+            status: 200,
+            response: new Blob(['bytes']),
+            getResponseHeader: () => null,
+            addEventListener: (type, fn) => { listeners[type] = fn; },
+        };
+        const result = new Promise((resolve, reject) => {
+            setupXhrEventHandlers(xhr, undefined, undefined, resolve, reject);
+        });
+        listeners.load.call(xhr, { target: xhr });
+        const pending = new Promise(resolve => setTimeout(() => resolve('pending'), 100));
+        expect(await Promise.race([result, pending])).toBe(xhr.response);
     });
 });

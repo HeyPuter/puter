@@ -126,3 +126,57 @@ describe('xdrpc callback source binding', () => {
         }
     });
 });
+
+describe('xdrpc callback lifetime', () => {
+    const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
+
+    const setup = () => {
+        const handlers = [];
+        const manager = new CallbackManager();
+        manager.attach_to_source({
+            addEventListener: (type, handler) =>
+                type === 'message' && handlers.push(handler),
+        });
+        const deliver = event => handlers.forEach(handler => handler(event));
+        return { manager, deliver };
+    };
+
+    it('drops a one-shot callback after it fires', () => {
+        const gui = {};
+        const { manager, deliver } = setup();
+        const calls = [];
+        const id = manager.register_callback(v => calls.push(v), gui, { once: true });
+
+        deliver({ source: gui, data: { $SCOPE, id, args: ['first'] } });
+        deliver({ source: gui, data: { $SCOPE, id, args: ['second'] } });
+
+        expect(calls).toEqual(['first']);
+        expect(manager.callbacks.size).toBe(0);
+    });
+
+    it('keeps a one-shot callback a forged message failed to invoke', () => {
+        const gui = {};
+        const { manager, deliver } = setup();
+        const calls = [];
+        const id = manager.register_callback(v => calls.push(v), gui, { once: true });
+
+        deliver({ source: { sibling: true }, data: { $SCOPE, id, args: ['forged'] } });
+        deliver({ source: gui, data: { $SCOPE, id, args: ['real'] } });
+
+        expect(calls).toEqual(['real']);
+    });
+
+    it('keeps a dehydrated callback for repeat calls', () => {
+        const gui = {};
+        const { manager, deliver } = setup();
+        const calls = [];
+        const { id } = new Dehydrator({ callbackManager: manager, source: gui })
+            .dehydrate(() => calls.push('clicked'));
+
+        deliver({ source: gui, data: { $SCOPE, id, args: [] } });
+        deliver({ source: gui, data: { $SCOPE, id, args: [] } });
+
+        expect(calls).toEqual(['clicked', 'clicked']);
+        expect(manager.callbacks.size).toBe(1);
+    });
+});

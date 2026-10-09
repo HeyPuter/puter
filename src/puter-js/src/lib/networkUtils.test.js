@@ -5,6 +5,7 @@ import {
     driverCallEnvelope,
     driverLineStream,
     fetchUrl,
+    parseResponse,
     sendWithRetry,
 } from './networkUtils.js';
 
@@ -684,6 +685,106 @@ describe('transient retry', () => {
     });
 });
 
+describe('abort listeners on a reused signal', () => {
+    /** An AbortSignal that counts its live `abort` listeners. */
+    const trackedSignal = () => {
+        const signal = new AbortController().signal;
+        const live = new Set();
+        const add = signal.addEventListener.bind(signal);
+        const remove = signal.removeEventListener.bind(signal);
+        signal.addEventListener = (type, fn, opts) => {
+            if (type === 'abort') live.add(fn);
+            add(type, fn, opts);
+        };
+        signal.removeEventListener = (type, fn, opts) => {
+            if (type === 'abort') live.delete(fn);
+            remove(type, fn, opts);
+        };
+        return { signal, live };
+    };
+
+    beforeEach(() => {
+        globalThis.puter = {};
+    });
+
+    it('removes every listener once a retried request settles', async () => {
+        vi.useFakeTimers();
+        const { signal, live } = trackedSignal();
+        installFakeXHR(
+            sequence(
+                respond({ status: 503, body: {} }),
+                respond({ status: 503, body: {} }),
+                respond({ status: 200, body: {} }),
+                respond({ status: 503, body: {} }),
+                respond({ status: 200, body: {} }),
+            ),
+        );
+        for (let i = 0; i < 2; i++) {
+            const p = fetchUrl('https://api.example/x', { signal });
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect((await p).status).toBe(200);
+        }
+        expect(live.size).toBe(0);
+        vi.useRealTimers();
+    });
+
+    it('still aborts a retry wait', async () => {
+        vi.useFakeTimers();
+        const controller = new AbortController();
+        const xhrs = installFakeXHR(respond({ status: 503, body: {} }));
+        const p = fetchUrl('https://api.example/x', {
+            signal: controller.signal,
+        });
+        let error;
+        try {
+            await vi.advanceTimersByTimeAsync(100);
+            controller.abort();
+            await p;
+        } catch (e) {
+            error = e;
+        }
+        expect(error).toMatchObject({ name: 'AbortError' });
+        expect(xhrs.length).toBe(1);
+        vi.useRealTimers();
+    });
+});
+
+describe('parseResponse', () => {
+    const blobXhr = ({ status = 200, contentType = null, body = '' }) => ({
+        responseType: 'blob',
+        status,
+        response: new Blob([body]),
+        getResponseHeader: (name) =>
+            name.toLowerCase() === 'content-type' ? contentType : null,
+    });
+
+    it('returns the body of a success that declares no content type', async () => {
+        const xhr = blobXhr({ body: 'bytes' });
+        expect(await parseResponse(xhr)).toBe(xhr.response);
+    });
+
+    it('reads an error body that declares no content type', async () => {
+        expect(
+            await parseResponse(
+                blobXhr({ status: 502, body: '{"code":"bad_gateway"}' }),
+            ),
+        ).toEqual({ code: 'bad_gateway' });
+        expect(
+            await parseResponse(blobXhr({ status: 502, body: 'Bad Gateway' })),
+        ).toBe('Bad Gateway');
+    });
+
+    it('keeps the typed blob branches', async () => {
+        const octet = blobXhr({ contentType: 'application/octet-stream' });
+        expect(await parseResponse(octet)).toBe(octet.response);
+        const png = blobXhr({ contentType: 'image/png' });
+        expect(await parseResponse(png)).toEqual({
+            success: true,
+            result: png.response,
+        });
+    });
+});
+
 describe('dedupe', () => {
     it('coalesces concurrent identical requests into one call', async () => {
         let calls = 0;
@@ -755,6 +856,20 @@ describe('driverCall', () => {
             driver: 'ai-chat',
             test_mode: false,
         });
+    });
+
+    it('resolves a blob response that declares no content type', async () => {
+        installFakeXHR((xhr) => {
+            xhr._setHeaders(200);
+            xhr._headersReceived();
+            xhr.response = new Blob(['image']);
+            xhr._done();
+        });
+        const result = await driverCall(
+            { iface: 'puter-image-generation', method: 'generate', args: {} },
+            { responseType: 'blob' },
+        );
+        expect(result).toBeInstanceOf(Blob);
     });
 
     it('resolves the whole response when the driver returns no result field', async () => {

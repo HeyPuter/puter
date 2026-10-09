@@ -285,3 +285,71 @@ describe('web-mode stored token', () => {
         expect(location.search).toBe('?auth_token=sites-own-param');
     });
 });
+
+describe('GUI cache refresh', () => {
+    it('keeps one refresh loop however often the token is set', async () => {
+        const puter = await bootApp(`${LAUNCH}${APP_TOKEN}`);
+        puter.env = 'gui';
+        const refresh = vi
+            .spyOn(puter, 'checkAndUpdateGUIFScache')
+            .mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+        try {
+            puter.setAuthToken(APP_TOKEN);
+            puter.setAuthToken(APP_TOKEN);
+            puter.setAuthToken(APP_TOKEN);
+            vi.advanceTimersByTime(10_000);
+            expect(refresh).toHaveBeenCalledOnce();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe('GUI message listener', () => {
+    /** Boots an app and returns the window listener it adds last. */
+    const bootWithListener = async () => {
+        const add = vi.spyOn(window, 'addEventListener');
+        try {
+            const puter = await bootApp(`${LAUNCH}${APP_TOKEN}`);
+            const [, handler] = add.mock.calls
+                .filter(([type]) => type === 'message')
+                .at(-1);
+            return { puter, handler };
+        } finally {
+            add.mockRestore();
+        }
+    };
+
+    it('ignores a GUI message with no data', async () => {
+        const { puter, handler } = await bootWithListener();
+        await expect(
+            handler({ origin: puter.defaultGUIOrigin, data: null }),
+        ).resolves.toBeUndefined();
+    });
+
+    it('reports a failed user lookup after sign-in', async () => {
+        const { puter, handler } = await bootWithListener();
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        try {
+            puter.onAuth = vi.fn();
+            puter.getUser = vi.fn(async () => {
+                throw new Error('offline');
+            });
+            await handler({
+                origin: puter.defaultGUIOrigin,
+                source: globalThis.parent,
+                data: { msg: 'puter.token', token: APP_TOKEN },
+            });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(unhandled).not.toHaveBeenCalled();
+            expect(puter.onAuth).not.toHaveBeenCalled();
+            expect(error).toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+            error.mockRestore();
+        }
+    });
+});
