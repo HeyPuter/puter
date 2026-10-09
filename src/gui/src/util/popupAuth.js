@@ -89,6 +89,16 @@ export const deliversTokenAtBoot = (action) =>
     deliversTokenToOpener(action) && !defersTokenToOpener(action);
 
 /**
+ * Whether the opener's existing relationship with the user stands in for
+ * consent. Only when no account picker was shown: a dismissed picker is a no.
+ *
+ * @param {{ hasRelationship: boolean, showedAccountPicker: boolean }} state
+ * @returns {boolean}
+ */
+export const relationshipIsConsent = ({ hasRelationship, showedAccountPicker }) =>
+    hasRelationship && !showedAccountPicker;
+
+/**
  * Whether a popup running `action` runs the user-app token exchange.
  *
  * The exchange (`/auth/get-user-app-token`) is a write, not a read: it

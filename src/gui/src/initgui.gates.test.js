@@ -68,3 +68,22 @@ describe('the popup token hand-off in postAuthActions', () => {
         }
     });
 });
+
+describe('the account pickers in a popup', () => {
+    const PICKER = 'picked_a_user_for_sdk_login = await UIWindowSessionList(';
+
+    it('record that they were shown', () => {
+        // A dismissed picker has to outrank an existing relationship, so the
+        // relationship check needs to know one was shown.
+        const chunks = src.split(PICKER);
+        expect(chunks.length - 1).toBe(2);
+        for (const before of chunks.slice(0, -1)) {
+            expect(before.trimEnd()).toMatch(/showed_account_picker = true;$/);
+        }
+    });
+
+    it('only let the relationship stand in when no picker was shown', () => {
+        expect(src).toContain('showedAccountPicker: showed_account_picker');
+        expect(src).not.toMatch(/if \(window\.userAppToken\) \{\s*window\.popup_signin_consent = true;/);
+    });
+});

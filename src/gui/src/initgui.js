@@ -85,7 +85,7 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenAtBoot, runsUserAppTokenExchange } from './util/popupAuth.js';
+import { deliversTokenAtBoot, relationshipIsConsent, runsUserAppTokenExchange } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 /**
@@ -1284,6 +1284,8 @@ window.initgui = async function (options) {
     installAppIconFallback();
 
     let picked_a_user_for_sdk_login = false;
+    // Whether a popup put an account picker in front of the user.
+    let showed_account_picker = false;
 
     // update SDK if auth_token is different from the one in the SDK
     if (window.auth_token && puter.authToken !== window.auth_token) {
@@ -1625,6 +1627,7 @@ window.initgui = async function (options) {
                 await window.getUserAppToken(window.openerOrigin);
             } else {
                 // Show session list so user can pick which account to use
+                showed_account_picker = true;
                 picked_a_user_for_sdk_login = await UIWindowSessionList({
                     reload_on_success: false,
                     draggable_body: false,
@@ -1787,6 +1790,7 @@ window.initgui = async function (options) {
             (!window.userAppToken ||
                 window.url_query_params.get('request_auth'))
         ) {
+            showed_account_picker = true;
             picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
@@ -1802,8 +1806,14 @@ window.initgui = async function (options) {
         // be re-approved on every visit — that grant is what
         // `checkUserSiteRelationship` reports. This is also what keeps the
         // file-picker and permission popups, which never show an account
-        // picker, from being blocked by the gate in `postAuthActions`.
-        if (window.userAppToken) {
+        // picker, from being blocked by the gate in `postAuthActions`. A
+        // picker the user dismissed here still means no.
+        if (
+            relationshipIsConsent({
+                hasRelationship: !!window.userAppToken,
+                showedAccountPicker: showed_account_picker,
+            })
+        ) {
             window.popup_signin_consent = true;
         }
     }
