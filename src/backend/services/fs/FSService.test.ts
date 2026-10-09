@@ -1281,6 +1281,43 @@ describe('FSService storage allowance', () => {
         ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
     });
 
+    it('leaves the file alone when a session signed before staging aborts', async () => {
+        // Rolling deploy: the old code signed against the live key.
+        const user = await quotaUser(64);
+        await user.write('straddle-abort.txt', 'kept');
+        const entry = await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents/straddle-abort.txt`,
+        );
+
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/straddle-abort.txt`,
+                size: 40,
+                overwrite: true,
+            },
+        });
+        // Hand abort the session shape the previous release wrote.
+        const real =
+            await limitedServer.stores.fsEntry.getPendingEntryBySessionId(
+                started.sessionId,
+            );
+        vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'getPendingEntryBySessionId',
+        ).mockResolvedValue({ ...real, objectKey: entry.uuid });
+
+        const deleteObject = vi.spyOn(
+            limitedServer.stores.s3Object,
+            'deleteObject',
+        );
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        expect(
+            deleteObject.mock.calls.some((call) => call[1] === entry.uuid),
+        ).toBe(false);
+        vi.restoreAllMocks();
+    });
+
     it('a failed pending-row write releases its reservation', async () => {
         const user = await quotaUser(64);
         const createPendingEntry = vi
@@ -1928,21 +1965,19 @@ describe('FSService signed (direct-to-S3) writes', () => {
         consoleWarn.mockRestore();
     });
 
-    it('completes an overwrite with no new PUT by keeping the existing bytes', async () => {
+    it('refuses to complete an overwrite that uploaded nothing', async () => {
         const path = `${user.home}/Documents/overwrite-lenient.txt`;
-        await writeFile(user, path, 'original');
+        const original = await writeFile(user, path, 'original');
 
         const response = await fs.startUrlWrite(user.userId, {
             fileMetadata: { path, size: 999, overwrite: true },
         });
-        // No PUT — the overwrite session reuses the existing entry's object
-        // key, so the confirming HEAD finds the old bytes still there.
-        const completed = await fs.completeUrlWrite(user.userId, {
-            uploadId: response.sessionId,
-        });
-        expect(completed.wasOverwrite).toBe(true);
-        expect(completed.fsEntry.size).toBe(Buffer.byteLength('original'));
-        expect(await readBack(completed.fsEntry)).toBe('original');
+        // Nothing was PUT, and the session's own key is empty.
+        const error = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(await readBack(original)).toBe('original');
     });
 
     it('abort of an overwrite session leaves the live file readable', async () => {
@@ -1956,7 +1991,12 @@ describe('FSService signed (direct-to-S3) writes', () => {
 
         await fs.abortUrlWrite(user.userId, response.sessionId);
 
-        expect(deleteObject).not.toHaveBeenCalled();
+        // The session's own key goes; the live one was never its to write.
+        expect(deleteObject).toHaveBeenCalledWith(
+            response.bucket,
+            response.objectKey,
+            response.bucketRegion,
+        );
         const stillThere = await entryAt(
             user,
             '/Documents/abort-overwrite.txt',
@@ -1978,15 +2018,18 @@ describe('FSService signed (direct-to-S3) writes', () => {
         const response = await fs.startUrlWrite(user.userId, {
             fileMetadata: { path, size: 40, overwrite: true },
         });
-        // The entry still exists, so its key is left alone even though it
-        // had no object of its own; a later overwrite reuses the key.
-        expect(response.objectKey).toBe(touched.uuid);
+        // A key of its own, so the empty entry keeps whatever it had.
+        expect(response.objectKey).not.toBe(touched.uuid);
         await fetch(response.url!, { method: 'PUT', body: 'x'.repeat(40) });
         const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
 
         await fs.abortUrlWrite(user.userId, response.sessionId);
 
-        expect(deleteObject).not.toHaveBeenCalled();
+        expect(deleteObject).toHaveBeenCalledWith(
+            response.bucket,
+            response.objectKey,
+            response.bucketRegion,
+        );
         const stillThere = await entryAt(
             user,
             '/Documents/touch-overwrite-abort.txt',
@@ -1997,14 +2040,14 @@ describe('FSService signed (direct-to-S3) writes', () => {
         deleteObject.mockRestore();
     });
 
-    it('abort of an overwrite deletes the object once the target has been removed', async () => {
+    it('abort of an overwrite deletes its object whether or not the target remains', async () => {
         const path = `${user.home}/Documents/overwrite-target-gone.txt`;
         const original = await writeFile(user, path, 'original');
 
         const response = await fs.startUrlWrite(user.userId, {
             fileMetadata: { path, size: 40, overwrite: true },
         });
-        // The target is removed out from under the pending session.
+        // Removed out from under the pending session, which changes nothing.
         await fs.remove(user.userId, { entry: original });
         const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
 
@@ -2225,6 +2268,154 @@ describe('FSService signed (direct-to-S3) writes', () => {
             )?.status,
         ).toBe('aborted');
         deleteObject.mockRestore();
+    });
+
+    // The PUT never reaches Puter, so the completion is what puts it in place.
+    describe('an overwrite is staged until its completion is accepted', () => {
+        const liveSize = async (entry: FSEntry) =>
+            server.stores.s3Object.headObjectSize(
+                entry.bucket!,
+                entry.uuid,
+                entry.bucketRegion!,
+            );
+
+        it('signs against a key of its own, not the live one', async () => {
+            const existing = await writeFile(
+                user,
+                `${user.home}/Documents/staged-key.txt`,
+                'OLD-CONTENT',
+            );
+            const started = await start(
+                `${user.home}/Documents/staged-key.txt`,
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/staged-key.txt`,
+                        size: 3,
+                        overwrite: true,
+                    },
+                },
+            );
+
+            expect(started.objectKey).not.toBe(existing.uuid);
+            expect(started.url).not.toContain(existing.uuid);
+
+            await fs.abortUrlWrite(user.userId, started.sessionId);
+        });
+
+        it('leaves the live object alone until the upload is completed', async () => {
+            const path = `${user.home}/Documents/staged-live.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+            expect(await liveSize(existing)).toBe(11);
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+
+            // The bytes are in the store, and the owner's file is untouched.
+            expect(await liveSize(existing)).toBe(11);
+
+            await fs.completeUrlWrite(user.userId, {
+                uploadId: started.sessionId,
+            });
+
+            expect(await liveSize(existing)).toBe(3);
+        });
+
+        it('keeps the entry uuid, so what was granted on it still is', async () => {
+            const path = `${user.home}/Documents/staged-uuid.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+            const completed = await fs.completeUrlWrite(user.userId, {
+                uploadId: started.sessionId,
+            });
+
+            expect(completed.wasOverwrite).toBe(true);
+            expect(completed.fsEntry.uuid).toBe(existing.uuid);
+        });
+
+        it('stages a batch-signed overwrite too, which is the path the SDK takes', async () => {
+            const path = `${user.home}/Documents/staged-batch.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+            expect(await liveSize(existing)).toBe(11);
+
+            const [started] = await fs.batchStartUrlWrites(user.userId, [
+                { fileMetadata: { path, size: 3, overwrite: true } },
+            ]);
+            expect(started!.objectKey).not.toBe(existing.uuid);
+            expect(started!.entryUid).toBe(existing.uuid);
+
+            await fetch(started!.url!, { method: 'PUT', body: 'NEW' });
+            expect(await liveSize(existing)).toBe(11);
+
+            await fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: started!.sessionId },
+            ]);
+            expect(await liveSize(existing)).toBe(3);
+        });
+
+        it('aborting a batch-signed overwrite leaves the live object alone', async () => {
+            const path = `${user.home}/Documents/staged-batch-abort.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const [started] = await fs.batchStartUrlWrites(user.userId, [
+                { fileMetadata: { path, size: 3, overwrite: true } },
+            ]);
+            await fetch(started!.url!, { method: 'PUT', body: 'NEW' });
+            await fs.abortUrlWrite(user.userId, started!.sessionId);
+
+            expect(await liveSize(existing)).toBe(11);
+        });
+
+        it('refuses to land on a target that moved after the url was signed', async () => {
+            const path = `${user.home}/Documents/staged-moved.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+
+            const documents = await entryAt(user, '/Documents');
+            await fs.move(user.userId, {
+                source: existing,
+                destinationParent: documents!,
+                newName: 'staged-moved-elsewhere.txt',
+            });
+
+            const error = await caught(() =>
+                fs.completeUrlWrite(user.userId, {
+                    uploadId: started.sessionId,
+                }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await liveSize(existing)).toBe(11);
+        });
+
+        it('drops the staged object when the upload is abandoned', async () => {
+            const path = `${user.home}/Documents/staged-abort.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+            await fs.abortUrlWrite(user.userId, started.sessionId);
+
+            // The staged bytes go, and the file they were aimed at stays.
+            await expect(
+                server.stores.s3Object.headObjectSize(
+                    existing.bucket!,
+                    started.objectKey!,
+                    existing.bucketRegion!,
+                ),
+            ).rejects.toMatchObject({ name: 'NotFound' });
+            expect(await liveSize(existing)).toBe(11);
+        });
     });
 
     it('ignores an abort for an unknown session and refuses a foreign one', async () => {

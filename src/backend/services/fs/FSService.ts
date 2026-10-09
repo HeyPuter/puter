@@ -1332,7 +1332,7 @@ export class FSService extends PuterService {
         return {
             ...parsedMetadata,
             userId: session.userId,
-            uuid: session.objectKey,
+            uuid: session.overwriteTargetUid ?? session.objectKey,
             path: session.targetPath,
             size: session.size,
             contentType: session.contentType,
@@ -1730,11 +1730,13 @@ export class FSService extends PuterService {
         normalizedInput: NormalizedWriteInput,
         objectKey: string,
         signedUploadResult: SignedUploadResult,
+        entryUid: string = objectKey,
     ): SignedWriteResponse {
         return {
             sessionId,
             uploadMode: signedUploadResult.uploadMode,
             objectKey,
+            entryUid,
             bucket: normalizedInput.bucket,
             bucketRegion: normalizedInput.bucketRegion,
             contentType: normalizedInput.contentType,
@@ -1763,6 +1765,7 @@ export class FSService extends PuterService {
             sessionId: '',
             uploadMode: 'single',
             objectKey: fsEntry.uuid,
+            entryUid: fsEntry.uuid,
             bucket: fsEntry.bucket ?? '',
             bucketRegion: fsEntry.bucketRegion ?? '',
             contentType: 'inode/directory',
@@ -2190,7 +2193,8 @@ export class FSService extends PuterService {
                 );
             }
 
-            const objectKey = existingEntry?.uuid ?? uuidv4();
+            // Staged: only the authorized completion puts it on the live key.
+            const objectKey = uuidv4();
             const uploadMode = this.#determineUploadMode(
                 signedWriteRequest.uploadMode,
                 normalizedInput.size,
@@ -2263,6 +2267,7 @@ export class FSService extends PuterService {
                     normalizedInput,
                     objectKey,
                     signedUploadResult,
+                    existingEntry?.uuid ?? objectKey,
                 ),
                 createdDirectoryEntries,
             };
@@ -2448,9 +2453,8 @@ export class FSService extends PuterService {
             }
 
             try {
-                const objectKeys = resolvedFileItems.map((item) => {
-                    return item.existingEntry?.uuid ?? uuidv4();
-                });
+                // Staged, as the single path.
+                const objectKeys = resolvedFileItems.map(() => uuidv4());
                 const uploadModes = resolvedFileItems.map((item) => {
                     return this.#determineUploadMode(
                         item.request.uploadMode,
@@ -2663,6 +2667,7 @@ export class FSService extends PuterService {
                                 item.normalizedInput,
                                 objectKey,
                                 signedUploadResult,
+                                item.existingEntry?.uuid ?? objectKey,
                             ),
                         );
                     }
@@ -2943,6 +2948,48 @@ export class FSService extends PuterService {
         }
     }
 
+    /** Puts a staged overwrite in place, the completion having been allowed. */
+    async #promoteStagedOverwrite(
+        session: PendingUploadSession,
+        size: number,
+        bucket: string,
+        region: string,
+    ): Promise<void> {
+        const liveKey = session.overwriteTargetUid;
+        if (!liveKey || liveKey === session.objectKey) return;
+        // The completion was allowed against a path, so that is where the
+        // entry has to still be; a move since would put the bytes elsewhere.
+        const target =
+            await this.stores.fsEntry.getEntryByUuidFromPrimary(liveKey);
+        if (!target || target.path !== session.targetPath) {
+            throw new HttpError(409, 'Upload target has moved', {
+                legacyCode: 'conflict',
+            });
+        }
+        await this.stores.s3Object.copyObjectOfAnySize(
+            {
+                sourceBucket: bucket,
+                sourceKey: session.objectKey,
+                destinationBucket: bucket,
+                destinationKey: liveKey,
+                contentType: session.contentType,
+                metadataDirective: 'REPLACE',
+            },
+            region,
+            size,
+        );
+        try {
+            await this.stores.s3Object.deleteObject(
+                bucket,
+                session.objectKey,
+                region,
+            );
+        } catch (e) {
+            // The live object is already right; the staged one is only litter.
+            console.warn('[fs] staged overwrite left behind:', e);
+        }
+    }
+
     async completeUrlWrite(
         userId: number,
         completeWriteRequest: CompleteWriteRequest,
@@ -3038,6 +3085,14 @@ export class FSService extends PuterService {
                 this.#logUnreceivedUploads([session]);
                 throw uploadNotReceivedError();
             }
+            await this.#promoteStagedOverwrite(
+                session,
+                typeof uploaded === 'number' && uploaded >= 0
+                    ? uploaded
+                    : session.size,
+                reconcileBucket,
+                reconcileRegion,
+            );
             if (typeof uploaded === 'number' && uploaded >= 0) {
                 // Record the true size only — do not re-assert the quota
                 // here. The bytes are already in the object store, so a
@@ -3265,6 +3320,38 @@ export class FSService extends PuterService {
             item.finalData.size = uploaded;
         }
 
+        // Each staged overwrite goes onto its live key before any row moves.
+        // A failure here leaves the sessions as any other one does, rather
+        // than pending with their leases still held.
+        try {
+            await Promise.all(
+                completionItems.map((item) =>
+                    this.#promoteStagedOverwrite(
+                        item.session,
+                        item.finalData.size ?? item.session.size,
+                        item.session.bucket ??
+                            item.finalData.bucket ??
+                            this.#resolveBucket(),
+                        item.session.bucketRegion ??
+                            item.finalData.bucketRegion ??
+                            this.#resolveBucketRegion(),
+                    ),
+                ),
+            );
+        } catch (error) {
+            try {
+                await this.stores.fsEntry.markPendingEntriesFailed(
+                    completionItems.map((item) => item.session.sessionId),
+                    this.#toErrorMessage(error),
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations(
+                    completionItems.map((item) => item.session),
+                );
+            }
+            throw error;
+        }
+
         const completedEntries =
             await this.stores.fsEntry.batchCompletePendingEntries(
                 completionItems.map((item) => ({
@@ -3344,21 +3431,8 @@ export class FSService extends PuterService {
                         bucket,
                         session.objectKey,
                     );
-                } else if (session.overwriteTargetUid) {
-                    // An overwrite shares the live entry's object key, so only
-                    // delete once the primary confirms that entry is gone.
-                    const target =
-                        await this.stores.fsEntry.getEntryByUuidFromPrimary(
-                            session.overwriteTargetUid,
-                        );
-                    if (target === null) {
-                        await this.stores.s3Object.deleteObject(
-                            bucket,
-                            session.objectKey,
-                            bucketRegion,
-                        );
-                    }
-                } else {
+                } else if (session.objectKey !== session.overwriteTargetUid) {
+                    // Never the live key, unless the session predates staging.
                     await this.stores.s3Object.deleteObject(
                         bucket,
                         session.objectKey,

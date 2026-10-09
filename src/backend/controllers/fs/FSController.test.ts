@@ -456,6 +456,7 @@ describe('FSController.completeBatchWrites', () => {
         );
         const [secondResponse] = secondStart.captured
             .body as ClientSignedWriteResponse[];
+        await fetch(secondResponse!.url!, { method: 'PUT', body: 'yy' });
 
         const secondComplete = makeRes();
         await withActor(actor, () =>
@@ -593,6 +594,7 @@ describe('FSController.completeBatchWrites', () => {
         );
         const [secondResponse] = secondStart.captured
             .body as ClientSignedWriteResponse[];
+        await fetch(secondResponse!.url!, { method: 'PUT', body: 'yy' });
 
         const emitSpy = vi.spyOn(server.clients.event, 'emit');
         let updatedCall: (typeof emitSpy.mock.calls)[number] | undefined;
@@ -815,7 +817,10 @@ describe('FSController.statEntry', () => {
         const username = actor.user!.username!;
         const path = `/${username}/Documents/share-budget`;
         await withActor(actor, () =>
-            controller.mkdirEntry(makeReq({ body: { path }, actor }), makeRes().res),
+            controller.mkdirEntry(
+                makeReq({ body: { path }, actor }),
+                makeRes().res,
+            ),
         );
 
         // Spend the whole share:list bucket, as /share/shares' gate would.
