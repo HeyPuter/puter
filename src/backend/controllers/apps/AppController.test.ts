@@ -338,6 +338,39 @@ describe('AppController POST /rao', () => {
         expect(rows).toHaveLength(1);
     });
 
+    it('counts one open per account per app per day, however many are posted', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const app = await createApp(owner.actor);
+
+        const open = async (user: { actor: Actor; userId: number }) => {
+            const { res } = makeRes();
+            await withActor(user.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: user.actor }),
+                    res,
+                ),
+            );
+        };
+
+        for (let i = 0; i < 5; i++) await open(owner);
+        await open(other);
+        await server.controllers.apps.drainPendingAppOpens();
+
+        const rows = (await server.clients.db.read(
+            'SELECT `user_id` FROM `app_opens` WHERE `app_uid` = ?',
+            [app.uid],
+        )) as Array<{ user_id: number }>;
+        // `open_count` is a row count and `user_count` is distinct accounts;
+        // repeating an open would move one against the other.
+        expect(rows).toHaveLength(2);
+        expect(new Set(rows.map((r) => r.user_id))).toEqual(
+            new Set([owner.userId, other.userId]),
+        );
+    });
+
     // `app_opens` is analytics: the response carries nothing derived from it
     // and the client never awaits the post. Holding the response open for a
     // primary write put that write's latency inside the app launch it was
