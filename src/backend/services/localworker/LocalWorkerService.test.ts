@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore.js';
@@ -225,6 +227,41 @@ describe('LocalWorkerService.cfDeployLocal', () => {
             new Request('http://worker.localhost/hi'),
         );
         expect(after.status).toBe(404);
+    }, 60_000);
+
+    it('reaches this machine, but not link-local or LAN addresses by default', async () => {
+        const local = createServer((_req, res) => res.end('reached'));
+        await new Promise<void>((r) => local.listen(0, '127.0.0.1', r));
+        const { port } = local.address() as AddressInfo;
+        const name = `lws-egress-${Date.now()}`;
+        try {
+            await localWorkers.cfDeployLocal(
+                name,
+                'auth',
+                `addEventListener('fetch', (e) => e.respondWith((async () => {
+                    const probe = (url) => fetch(url, {
+                        signal: AbortSignal.timeout(10000),
+                    }).then((r) => r.text(), (err) => String(err));
+                    return Response.json({
+                        local: await probe('http://127.0.0.1:${port}/'),
+                        metadata: await probe('http://169.254.169.254/'),
+                        lan: await probe('http://10.0.0.1/'),
+                    });
+                })()));`,
+            );
+            const res = await localWorkers.cfCallLocal(
+                name,
+                new Request('http://worker.localhost/'),
+            );
+            const body = (await res.json()) as Record<string, string>;
+            expect(body.local).toBe('reached');
+            // Refused outright by the runtime, not left to time out.
+            expect(body.metadata).toMatch(/internal error/);
+            expect(body.lan).toMatch(/internal error/);
+        } finally {
+            await localWorkers.cfDeleteLocal(name);
+            local.close();
+        }
     }, 60_000);
 
     it('reports failure instead of throwing when the runtime rejects the options', async () => {

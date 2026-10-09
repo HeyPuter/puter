@@ -46,6 +46,10 @@ import {
 } from '../../util/pagination.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
+
+/** Runtime settings every deployed worker gets, locally and upstream. */
+export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
+export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
 
@@ -739,8 +743,8 @@ export class WorkerDriver extends PuterDriver {
         const cfg = this.#workerConfig();
         const metadata = JSON.stringify({
             body_part: 'swCode',
-            compatibility_flags: ['global_fetch_strictly_public'],
-            compatibility_date: '2025-07-15',
+            compatibility_flags: WORKER_COMPATIBILITY_FLAGS,
+            compatibility_date: WORKER_COMPATIBILITY_DATE,
             ...(target?.tags ? { tags: target.tags } : {}),
             bindings: [
                 // A script deployed without a token gets no binding at all,
@@ -1077,6 +1081,24 @@ export class WorkerDriver extends PuterDriver {
             (_key: string, data: unknown, meta: EventMetadata) => {
                 void this.#handleSourceMove(data, meta).catch((err) => {
                     console.error('[workers] source move error', err);
+                });
+            },
+        );
+        // A worker row deleted out from under the driver (e.g. with its
+        // owner's account) still has a deployed script to take down.
+        this.clients.event.on(
+            'subdomain.delete',
+            (_key: string, data: { subdomain?: unknown }) => {
+                const subdomain = String(data?.subdomain ?? '');
+                if (!subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX)) return;
+                const workerName = subdomain.slice(
+                    WORKER_SUBDOMAIN_PREFIX.length,
+                );
+                void this.#cfDelete(workerName).catch((err) => {
+                    console.warn(
+                        `[workers] script cleanup failed for ${workerName}`,
+                        err,
+                    );
                 });
             },
         );

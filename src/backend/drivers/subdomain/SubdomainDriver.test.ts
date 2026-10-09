@@ -537,6 +537,33 @@ describe('SubdomainDriver.update', () => {
         expect(rootDir?.path).toBe(`/${username}/Documents`);
     });
 
+    it('does not let an update set the custom domain', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const sub = uniqueSubdomain('upd-domain');
+
+        const created = (await withActor(actor, () =>
+            driver.create({
+                object: { subdomain: sub, root_dir: `/${username}/Public` },
+            }),
+        )) as Record<string, unknown>;
+
+        await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: {
+                    root_dir: `/${username}/Documents`,
+                    domain: 'someone-elses.example',
+                },
+            }),
+        );
+
+        const row = await server.stores.subdomain.getByUuid(
+            String(created.uid),
+        );
+        expect(row?.domain ?? null).toBeNull();
+    });
+
     it('refuses to update a subdomain owned by another user with 403', async () => {
         const a = await makeUser();
         const b = await makeUser();

@@ -305,10 +305,10 @@ describe('SubdomainDriver app-actor scoping', () => {
         const updated = (await withActor(appActor, () =>
             driver.update({
                 uid: row.uuid,
-                object: { domain: 'custom.test' },
+                object: {},
             }),
         )) as Record<string, unknown>;
-        expect(updated.domain).toBe('custom.test');
+        expect(updated.subdomain).toBe(name);
     });
 
     it('refuses a different app of the same user write access to the row', async () => {

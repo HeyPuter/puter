@@ -2,7 +2,11 @@ import { Miniflare, RequestInit as MiniflareRequestInit } from 'miniflare';
 import { puterServices } from '..';
 import { makeActor } from '../../core';
 import { loadFileInput } from '../../drivers/util/fileInput';
-import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver';
+import {
+    getWorkerPreamble,
+    WORKER_COMPATIBILITY_DATE,
+    WORKER_COMPATIBILITY_FLAGS,
+} from '../../drivers/workers/WorkerDriver';
 import { puterStores } from '../../stores';
 import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore';
 import { LayerInstances } from '../../types';
@@ -30,6 +34,14 @@ let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const EVENTS_KEY_PREFIX = 'events:';
 const eventsKey = (workerName: string): string =>
     `${EVENTS_KEY_PREFIX}${workerName}`;
+
+/**
+ * Miniflare ignores the strict-public flag, so local workers fetch through this
+ * network instead: public addresses and this machine (where Puter's own hosts
+ * live), but not link-local, where cloud metadata endpoints answer. The LAN is
+ * opt-in via `workers.allowLanAccess`.
+ */
+const LINK_LOCAL_RANGE = '169.254.0.0/16';
 
 export class LocalWorkerService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -77,6 +89,17 @@ export class LocalWorkerService extends PuterService {
             const mf = new Miniflare({
                 modules: false,
                 name: workerName,
+                compatibilityDate: WORKER_COMPATIBILITY_DATE,
+                compatibilityFlags: WORKER_COMPATIBILITY_FLAGS,
+                outboundService: {
+                    network: {
+                        allow: this.config.workers?.allowLanAccess
+                            ? ['public', 'local', 'private']
+                            : ['public', 'local'],
+                        deny: [LINK_LOCAL_RANGE],
+                        tlsOptions: { trustBrowserCas: true },
+                    },
+                },
                 // Binds variables/secrets to the environment. A worker
                 // deployed without a token gets no `puter_auth` at all, the
                 // same as upstream.

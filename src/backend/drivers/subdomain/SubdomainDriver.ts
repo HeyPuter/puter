@@ -390,8 +390,6 @@ export class SubdomainDriver extends PuterDriver {
         // `associated_app_uid` is silently ignored on update — the field is
         // derived at read time (see `#hydrateRows`). Same rationale as
         // `create`: no parallel source of truth that the system can't verify.
-        if (object.domain !== undefined)
-            patch.domain = object.domain != null ? String(object.domain) : null;
 
         const updated = await this.stores.subdomain.update(
             String(row.uuid),
