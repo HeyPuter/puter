@@ -4,14 +4,19 @@
 // tsconfig.json or `/// <reference types="@heyputer/worker-types" />` at the
 // top of a .js/.ts file), the worker globals — `router`, `me`, `my`,
 // `myself`, `puter_auth`, `puter_endpoint` — are visible everywhere with no
-// imports required, matching how the runtime actually injects them.
+// imports required. `me` and its aliases are only assigned once the first
+// request is routed, so they are typed for use inside route handlers.
 
 import type { Puter } from '@heyputer/puter.js';
 import type { Router } from './types/router.d.ts';
 import type { PuterContext } from './types/event.d.ts';
 
 declare global {
-    /** The deployer's Puter context, authenticated with the worker's own credentials. */
+    /**
+     * The deployer's Puter context, authenticated with the worker's own
+     * credentials. Available inside route handlers (and code they call); it is
+     * not yet defined while the script's top level runs.
+     */
     const me: PuterContext;
     /** @deprecated Alias for {@link me}. Will be removed at a future date. */
     const my: PuterContext;

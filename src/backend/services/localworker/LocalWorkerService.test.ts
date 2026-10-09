@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore.js';
@@ -225,6 +227,52 @@ describe('LocalWorkerService.cfDeployLocal', () => {
             new Request('http://worker.localhost/hi'),
         );
         expect(after.status).toBe(404);
+    }, 60_000);
+
+    it('lets a worker reach the API origin but no other private address', async () => {
+        const listen = async (): Promise<[Server, string]> => {
+            const srv = createServer((_req, res) => res.end('reached'));
+            await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+            const { port } = srv.address() as AddressInfo;
+            return [srv, `http://127.0.0.1:${port}`];
+        };
+        const [apiServer, apiOrigin] = await listen();
+        const [otherServer, otherOrigin] = await listen();
+        const config = (
+            localWorkers as unknown as { config: { api_base_url: string } }
+        ).config;
+        const configuredApi = config.api_base_url;
+        config.api_base_url = apiOrigin;
+        const name = `lws-egress-${Date.now()}`;
+        try {
+            await localWorkers.cfDeployLocal(
+                name,
+                'auth',
+                `addEventListener('fetch', (e) => e.respondWith((async () => {
+                    const probe = (url) => fetch(url).then(
+                        (r) => r.text(),
+                        () => 'refused',
+                    );
+                    return Response.json({
+                        api: await probe('${apiOrigin}/x'),
+                        other: await probe('${otherOrigin}/x'),
+                    });
+                })()));`,
+            );
+            const res = await localWorkers.cfCallLocal(
+                name,
+                new Request('http://worker.localhost/'),
+            );
+            expect(await res.json()).toEqual({
+                api: 'reached',
+                other: 'refused',
+            });
+        } finally {
+            config.api_base_url = configuredApi;
+            await localWorkers.cfDeleteLocal(name);
+            apiServer.close();
+            otherServer.close();
+        }
     }, 60_000);
 
     it('reports failure instead of throwing when the runtime rejects the options', async () => {

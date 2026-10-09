@@ -1,8 +1,16 @@
-import { Miniflare, RequestInit as MiniflareRequestInit } from 'miniflare';
+import {
+    Miniflare,
+    type MiniflareOptions,
+    RequestInit as MiniflareRequestInit,
+} from 'miniflare';
 import { puterServices } from '..';
 import { makeActor } from '../../core';
 import { loadFileInput } from '../../drivers/util/fileInput';
-import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver';
+import {
+    getWorkerPreamble,
+    WORKER_COMPATIBILITY_DATE,
+    WORKER_COMPATIBILITY_FLAGS,
+} from '../../drivers/workers/WorkerDriver';
 import { puterStores } from '../../stores';
 import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore';
 import { LayerInstances } from '../../types';
@@ -30,6 +38,29 @@ let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const EVENTS_KEY_PREFIX = 'events:';
 const eventsKey = (workerName: string): string =>
     `${EVENTS_KEY_PREFIX}${workerName}`;
+
+/**
+ * Locally the strict-public flag alone doesn't restrict `fetch`, so a worker's
+ * outbound requests go through this gateway instead: public addresses only,
+ * except the local API origin a worker's own `puter` client has to reach.
+ */
+const EGRESS_WORKER_NAME = 'puter-worker-egress';
+const EGRESS_SCRIPT = `export default {
+    fetch(request, env) {
+        return new URL(request.url).origin === env.API_ORIGIN
+            ? env.API.fetch(request)
+            : env.PUBLIC.fetch(request);
+    },
+};`;
+const EGRESS_TLS = { trustBrowserCas: true };
+
+const apiOriginOf = (apiBaseUrl: string | undefined): string => {
+    try {
+        return apiBaseUrl ? new URL(apiBaseUrl).origin : '';
+    } catch {
+        return '';
+    }
+};
 
 export class LocalWorkerService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -75,20 +106,50 @@ export class LocalWorkerService extends PuterService {
         await this.#disposeWorker(key);
         try {
             const mf = new Miniflare({
-                modules: false,
-                name: workerName,
-                // Binds variables/secrets to the environment. A worker
-                // deployed without a token gets no `puter_auth` at all, the
-                // same as upstream.
-                bindings: {
-                    ...(authorization === undefined
-                        ? {}
-                        : { puter_auth: authorization }),
-                    ...extraBindings,
-                    puter_endpoint: this.config.api_base_url,
-                },
-                script: code,
-            } as WorkerOptions);
+                workers: [
+                    {
+                        modules: false,
+                        name: workerName,
+                        compatibilityDate: WORKER_COMPATIBILITY_DATE,
+                        compatibilityFlags: WORKER_COMPATIBILITY_FLAGS,
+                        outboundService: EGRESS_WORKER_NAME,
+                        // Binds variables/secrets to the environment. A worker
+                        // deployed without a token gets no `puter_auth` at all,
+                        // the same as upstream.
+                        bindings: {
+                            ...(authorization === undefined
+                                ? {}
+                                : { puter_auth: authorization }),
+                            ...extraBindings,
+                            puter_endpoint: this.config.api_base_url,
+                        },
+                        script: code,
+                    },
+                    {
+                        modules: true,
+                        name: EGRESS_WORKER_NAME,
+                        compatibilityDate: WORKER_COMPATIBILITY_DATE,
+                        script: EGRESS_SCRIPT,
+                        bindings: {
+                            API_ORIGIN: apiOriginOf(this.config.api_base_url),
+                        },
+                        serviceBindings: {
+                            API: {
+                                network: {
+                                    allow: ['public', 'private', 'local'],
+                                    tlsOptions: EGRESS_TLS,
+                                },
+                            },
+                            PUBLIC: {
+                                network: {
+                                    allow: ['public'],
+                                    tlsOptions: EGRESS_TLS,
+                                },
+                            },
+                        },
+                    },
+                ],
+            } as MiniflareOptions);
             activeWorkers.set(key, mf);
             this.#touch(key);
             return {

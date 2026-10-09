@@ -39,7 +39,7 @@ const PROVISIONED_FSENTRY_COUNT = 8;
 export class UserAccountService extends PuterService {
     /**
      * Delete a user and the state that belongs to them: their files (S3 objects
-     * included), their sessions, and the row itself.
+     * included), their sites, their sessions, and the row itself.
      *
      * Irreversible. Filesystem teardown failures are logged and stepped over —
      * an orphaned fsentry is a smaller problem than an account that half
@@ -93,6 +93,12 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] fs cleanup failed:', e);
         }
 
+        try {
+            await this.#deleteSubdomains(userId);
+        } catch (e) {
+            console.warn('[cascade-delete-user] subdomain cleanup failed:', e);
+        }
+
         // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
         await this.clients.db.write(
             'DELETE FROM `sessions` WHERE `user_id` = ?',
@@ -136,6 +142,36 @@ export class UserAccountService extends PuterService {
         this.services.team.emitSeatDeleted(seat);
         // The membership row cascaded away, so anything keyed on it is stale.
         if (seat) await this.services.team.forgetSeat(seat);
+    }
+
+    /**
+     * Delete the user's sites one by one, emitting `subdomain.delete` for each
+     * as the driver does. The FK cascade would drop the rows silently, leaving
+     * cached lookups and deployed scripts behind.
+     */
+    async #deleteSubdomains(userId: number): Promise<void> {
+        let afterId: number | undefined;
+        for (;;) {
+            const rows = (await this.stores.subdomain.listByUserId(userId, {
+                afterId,
+            })) as Array<{ id: number; uuid: string; subdomain: string }>;
+            if (rows.length === 0) return;
+            for (const row of rows) {
+                await this.stores.subdomain.deleteByUuid(String(row.uuid), {
+                    userId,
+                });
+                try {
+                    this.clients.event.emit(
+                        'subdomain.delete',
+                        { subdomain: row.subdomain, uid: String(row.uuid) },
+                        {},
+                    );
+                } catch {
+                    // Non-critical.
+                }
+            }
+            afterId = rows[rows.length - 1]!.id;
+        }
     }
 
     /**

@@ -533,6 +533,42 @@ describe('WorkerDriver.destroy with a configured deploy backend', () => {
     });
 });
 
+// -- worker rows deleted elsewhere ------------------------------------
+
+describe('WorkerDriver on subdomain.delete', () => {
+    const waitForDelete = async (url: string) => {
+        for (let i = 0; i < 100; i++) {
+            if (deleteCalls().some(([u]) => u === url)) return;
+            await new Promise((r) => setTimeout(r, 10));
+        }
+        throw new Error(`no DELETE to ${url}`);
+    };
+
+    it('takes the script down when its owner’s account is deleted', async () => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/worker.js`;
+        await writeSource(actor, user.id, path, 'src');
+        const name = `acct-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({ appId: '', workerName: name, filePath: path }),
+        );
+
+        await server.services.userAccount.cascadeDelete(user.id);
+
+        await waitForDelete(`${SCRIPTS_BASE}/${name}/`);
+    });
+
+    it('leaves the edge alone for a site that is not a worker', async () => {
+        server.clients.event.emit(
+            'subdomain.delete',
+            { subdomain: 'plain-site', uid: uuidv4() },
+            {},
+        );
+        await new Promise((r) => setTimeout(r, 50));
+        expect(deleteCalls()).toEqual([]);
+    });
+});
+
 // -- getFilePaths ----------------------------------------------------
 
 describe('WorkerDriver.getFilePaths source resolution', () => {

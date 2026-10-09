@@ -63,9 +63,10 @@ export interface SubdomainRow {
 //   - external resource link: `database_id` — repointing a Cloudflare D1
 //     binding could route another site's traffic / writes to attacker DB.
 //
-// `root_dir_id`, `associated_app_id`, and `domain` are intentionally NOT
-// here — they're legitimately editable through the driver with their own
-// access checks (FS permission, app ownership, custom-domain validation).
+// `root_dir_id` and `associated_app_id` are intentionally NOT here — they're
+// legitimately editable through the driver with their own access checks
+// (FS permission, app ownership). `domain` isn't either, but the driver does
+// not accept it: nothing validates a custom domain's ownership yet.
 /**
  * Worker deployments are stored as subdomain rows under this prefix.
  * Site-facing listings (the `puter-subdomains` driver) exclude them.
