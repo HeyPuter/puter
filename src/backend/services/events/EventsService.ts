@@ -1608,14 +1608,16 @@ export class EventsService extends PuterService {
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
         // subscribed yet is still somewhere, and that is what a peer needs.
-        void this.services.eventForward.noteConnect(actor).catch((err) => {
-            console.warn('[events] presence connect failed', err);
-        });
+        void this.services.eventForward
+            .noteConnect(actor, socket.id)
+            .catch((err) => {
+                console.warn('[events] presence connect failed', err);
+            });
 
         socket.once('disconnect', (() => {
             void this.reapSocket(userId, socket.id);
             void this.services.eventForward
-                .noteDisconnect(actor)
+                .noteDisconnect(actor, socket.id)
                 .catch((err) => {
                     console.warn('[events] presence disconnect failed', err);
                 });
@@ -5237,6 +5239,15 @@ export class EventsService extends PuterService {
         const targets = targetsOf(row);
         const target = deliveryTarget(row);
         const hasWorkerFallback = targets.includes('worker');
+        // Region-wide: `has` only sees this node's sockets, and the room send
+        // below reaches a sibling node's just the same.
+        const heldHere =
+            targets.includes('socket') &&
+            (this.services.socket.has(target) ||
+                (await this.services.eventForward.heldInRegion(
+                    row.holderUserId,
+                    row.appUid,
+                )));
 
         // A row with no worker to fall back to has nothing left to try once
         // its socket budget is spent. Without this, a socket that disappeared
@@ -5245,14 +5256,13 @@ export class EventsService extends PuterService {
         if (
             !hasWorkerFallback &&
             claimed.socketAttempts >= SINGLE_SOCKET_ATTEMPTS &&
-            targets.includes('socket') &&
-            this.services.socket.has(target)
+            heldHere
         ) {
             await this.stores.pendingDelivery.resetSocketAttempts(
                 row.subId,
                 claimed.entryId,
             );
-            claimed = { ...claimed, socketAttempts: 0, remoteAttempts: 0 };
+            claimed = { ...claimed, socketAttempts: 0, triedRegions: [] };
         }
 
         // Candidates in order: this region's own connection, then the regions
@@ -5261,13 +5271,13 @@ export class EventsService extends PuterService {
         const socketsLeft =
             targets.includes('socket') &&
             claimed.socketAttempts < SINGLE_SOCKET_ATTEMPTS;
-        const here = socketsLeft && this.services.socket.has(target);
+        const here = socketsLeft && heldHere;
         const region =
             socketsLeft && !(here && claimed.socketAttempts === 0)
                 ? await this.services.eventForward.candidateRegion(
                       row.holderUserId,
                       row.appUid,
-                      claimed.remoteAttempts,
+                      claimed.triedRegions,
                   )
                 : null;
 
@@ -5280,6 +5290,7 @@ export class EventsService extends PuterService {
                 await this.stores.pendingDelivery.recordRemoteAttempt(
                     row.subId,
                     claimed.entryId,
+                    region,
                 );
             const envelope: DeliveryEnvelope = {
                 subId: row.subId,

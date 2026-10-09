@@ -211,21 +211,21 @@ describe('handing a delivery out', () => {
         });
     });
 
-    it('counts remote candidates separately from socket attempts', async () => {
+    it('records remote regions tried separately from socket attempts', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
 
         await store.recordSocketAttempt(subId, entryId);
         await expect(
-            store.recordRemoteAttempt(subId, entryId),
-        ).resolves.toBe(1);
+            store.recordRemoteAttempt(subId, entryId, 'east'),
+        ).resolves.toEqual(['east']);
 
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(Date.now() + 1_000);
         await expect(store.claim(subId)).resolves.toMatchObject({
             entryId,
             socketAttempts: 1,
-            remoteAttempts: 1,
+            triedRegions: ['east'],
         });
     });
 
@@ -233,7 +233,7 @@ describe('handing a delivery out', () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
         await store.recordSocketAttempt(subId, entryId);
-        await store.recordRemoteAttempt(subId, entryId);
+        await store.recordRemoteAttempt(subId, entryId, 'east');
 
         await store.resetSocketAttempts(subId, entryId);
 
@@ -242,7 +242,7 @@ describe('handing a delivery out', () => {
         await expect(store.claim(subId)).resolves.toMatchObject({
             entryId,
             socketAttempts: 0,
-            remoteAttempts: 0,
+            triedRegions: [],
         });
     });
 
