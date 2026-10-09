@@ -37,12 +37,22 @@
 const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback']);
 
 /**
+ * Popup actions that exist to sign the user in to the opener, besides a plain
+ * sign-in popup (no action). `login` and `signup` are where a failed OIDC hop
+ * lands.
+ */
+const SIGN_IN_POPUP_ACTIONS = new Set(['sign-in', 'login', 'signup']);
+
+const isSignInPopup = (action) =>
+    !action || SIGN_IN_POPUP_ACTIONS.has(action);
+
+/**
  * Whether a popup running `action` may post `puter.token` to its opener.
  *
- * For `request-permission` the token exchange itself still runs — it bootstraps
- * the app row a permission grant needs and caches `host_app_uid` — only the
- * hand-off to the opener is suppressed. `send-feedback` skips the exchange
- * entirely; see {@link runsUserAppTokenExchange}.
+ * Only sign-in popups and the pickers do. For `request-permission` the token
+ * exchange itself still runs — it bootstraps the app row a permission grant
+ * needs and caches `host_app_uid` — only the hand-off to the opener is
+ * suppressed. Any other action hands over nothing.
  *
  * @param {string|null|undefined} action - The popup's `action`, as parsed from
  *   the URL (`/action/<name>` or `?action=<name>`); undefined for a plain
@@ -50,7 +60,7 @@ const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback']);
  * @returns {boolean} `true` if the token may be delivered to the opener.
  */
 export const deliversTokenToOpener = (action) =>
-    !NON_AUTH_POPUP_ACTIONS.has(action);
+    isSignInPopup(action) || defersTokenToOpener(action);
 
 /** Popup actions whose token travels with the answer the user gave. */
 const DEFERRED_TOKEN_POPUP_ACTIONS = new Set([
@@ -69,7 +79,8 @@ export const defersTokenToOpener = (action) =>
     DEFERRED_TOKEN_POPUP_ACTIONS.has(action);
 
 /**
- * The one gate every boot-time hand-off reads, exchange to signup.
+ * The one gate every boot-time hand-off reads, exchange to signup. A popup
+ * this is true for must also have the user's consent before it hands over.
  *
  * @param {string|null|undefined} action
  * @returns {boolean} `true` if booting is enough to deliver the token.
@@ -78,22 +89,16 @@ export const deliversTokenAtBoot = (action) =>
     deliversTokenToOpener(action) && !defersTokenToOpener(action);
 
 /**
- * Popup actions that must not run the user-app token exchange at all.
+ * Whether a popup running `action` runs the user-app token exchange.
  *
  * The exchange (`/auth/get-user-app-token`) is a write, not a read: it
  * bootstraps an app row for the opener origin, grants
  * `flag:app-is-authenticated` (what makes the site count as connected to the
  * account), and creates the app's per-user AppData directory. Sign-in and
  * file-picker popups need that, and `request-permission` needs the
- * bootstrapped app row a grant is written against — but a send-feedback popup
- * only ever *reads* app identity from its attested origin server-side, so
- * merely opening (or cancelling) the feedback dialog must not record a
- * user↔site relationship.
- */
-const TOKEN_EXCHANGE_FREE_ACTIONS = new Set(['send-feedback']);
-
-/**
- * Whether a popup running `action` runs the user-app token exchange.
+ * bootstrapped app row a grant is written against. Nothing else runs it: a
+ * send-feedback popup only ever *reads* app identity from its attested origin
+ * server-side, and any other action has no use for a token.
  *
  * @param {string|null|undefined} action - The popup's `action`, as parsed from
  *   the URL (`/action/<name>` or `?action=<name>`); undefined for a plain
@@ -101,7 +106,7 @@ const TOKEN_EXCHANGE_FREE_ACTIONS = new Set(['send-feedback']);
  * @returns {boolean} `true` if the exchange should run for this popup.
  */
 export const runsUserAppTokenExchange = (action) =>
-    !TOKEN_EXCHANGE_FREE_ACTIONS.has(action);
+    deliversTokenToOpener(action) || action === 'request-permission';
 
 /*
  * On the `opener_origin` URL parameter, which this module used to gate.

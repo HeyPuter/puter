@@ -44,7 +44,8 @@ describe('deliversTokenAtBoot', () => {
     });
 
     it('delivers at boot for the flows that exist to authenticate', () => {
-        for ( const action of [undefined, 'sign-in', 'login', 'signup'] ) {
+        // `''` is an empty `?action=`, which the popup treats as no action.
+        for ( const action of [undefined, '', 'sign-in', 'login', 'signup'] ) {
             expect(deliversTokenAtBoot(action)).toBe(true);
         }
     });
@@ -122,12 +123,41 @@ describe('runsUserAppTokenExchange', () => {
         for ( const action of [
             undefined,
             'sign-in',
+            'login',
+            'signup',
             'show-open-file-picker',
             'show-directory-picker',
             'show-save-file-picker',
             'request-permission',
         ] ) {
             expect(runsUserAppTokenExchange(action)).toBe(true);
+        }
+    });
+});
+
+describe('any other popup action', () => {
+    // These show no account picker, so a boot-time hand-off would sign the
+    // opener in without asking.
+    const OTHER_ACTIONS = [
+        'foo',
+        'authme',
+        'copyauth',
+        'change-username',
+        'set-new-password',
+        'password-recovery',
+    ];
+
+    it('hands the opener no token', () => {
+        for ( const action of OTHER_ACTIONS ) {
+            expect(deliversTokenToOpener(action)).toBe(false);
+            expect(deliversTokenAtBoot(action)).toBe(false);
+            expect(defersTokenToOpener(action)).toBe(false);
+        }
+    });
+
+    it('skips the exchange, so opening one connects nothing', () => {
+        for ( const action of OTHER_ACTIONS ) {
+            expect(runsUserAppTokenExchange(action)).toBe(false);
         }
     });
 });

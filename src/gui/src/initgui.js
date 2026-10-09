@@ -364,15 +364,14 @@ const postAuthActions = async (action) => {
         // ended in a token: dismissing the account picker skipped only the
         // early exchange, not the delivery.
         //
-        // Scoped to the popups whose whole purpose is signing in. The
-        // file-picker actions also reach the hand-off, but they answer for
-        // themselves — they have their own dialogs and never show an account
-        // picker, so requiring one here would just break them.
-        const is_signin_popup = !action || action === 'sign-in';
+        // Applies to every popup that hands over a token at boot. The
+        // file-picker actions answer for themselves (the token waits for the
+        // user's pick) and every other action hands over nothing; see
+        // util/popupAuth.js.
         const consented =
             window.popup_signin_consent ||
             (window.attempt_temp_user_creation && window.first_visit_ever);
-        if (is_signin_popup && !consented) {
+        if (deliversTokenAtBoot(action) && !consented) {
             console.error(
                 'popup sign-in was not consented to; not delivering a token',
             );

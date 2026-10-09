@@ -41,3 +41,30 @@ describe('the verification gates in initgui', () => {
         }
     });
 });
+
+describe('the popup token hand-off in postAuthActions', () => {
+    const postAuthActions = src.slice(
+        src.indexOf('const postAuthActions = async'),
+        src.indexOf('window.initgui = async'),
+    );
+    const gate = postAuthActions.indexOf(
+        'if (deliversTokenAtBoot(action) && !consented)',
+    );
+
+    it('asks for consent on every action that hands over a token at boot', () => {
+        // A gate keyed on action names lets every unnamed action through.
+        expect(gate).toBeGreaterThan(-1);
+        expect(postAuthActions).not.toContain('is_signin_popup');
+    });
+
+    it('checks consent before the exchange and both hand-offs', () => {
+        const steps = [
+            postAuthActions.indexOf('fetch(`${window.api_origin}/login/set`'),
+            postAuthActions.indexOf('runsUserAppTokenExchange(action)'),
+            postAuthActions.search(/success: true,\s+token: data\.token/),
+        ];
+        for (const step of steps) {
+            expect(step).toBeGreaterThan(gate);
+        }
+    });
+});
