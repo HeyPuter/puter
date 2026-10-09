@@ -21,6 +21,7 @@ import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import { isPlainUserActor } from '../../actor';
 import { HttpError } from '../HttpError';
+import { checkRateLimit, peekRateLimit } from './rateLimit.js';
 import type { IConfig } from '../../../types';
 import type { UserStore, UserRow } from '../../../stores/user/UserStore';
 import type { OIDCService } from '../../../services/auth/OIDCService';
@@ -138,6 +139,11 @@ async function buildRevalidateFields(
     };
 }
 
+/** Wrong passwords per account per hour, matching the sibling routes. */
+const PASSWORD_ATTEMPT_LIMIT = 10;
+const PASSWORD_ATTEMPT_WINDOW_MS = 60 * 60_000;
+const PASSWORD_ATTEMPT_SCOPE = 'user-protected-password';
+
 export const createUserProtectedGate = (
     deps: UserProtectedGateDeps,
     options: UserProtectedGateOptions = {},
@@ -219,6 +225,19 @@ export const createUserProtectedGate = (
                     fields,
                 });
             }
+            // Charged by the outcome, so a right answer spends nothing.
+            const budgetKey = `${PASSWORD_ATTEMPT_SCOPE}:${user.id}`;
+            if (
+                !(await peekRateLimit(
+                    budgetKey,
+                    PASSWORD_ATTEMPT_LIMIT,
+                    PASSWORD_ATTEMPT_WINDOW_MS,
+                ))
+            ) {
+                throw new HttpError(429, 'Too many requests.', {
+                    legacyCode: 'too_many_requests',
+                });
+            }
             let match = false;
             try {
                 match = await bcrypt.compare(
@@ -228,10 +247,16 @@ export const createUserProtectedGate = (
             } catch {
                 match = false;
             }
-            if (!match)
+            if (!match) {
+                await checkRateLimit(
+                    budgetKey,
+                    PASSWORD_ATTEMPT_LIMIT,
+                    PASSWORD_ATTEMPT_WINDOW_MS,
+                );
                 throw new HttpError(400, 'Password mismatch', {
                     legacyCode: 'password_mismatch',
                 });
+            }
             return next();
         }
 

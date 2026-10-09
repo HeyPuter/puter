@@ -100,12 +100,14 @@ const makeUserWithPassword = async (
     }> = {},
 ) => {
     const hash = await bcrypt.hash(plainPassword, 4);
-    const username = extra.username ?? `up-${Math.random().toString(36).slice(2, 10)}`;
+    const username =
+        extra.username ?? `up-${Math.random().toString(36).slice(2, 10)}`;
     const created = await userStore.create({
         username,
         uuid: uuidv4(),
         password: hash,
-        email: extra.email !== undefined ? extra.email : `${username}@test.local`,
+        email:
+            extra.email !== undefined ? extra.email : `${username}@test.local`,
         free_storage: 100 * 1024 * 1024,
         requires_email_confirmation: false,
     } as Parameters<UserStore['create']>[0]);
@@ -144,7 +146,7 @@ describe('userProtected — requireSessionCookie (step 1)', () => {
         expect(arg).toBeUndefined();
     });
 
-    it("passes through when the cookie is present and req.token is undefined (no probe-attached token)", async () => {
+    it('passes through when the cookie is present and req.token is undefined (no probe-attached token)', async () => {
         // This covers test-only / bypass paths where the cookie is the
         // only credential. The guard only fires when `req.token` is set
         // AND differs from the cookie.
@@ -177,7 +179,7 @@ describe('userProtected — requireSessionCookie (step 1)', () => {
         expect((arg as HttpError).statusCode).toBe(401);
     });
 
-    it("honors a custom config.cookie_name", async () => {
+    it('honors a custom config.cookie_name', async () => {
         const gates = createUserProtectedGate({
             config: {
                 cookie_name: 'custom_session',
@@ -210,7 +212,9 @@ describe('userProtected — refreshUser (step 2)', () => {
         );
 
         const [, refreshUser] = buildGate();
-        const req: Partial<Request> = { actor: { user: { id: user.id, uuid: user.uuid } } };
+        const req: Partial<Request> = {
+            actor: { user: { id: user.id, uuid: user.uuid } },
+        };
         const arg = await run(refreshUser, req);
         expect(isHttpError(arg)).toBe(true);
         expect((arg as HttpError).statusCode).toBe(403);
@@ -220,13 +224,15 @@ describe('userProtected — refreshUser (step 2)', () => {
     it('passes through and stashes the fresh row on req.userProtected', async () => {
         const user = await makeUserWithPassword('hunter2');
         const [, refreshUser] = buildGate();
-        const req: Partial<Request> = { actor: { user: { id: user.id, uuid: user.uuid } } };
+        const req: Partial<Request> = {
+            actor: { user: { id: user.id, uuid: user.uuid } },
+        };
         const arg = await run(refreshUser, req);
         expect(arg).toBeUndefined();
         expect((req as Request).userProtected?.user.uuid).toBe(user.uuid);
     });
 
-    it("throws 401 when the actor lacks a user id (defensive — earlier gates should catch this)", async () => {
+    it('throws 401 when the actor lacks a user id (defensive — earlier gates should catch this)', async () => {
         const [, refreshUser] = buildGate();
         const arg = await run(refreshUser, { actor: undefined });
         expect(isHttpError(arg)).toBe(true);
@@ -266,7 +272,7 @@ describe('userProtected — verifyIdentity (step 3)', () => {
         expect(arg).toBeUndefined();
     });
 
-    it("returns 400 password_mismatch when bcrypt says no", async () => {
+    it('returns 400 password_mismatch when bcrypt says no', async () => {
         const user = await makeUserWithPassword('correct-horse');
         const [, , verifyIdentity] = buildGate();
         const arg = await run(
@@ -278,7 +284,40 @@ describe('userProtected — verifyIdentity (step 3)', () => {
         expect((arg as HttpError).legacyCode).toBe('password_mismatch');
     });
 
-    it("returns 403 password_required when password account submits no credentials", async () => {
+    it('stops guessing after ten wrong passwords on the same account', async () => {
+        const user = await makeUserWithPassword('correct-horse');
+        const [, , verifyIdentity] = buildGate();
+        const guess = () =>
+            run(
+                verifyIdentity,
+                withUser(user, { body: { password: 'wrong-guess' } }),
+            );
+
+        for (let i = 0; i < 10; i++) {
+            expect((((await guess()) as HttpError) ?? {}).legacyCode).toBe(
+                'password_mismatch',
+            );
+        }
+        const refused = (await guess()) as HttpError;
+        expect(refused.statusCode).toBe(429);
+        expect(refused.legacyCode).toBe('too_many_requests');
+    });
+
+    it('spends the budget on wrong answers only', async () => {
+        const user = await makeUserWithPassword('correct-horse');
+        const [, , verifyIdentity] = buildGate();
+        const right = () =>
+            run(
+                verifyIdentity,
+                withUser(user, { body: { password: 'correct-horse' } }),
+            );
+
+        // Well past the limit, and none of it is charged.
+        for (let i = 0; i < 20; i++) expect(await right()).toBeUndefined();
+        expect(await right()).toBeUndefined();
+    });
+
+    it('returns 403 password_required when password account submits no credentials', async () => {
         // No password in body, no revalidation cookie → reject.
         const user = await makeUserWithPassword('hunter2');
         const [, , verifyIdentity] = buildGate();
@@ -288,7 +327,7 @@ describe('userProtected — verifyIdentity (step 3)', () => {
         expect((arg as HttpError).legacyCode).toBe('password_required');
     });
 
-    it("accepts a valid puter_revalidation cookie in lieu of a password", async () => {
+    it('accepts a valid puter_revalidation cookie in lieu of a password', async () => {
         const user = await makeUserWithPassword('hunter2');
         // Sign a real revalidation token via the real TokenService.
         const cookieValue = tokenService.sign('oidc-state', {
@@ -347,7 +386,7 @@ describe('userProtected — verifyIdentity (step 3)', () => {
         expect((arg as HttpError).legacyCode).toBe('password_required');
     });
 
-    it("falls through silently when the revalidation cookie is unparseable (bad signature)", async () => {
+    it('falls through silently when the revalidation cookie is unparseable (bad signature)', async () => {
         const user = await makeUserWithPassword('pwd');
         const [, , verifyIdentity] = buildGate();
         const arg = await run(
@@ -415,10 +454,12 @@ describe('userProtected — OIDC-only accounts', () => {
         });
         expect(isHttpError(arg)).toBe(true);
         expect((arg as HttpError).statusCode).toBe(403);
-        expect((arg as HttpError).legacyCode).toBe('oidc_revalidation_required');
+        expect((arg as HttpError).legacyCode).toBe(
+            'oidc_revalidation_required',
+        );
     });
 
-    it("returns oidc_revalidation_required when a password-less user submits no credentials", async () => {
+    it('returns oidc_revalidation_required when a password-less user submits no credentials', async () => {
         const user = await makeUserWithPassword('seed-then-null');
         await server.clients.db.write(
             'UPDATE user SET password = NULL WHERE id = ?',
@@ -434,6 +475,8 @@ describe('userProtected — OIDC-only accounts', () => {
             cookies: {},
         });
         expect(isHttpError(arg)).toBe(true);
-        expect((arg as HttpError).legacyCode).toBe('oidc_revalidation_required');
+        expect((arg as HttpError).legacyCode).toBe(
+            'oidc_revalidation_required',
+        );
     });
 });
