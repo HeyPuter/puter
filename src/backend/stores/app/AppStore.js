@@ -38,8 +38,10 @@ import {
 const CACHE_KEY_PREFIX = 'apps';
 const CACHE_TTL_SECONDS = 24 * 60 * 60;
 const LIST_CACHE_KEY_PREFIX = `${CACHE_KEY_PREFIX}:list`;
-const LIST_CACHE_TRACKER_KEY = `${LIST_CACHE_KEY_PREFIX}:keys`;
 const LIST_CACHE_TTL_SECONDS = 15 * 60;
+// Outlives every page cached under it, so a lapsed generation can't bring
+// one back.
+const LIST_GENERATION_TTL_SECONDS = 2 * LIST_CACHE_TTL_SECONDS;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 // Filetype associations are matched against the bare lowercase extension
@@ -426,10 +428,18 @@ export class AppStore extends PuterStore {
         const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
         const limit = filters.limit ?? 500;
         const offset = filters.offset ?? 0;
-        const cacheKey = this.#listCacheKey(whereClause, params, limit, offset);
+        const generation = await this.#listGeneration(filters.ownerUserId);
+        const cacheKey =
+            generation &&
+            `${LIST_CACHE_KEY_PREFIX}:${generation}:${JSON.stringify([
+                whereClause,
+                params,
+                limit,
+                offset,
+            ])}`;
 
         try {
-            const cached = await this.clients.redis.get(cacheKey);
+            const cached = cacheKey && (await this.clients.redis.get(cacheKey));
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed)) {
@@ -449,7 +459,7 @@ export class AppStore extends PuterStore {
         const rows = await this.clients.db.read(sql, sqlParams);
         const apps = rows.map((r) => this.#normalizeRow(r));
 
-        this.#writeListCache(cacheKey, apps).catch(() => {});
+        if (cacheKey) void this.#writeListCache(cacheKey, apps);
         return apps;
     }
 
@@ -988,47 +998,32 @@ export class AppStore extends PuterStore {
         return this.#normalizeRow(rows[0]);
     }
 
-    #listCacheKey(whereClause, params, limit, offset = 0) {
-        return `${LIST_CACHE_KEY_PREFIX}:${JSON.stringify([
-            whereClause,
-            params,
-            limit,
-            offset,
-        ])}`;
-    }
-
-    #parseListCacheKey(cacheKey) {
-        if (!cacheKey.startsWith(`${LIST_CACHE_KEY_PREFIX}:`)) return null;
+    /**
+     * List pages are cached under their owner's generation, or the `all`
+     * generation when unscoped; a write replaces the generation instead of
+     * finding the pages. Null when redis is unavailable.
+     */
+    async #listGeneration(ownerUserId) {
+        const key = this.#listGenerationKey(ownerUserId ?? 'all');
         try {
-            const raw = cacheKey.slice(LIST_CACHE_KEY_PREFIX.length + 1);
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed) || parsed.length < 3) return null;
-            return { whereClause: parsed[0], params: parsed[1] };
+            const current = await this.clients.redis.get(key);
+            if (current) return current;
+            const fresh = uuidv4();
+            const created = await this.clients.redis.set(
+                key,
+                fresh,
+                'EX',
+                LIST_GENERATION_TTL_SECONDS,
+                'NX',
+            );
+            return created ? fresh : await this.clients.redis.get(key);
         } catch {
             return null;
         }
     }
 
-    #listCacheMatchesApp(cacheKey, app) {
-        if (!app) return false;
-        const parsed = this.#parseListCacheKey(cacheKey);
-        if (!parsed) return true;
-
-        const { whereClause, params } = parsed;
-        if (!whereClause) return true;
-        if (!Array.isArray(params)) return true;
-
-        const columns = whereClause
-            .replace(/^WHERE\s+/u, '')
-            .split(' AND ')
-            .map((part) => part.match(/^`([^`]+)` = \?$/u)?.[1]);
-
-        if (columns.some((column) => !column)) return true;
-
-        for (let i = 0; i < columns.length; i++) {
-            if (app[columns[i]] !== params[i]) return false;
-        }
-        return true;
+    #listGenerationKey(scope) {
+        return `${LIST_CACHE_KEY_PREFIX}:gen:${scope}`;
     }
 
     #cacheKeysForApp(app) {
@@ -1036,32 +1031,28 @@ export class AppStore extends PuterStore {
     }
 
     async #writeListCache(cacheKey, apps) {
-        const pipeline = this.clients.redis.pipeline();
-        pipeline.set(
-            cacheKey,
-            JSON.stringify(apps),
-            'EX',
-            LIST_CACHE_TTL_SECONDS,
-        );
-        pipeline.sadd(LIST_CACHE_TRACKER_KEY, cacheKey);
-        pipeline.expire(LIST_CACHE_TRACKER_KEY, LIST_CACHE_TTL_SECONDS);
-        await pipeline.exec();
+        try {
+            await this.clients.redis.set(
+                cacheKey,
+                JSON.stringify(apps),
+                'EX',
+                LIST_CACHE_TTL_SECONDS,
+            );
+        } catch {
+            // The next read fills it.
+        }
     }
 
+    /** Orphans every cached page these apps' owners, or anyone, could see. */
     async #invalidateListCachesForApps(apps) {
-        let keys = [];
-        try {
-            keys = await this.clients.redis.smembers(LIST_CACHE_TRACKER_KEY);
-        } catch {
-            return;
+        const scopes = new Set(['all']);
+        for (const app of apps) {
+            if (app?.owner_user_id != null) scopes.add(app.owner_user_id);
         }
-        if (!Array.isArray(keys)) keys = [];
-        keys = keys.filter((key) =>
-            apps.some((app) => this.#listCacheMatchesApp(key, app)),
-        );
-        if (keys.length === 0) return;
         await this.publishCacheKeys({
-            keys,
+            keys: [...scopes].map((scope) => this.#listGenerationKey(scope)),
+            serializedData: uuidv4(),
+            ttlSeconds: LIST_GENERATION_TTL_SECONDS,
             broadcast: true,
         });
     }

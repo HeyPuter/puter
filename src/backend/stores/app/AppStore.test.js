@@ -1023,13 +1023,49 @@ describe('AppStore CRUD and cache invalidation', () => {
         await createApp({ title: 'Recovered' }, { ownerUserId: badOwner });
         await appStore.list({ ownerUserId: badOwner });
 
-        const keys = await redis.smembers('apps:list:keys');
-        const key = keys.find((k) => k.includes(String(badOwner)));
-        expect(key).toBeDefined();
-        await redis.set(key, 'not-json');
+        const generation = await redis.get(`apps:list:gen:${badOwner}`);
+        const keys = await redis.keys(`apps:list:${generation}:*`);
+        expect(keys).toHaveLength(1);
+        await redis.set(keys[0], 'not-json');
 
         const rows = await appStore.list({ ownerUserId: badOwner });
         expect(rows[0].title).toBe('Recovered');
+    });
+
+    it('drops an unscoped cached list when any app changes', async () => {
+        const app = await createApp({ title: 'Unscoped' });
+        const find = async () =>
+            (await appStore.list({ afterId: app.id - 1, limit: 1 }))[0];
+
+        expect((await find()).title).toBe('Unscoped');
+        await db.write('UPDATE `apps` SET `title` = ? WHERE `id` = ?', [
+            'BehindTheCache',
+            app.id,
+        ]);
+        expect((await find()).title).toBe('Unscoped');
+
+        await createApp({}, { ownerUserId: 4701 });
+        expect((await find()).title).toBe('BehindTheCache');
+    });
+
+    it('invalidates cached lists without scanning them', async () => {
+        const owner = 4800;
+        const app = await createApp({}, { ownerUserId: owner });
+        for (let i = 0; i < 5; i++) {
+            await appStore.list({ ownerUserId: owner, limit: i + 1 });
+        }
+
+        const smembers = vi.spyOn(redis, 'smembers');
+        const keysScan = vi.spyOn(redis, 'keys');
+        await appStore.update(app.id, { title: 'Bumped' });
+        expect(smembers).not.toHaveBeenCalled();
+        expect(keysScan).not.toHaveBeenCalled();
+        smembers.mockRestore();
+        keysScan.mockRestore();
+
+        expect(
+            (await appStore.list({ ownerUserId: owner, limit: 3 }))[0].title,
+        ).toBe('Bumped');
     });
 
     it('counts apps by owner, creator and per-caller visibility', async () => {
