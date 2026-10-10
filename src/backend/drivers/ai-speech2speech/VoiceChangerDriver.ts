@@ -289,7 +289,7 @@ export class VoiceChangerDriver extends PuterDriver {
                     dataType: 'stream',
                     content_type:
                         response.headers.get('content-type') ?? 'audio/mpeg',
-                    stream: upstreamBodyStream('ElevenLabs', response),
+                    stream: upstreamBodyStream(response),
                 };
             },
         );

@@ -354,7 +354,7 @@ describe('upstreamBodyStream', () => {
 
     it('hands bytes on as they arrive instead of waiting for the whole body', async () => {
         const { response, controller } = controlled();
-        const stream = upstreamBodyStream('Vendor', response);
+        const stream = upstreamBodyStream(response);
         const reader = stream[Symbol.asyncIterator]();
 
         controller.enqueue(Buffer.from('first'));
@@ -372,29 +372,24 @@ describe('upstreamBodyStream', () => {
         expect(Buffer.concat(rest).toString()).toBe('second');
     });
 
-    it('ends early, without an error event, when the body fails mid-stream', async () => {
+    it('errors, rather than ending cleanly, when the body fails mid-stream', async () => {
         const { response, controller } = controlled();
-        const stream = upstreamBodyStream('Vendor', response);
-        const errors: unknown[] = [];
-        stream.on('error', (e) => errors.push(e));
-
+        const stream = upstreamBodyStream(response);
         const reader = stream[Symbol.asyncIterator]();
+
         controller.enqueue(Buffer.from('partial'));
         const first = await reader.next();
-        controller.error(new Error('connection reset'));
-        const last = await reader.next();
-
         expect(Buffer.from(first.value as Uint8Array).toString()).toBe(
             'partial',
         );
-        expect(last.done).toBe(true);
-        expect(errors).toEqual([]);
+
+        controller.error(new Error('connection reset'));
+        await expect(reader.next()).rejects.toThrow('connection reset');
     });
 
     it('is an empty stream for a body-less response', async () => {
         const chunks: unknown[] = [];
         for await (const chunk of upstreamBodyStream(
-            'Vendor',
             new Response(null, { status: 204 }),
         ))
             chunks.push(chunk);

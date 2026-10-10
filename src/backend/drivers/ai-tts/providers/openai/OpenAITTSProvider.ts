@@ -219,7 +219,7 @@ export class OpenAITTSProvider implements ITTSProvider {
                     dataType: 'stream',
                     content_type: contentType,
                     chunked: true,
-                    stream: upstreamBodyStream('OpenAI TTS', response),
+                    stream: upstreamBodyStream(response),
                 };
             },
         );

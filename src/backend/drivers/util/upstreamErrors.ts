@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PassThrough, Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 
 // -- Transport failures --
@@ -237,20 +237,11 @@ export async function upstreamFetch(
 
 /**
  * A provider's response body as a stream to hand straight to the caller. A
- * failure mid-body (a reset, or {@link upstreamFetch}'s timeout) ends the stream
- * early rather than erroring it: the driver response path pipes it without an
- * error listener, and an unheard stream error is fatal to the process.
+ * failure mid-body (a reset, or {@link upstreamFetch}'s timeout) errors the
+ * stream, which the driver response path turns into an aborted transfer.
  */
-export function upstreamBodyStream(
-    provider: string,
-    response: Response,
-): Readable {
-    const out = new PassThrough();
-    if (!response.body) return out.end();
-    const body = Readable.fromWeb(response.body as WebReadableStream);
-    body.on('error', (err) => {
-        console.warn(`[${provider}] response body failed mid-stream:`, err);
-        out.end();
-    });
-    return body.pipe(out);
+export function upstreamBodyStream(response: Response): Readable {
+    return response.body
+        ? Readable.fromWeb(response.body as WebReadableStream)
+        : Readable.from([]);
 }

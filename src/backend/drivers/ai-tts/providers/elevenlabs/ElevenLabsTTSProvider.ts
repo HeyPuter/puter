@@ -232,7 +232,7 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
                     content_type:
                         response.headers.get('content-type') || 'audio/mpeg',
                     chunked: true,
-                    stream: upstreamBodyStream('ElevenLabs', response),
+                    stream: upstreamBodyStream(response),
                 };
             },
         );

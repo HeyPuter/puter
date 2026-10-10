@@ -46,6 +46,7 @@ import {
     resolveDriverMethodRequireReputation,
     resolveDriverMethodRequireSubscription,
 } from '../../drivers/meta.js';
+import { pipeStreamResult } from '../../drivers/util/pipeStreamResult.js';
 import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import { PermissionUtil } from '../../services/permission/permissionUtil.js';
@@ -585,7 +586,7 @@ export class DriverController extends PuterController {
             if (result.chunked) {
                 res.setHeader('Transfer-Encoding', 'chunked');
             }
-            result.stream.pipe(res);
+            pipeStreamResult(result.stream, res, `${ifaceName}.${method}`);
             return;
         }
 

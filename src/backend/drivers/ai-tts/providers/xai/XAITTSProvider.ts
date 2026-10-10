@@ -169,7 +169,7 @@ export class XAITTSProvider implements ITTSProvider {
                         response.headers.get('content-type') ||
                         'audio/mpeg',
                     chunked: true,
-                    stream: upstreamBodyStream('xAI TTS', response),
+                    stream: upstreamBodyStream(response),
                 };
             },
         );
