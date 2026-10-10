@@ -86,9 +86,9 @@ export const signupClientIp = (req: Request): string | null =>
     req.ip || req.socket?.remoteAddress || null;
 
 /**
- * Account creation for every signup route (form, temp, OIDC). Callers parse
- * requests and set cookies; the steps and the events listeners rely on live
- * here.
+ * Account creation for every signup route (form, temp, OIDC) and email
+ * confirmation for every confirmation route. Callers parse requests and set
+ * cookies; the steps and the events listeners rely on live here.
  */
 export class SignupService extends PuterService {
     /**
@@ -612,6 +612,66 @@ export class SignupService extends PuterService {
         } catch (e) {
             this.#confirmationEmailFailed(stage, user, e);
         }
+    }
+
+    /**
+     * Confirm the account's current address, for the code and the link routes
+     * alike. Re-runs the email checks (the address may have been blocked since
+     * signup), refuses an address another account already confirmed, and takes
+     * it off every other row. Another account's pending change to this address
+     * needs no cleanup: `/change_email/confirm` refuses an address a confirmed
+     * account owns.
+     */
+    async confirmEmail(
+        user: UserRow,
+        { originalClientSocketId }: { originalClientSocketId?: unknown } = {},
+    ): Promise<void> {
+        const email = user.email as string;
+        await this.validateEmail(email);
+
+        const canonical = cleanEmail(email);
+        const confirmedRival = await this.stores.user.findConfirmedOtherByEmail(
+            user.id,
+            email,
+            canonical,
+        );
+        if (confirmedRival) {
+            throw new HttpError(
+                400,
+                'This email was confirmed on a different account.',
+                { legacyCode: 'email_already_in_use' as never },
+            );
+        }
+
+        // Only one row may own an address once this one is confirmed, so the
+        // others lose it first.
+        await this.stores.user.unconfirmOthersByEmail(
+            user.id,
+            email,
+            canonical,
+        );
+        await this.stores.user.update(user.id, {
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            email_confirm_code: null,
+            email_confirm_token: null,
+        });
+        await promoteToVerifiedGroup(this.stores.group, this.config, user);
+
+        // Best-effort side channels. Other tabs refresh; the one that sent
+        // the code (named by its socket id) already knows.
+        try {
+            await this.services.socket.send(
+                { room: user.id },
+                'user.email_confirmed',
+                originalClientSocketId === undefined
+                    ? {}
+                    : { original_client_socket_id: originalClientSocketId },
+            );
+        } catch {
+            // ignore
+        }
+        this.#emitEmailConfirmed(user);
     }
 
     /**

@@ -1086,61 +1086,9 @@ export class AuthController extends PuterController {
             return;
         }
 
-        // Re-validate the email at confirmation time — the address may
-        // have been added to the blocklist (or flagged by an extension)
-        // after signup but before confirmation.
-        await this.services.signup.validateEmail(user.email!);
-
-        // An account that already confirmed this address proved access to the
-        // inbox, and revoking it below would hand the address to whoever
-        // confirmed second. Refuse instead — a duplicate this old is data to
-        // repair, not a race to resolve.
-        const canonical = cleanEmail(user.email!);
-        const confirmedRival = await this.stores.user.findConfirmedOtherByEmail(
-            user.id,
-            user.email!,
-            canonical,
-        );
-        if (confirmedRival) {
-            throw new HttpError(
-                400,
-                'This email was confirmed on a different account.',
-                { legacyCode: 'email_already_in_use' as never },
-            );
-        }
-
-        // Revoke the address from every remaining (unconfirmed) account holding
-        // it, THEN confirm this one. Only one row may own an address, so
-        // confirming first would momentarily create a second owner — which the
-        // unique index rejects, turning a legitimate confirmation into a 500.
-        await this.stores.user.unconfirmOthersByEmail(
-            user.id,
-            user.email!,
-            canonical,
-        );
-
-        await this.stores.user.update(user.id, {
-            email_confirmed: 1,
-            requires_email_confirmation: 0,
-            email_confirm_code: null,
-            email_confirm_token: null,
+        await this.services.signup.confirmEmail(user, {
+            originalClientSocketId: original_client_socket_id,
         });
-
-        await promoteToVerifiedGroup(this.stores.group, this.config, user);
-
-        try {
-            this.clients.event?.emit(
-                'user.email-confirmed' as never,
-                {
-                    user_id: user.id,
-                    user_uid: user.uuid,
-                    email: user.email,
-                } as never,
-                {},
-            );
-        } catch {
-            // ignore — event is a side-channel signal, not load-bearing
-        }
 
         res.json({ email_confirmed: true, original_client_socket_id });
     }

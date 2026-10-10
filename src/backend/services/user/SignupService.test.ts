@@ -18,7 +18,7 @@
  */
 
 import type { Request } from 'express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 
@@ -199,5 +199,77 @@ describe('SignupService.announceSignup', () => {
                 bonus_code: 'abcd1234',
             },
         ]);
+    });
+});
+
+describe('SignupService.confirmEmail', () => {
+    const makeUnconfirmed = async () => {
+        const username = `ce_${slug()}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email: `${username}@example.com`,
+            requires_email_confirmation: true,
+        });
+        return (await server.stores.user.getById(created.id, {
+            force: true,
+        }))!;
+    };
+
+    it("tells the account's other tabs, naming the one that confirmed", async () => {
+        const user = await makeUnconfirmed();
+        const send = vi.spyOn(server.services.socket, 'send');
+        try {
+            await server.services.signup.confirmEmail(user, {
+                originalClientSocketId: 'sock-1',
+            });
+            expect(send).toHaveBeenCalledWith(
+                { room: user.id },
+                'user.email_confirmed',
+                { original_client_socket_id: 'sock-1' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.email_confirmed).toBeTruthy();
+        expect(after!.email_confirm_code).toBeNull();
+    });
+
+    it('leaves another account no way to take the address through a pending change', async () => {
+        const owner = await makeUnconfirmed();
+        const other = await makeUnconfirmed();
+        await server.stores.user.update(other.id, {
+            unconfirmed_change_email: owner.email,
+            change_email_confirm_token: 'pending-tok',
+        });
+
+        await server.services.signup.confirmEmail(owner);
+
+        const token = server.services.token.sign(
+            'otp',
+            {
+                token: 'pending-tok',
+                user_id: other.id,
+                purpose: 'change-email',
+            },
+            { expiresIn: '1h' },
+        );
+        await expect(
+            server.controllers.auth.handleChangeEmailConfirm(
+                { query: { token } } as unknown as Request,
+                { send: vi.fn() } as never,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'email_already_in_use',
+        });
+        const after = await server.stores.user.getById(other.id, {
+            force: true,
+        });
+        expect(after!.email).toBe(other.email);
     });
 });
