@@ -177,89 +177,33 @@ export class PuterServer {
         const extensionDirs = this.#config.extensions;
         await this.#importExtensions(extensionDirs);
 
+        // Each layer is built from its built-ins then its extensions, and is
+        // handed the layers beneath it plus itself (so a later peer can reach
+        // an earlier one).
         this.clients = {} as typeof this.clients;
-        for (const [clientName, ClientClass] of Object.entries(clients)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.clients[clientName] =
-                typeof ClientClass === 'object'
-                    ? ClientClass
-                    : (new (ClientClass as any)(this.#config) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            clientsContainers[clientName] = this.clients[clientName];
-        }
-        for (const [clientName, ClientClass] of Object.entries(
+        this.#instantiateLayer(
+            clients,
             extensionStore.clients,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.clients[clientName] =
-                typeof ClientClass === 'object'
-                    ? ClientClass
-                    : (new (ClientClass as any)(this.#config) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            clientsContainers[clientName] = this.clients[clientName];
-        }
-
+            this.clients,
+            clientsContainers,
+            [this.#config],
+        );
         this.stores = {} as typeof this.stores;
-        for (const [storeName, StoreClass] of Object.entries(stores)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.stores[storeName] =
-                typeof StoreClass === 'object'
-                    ? StoreClass
-                    : (new (StoreClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            storesContainers[storeName] = this.stores[storeName];
-        }
-        for (const [storeName, StoreClass] of Object.entries(
+        this.#instantiateLayer(
+            stores,
             extensionStore.stores,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.stores[storeName] =
-                typeof StoreClass === 'object'
-                    ? StoreClass
-                    : (new (StoreClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            storesContainers[storeName] = this.stores[storeName];
-        }
-
+            this.stores,
+            storesContainers,
+            [this.#config, this.clients, this.stores],
+        );
         this.services = {} as typeof this.services;
-        for (const [serviceName, ServiceClass] of Object.entries(services)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.services[serviceName] =
-                typeof ServiceClass === 'object'
-                    ? ServiceClass
-                    : (new (ServiceClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            servicesContainers[serviceName] = this.services[serviceName];
-        }
-        for (const [serviceName, ServiceClass] of Object.entries(
+        this.#instantiateLayer(
+            services,
             extensionStore.services,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.services[serviceName] =
-                typeof ServiceClass === 'object'
-                    ? ServiceClass
-                    : (new (ServiceClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            servicesContainers[serviceName] = this.services[serviceName];
-        }
+            this.services,
+            servicesContainers,
+            [this.#config, this.clients, this.stores, this.services],
+        );
 
         // Wire the rate-limiter to its configured backend now that clients
         // and stores exist. Memory is the default; `redis` needs a redis
@@ -296,72 +240,33 @@ export class PuterServer {
         // on `DriverController` (a regular controller) which reads from
         // `this.drivers` — no separate registry object here any more.
         this.drivers = {} as typeof this.drivers;
-        const allDriverSources = [
-            ...Object.entries(drivers),
-            ...Object.entries(extensionStore.drivers),
-        ];
-        for (const [driverKey, DriverClass] of allDriverSources) {
-            const instance =
-                typeof DriverClass === 'object'
-                    ? DriverClass
-                    : (new (DriverClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.drivers[driverKey] = instance;
-            driversContainers[driverKey] = instance;
-        }
+        this.#instantiateLayer(
+            drivers,
+            extensionStore.drivers,
+            this.drivers,
+            driversContainers,
+            [this.#config, this.clients, this.stores, this.services],
+        );
 
         this.controllers = {} as typeof this.controllers;
-        for (const [controllerName, ControllerClass] of Object.entries(
+        this.#instantiateLayer(
             controllers,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.controllers[controllerName] =
-                typeof ControllerClass === 'object'
-                    ? ControllerClass
-                    : (new (ControllerClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                          this.drivers,
-                      ) as any);
-            this.#registerControllerRoutes(
-                controllerName,
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName],
-            );
-            controllersContainers[controllerName] =
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName];
-        }
-        for (const [controllerName, ControllerClass] of Object.entries(
             extensionStore.controllers,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.controllers[controllerName] =
-                typeof ControllerClass === 'object'
-                    ? ControllerClass
-                    : (new (ControllerClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                          this.drivers,
-                      ) as any);
-            this.#registerControllerRoutes(
-                controllerName,
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName],
-            );
-            controllersContainers[controllerName] =
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName];
-        }
+            this.controllers,
+            controllersContainers,
+            [
+                this.#config,
+                this.clients,
+                this.stores,
+                this.services,
+                this.drivers,
+            ],
+            (name, controller) =>
+                this.#registerControllerRoutes(
+                    name,
+                    controller as WithControllerRegistration,
+                ),
+        );
 
         // Extension routes are shaped as `RouteDescriptor`s too, so they
         // flow through the same materializer as controller routes — same
@@ -379,6 +284,31 @@ export class PuterServer {
         this.#installTerminalMiddleware();
 
         return true;
+    }
+
+    /**
+     * Instantiate one layer: built-ins, then extension additions, each a class
+     * constructed with `args` or an instance used as is. Every instance lands
+     * in `layer` and in the layer's shared export container.
+     */
+    #instantiateLayer(
+        builtIns: object,
+        extensionAdditions: object,
+        layer: object,
+        container: object,
+        args: unknown[],
+        onInstance?: (name: string, instance: unknown) => void,
+    ): void {
+        for (const [name, Layer] of [
+            ...Object.entries(builtIns),
+            ...Object.entries(extensionAdditions),
+        ]) {
+            const instance =
+                typeof Layer === 'object' ? Layer : new (Layer as any)(...args);
+            (layer as Record<string, unknown>)[name] = instance;
+            onInstance?.(name, instance);
+            (container as Record<string, unknown>)[name] = instance;
+        }
     }
 
     /**
@@ -1602,7 +1532,7 @@ export class PuterServer {
                 '************************************************************\n',
             );
 
-            await this.#fireOnServerStart();
+            await this.#runHook('bottomUp', 'onServerStart');
             console.log('PuterServer has fully booted.');
 
             // CLI: `--server` (optionally `--puter-backend=<gui-origin>`)
@@ -1665,27 +1595,31 @@ export class PuterServer {
             } as unknown as http.Server;
             // Tests still need onServerStart to fire so stores can
             // bootstrap (e.g. SystemKVStore creates its dynalite table).
-            await this.#fireOnServerStart();
+            await this.#runHook('bottomUp', 'onServerStart');
         }
     }
 
-    async #fireOnServerStart() {
-        for (const client of Object.values(this.clients) as WithLifecycle[]) {
-            if (client.onServerStart) await client.onServerStart();
-        }
-        for (const store of Object.values(this.stores) as WithLifecycle[]) {
-            if (store.onServerStart) await store.onServerStart();
-        }
-        for (const service of Object.values(this.services) as WithLifecycle[]) {
-            if (service.onServerStart) await service.onServerStart();
-        }
-        for (const controller of Object.values(
+    /**
+     * Run `hook` on every instance of every layer. Bottom-up starts each layer
+     * after the ones it depends on; top-down shuts each down while the layers
+     * it writes through are still up.
+     */
+    async #runHook(
+        order: 'bottomUp' | 'topDown',
+        hook: 'onServerStart' | 'onServerPrepareShutdown' | 'onServerShutdown',
+    ) {
+        const layers = [
+            this.clients,
+            this.stores,
+            this.services,
             this.controllers,
-        ) as WithLifecycle[]) {
-            if (controller.onServerStart) await controller.onServerStart();
-        }
-        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
-            if (driver.onServerStart) await driver.onServerStart();
+            this.drivers,
+        ];
+        if (order === 'topDown') layers.reverse();
+        for (const layer of layers) {
+            for (const instance of Object.values(layer) as WithLifecycle[]) {
+                await instance[hook]?.();
+            }
         }
     }
 
@@ -1698,33 +1632,7 @@ export class PuterServer {
     async #runPrepareShutdownHooks() {
         if (this.#prepareShutdownHooksRan) return;
         this.#prepareShutdownHooksRan = true;
-        for (const client of Object.values(this.clients) as WithLifecycle[]) {
-            if (client.onServerPrepareShutdown) {
-                await client.onServerPrepareShutdown();
-            }
-        }
-        for (const store of Object.values(this.stores) as WithLifecycle[]) {
-            if (store.onServerPrepareShutdown) {
-                await store.onServerPrepareShutdown();
-            }
-        }
-        for (const service of Object.values(this.services) as WithLifecycle[]) {
-            if (service.onServerPrepareShutdown) {
-                await service.onServerPrepareShutdown();
-            }
-        }
-        for (const controller of Object.values(
-            this.controllers,
-        ) as WithLifecycle[]) {
-            if (controller.onServerPrepareShutdown) {
-                await controller.onServerPrepareShutdown();
-            }
-        }
-        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
-            if (driver.onServerPrepareShutdown) {
-                await driver.onServerPrepareShutdown();
-            }
-        }
+        await this.#runHook('bottomUp', 'onServerPrepareShutdown');
     }
 
     async prepareShutdown() {
@@ -1755,41 +1663,7 @@ export class PuterServer {
             });
             this.#server.closeAllConnections();
             await closed;
-            // Top-down, so each layer shuts down while the layers it writes
-            // through are still up.
-            for (const driver of Object.values(
-                this.drivers,
-            ) as WithLifecycle[]) {
-                if (driver.onServerShutdown) {
-                    await driver.onServerShutdown();
-                }
-            }
-            for (const controller of Object.values(
-                this.controllers,
-            ) as WithLifecycle[]) {
-                if (controller.onServerShutdown) {
-                    await controller.onServerShutdown();
-                }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerShutdown) {
-                    await service.onServerShutdown();
-                }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerShutdown) {
-                    await store.onServerShutdown();
-                }
-            }
-            for (const client of Object.values(
-                this.clients,
-            ) as WithLifecycle[]) {
-                if (client.onServerShutdown) {
-                    await client.onServerShutdown();
-                }
-            }
+            await this.#runHook('topDown', 'onServerShutdown');
         }
     }
 }

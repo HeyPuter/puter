@@ -1085,6 +1085,50 @@ describe('PuterServer keep-alive timeout', () => {
     });
 });
 
+describe('PuterServer lifecycle hooks', () => {
+    it('runs prepare-shutdown bottom-up, once, before tearing down', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+
+        const order: string[] = [];
+        const probe = (label: string) => ({
+            onServerPrepareShutdown: () => {
+                order.push(`prepare:${label}`);
+            },
+            onServerShutdown: () => {
+                order.push(`shutdown:${label}`);
+            },
+        });
+        for (const [layer, label] of [
+            [server.clients, 'client'],
+            [server.stores, 'store'],
+            [server.services, 'service'],
+            [server.controllers, 'controller'],
+            [server.drivers, 'driver'],
+        ] as const) {
+            (layer as Record<string, unknown>).hookOrderProbe = probe(label);
+        }
+
+        await server.prepareShutdown();
+        await server.shutdown();
+
+        expect(order).toEqual([
+            'prepare:client',
+            'prepare:store',
+            'prepare:service',
+            'prepare:controller',
+            'prepare:driver',
+            'shutdown:driver',
+            'shutdown:controller',
+            'shutdown:service',
+            'shutdown:store',
+            'shutdown:client',
+        ]);
+    });
+});
+
 /**
  * Each layer's `onServerShutdown` has to run while the layers beneath it (the
  * ones it writes through) are still up, so teardown goes top-down: drivers,
