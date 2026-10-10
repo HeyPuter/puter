@@ -988,6 +988,65 @@ describe('FSEntryStore timestamps and updates', () => {
         });
     });
 
+    it('updates a thumbnail by uuid and refreshes every cached key', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/th-any.txt`,
+        );
+        await store.getEntryByUuid(file.uuid);
+
+        const updated = await store.updateEntryThumbnailByUuid(
+            file.uuid,
+            'data:image/png;base64,CC',
+        );
+
+        expect(updated).toMatchObject({
+            thumbnail: 'data:image/png;base64,CC',
+            modified: file.modified,
+        });
+        for (const cached of [
+            await store.getEntryByUuid(file.uuid),
+            await store.getEntryById(file.id),
+            await store.getEntryByPath(file.path),
+        ]) {
+            expect(cached?.thumbnail).toBe('data:image/png;base64,CC');
+        }
+    });
+
+    it('updates a thumbnail by uuid only while it holds the expected one', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/th-cas.txt`,
+            { thumbnail: 'data:image/png;base64,OLD' },
+        );
+
+        await expect(
+            store.updateEntryThumbnailByUuid(
+                file.uuid,
+                's3://puter-local/x',
+                'data:image/png;base64,OTHER',
+            ),
+        ).resolves.toBeNull();
+        expect(
+            (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
+        ).toBe('data:image/png;base64,OLD');
+
+        const updated = await store.updateEntryThumbnailByUuid(
+            file.uuid,
+            's3://puter-local/x',
+            'data:image/png;base64,OLD',
+        );
+        expect(updated?.thumbnail).toBe('s3://puter-local/x');
+    });
+
+    it('updates no thumbnail for an unknown uuid', async () => {
+        await expect(
+            store.updateEntryThumbnailByUuid(uuidv4(), 'data:x'),
+        ).resolves.toBeNull();
+    });
+
     it('updateEntry returns and caches the primary row when the replica lags', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/stale.txt`);
