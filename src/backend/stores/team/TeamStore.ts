@@ -529,11 +529,20 @@ export class TeamStore extends PuterStore {
 
     /** By internal id, soft-deleted included: those shares stay revocable. */
     async getByIdIncludingDeleted(id: number): Promise<TeamRow | null> {
+        return (await this.getByIdsIncludingDeleted([id])).get(id) ?? null;
+    }
+
+    /** `getByIdIncludingDeleted` for many ids in one read, keyed by id. */
+    async getByIdsIncludingDeleted(
+        ids: number[],
+    ): Promise<Map<number, TeamRow>> {
+        const unique = [...new Set(ids)];
+        if (unique.length === 0) return new Map();
         const rows = (await this.clients.db.read(
-            'SELECT * FROM `group` WHERE `id` = ? AND `kind` = ?',
-            [id, TEAM_KIND],
+            `SELECT * FROM \`group\` WHERE \`id\` IN (${unique.map(() => '?').join(', ')}) AND \`kind\` = ?`,
+            [...unique, TEAM_KIND],
         )) as unknown as TeamRow[];
-        return rows[0] ?? null;
+        return new Map(rows.map((row) => [Number(row.id), row]));
     }
 
     /**
