@@ -446,6 +446,37 @@ describe('FSEntryStore batched lookups', () => {
         expect(again.size).toBe(1);
     });
 
+    it('reads a warm batch from the cache in one round trip', async () => {
+        const user = await makeUser();
+        const files = await Promise.all(
+            [1, 2, 3, 4].map((n) =>
+                createFile(user, `${user.home}/Documents/warm-${n}.txt`),
+            ),
+        );
+        await store.getEntriesByIds(files.map((f) => f.id));
+        await store.getEntriesByPaths(files.map((f) => f.path));
+
+        const redis = server.clients.redis;
+        const get = vi.spyOn(redis, 'get');
+        const pipeline = vi.spyOn(redis, 'pipeline');
+        const read = vi.spyOn(server.clients.db, 'read');
+        try {
+            const byId = await store.getEntriesByIds(files.map((f) => f.id));
+            const byPath = await store.getEntriesByPaths(
+                files.map((f) => f.path),
+            );
+            expect(byId.size).toBe(files.length);
+            expect(byPath.size).toBe(files.length);
+            expect(get).not.toHaveBeenCalled();
+            expect(pipeline).toHaveBeenCalledTimes(2);
+            expect(read).not.toHaveBeenCalled();
+        } finally {
+            get.mockRestore();
+            pipeline.mockRestore();
+            read.mockRestore();
+        }
+    });
+
     it('hides entries outside the caller namespace unless crossNamespace is set', async () => {
         const owner = await makeUser();
         const other = await makeUser();

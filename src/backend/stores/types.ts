@@ -88,6 +88,25 @@ export interface RowCacheOptions<T> {
 
 type InFlightLoad = { json: string | null } | { error: unknown };
 
+/** One pipelined round of GETs; a miss, or any failure, reads as null. */
+export const readCacheValues = async (
+    redis: Pick<LayerInstances<typeof puterClients>['redis'], 'pipeline'>,
+    keys: string[],
+): Promise<Array<string | null>> => {
+    if (keys.length === 0) return [];
+    try {
+        const pipeline = redis.pipeline();
+        for (const key of keys) pipeline.get(key);
+        const results = (await pipeline.exec()) ?? [];
+        return keys.map((_, i) => {
+            const raw = results[i]?.[1];
+            return typeof raw === 'string' ? raw : null;
+        });
+    } catch {
+        return keys.map((): string | null => null);
+    }
+};
+
 /**
  * Read-through cache for rows found by several identifying properties, each key
  * holding the whole row. Writes skip tombstoned keys, so a lagging replica
@@ -126,15 +145,8 @@ export class RowCache<T extends object> {
 
     /** One pipelined read; a miss is `null`. */
     async readMany(keys: string[]): Promise<Array<T | null>> {
-        if (keys.length === 0) return [];
-        try {
-            const pipeline = this.host.redis().pipeline();
-            for (const key of keys) pipeline.get(key);
-            const results = (await pipeline.exec()) ?? [];
-            return keys.map((_, i) => this.#parse(results[i]?.[1]));
-        } catch {
-            return keys.map((): T | null => null);
-        }
+        const values = await readCacheValues(this.host.redis(), keys);
+        return values.map((raw) => this.#parse(raw));
     }
 
     /**
