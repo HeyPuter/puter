@@ -23,16 +23,22 @@ import { PuterStore } from '../types';
 export class NotificationStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUid(uid, { userId } = {}) {
+    /**
+     * Pass `primary` to read back a row just written; a replica may lag.
+     *
+     * @param {string} uid
+     * @param {{ userId?: number; primary?: boolean }} [opts]
+     */
+    async getByUid(uid, { userId, primary = false } = {}) {
         const where =
             userId !== undefined
                 ? 'WHERE `uid` = ? AND `user_id` = ?'
                 : 'WHERE `uid` = ?';
         const params = userId !== undefined ? [uid, userId] : [uid];
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`notification\` ${where} LIMIT 1`,
-            params,
-        );
+        const sql = `SELECT * FROM \`notification\` ${where} LIMIT 1`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -182,7 +188,7 @@ export class NotificationStore extends PuterStore {
             'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, `audience`, `app_uid`) VALUES (?, ?, ?, ?, ?, ?)',
             [uid, userId, serialized, type, audience, appUid],
         );
-        return this.getByUid(uid, { userId });
+        return this.getByUid(uid, { userId, primary: true });
     }
 
     /**

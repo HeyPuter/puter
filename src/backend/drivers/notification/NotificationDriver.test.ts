@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -131,6 +131,34 @@ describe('NotificationDriver.create', () => {
         );
         expect(row).not.toBeNull();
         expect(row?.type).toBe(NOTIF_TYPE);
+    });
+
+    it('returns the created notification before the replica has it', async () => {
+        const { actor } = await makeUser();
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of `notification` come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `notification`/u.test(q) ? [] : realRead(q, p),
+            );
+        let result: Record<string, unknown> | null;
+        try {
+            result = (await withActor(actor, () =>
+                driver.create({
+                    object: { value: { type: NOTIF_TYPE, title: 'lagged' } },
+                }),
+            )) as Record<string, unknown> | null;
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(result?.uid).toEqual(expect.any(String));
+        expect(result?.value).toEqual({ type: NOTIF_TYPE, title: 'lagged' });
     });
 
     it('rejects a `value` with no `type` with 400', async () => {

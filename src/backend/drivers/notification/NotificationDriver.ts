@@ -182,6 +182,7 @@ export class NotificationDriver extends PuterDriver {
         return this.#toClient(
             await this.stores.notification.getByUid(uid, {
                 userId: actor.user.id,
+                primary: true,
             }),
         );
     }
