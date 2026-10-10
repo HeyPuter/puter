@@ -25,7 +25,7 @@ import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
-import { AuthService } from './AuthService.js';
+import { AuthService, HOSTED_ASSET_COOKIES } from './AuthService.js';
 
 function createAuthService(): AuthService {
     const [config, clients, stores, services] = [
@@ -2708,11 +2708,14 @@ describe('AuthService (integration)', () => {
     });
 
     describe('private-asset / public hosted-actor tokens', () => {
-        it('private-asset cookie name and options shape', () => {
-            expect(authService.getPrivateAssetCookieName()).toBe(
+        it('cookie names and options shape', () => {
+            expect(HOSTED_ASSET_COOKIES.private.legacyName).toBe(
                 'puter.private.asset.token',
             );
-            const opts = authService.getPrivateAssetCookieOptions({
+            expect(HOSTED_ASSET_COOKIES.public.legacyName).toBe(
+                'puter.public.hosted.actor.token',
+            );
+            const opts = authService.getHostedAssetCookieOptions({
                 requestHostname: 'example.test',
             });
             expect(opts.httpOnly).toBe(true);
@@ -2721,27 +2724,25 @@ describe('AuthService (integration)', () => {
             expect(opts.hostname).toBe('example.test');
         });
 
-        it('public hosted-actor cookie name', () => {
-            expect(authService.getPublicHostedActorCookieName()).toBe(
-                'puter.public.hosted.actor.token',
-            );
-        });
-
         it('private-asset token round-trips and validates session binding', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
             const appUid = `app-${uuidv4()}`;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid,
                 userUid: user.uuid,
                 sessionUuid,
                 subdomain: 'priv',
             });
-            const decoded = await authService.verifyPrivateAssetToken(token, {
-                expectedAppUid: appUid,
-                expectedSubdomain: 'priv',
-            });
+            const decoded = await authService.verifyHostedAssetToken(
+                'private',
+                token,
+                {
+                    appUid,
+                    subdomain: 'priv',
+                },
+            );
             expect(decoded.userUid).toBe(user.uuid);
             expect(decoded.appUid).toBe(appUid);
             expect(decoded.subdomain).toBe('priv');
@@ -2752,49 +2753,50 @@ describe('AuthService (integration)', () => {
             expect(decoded.sessionUuid).not.toBe(sessionUuid);
         });
 
-        it('verifyPrivateAssetToken throws 401 when expected app_uid mismatches', async () => {
+        it('verifying a private token throws 401 when expected app_uid mismatches', async () => {
             const user = await makeUser();
             const appA = `app-${uuidv4()}`;
             const appB = `app-${uuidv4()}`;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: appA,
                 userUid: user.uuid,
             });
             await expect(
-                authService.verifyPrivateAssetToken(token, {
-                    expectedAppUid: appB,
+                authService.verifyHostedAssetToken('private', token, {
+                    appUid: appB,
                 }),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
-        it('verifyPrivateAssetToken throws 401 when the bound session is gone', async () => {
+        it('verifying a private token throws 401 when the bound session is gone', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPrivateAssetToken(token),
+                authService.verifyHostedAssetToken('private', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
         it('public hosted-actor token round-trips and enforces expectations', async () => {
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid,
                 userUid: user.uuid,
                 host: 'host.example',
             });
-            const decoded = await authService.verifyPublicHostedActorToken(
+            const decoded = await authService.verifyHostedAssetToken(
+                'public',
                 token,
                 {
-                    expectedAppUid: appUid,
-                    expectedHost: 'host.example',
+                    appUid,
+                    host: 'host.example',
                 },
             );
             expect(decoded.userUid).toBe(user.uuid);
@@ -2802,24 +2804,27 @@ describe('AuthService (integration)', () => {
             expect(decoded.host).toBe('host.example');
         });
 
-        it('verifyPublicHostedActorToken rejects a private-kind token (kind mismatch)', async () => {
+        it('verifying as public rejects a private-kind token (kind mismatch)', async () => {
             const user = { uuid: uuidv4() };
-            const privateToken = await authService.createPrivateAssetToken({
-                appUid: `app-${uuidv4()}`,
-                userUid: user.uuid,
-            });
+            const privateToken = await authService.createHostedAssetToken(
+                'private',
+                {
+                    appUid: `app-${uuidv4()}`,
+                    userUid: user.uuid,
+                },
+            );
             await expect(
-                authService.verifyPublicHostedActorToken(privateToken),
+                authService.verifyHostedAssetToken('public', privateToken),
             ).rejects.toThrow();
         });
 
         // -- v2 hosted-asset migration --
 
         it('v2 cookie names', () => {
-            expect(authService.getPrivateAssetCookieNameV2()).toBe(
+            expect(HOSTED_ASSET_COOKIES.private.name).toBe(
                 'puter_private_asset_token_v2',
             );
-            expect(authService.getPublicHostedActorCookieNameV2()).toBe(
+            expect(HOSTED_ASSET_COOKIES.public.name).toBe(
                 'puter_public_hosted_actor_token_v2',
             );
         });
@@ -2828,12 +2833,15 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
-            const decoded = await authService.verifyPrivateAssetToken(token);
+            const decoded = await authService.verifyHostedAssetToken(
+                'private',
+                token,
+            );
             expect(decoded.authId).toBe(user.uuid);
         });
 
@@ -2841,22 +2849,24 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
                 host: 'host.example',
             });
-            const decoded =
-                await authService.verifyPublicHostedActorToken(token);
+            const decoded = await authService.verifyHostedAssetToken(
+                'public',
+                token,
+            );
             expect(decoded.authId).toBe(user.uuid);
         });
 
-        it('verifyPublicHostedActorToken 401s when the bound session is revoked', async () => {
+        it('verifying a public token 401s when the bound session is revoked', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
@@ -2864,7 +2874,7 @@ describe('AuthService (integration)', () => {
             });
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPublicHostedActorToken(token),
+                authService.verifyHostedAssetToken('public', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
@@ -2872,19 +2882,59 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
             // verify passes initially
-            await authService.verifyPrivateAssetToken(token);
+            await authService.verifyHostedAssetToken('private', token);
             // revokeCascade on the parent kills the asset row too
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPrivateAssetToken(token),
+                authService.verifyHostedAssetToken('private', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
+
+        it.each([
+            ['private', 'expectedPrivateHost', 'private-asset'],
+            ['public', 'expectedHost', 'public hosted-actor'],
+        ] as const)(
+            'a %s token names its own host field and session in refusals',
+            async (kind, hostField, tokenName) => {
+                const user = await makeUser();
+                const { session } = await authService.createSessionToken(
+                    user,
+                    {},
+                );
+                const sessionUuid = (session as { uuid: string }).uuid;
+                const token = await authService.createHostedAssetToken(kind, {
+                    appUid: `app-${uuidv4()}`,
+                    userUid: user.uuid,
+                    sessionUuid,
+                    host: 'a.example',
+                });
+
+                await expect(
+                    authService.verifyHostedAssetToken(kind, token, {
+                        host: 'b.example',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    message: `hosted-asset token ${hostField} mismatch`,
+                });
+                await authService.revokeSession(sessionUuid);
+                await expect(
+                    authService.verifyHostedAssetToken(kind, token, {
+                        host: 'a.example',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    message: `${tokenName} token session no longer valid`,
+                    legacyCode: 'session_required',
+                });
+            },
+        );
 
         it('a v1-signed hosted-asset cookie no longer verifies', async () => {
             // The gate treats this as a stale cookie and re-mints under v2, so
@@ -2906,7 +2956,7 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             await expect(
-                authService.verifyPrivateAssetToken(v1Token),
+                authService.verifyHostedAssetToken('private', v1Token),
             ).rejects.toThrow();
         });
     });
