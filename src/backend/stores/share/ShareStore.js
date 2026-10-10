@@ -441,6 +441,33 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * Whether any share row sits on one of `userId`'s entries. A write to an
+     * owner with none has no audience to look for, and nearly every owner has
+     * none. Rows from before `entry_owner_user_id` existed are matched through
+     * their entry, as `listOutbound` does.
+     *
+     * @param {number} userId
+     * @returns {Promise<boolean>}
+     */
+    async ownerHasShares(userId) {
+        const [recorded, unrecorded] = await Promise.all([
+            this.clients.db.read(
+                'SELECT 1 AS `found` FROM `share` WHERE ' +
+                    '`entry_owner_user_id` = ? LIMIT 1',
+                [userId],
+            ),
+            this.clients.db.read(
+                'SELECT 1 AS `found` FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
+                    '`fsentries`.`user_id` = ? LIMIT 1',
+                [userId],
+            ),
+        ]);
+        return recorded.length > 0 || unrecorded.length > 0;
+    }
+
+    /**
      * Everyone who issued any share row (active, pending or team-held) on a
      * directory or anything beneath it.
      *
