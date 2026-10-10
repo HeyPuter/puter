@@ -755,8 +755,11 @@ export class ShareService extends PuterService {
             if (formerPath && formerPath === payload.path) continue;
             await this.#emitGui(event, holders, {
                 ...payload,
-                // The GUI rewrites the item it already has by this.
-                ...(formerPath ? { from_path: formerPath } : {}),
+                // The GUI rewrites the item it already has by this: the
+                // desktop reads `old_path`, older dashboards `from_path`.
+                ...(formerPath
+                    ? { old_path: formerPath, from_path: formerPath }
+                    : {}),
             });
         }
     }

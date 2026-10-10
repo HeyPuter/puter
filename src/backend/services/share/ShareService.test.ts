@@ -3924,6 +3924,8 @@ describe('ShareService', () => {
             );
 
             const masked = `/${owner.user.username}/${dir.uuid}/${dir.name}`;
+            // The desktop reads `old_path`; older dashboards `from_path`.
+            expect(payload?.old_path).toBe(`${masked}/${file.name}`);
             expect(payload?.from_path).toBe(`${masked}/${file.name}`);
             expect(payload?.path).toBe(`${masked}/renamed-${file.name}`);
         });
