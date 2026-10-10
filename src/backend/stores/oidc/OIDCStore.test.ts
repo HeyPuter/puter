@@ -58,6 +58,42 @@ describe('OIDCStore', () => {
         );
     });
 
+    // The bare parent code is how some sqlite drivers report every constraint
+    // failure, NOT NULL and FK included.
+    it.each([
+        [
+            'a NOT NULL failure under the bare sqlite constraint code',
+            Object.assign(
+                new Error(
+                    'NOT NULL constraint failed: user_oidc_providers.provider_sub',
+                ),
+                { code: 'SQLITE_CONSTRAINT' },
+            ),
+        ],
+        [
+            'a foreign-key failure',
+            Object.assign(new Error('FOREIGN KEY constraint failed'), {
+                code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+            }),
+        ],
+    ])(
+        'rethrows %s instead of reporting an existing link',
+        async (_label, failure) => {
+            const { db, store } = createStore([
+                {
+                    user_id: 123,
+                    provider: 'test-provider',
+                    provider_sub: 'subject-1',
+                },
+            ]);
+            db.write.mockRejectedValueOnce(failure);
+
+            await expect(
+                store.link(123, 'test-provider', 'subject-1'),
+            ).rejects.toBe(failure);
+        },
+    );
+
     it('rejects a Postgres unique violation for an existing different-user link', async () => {
         const { store } = createStore([
             {

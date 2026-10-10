@@ -31,6 +31,7 @@ import {
     ORG_SEAT_RESOLVER_PRIORITY,
 } from '../metering/consts.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 3;
@@ -387,7 +388,7 @@ export class TeamService extends PuterService {
                     legacyCode: 'bad_request',
                 });
             }
-            if (/unique|duplicate/iu.test(message)) {
+            if (isUniqueViolation(e)) {
                 throw new HttpError(409, 'That handle is taken', {
                     legacyCode: 'conflict',
                 });
