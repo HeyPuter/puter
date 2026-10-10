@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AlarmClient } from './AlarmClient';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    ALARM_IDLE_TTL_MS,
+    AlarmClient,
+    MAX_TRACKED_ALARMS,
+} from './AlarmClient';
 import type { IConfig, IPagerConfig } from '../../types';
 import type { AlertPayload } from './types';
 
@@ -342,6 +346,19 @@ describe('AlarmClient alarm registry', () => {
         expect(client.get(shortId)).toBeUndefined();
     });
 
+    it('keeps the short id of another alarm that shares it when one is cleared', () => {
+        const client = makeClient();
+        // These two ids hash to the same short id.
+        client.create('alarm:274', 'first');
+        const shortId = client.get('alarm:274')!.shortId;
+        client.create('alarm:643', 'second');
+        expect(client.get('alarm:643')!.shortId).toBe(shortId);
+
+        client.clear('alarm:274');
+
+        expect(client.get(shortId)?.id).toBe('alarm:643');
+    });
+
     it('ignores a clear for an alarm that is not active', () => {
         const client = makeClient();
         expect(() => client.clear('never-raised')).not.toThrow();
@@ -425,6 +442,110 @@ describe('AlarmClient alarm registry', () => {
             id: 'something-bad',
             message: 'something bad happened',
         });
+    });
+});
+
+describe('AlarmClient alarm eviction', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('forgets alarms that stay quiet past the idle window, under both ids', () => {
+        const client = makeClient();
+        const ids = Array.from(
+            { length: 50 },
+            (_, i) => `metering_usage_dropped:user-${i}`,
+        );
+        for (const id of ids) client.create(id, 'usage dropped');
+        const shortIds = ids.map((id) => client.get(id)!.shortId);
+
+        vi.advanceTimersByTime(ALARM_IDLE_TTL_MS + 1);
+        client.create('unrelated', 'the next alarm sweeps the registry');
+
+        expect(ids.filter((id) => client.get(id))).toEqual([]);
+        expect(shortIds.filter((shortId) => client.get(shortId))).toEqual([]);
+        expect(client.get('unrelated')).toBeDefined();
+    });
+
+    it('treats a recurrence after the idle window as a new alarm', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        client.create('scan:failed', 'first');
+        client.create('scan:failed', 'second');
+        vi.advanceTimersByTime(ALARM_IDLE_TTL_MS + 1);
+        client.create('scan:failed', 'back again');
+
+        expect(seen.at(-1)).toMatchObject({ repeatCount: 1, isRepeat: false });
+        // A fresh start keeps per-occurrence incident keys from colliding.
+        expect(seen.at(-1)!.dedupKey).not.toBe(seen[0].dedupKey);
+    });
+
+    it('still treats a repeat inside the window as a repeat after a sweep', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        for (let i = 0; i < 10; i++) client.create('flap', 'same fault');
+        vi.advanceTimersByTime(ALARM_IDLE_TTL_MS - 1000);
+        client.create('other', 'sweeps the registry');
+        client.create('flap', 'same fault');
+
+        // Occurrence 11 is past the burst, so nothing new goes out for it.
+        expect(seen.map((alert) => alert.id)).toEqual([
+            ...Array(10).fill('flap'),
+            'other',
+        ]);
+        expect(client.get('flap')?.count).toBe(11);
+    });
+
+    it('keeps an alarm that keeps recurring for longer than the window', () => {
+        const client = makeClient();
+
+        for (let i = 0; i < 6; i++) {
+            client.create('hot', 'still broken');
+            vi.advanceTimersByTime(ALARM_IDLE_TTL_MS / 2);
+            client.create(`noise:${i}`, 'sweeps the registry');
+        }
+
+        expect(client.get('hot')?.count).toBe(6);
+    });
+
+    it('drops the least recently raised alarm once full', () => {
+        const client = makeClient();
+
+        for (let i = 0; i < MAX_TRACKED_ALARMS; i++) {
+            client.create(`user:${i}`, 'per-user alarm');
+            vi.advanceTimersByTime(1);
+        }
+        // Raised again, so user:1 is now the one seen longest ago.
+        client.create('user:0', 'per-user alarm');
+        client.create('one-more', 'over the cap');
+
+        expect(client.get('user:1')).toBeUndefined();
+        expect(client.get('user:0')?.count).toBe(2);
+        expect(client.get('user:2')).toBeDefined();
+        expect(client.get('one-more')).toBeDefined();
+    });
+
+    it('never holds more than the cap', () => {
+        const client = makeClient();
+        const ids = Array.from(
+            { length: MAX_TRACKED_ALARMS * 3 },
+            (_, i) => `user:${i}`,
+        );
+
+        for (const id of ids) client.create(id, 'per-user alarm');
+
+        const held = ids.filter((id) => client.get(id));
+        expect(held).toHaveLength(MAX_TRACKED_ALARMS);
+        expect(held[0]).toBe(`user:${MAX_TRACKED_ALARMS * 2}`);
     });
 });
 
