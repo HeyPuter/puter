@@ -2769,14 +2769,7 @@ export class FSEntryStore extends PuterStore {
     // absolute and don't carry a trailing slash, so the prefix pattern is
     // `${prefix}/%`, served by `idx_fsentries_path`.
     async listDescendantsByPath(pathPrefix: string): Promise<FSEntry[]> {
-        const normalizedPrefix = this.#normalizePath(pathPrefix);
-        if (normalizedPrefix === '/') {
-            // Refuse to list all user entries this way — caller must mean something else.
-            throw new HttpError(400, 'Refusing to list descendants of root', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const likePattern = this.#descendantsPattern(pathPrefix);
         // Everything under the prefix, whoever owns it. A subtree is meant to
         // have one owner, but rows written before that was enforced don't, and
         // `AND user_id = ?` would leave those behind when the caller deletes
@@ -2788,6 +2781,65 @@ export class FSEntryStore extends PuterStore {
             [likePattern],
         )) as unknown as FSEntryRow[];
         return rows.map((row) => this.#mapFSEntryRow(row));
+    }
+
+    /** Whether anything at all sits under `pathPrefix`; one indexed probe. */
+    async hasDescendants(pathPrefix: string): Promise<boolean> {
+        const likePattern = this.#descendantsPattern(pathPrefix);
+        const rows = await this.clients.db.read(
+            "SELECT 1 AS present FROM fsentries WHERE path LIKE ? ESCAPE '!' LIMIT 1",
+            [likePattern],
+        );
+        return rows.length > 0;
+    }
+
+    /**
+     * One page of a subtree in path order. A descendant's path sorts after its
+     * ancestor's, so `asc` reaches every parent before its children (a copy can
+     * create them in that order) and `desc` every child before its parent (a
+     * delete can go page by page without the `parent_id` cascade taking a row
+     * it has not seen). Pass the previous page's last row as `after`.
+     * Owner-blind, like `listDescendantsByPath`.
+     */
+    async listDescendantsInOrder(
+        pathPrefix: string,
+        options: {
+            order: 'asc' | 'desc';
+            limit: number;
+            after?: FSEntry | null;
+        },
+    ): Promise<FSEntry[]> {
+        const likePattern = this.#descendantsPattern(pathPrefix);
+        const { after } = options;
+        const dir = options.order === 'desc' ? 'DESC' : 'ASC';
+        const cmp = options.order === 'desc' ? '<' : '>';
+        // `id` breaks ties between paths the collation treats as equal.
+        const seek = after
+            ? `AND (path ${cmp} ? OR (path = ? AND id ${cmp} ?))`
+            : '';
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE path LIKE ? ESCAPE '!' ${seek}
+             ORDER BY path ${dir}, id ${dir} LIMIT ?`,
+            [
+                likePattern,
+                ...(after ? [after.path, after.path, after.id] : []),
+                Math.max(1, options.limit),
+            ],
+        )) as unknown as FSEntryRow[];
+        return rows.map((row) => this.#mapFSEntryRow(row));
+    }
+
+    #descendantsPattern(pathPrefix: string): string {
+        const normalizedPrefix = this.#normalizePath(pathPrefix);
+        // Every entry sits under root; a caller asking for that means
+        // something else.
+        if (normalizedPrefix === '/') {
+            throw new HttpError(400, 'Refusing to list descendants of root', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return `${this.#escapeLikePattern(normalizedPrefix)}/%`;
     }
 
     async countDescendantsByPath(

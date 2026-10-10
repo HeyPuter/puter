@@ -4799,6 +4799,38 @@ describe('FSService copy event dispatch', () => {
             dispatchSpy.mockRestore();
         }
     });
+
+    it('publishes a recursive delete once per entry, against one surviving chain', async () => {
+        await eventsFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/rmev/sub`,
+            createMissingParents: true,
+        });
+        await eventsWriteFile(`${user.home}/Documents/rmev/a.txt`, 'a');
+        await eventsWriteFile(`${user.home}/Documents/rmev/sub/b.txt`, 'b');
+        const root = (await eventsEntryAt('/Documents/rmev'))!;
+        const survivors = await eventsServer.stores.fsEntry.getAncestorChain(
+            `${user.home}/Documents`,
+        );
+
+        const { dispatched, walkSpy, restore } = captureDispatches();
+        try {
+            await eventsFs.remove(user.userId, {
+                entry: root,
+                recursive: true,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(4));
+            expect(new Set(dispatched.map((d) => d.uid)).size).toBe(4);
+            for (const d of dispatched) {
+                expect(d.key).toBe('fs.remove.node');
+                expect(d.ancestors).toEqual(survivors);
+            }
+            expect(walkSpy).toHaveBeenCalledTimes(1);
+            expect(walkSpy.mock.calls[0]?.[0]).toBe(`${user.home}/Documents`);
+        } finally {
+            restore();
+        }
+    });
 });
 
 describe('FSService restructuring a shared tree', () => {
@@ -6409,5 +6441,119 @@ describe('FSService home-region placement', () => {
         expect(second.bucket).toBe('puter-far');
         expect(second.bucketRegion).toBe('eu-central-1');
         expect(await readFrom(second)).toBe('second');
+    });
+});
+
+describe('FSService subtree paging', () => {
+    let user: TestUser;
+
+    beforeAll(async () => {
+        user = await makeUser();
+    });
+
+    /** Run `fn` with subtree walks paged `size` rows at a time. */
+    const withPageSize = async (size: number, fn: () => Promise<void>) => {
+        const service = fs.constructor as typeof FSService;
+        const previous = service.SUBTREE_PAGE_SIZE;
+        service.SUBTREE_PAGE_SIZE = size;
+        try {
+            await fn();
+        } finally {
+            service.SUBTREE_PAGE_SIZE = previous;
+        }
+    };
+
+    /** Three levels: files at each, and an empty directory. */
+    const makeTree = async (name: string) => {
+        const root = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/${name}`,
+        });
+        await fs.mkdir(user.userId, {
+            path: `${root.path}/sub/deep`,
+            createMissingParents: true,
+        });
+        await fs.mkdir(user.userId, { path: `${root.path}/empty` });
+        const files = [
+            await writeFile(user, `${root.path}/a.txt`, 'a'),
+            await writeFile(user, `${root.path}/b.txt`, 'b'),
+            await writeFile(user, `${root.path}/c.txt`, 'c'),
+            await writeFile(user, `${root.path}/sub/d.txt`, 'd'),
+            await writeFile(user, `${root.path}/sub/e.txt`, 'e'),
+            await writeFile(user, `${root.path}/sub/deep/f.txt`, 'f'),
+        ];
+        const descendants = await server.stores.fsEntry.listDescendantsByPath(
+            root.path,
+        );
+        return { root, files, descendants };
+    };
+
+    it('deletes a tree larger than a page, every row and object once', async () => {
+        const { root, files, descendants } = await makeTree('page-rm');
+        expect(descendants).toHaveLength(9);
+
+        const counts = new Map<string, number>();
+        const listener = (_key: string, data: unknown) => {
+            const uuid = (data as { node?: FSEntry })?.node?.uuid;
+            if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
+        };
+        const pages = vi.spyOn(server.stores.fsEntry, 'listDescendantsInOrder');
+        server.clients.event.on('fs.remove.node', listener);
+        try {
+            await withPageSize(2, () =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            );
+            // 9 rows at 2 a page: four full pages and a short one.
+            expect(pages).toHaveBeenCalledTimes(5);
+            expect(pages.mock.calls.every(([, opts]) => opts.limit === 2)).toBe(
+                true,
+            );
+        } finally {
+            server.clients.event.off('fs.remove.node', listener);
+            pages.mockRestore();
+        }
+
+        expect(
+            await server.stores.fsEntry.listDescendantsByPath(root.path),
+        ).toEqual([]);
+        expect(await entryAt(user, '/Documents/page-rm')).toBeNull();
+        for (const entry of [root, ...descendants])
+            expect(counts.get(entry.uuid)).toBe(1);
+        for (const file of files) {
+            await expect(
+                server.stores.s3Object.getObjectStream(
+                    { bucket: file.bucket!, objectKey: file.uuid },
+                    file.bucketRegion!,
+                ),
+            ).rejects.toMatchObject({ name: 'NoSuchKey' });
+        }
+    });
+
+    it('refuses a non-empty directory with one probe, never listing it', async () => {
+        const { root } = await makeTree('page-probe');
+        const probe = vi.spyOn(server.stores.fsEntry, 'hasDescendants');
+        const pages = vi.spyOn(server.stores.fsEntry, 'listDescendantsInOrder');
+        const listAll = vi.spyOn(
+            server.stores.fsEntry,
+            'listDescendantsByPath',
+        );
+        try {
+            const error = await caught(() =>
+                fs.remove(user.userId, { entry: root }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(probe).toHaveBeenCalledTimes(1);
+            expect(pages).not.toHaveBeenCalled();
+            expect(listAll).not.toHaveBeenCalled();
+
+            const empty = (await entryAt(user, '/Documents/page-probe/empty'))!;
+            await fs.remove(user.userId, { entry: empty });
+            expect(
+                await entryAt(user, '/Documents/page-probe/empty'),
+            ).toBeNull();
+        } finally {
+            probe.mockRestore();
+            pages.mockRestore();
+            listAll.mockRestore();
+        }
     });
 });

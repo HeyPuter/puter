@@ -95,6 +95,8 @@ import type {
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
+/** Events-API dispatches one batch of changes runs at once. */
+const EVENT_DISPATCH_CONCURRENCY = 8;
 
 /**
  * Storage-allowance sentinel meaning "don't enforce a quota on this write".
@@ -266,6 +268,11 @@ interface BatchStartSignedWriteResult {
 export class FSService extends PuterService {
     /** Overridable so tests can reach the cap without filling it. */
     static MAX_PENDING_UPLOADS_PER_OWNER = MAX_PENDING_UPLOADS_PER_OWNER;
+    /**
+     * Rows a subtree walk (delete, copy) reads and handles at a time.
+     * Overridable so tests can cross a page boundary.
+     */
+    static SUBTREE_PAGE_SIZE = 1000;
 
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
@@ -4358,8 +4365,8 @@ export class FSService extends PuterService {
 
     /**
      * Remove an entry. For directories, descendants are walked and removed
-     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
-     * thumbnail extension (and any other listener) can clean up side state.
+     * (both DB rows and S3 objects). Emits `fs.remove.node` once per removed
+     * entry, after its row is deleted, so listeners can clean up side state.
      *
      * The caller checks `write` on the entry; the parent check that governs
      * restructuring is enforced here.
@@ -4388,29 +4395,26 @@ export class FSService extends PuterService {
         }
         await this.#assertCanRestructure(entry, userId);
 
-        if (entry.isDir) {
-            const descendants = await this.stores.fsEntry.listDescendantsByPath(
-                entry.path,
-            );
-            if (descendants.length > 0 && !input.recursive) {
-                throw new HttpError(409, 'Directory is not empty', {
-                    legacyCode: 'conflict',
-                });
-            }
+        // What is left above a removed entry, read at most once for the whole
+        // subtree and only if a subscriber needs it.
+        const survivors = this.#memoizedChain(
+            input.descendantsOnly ? entry.path : pathPosix.dirname(entry.path),
+        );
 
-            // Delete descendants first (depth-descending). S3 objects are
-            // batched per bucket+region for efficiency.
-            await this.#removeDescendantsStorage(descendants);
-            if (descendants.length > 0) {
-                await this.stores.fsEntry.deleteEntries(descendants);
-                for (const descendant of descendants) {
-                    this.#emitRemoveEvent(descendant);
+        if (entry.isDir) {
+            if (!input.recursive) {
+                if (await this.stores.fsEntry.hasDescendants(entry.path)) {
+                    throw new HttpError(409, 'Directory is not empty', {
+                        legacyCode: 'conflict',
+                    });
                 }
+            } else {
+                await this.#removeDescendants(entry, survivors);
             }
 
             if (!input.descendantsOnly) {
                 await this.stores.fsEntry.deleteEntry(entry);
-                this.#emitRemoveEvent(entry);
+                this.#emitRemoveEvents([entry], survivors);
             }
             return;
         }
@@ -4434,7 +4438,32 @@ export class FSService extends PuterService {
             }
         }
         await this.stores.fsEntry.deleteEntry(entry);
-        this.#emitRemoveEvent(entry);
+        this.#emitRemoveEvents([entry], survivors);
+    }
+
+    /**
+     * Delete a directory's contents a page at a time, leaves first, so neither
+     * memory nor a single statement grows with the subtree.
+     */
+    async #removeDescendants(
+        root: FSEntry,
+        survivors: () => Promise<AncestorChain>,
+    ): Promise<void> {
+        const limit = FSService.SUBTREE_PAGE_SIZE;
+        let after: FSEntry | undefined;
+        for (;;) {
+            const page = await this.stores.fsEntry.listDescendantsInOrder(
+                root.path,
+                { order: 'desc', limit, after },
+            );
+            if (page.length === 0) return;
+            // S3 objects are batched per bucket+region.
+            await this.#removeDescendantsStorage(page);
+            await this.stores.fsEntry.deleteEntries(page);
+            this.#emitRemoveEvents(page, survivors);
+            if (page.length < limit) return;
+            after = page[page.length - 1];
+        }
     }
 
     /**
@@ -4521,8 +4550,6 @@ export class FSService extends PuterService {
             };
             group.keys.push(child.uuid);
             grouped.set(groupKey, group);
-            // Fire individual removal events so thumbnail extension can clean up.
-            this.#emitRemoveEvent(child);
         }
         await Promise.allSettled(
             Array.from(grouped.values()).map((group) =>
@@ -4534,77 +4561,110 @@ export class FSService extends PuterService {
         );
     }
 
-    #emitRemoveEvent(entry: FSEntry): void {
-        // Ship the entry under every alias existing handlers use — `node`,
-        // `entry`, `target`. The thumbnails extension destructures
-        // `{ target }`, and the bare `{ node, entry }` shape landed
-        // `target: undefined` → crash on `target.thumbnail`.
-        try {
-            this.clients.event.emit(
-                'fs.remove.node',
-                { node: entry, entry, target: entry },
-                {},
-            );
-        } catch {
-            // Non-critical.
+    /**
+     * Removed entries publish with `survivors` as their ancestors: the
+     * directories that still exist above them once the delete is done.
+     */
+    #emitRemoveEvents(
+        entries: FSEntry[],
+        survivors: () => Promise<AncestorChain>,
+    ): void {
+        for (const entry of entries) {
+            // Ship the entry under every alias existing handlers use — `node`,
+            // `entry`, `target`. The thumbnails extension destructures
+            // `{ target }`, and the bare `{ node, entry }` shape landed
+            // `target: undefined` → crash on `target.thumbnail`.
+            try {
+                this.clients.event.emit(
+                    'fs.remove.node',
+                    { node: entry, entry, target: entry },
+                    {},
+                );
+            } catch {
+                // Non-critical.
+            }
         }
-        this.#dispatchEvents('fs.remove.node', entry);
+        this.#dispatchEvents('fs.remove.node', entries, {
+            ancestors: survivors,
+        });
+    }
+
+    /** A chain read on first use and shared by every caller after. */
+    #memoizedChain(path: string): () => Promise<AncestorChain> {
+        let chain: Promise<AncestorChain> | null = null;
+        return () => (chain ??= this.stores.fsEntry.getAncestorChain(path));
     }
 
     /**
-     * Publish a committed change to whoever subscribed to it.
+     * Publish committed changes to whoever subscribed to them.
      *
      * Post-commit and fire-and-forget: the write already happened, so nothing
-     * here may fail it or slow it down. The ancestor walk is a thunk because
-     * almost every write belongs to a user with no subscriptions, and that user
-     * must not pay for the walk to find out.
+     * here may fail it or slow it down. A batch runs at bounded concurrency in
+     * one background task. The ancestor walk is a thunk because almost every
+     * write belongs to a user with no subscriptions, and that user must not pay
+     * for the walk to find out.
      *
      * `movedFrom` is a move only: the folder `entry` left needs its own
      * ancestor walk, taken from where it used to live, or its subscribers would
      * never hear the node went.
      *
      * `ancestors` lets a caller that already knows the chain supply it instead
-     * of walking from `entry.path`.
+     * of walking from each entry's path.
      */
     #dispatchEvents(
         key: EventKey,
-        entry: FSEntry,
+        entries: FSEntry | FSEntry[],
         options: {
             movedFrom?: { path: string };
-            ancestors?: () => Promise<AncestorChain>;
+            ancestors?: (entry: FSEntry) => Promise<AncestorChain>;
         } = {},
     ): void {
         const events = this.services.events;
         if (!events?.enabled) return;
-        const { movedFrom, ancestors } = options;
+        const batch = Array.isArray(entries) ? entries : [entries];
+        if (batch.length === 0) return;
+        const { movedFrom } = options;
+        const fsEntry = this.stores.fsEntry;
+        const ancestors =
+            options.ancestors ??
+            ((entry: FSEntry) => fsEntry.getAncestorChain(entry.path));
         const actor = Context.get('actor') as Actor | undefined;
-        try {
-            void events
-                .dispatchFs(key, entry, {
-                    actingUserId: actor?.user?.id,
-                    handlerDepth: handlerDepthOf(actor),
-                    ancestors:
-                        ancestors ?? (() => this.getAncestorChain(entry.path)),
-                    ...(movedFrom
-                        ? {
-                              movedFrom: {
-                                  path: movedFrom.path,
-                                  ancestors: () =>
-                                      this.getAncestorChain(movedFrom.path),
-                              },
-                          }
-                        : {}),
-                })
-                .catch((err: unknown) => {
-                    console.warn('[fs] event dispatch failed', err);
-                });
-        } catch (err) {
-            console.warn('[fs] event dispatch failed', err);
-        }
+        const actingUserId = actor?.user?.id;
+        const handlerDepth = handlerDepthOf(actor);
+        const movedFromChain = movedFrom && {
+            path: movedFrom.path,
+            ancestors: () => fsEntry.getAncestorChain(movedFrom.path),
+        };
+        void (async () => {
+            try {
+                const results = await runWithConcurrencyLimitSettled(
+                    batch,
+                    EVENT_DISPATCH_CONCURRENCY,
+                    (entry) =>
+                        events.dispatchFs(key, entry, {
+                            actingUserId,
+                            handlerDepth,
+                            ancestors: () => ancestors(entry),
+                            ...(movedFromChain
+                                ? { movedFrom: movedFromChain }
+                                : {}),
+                        }),
+                );
+                for (const result of results) {
+                    if (result.status === 'rejected')
+                        console.warn(
+                            '[fs] event dispatch failed',
+                            result.reason,
+                        );
+                }
+            } catch (err) {
+                console.warn('[fs] event dispatch failed', err);
+            }
+        })();
     }
 
     /**
-     * Publish an entry a copy created as a plain `add` — the same thing a write
+     * Publish entries a copy created as a plain `add` — the same thing a write
      * or an upload publishes. Events-API dispatch only: `fs.create.*` on the
      * internal bus has consumers a copy has never reached, and the copy's own
      * bus event stays `fs.copy.node`.
