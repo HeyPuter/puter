@@ -1328,6 +1328,22 @@ describe('acquireDriverConcurrent', () => {
         expect(hB.ok).toBe(true);
     });
 
+    it('releases a slot once even when release is called twice', async () => {
+        const req = { actor: { user: { uuid: 'double-release' } } };
+        const opts = { limit: 2 };
+        const h1 = await acquireDriverConcurrent(req, 'iface', 'm', opts);
+        await acquireDriverConcurrent(req, 'iface', 'm', opts);
+        await h1.release();
+        await h1.release();
+
+        expect((await acquireDriverConcurrent(req, 'iface', 'm', opts)).ok).toBe(
+            true,
+        );
+        expect((await acquireDriverConcurrent(req, 'iface', 'm', opts)).ok).toBe(
+            false,
+        );
+    });
+
     it('applies bySubscription overrides via the wired metering service', async () => {
         configureRateLimit({
             metering: {
@@ -1479,6 +1495,20 @@ describe('checkRateLimit', () => {
         expect(await checkRateLimit('boom', 1, 60_000)).toBe(true);
         expect(spy).toHaveBeenCalled();
         spy.mockRestore();
+    });
+
+    it('throws the backend error instead when asked to fail closed', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        await expect(
+            checkRateLimit('boom', 1, 60_000, undefined, { failOpen: false }),
+        ).rejects.toThrow('redis exploded');
     });
 });
 
