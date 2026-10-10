@@ -2297,12 +2297,8 @@ export class AuthService extends PuterService {
                 ? undefined
                 : this.#authIdFor(user as UserRow);
 
-        if (rawRow?.revoked_at != null) {
-            return { reauth: { reason: 'session_revoked', auth_id } };
-        }
-        if (rawRow?.expires_at != null && rawRow.expires_at <= nowSeconds()) {
-            return { reauth: { reason: 'session_expired', auth_id } };
-        }
+        const ended = this.#endedSession(rawRow, auth_id);
+        if (ended) return ended;
 
         const session: SessionRow | null = rawRow;
 
@@ -2335,12 +2331,8 @@ export class AuthService extends PuterService {
 
         // An app token never carries `auth_id` on its reauth result: only a
         // user's own session/GUI token can be reattached via a reauth token.
-        if (rawRow?.revoked_at != null) {
-            return { reauth: { reason: 'session_revoked' } };
-        }
-        if (rawRow?.expires_at != null && rawRow.expires_at <= nowSeconds()) {
-            return { reauth: { reason: 'session_expired' } };
-        }
+        const ended = this.#endedSession(rawRow);
+        if (ended) return ended;
 
         const session: SessionRow | null = rawRow;
 
@@ -2414,15 +2406,8 @@ export class AuthService extends PuterService {
             )) as SessionRow | null;
             // No `auth_id` on an access token's reauth result: a reauth token
             // is only ever minted for the user's own session/GUI token.
-            if (rawRow?.revoked_at != null) {
-                return { reauth: { reason: 'session_revoked' } };
-            }
-            if (
-                rawRow?.expires_at != null &&
-                rawRow.expires_at <= nowSeconds()
-            ) {
-                return { reauth: { reason: 'session_expired' } };
-            }
+            const ended = this.#endedSession(rawRow);
+            if (ended) return ended;
             if (!rawRow) return { invalid: true };
             // A token minted under another session (an app's, a godmode
             // token's, the desktop's) lives no longer than that session does.
@@ -2430,15 +2415,9 @@ export class AuthService extends PuterService {
                 const parent = (await this.stores.session.getByUuidAny(
                     rawRow.parent_session_id,
                 )) as SessionRow | null;
-                if (!parent || parent.revoked_at != null) {
-                    return { reauth: { reason: 'session_revoked' } };
-                }
-                if (
-                    parent.expires_at != null &&
-                    parent.expires_at <= nowSeconds()
-                ) {
-                    return { reauth: { reason: 'session_expired' } };
-                }
+                if (!parent) return { reauth: { reason: 'session_revoked' } };
+                const parentEnded = this.#endedSession(parent);
+                if (parentEnded) return parentEnded;
                 parentSession = parent;
             }
             session = rawRow;
@@ -2493,6 +2472,22 @@ export class AuthService extends PuterService {
         });
         this.#applyHandlerDepth(actor, decoded);
         return { actor };
+    }
+
+    /**
+     * The reauth a revoked or expired session answers with; null while it is
+     * live, or when there is no row.
+     */
+    #endedSession(row: SessionRow | null, authId?: string): AuthResult | null {
+        let reason: ReauthReason;
+        if (row?.revoked_at != null) reason = 'session_revoked';
+        else if (row?.expires_at != null && row.expires_at <= nowSeconds())
+            reason = 'session_expired';
+        else return null;
+        return {
+            reauth:
+                authId === undefined ? { reason } : { reason, auth_id: authId },
+        };
     }
 
     /** Best effort: activity bookkeeping never fails an authentication. */

@@ -240,6 +240,61 @@ describe('AuthService (integration)', () => {
             });
         });
 
+        it('ends an access token with the session it was minted under', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const { session_uid: tokenRow } = server.services.token.verify(
+                'auth',
+                accessToken,
+            ) as { session_uid: string };
+            const parentOf = async () => {
+                const { session } = await authService.createSessionToken(
+                    user,
+                    {},
+                );
+                const parent = (session as { uuid: string }).uuid;
+                await server.clients.db.write(
+                    'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                    [parent, tokenRow],
+                );
+                await server.clients.redis.del(`sessions:v2:uuid:${tokenRow}`);
+                return parent;
+            };
+            const reauthOf = async () =>
+                (await authService.authenticate(accessToken)).reauth;
+
+            const expiring = await parentOf();
+            expect(
+                (await authService.authenticate(accessToken)).actor,
+            ).toBeTruthy();
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [Math.floor(Date.now() / 1000) - 60, expiring],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${expiring}`);
+            expect(await reauthOf()).toEqual({ reason: 'session_expired' });
+
+            await authService.revokeSession(await parentOf());
+            expect(await reauthOf()).toEqual({ reason: 'session_revoked' });
+
+            const gone = await parentOf();
+            await server.clients.db.write(
+                'DELETE FROM `sessions` WHERE `uuid` = ?',
+                [gone],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${gone}`);
+            expect(await reauthOf()).toEqual({ reason: 'session_revoked' });
+        });
+
         it('returns { invalid } for a token that is not v2', async () => {
             // v1 is fully removed: nothing but `kid: 'v2'` can verify, and an
             // unrecognizable token is an ordinary invalid token — no reauth hint.
