@@ -29,12 +29,12 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { openAICompatParams } from '../../utils/openaiParams.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
 
@@ -221,7 +221,7 @@ export class MetaProvider implements IChatProvider {
         );
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: ({ usage, setUsageCosts }) => {
                 const cachedTokens =
                     usage?.prompt_tokens_details?.cached_tokens ?? 0;
                 // Meta reports cache reads as a subset of `prompt_tokens`, so
@@ -234,17 +234,15 @@ export class MetaProvider implements IChatProvider {
                     completion_tokens: usage?.completion_tokens ?? 0,
                     cached_tokens: cachedTokens,
                 };
-                const costsOverride = buildCostsOverride(
-                    trackedUsage,
-                    modelUsed,
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor!,
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
                     this.meteringModelKey(modelUsed.id),
-                    costsOverride,
+                    modelUsed,
+                    trackedUsage,
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

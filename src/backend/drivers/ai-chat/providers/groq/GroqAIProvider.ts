@@ -27,6 +27,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { GROQ_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 export class GroqAIProvider implements IChatProvider {
     #client: Groq;
@@ -100,20 +101,16 @@ export class GroqAIProvider implements IChatProvider {
                     (chunk as { x_groq?: { usage?: CompletionUsage } }).x_groq
                         ?.usage,
             },
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
                     this.meteringModelKey(modelUsed.id),
-                    costsOverride,
+                    modelUsed,
+                    OpenAIUtil.splitCachedPrompt(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

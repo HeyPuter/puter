@@ -27,6 +27,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { DEEPSEEK_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 export class DeepSeekProvider implements IChatProvider {
     #openai: OpenAI;
@@ -131,20 +132,16 @@ export class DeepSeekProvider implements IChatProvider {
         );
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor!,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
                     this.meteringModelKey(modelUsed.id),
-                    costsOverrideFromModel,
+                    modelUsed,
+                    OpenAIUtil.splitCachedPrompt(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream: stream,
             completion,

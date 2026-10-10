@@ -48,6 +48,7 @@ import {
     type NeuralwattEnergy,
 } from './models.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.neuralwatt.com/v1';
 
@@ -229,10 +230,12 @@ export class NeuralwattProvider implements IChatProvider {
             usage,
             cost,
             energy,
+            setUsageCosts,
         }: {
             usage: NeuralwattUsage;
             cost?: NeuralwattCost;
             energy?: NeuralwattEnergy;
+            setUsageCosts: (costs: Record<string, number>) => void;
         }) => {
             // Non-streaming spreads the full completion into this call;
             // streaming merges top-level cost/energy onto `usage` via the
@@ -250,7 +253,7 @@ export class NeuralwattProvider implements IChatProvider {
                 measurement_available: usage.measurement_available,
             };
 
-            const trackedTokens = OpenAIUtil.extractMeteredUsage(usage);
+            const trackedTokens = OpenAIUtil.splitCachedPrompt(usage);
             const energyUnits: Record<string, number> = {};
             if (
                 energyBlock.measurement_available !== false &&
@@ -277,48 +280,22 @@ export class NeuralwattProvider implements IChatProvider {
                 return out;
             };
 
-            if (
-                typeof requestCostUsd === 'number' &&
-                Number.isFinite(requestCostUsd)
-            ) {
-                const billedTrackedUsage = {
-                    ...trackedTokens,
-                    ...energyUnits,
-                    billedUsage: 1,
-                };
-                const costOverwrites = Object.fromEntries(
-                    Object.keys(billedTrackedUsage).map((k) => [k, 0]),
-                );
-                costOverwrites.billedUsage = requestCostUsd * 100_000_000;
-                this.#meteringService.utilRecordUsageObject(
-                    billedTrackedUsage,
-                    actor!,
-                    this.meteringModelKey(modelUsed.id),
-                    costOverwrites,
-                );
-                const result = annotate(billedTrackedUsage);
-                result.usd_cents = requestCostUsd * 100;
-                return result;
-            }
-
-            // Fallback: catalog token rates (preflight / when Neuralwatt
-            // omits request_cost_usd).
-            const trackedUsage = { ...trackedTokens, ...energyUnits };
-            const costOverwrites = Object.fromEntries(
-                Object.entries(trackedUsage).map(([k, v]) => {
-                    if (k === 'energy_kwh' || k === 'energy_joules') {
-                        return [k, 0];
-                    }
-                    return [k, (modelUsed.costs[k] ?? 0) * v];
-                }),
-            );
-            this.#meteringService.utilRecordUsageObject(
-                trackedUsage,
-                actor!,
+            // Billed at `request_cost_usd` when Neuralwatt reports it, at
+            // the catalog's token rates otherwise. Energy is recorded, never
+            // priced.
+            const metered = meterChatUsage(
+                this.#meteringService,
+                actor,
                 this.meteringModelKey(modelUsed.id),
-                costOverwrites,
+                modelUsed,
+                { ...trackedTokens, ...energyUnits },
+                typeof requestCostUsd === 'number' &&
+                    Number.isFinite(requestCostUsd)
+                    ? { authoritativeUsd: requestCostUsd }
+                    : { costOverrides: { energy_kwh: 0, energy_joules: 0 } },
             );
-            return annotate(trackedUsage);
+            setUsageCosts(metered.costs);
+            return annotate(metered.usage);
         };
 
         return OpenAIUtil.handle_completion_output({

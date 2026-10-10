@@ -529,8 +529,9 @@ describe('DeepSeekProvider.complete non-stream output', () => {
             message: { content: 'hi there', role: 'assistant' },
             finish_reason: 'stop',
         });
+        // Cached reads come out of `prompt_tokens`; they're priced once.
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -539,14 +540,14 @@ describe('DeepSeekProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('deepseek:deepseek-v4-pro');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * Number(chat.costs.prompt_tokens),
+            prompt_tokens: 90 * Number(chat.costs.prompt_tokens),
             completion_tokens: 50 * Number(chat.costs.completion_tokens),
             cached_tokens: 10 * Number(chat.costs.cached_tokens ?? 0),
         });
@@ -667,7 +668,7 @@ describe('DeepSeekProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -677,7 +678,7 @@ describe('DeepSeekProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('deepseek:deepseek-v4-pro');
         expect(overrides).toEqual({
-            prompt_tokens: 4 * Number(chat.costs.prompt_tokens),
+            prompt_tokens: 3 * Number(chat.costs.prompt_tokens),
             completion_tokens: 2 * Number(chat.costs.completion_tokens),
             cached_tokens: 1 * Number(chat.costs.cached_tokens ?? 0),
         });

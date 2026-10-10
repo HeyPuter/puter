@@ -37,7 +37,6 @@ import {
     openAICompatParams,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
 import { responseSamplingParams } from '../../utils/responseSampling.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
@@ -45,6 +44,7 @@ import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
     type === 'web_search_20250305' ||
@@ -362,32 +362,30 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                         : {}),
                 };
 
-                const costsOverrideFromModel = buildCostsOverride(
-                    trackedUsage,
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
+                    this.meteringModelKey(modelUsed.id),
                     modelUsed,
-                );
-                // Priced dynamically: the rate depends on which
-                // web-search tool variant was requested and whether the model
-                // is a reasoning model, not a static per-model cost-table
-                // entry — `buildCostsOverride`'s fallback would otherwise
-                // price it (wrongly) at the input/output token rate.
-                if (webSearchCalls) {
-                    const rate = webSearchCallRate(tools, modelUsed.id) ?? 0;
-                    costsOverrideFromModel.web_search_calls =
-                        webSearchCalls * rate;
-                    setUsageCosts?.({
-                        web_search_calls:
-                            costsOverrideFromModel.web_search_calls,
-                    });
-                }
-
-                this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor!,
-                    this.meteringModelKey(modelUsed?.id),
-                    costsOverrideFromModel,
+                    // Priced dynamically: the rate depends on which
+                    // web-search tool variant was requested and whether the
+                    // model is a reasoning model, not a static per-model
+                    // cost-table entry — the model's rates would otherwise
+                    // price it (wrongly) at the input/output token rate.
+                    webSearchCalls
+                        ? {
+                              costOverrides: {
+                                  web_search_calls:
+                                      webSearchCalls *
+                                      (webSearchCallRate(tools, modelUsed.id) ??
+                                          0),
+                              },
+                          }
+                        : {},
                 );
-                return trackedUsage;
+                setUsageCosts?.(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

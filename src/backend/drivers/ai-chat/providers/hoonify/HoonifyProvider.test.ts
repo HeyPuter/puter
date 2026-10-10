@@ -552,7 +552,7 @@ describe('HoonifyProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -566,14 +566,14 @@ describe('HoonifyProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('hoonify:zai-org/glm-5.2');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            100 * Number(glm.costs.prompt_tokens),
+            90 * Number(glm.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(
@@ -704,7 +704,7 @@ describe('HoonifyProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -716,7 +716,7 @@ describe('HoonifyProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('hoonify:zai-org/glm-5.2');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            4 * Number(glm.costs.prompt_tokens),
+            3 * Number(glm.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(

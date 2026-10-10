@@ -28,6 +28,7 @@ import { openAICompatParams } from '../../utils/openaiParams.js';
 import { BYTEPLUS_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 type BytePlusConfig = {
     apiKey: string;
@@ -139,26 +140,16 @@ export class BytePlusProvider implements IChatProvider {
         );
 
         const result = await OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = usage
-                    ? OpenAIUtil.extractMeteredUsage(usage)
-                    : {
-                          prompt_tokens: 0,
-                          completion_tokens: 0,
-                          cached_tokens: 0,
-                      };
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * Number(modelUsed.costs[key] ?? 0)];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor!,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
                     this.meteringModelKey(modelUsed.id),
-                    costsOverride,
+                    modelUsed,
+                    OpenAIUtil.splitCachedPrompt(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

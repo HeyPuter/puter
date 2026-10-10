@@ -29,10 +29,10 @@ import {
     process_input_messages,
 } from '../../utils/OpenAIUtil.js';
 import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
 import { GEMINI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 export class GeminiChatProvider implements IChatProvider {
     meteringService: MeteringService;
@@ -126,15 +126,19 @@ export class GeminiChatProvider implements IChatProvider {
                 // Cast to access Gemini-specific extras passed alongside usage:
                 // - choices: non-stream grounding metadata lives in choices[0].message.extra_content
                 // - extra_content: streaming grounding metadata accumulated by the stream handler
-                const { usage, choices, extra_content } = args as {
-                    usage: typeof args.usage;
-                    choices?: Array<{
-                        message?: {
-                            extra_content?: { grounding_metadata?: unknown };
-                        };
-                    }>;
-                    extra_content?: { grounding_metadata?: unknown };
-                };
+                const { usage, choices, extra_content, setUsageCosts } =
+                    args as {
+                        usage: typeof args.usage;
+                        setUsageCosts: typeof args.setUsageCosts;
+                        choices?: Array<{
+                            message?: {
+                                extra_content?: {
+                                    grounding_metadata?: unknown;
+                                };
+                            };
+                        }>;
+                        extra_content?: { grounding_metadata?: unknown };
+                    };
 
                 const cached_tokens =
                     usage?.prompt_tokens_details?.cached_tokens ?? 0;
@@ -160,18 +164,15 @@ export class GeminiChatProvider implements IChatProvider {
                             : 0,
                 };
 
-                const costsOverrideFromModel = buildCostsOverride(
-                    trackedUsage,
+                const metered = meterChatUsage(
+                    this.meteringService,
+                    actor,
+                    this.meteringModelKey(modelUsed.id),
                     modelUsed,
-                );
-                this.meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor!,
-                    this.meteringModelKey(modelUsed?.id),
-                    costsOverrideFromModel,
                 );
-
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

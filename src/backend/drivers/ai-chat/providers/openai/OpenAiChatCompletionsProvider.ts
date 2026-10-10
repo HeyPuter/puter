@@ -40,13 +40,13 @@ import {
     clampReasoningEffort,
     openAICompatParams,
 } from '../../utils/openaiParams.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
     tool.type === 'web_search' ||
@@ -284,7 +284,7 @@ export class OpenAiChatProvider implements IChatProvider {
         );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: ({ usage, setUsageCosts }) => {
                 const cachedTokens =
                     usage.prompt_tokens_details?.cached_tokens ?? 0;
                 // GPT-5.6 and later bill cache writes at 1.25x input. They're
@@ -307,18 +307,15 @@ export class OpenAiChatProvider implements IChatProvider {
                         : {}),
                 };
 
-                const costsOverrideFromModel = buildCostsOverride(
-                    trackedUsage,
-                    modelUsed,
-                );
-
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
-                    this.meteringModelKey(modelUsed?.id),
-                    costsOverrideFromModel,
+                    this.meteringModelKey(modelUsed.id),
+                    modelUsed,
+                    trackedUsage,
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

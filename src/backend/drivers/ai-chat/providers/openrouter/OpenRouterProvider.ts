@@ -39,6 +39,7 @@ import type {
 } from '../../types.js';
 import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
@@ -200,62 +201,38 @@ export class OpenRouterProvider implements IChatProvider {
         }
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }: { usage: OpenrouterUsage }) => {
-                if (typeof usage.cost === 'number') {
-                    // custom open router logic because they're pricing are weird
-                    const trackedUsage = {
-                        prompt:
-                            (usage.prompt_tokens ?? 0) -
-                            (usage.prompt_tokens_details?.cached_tokens ?? 0),
-                        completion: usage.completion_tokens ?? 0,
-                        input_cache_read:
-                            usage.prompt_tokens_details?.cached_tokens ?? 0,
-                        request:
-                            (usage as unknown as Record<string, number>)
-                                .request || 1,
-                        billedUsage: 1,
-                    };
-                    const costOverwrites = Object.fromEntries(
-                        Object.keys(trackedUsage).map((k) => {
-                            return [k, 0]; // make everything else 0 if they don't respect their own pricing
-                        }),
-                    );
-                    costOverwrites.billedUsage = usage.cost * 100_000_000 || 1;
-                    this.#meteringService.utilRecordUsageObject(
-                        trackedUsage,
-                        actor,
-                        this.meteringModelKey(modelUsed.id),
-                        costOverwrites,
-                    );
-                    (trackedUsage as Record<string, number>).usd_cents =
-                        usage.cost * 100;
-                    return trackedUsage;
-                } else {
-                    // custom open router logic because they're pricing are weird
-                    const trackedUsage: Record<string, number> = {
-                        prompt:
-                            (usage.prompt_tokens ?? 0) -
-                            (usage.prompt_tokens_details?.cached_tokens ?? 0),
-                        completion: usage.completion_tokens ?? 0,
-                        input_cache_read:
-                            usage.prompt_tokens_details?.cached_tokens ?? 0,
-                        request:
-                            (usage as unknown as Record<string, number>)
-                                .request || 1,
-                    };
-                    const costOverwrites = Object.fromEntries(
-                        Object.keys(trackedUsage).map((k) => {
-                            return [k, modelUsed.costs[k] * trackedUsage[k]];
-                        }),
-                    );
-                    this.#meteringService.utilRecordUsageObject(
-                        trackedUsage,
-                        actor,
-                        this.meteringModelKey(modelUsed.id),
-                        costOverwrites,
-                    );
-                    return trackedUsage;
-                }
+            usage_calculator: ({
+                usage,
+                setUsageCosts,
+            }: {
+                usage: OpenrouterUsage;
+                setUsageCosts: (costs: Record<string, number>) => void;
+            }) => {
+                const trackedUsage = {
+                    prompt:
+                        (usage.prompt_tokens ?? 0) -
+                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                    completion: usage.completion_tokens ?? 0,
+                    input_cache_read:
+                        usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    request:
+                        (usage as unknown as Record<string, number>).request ||
+                        1,
+                };
+                // OpenRouter reports what it billed (`usage.cost`, USD);
+                // the catalog's prices are the fallback.
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
+                    this.meteringModelKey(modelUsed.id),
+                    modelUsed,
+                    trackedUsage,
+                    typeof usage.cost === 'number'
+                        ? { authoritativeUsd: usage.cost }
+                        : {},
+                );
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

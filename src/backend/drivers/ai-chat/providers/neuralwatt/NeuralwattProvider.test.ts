@@ -563,7 +563,7 @@ describe('NeuralwattProvider.complete non-stream output', () => {
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('neuralwatt:deepseek-v4-flash');
         expect(usage).toMatchObject({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
             energy_kwh: 0.00000145,
@@ -610,13 +610,14 @@ describe('NeuralwattProvider.complete non-stream output', () => {
         const completionRate = 0.28 * 100;
         const cachedRate = 0.014 * 100;
         const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        // Cached reads come out of `prompt_tokens`; they're priced once.
         expect(usage).toMatchObject({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(overrides).toMatchObject({
-            prompt_tokens: 100 * promptRate,
+            prompt_tokens: 90 * promptRate,
             completion_tokens: 50 * completionRate,
             cached_tokens: 10 * cachedRate,
         });

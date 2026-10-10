@@ -349,7 +349,7 @@ describe('MiniMaxProvider.complete output and metering', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -357,14 +357,14 @@ describe('MiniMaxProvider.complete output and metering', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('minimax:minimax-m2.7');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * 30,
+            prompt_tokens: 90 * 30,
             completion_tokens: 50 * 120,
             cached_tokens: 10 * 6,
         });

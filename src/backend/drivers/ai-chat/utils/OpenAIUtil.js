@@ -488,6 +488,23 @@ export const extractMeteredUsage = (usage) => {
 };
 
 /**
+ * Chat Completions usage as it's metered: `prompt_tokens` reports cached reads
+ * inside its count, so they come out of it and are priced only once, under
+ * `cached_tokens`.
+ *
+ * @param {import('openai/resources/completions.mjs').CompletionUsage
+ *     | undefined} usage
+ */
+export const splitCachedPrompt = (usage) => {
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    return {
+        prompt_tokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
+        completion_tokens: usage?.completion_tokens ?? 0,
+        cached_tokens: cachedTokens,
+    };
+};
+
+/**
  * The `{prompt_tokens, completion_tokens, cached_tokens, cache_write_tokens}`
  * shape every OpenAI-family `usage_calculator` already returns for billing,
  * mapped to the provider-neutral `UsageDetails` the end-of-stream/non-stream
@@ -674,6 +691,7 @@ export const create_chat_stream_handler =
             ? usage_calculator({
                   usage: last_usage,
                   extra_content: last_extra_content,
+                  setUsageCosts: (c) => chatStream.setUsageCosts(c),
               })
             : undefined;
         // The calculator just metered. Reported here, not only via `end`:
@@ -875,6 +893,7 @@ export const handle_completion_output = async (
      * @type {Record<string, unknown> & {
      *     usage_calculator: (args: {
      *         usage: import('openai/resources/completions.mjs').CompletionUsage;
+     *         setUsageCosts: (costs: Record<string, number>) => void;
      *     }) => unknown;
      * }}
      */
@@ -927,6 +946,9 @@ export const handle_completion_output = async (
         ? usage_calculator({
               ...completion,
               usage: completion_usage,
+              setUsageCosts: (c) => {
+                  ret.usageCosts = c;
+              },
           })
         : {
               input_tokens: completion_usage.prompt_tokens,

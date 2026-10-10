@@ -31,6 +31,7 @@ import type {
     ICompleteArguments,
 } from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 /**
  * One upstream offering of a model in Infron's catalog. The same model is often
@@ -287,9 +288,11 @@ export class InfronProvider implements IChatProvider {
         const usage_calculator = ({
             usage,
             cost,
+            setUsageCosts,
         }: {
             usage: InfronUsage;
             cost?: number;
+            setUsageCosts: (costs: Record<string, number>) => void;
         }) => {
             // Infron reports `cost` at the top level of the response, not
             // inside `usage`. Non-streaming calls get it via the spread
@@ -306,42 +309,20 @@ export class InfronProvider implements IChatProvider {
                     usage.prompt_tokens_details?.cached_tokens ?? 0,
                 request: 1,
             };
-            if (typeof authoritativeCost === 'number') {
-                // Bill the gateway-reported cost as a single line item and
-                // zero the per-token costs so nothing double-bills.
-                const billedTrackedUsage = { ...trackedUsage, billedUsage: 1 };
-                const costOverwrites = Object.fromEntries(
-                    Object.keys(billedTrackedUsage).map((k) => [k, 0]),
-                );
-                costOverwrites.billedUsage =
-                    authoritativeCost * 100_000_000 || 1;
-                this.#meteringService.utilRecordUsageObject(
-                    billedTrackedUsage,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    costOverwrites,
-                );
-                (billedTrackedUsage as Record<string, number>).usd_cents =
-                    authoritativeCost * 100;
-                return billedTrackedUsage;
-            }
-            // Fallback: per-token pricing from the model catalog.
-            const costOverwrites = Object.fromEntries(
-                Object.keys(trackedUsage).map((k) => {
-                    return [
-                        k,
-                        (modelUsed.costs[k] ?? 0) *
-                            trackedUsage[k as keyof typeof trackedUsage],
-                    ];
-                }),
-            );
-            this.#meteringService.utilRecordUsageObject(
-                trackedUsage,
+            // The gateway-reported cost when there is one; the catalog's
+            // per-token prices otherwise.
+            const metered = meterChatUsage(
+                this.#meteringService,
                 actor,
                 this.meteringModelKey(modelUsed.id),
-                costOverwrites,
+                modelUsed,
+                trackedUsage,
+                typeof authoritativeCost === 'number'
+                    ? { authoritativeUsd: authoritativeCost }
+                    : {},
             );
-            return trackedUsage;
+            setUsageCosts(metered.costs);
+            return metered.usage;
         };
 
         return OpenAIUtil.handle_completion_output({

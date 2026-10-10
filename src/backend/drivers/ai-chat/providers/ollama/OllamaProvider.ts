@@ -26,6 +26,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 /**
  * OllamaService class - Provides integration with Ollama's API for chat
  * completions Extends BaseService to implement the puter-chat-completion
@@ -151,7 +152,7 @@ export class OllamaChatProvider implements IChatProvider {
                     : `ollama:ollama/${model}`
                 : undefined);
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: ({ usage, setUsageCosts }) => {
                 const trackedUsage = {
                     prompt:
                         (usage.prompt_tokens ?? 1) -
@@ -160,20 +161,24 @@ export class OllamaChatProvider implements IChatProvider {
                     input_cache_read:
                         usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
-                const costOverwrites = Object.fromEntries(
-                    Object.keys(trackedUsage).map((k) => {
-                        return [k, 0]; // override to 0 since local is free
-                    }),
+                if (!modelIdForMetering) return trackedUsage;
+                // Local inference is free.
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
+                    modelIdForMetering,
+                    modelDetails ?? ({ costs: {} } as unknown as IChatModel),
+                    trackedUsage,
+                    {
+                        costOverrides: {
+                            prompt: 0,
+                            completion: 0,
+                            input_cache_read: 0,
+                        },
+                    },
                 );
-                if (modelIdForMetering) {
-                    this.#meteringService.utilRecordUsageObject(
-                        trackedUsage,
-                        actor,
-                        modelIdForMetering,
-                        costOverwrites,
-                    );
-                }
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

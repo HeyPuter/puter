@@ -95,11 +95,9 @@ import { isToolChoice, toolChoiceFromWire } from './utils/openaiParams.js';
 import {
     costKeys,
     isFreeModel,
-    isOutputCostKey,
-    isPerCallCostKey,
     longContextMultipliers,
-    trackedInputTokens,
     trackedOutputTokens,
+    usageCost,
     usageDetailsFromUsage,
 } from './utils/pricing.js';
 import {
@@ -1218,126 +1216,6 @@ export class ChatCompletionDriver extends PuterDriver {
         };
     }
 
-    // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
-    // Shape-agnostic: multiplies every usage key by its matching rate in
-    // `model.costs`. Returns `null` when cost data is unavailable.
-    //
-    // `usageCosts`, when given, carries the provider's own per-key µ¢ cost
-    // (set from `chatStream.usageCosts` / `res.usageCosts`) — used verbatim
-    // for that key so the ledger and the reported cost match exactly instead
-    // of being recomputed off this model's cost table.
-    #computeCost(
-        usage: Record<string, number>,
-        model: IChatModel,
-        usageCosts?: Record<string, number>,
-    ): {
-        inputKey: string;
-        outputKey: string;
-        inputTokens: number;
-        outputTokens: number;
-        inputMicroCents: number;
-        outputMicroCents: number;
-        totalMicroCents: number;
-    } | null {
-        const { inputKey, outputKey } = costKeys(model);
-
-        const costs = model.costs;
-        if (!costs) return null;
-
-        const outputRateRaw = costs[outputKey];
-        const outputRate =
-            typeof outputRateRaw === 'number' && Number.isFinite(outputRateRaw)
-                ? outputRateRaw
-                : undefined;
-
-        const isOutputKey = (key: string) => isOutputCostKey(key, outputKey);
-        const multipliers = longContextMultipliers(
-            model,
-            trackedInputTokens(usage, model),
-        );
-
-        let inputMicroCents = 0;
-        let outputMicroCents = 0;
-        let sawAnyRate = false;
-
-        for (const [key, rawAmount] of Object.entries(usage)) {
-            if (typeof rawAmount !== 'number' || !Number.isFinite(rawAmount)) {
-                continue;
-            }
-
-            if (key === 'usd_cents') continue;
-            if (key === 'tokens') continue;
-
-            const override = usageCosts?.[key];
-            if (typeof override === 'number' && Number.isFinite(override)) {
-                sawAnyRate = true;
-                if (isOutputKey(key)) outputMicroCents += override;
-                else inputMicroCents += override;
-                continue;
-            }
-            // Advisor usage is priced at the advisor model's own rates
-            // (metered separately, under `claude:<advisor>`), never off this
-            // (executor) model's cost table — without an override there is
-            // simply nothing to price it at here.
-            if (key.startsWith('advisor_')) continue;
-
-            // thinking_tokens → output rate fallback
-            let rate = costs[key];
-            if (typeof rate !== 'number' || !Number.isFinite(rate)) {
-                if (isOutputKey(key) && outputRate !== undefined) {
-                    rate = outputRate;
-                } else if (!isOutputKey(key)) {
-                    const inputRateRaw = costs[inputKey];
-                    if (
-                        typeof inputRateRaw === 'number' &&
-                        Number.isFinite(inputRateRaw)
-                    ) {
-                        rate = inputRateRaw;
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            }
-
-            sawAnyRate = true;
-            if (isOutputKey(key)) {
-                outputMicroCents += rawAmount * rate * multipliers.output;
-            } else {
-                inputMicroCents +=
-                    rawAmount *
-                    rate *
-                    (isPerCallCostKey(key) ? 1 : multipliers.input);
-            }
-        }
-
-        if (!sawAnyRate) return null;
-
-        inputMicroCents = Math.max(0, Math.round(inputMicroCents));
-        outputMicroCents = Math.max(0, Math.round(outputMicroCents));
-
-        const inputTokens = Number(
-            usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
-        );
-        const outputTokens = Number(
-            usage[outputKey] ??
-                usage.completion_tokens ??
-                usage.output_tokens ??
-                0,
-        );
-
-        return {
-            inputKey,
-            outputKey,
-            inputTokens,
-            outputTokens,
-            inputMicroCents,
-            outputMicroCents,
-            totalMicroCents: inputMicroCents + outputMicroCents,
-        };
-    }
-
     /**
      * The credit and subscription gate for one upstream attempt.
      *
@@ -1550,7 +1428,7 @@ export class ChatCompletionDriver extends PuterDriver {
             [outputKey]: outputTokens,
         };
 
-        const cost = this.#computeCost(usage, model);
+        const cost = usageCost(usage, model);
         this.#aiMetering.utilRecordUsageObject(
             {
                 [`estimated_${inputKey}`]: inputTokens,
@@ -1593,12 +1471,13 @@ export class ChatCompletionDriver extends PuterDriver {
         ) {
             return;
         }
-        const cost = this.#computeCost(usage, model, usageCosts);
+        const cost = usageCost(usage, model, usageCosts);
         if (!cost) {
             (usage as Record<string, number | null>).usd_cents = null;
             return;
         }
-        usage.usd_cents = cost.totalMicroCents / 1_000_000;
+        usage.usd_cents =
+            (cost.inputMicroCents + cost.outputMicroCents) / 1_000_000;
     }
 
     // Compute per-token cost in microcents using the model's cost map,
@@ -1621,10 +1500,24 @@ export class ChatCompletionDriver extends PuterDriver {
             usageCosts,
         } = params;
 
-        const cost = this.#computeCost(usage, model, usageCosts);
+        const cost = usageCost(usage, model, usageCosts);
         const { inputKey, outputKey } = costKeys(model);
-        const inputTokens = cost?.inputTokens ?? 0;
-        const outputTokens = cost?.outputTokens ?? 0;
+        const inputTokens = cost
+            ? Number(
+                  usage[inputKey] ??
+                      usage.prompt_tokens ??
+                      usage.input_tokens ??
+                      0,
+              )
+            : 0;
+        const outputTokens = cost
+            ? Number(
+                  usage[outputKey] ??
+                      usage.completion_tokens ??
+                      usage.output_tokens ??
+                      0,
+              )
+            : 0;
         const inputMicroCents = cost?.inputMicroCents ?? 0;
         const outputMicroCents = cost?.outputMicroCents ?? 0;
 

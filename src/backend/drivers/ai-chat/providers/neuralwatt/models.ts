@@ -106,10 +106,13 @@ export const mapNeuralwattApiModel = (
 
     const inputUsd = Number(pricing?.input_per_million ?? 0);
     const outputUsd = Number(pricing?.output_per_million ?? 0);
-    const cachedUsd =
-        pricing?.cached_input_per_million == null
-            ? 0
-            : Number(pricing.cached_input_per_million);
+    const costs = usdPerMToken(
+        inputUsd,
+        outputUsd,
+        Number(pricing?.cached_input_per_million ?? 0),
+    );
+    // No published cache price: cached reads bill at the input rate.
+    if (pricing?.cached_input_per_million == null) delete costs.cached_tokens;
 
     const caps = model.metadata?.capabilities;
     const limits = model.metadata?.limits;
@@ -138,7 +141,7 @@ export const mapNeuralwattApiModel = (
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        costs: usdPerMToken(inputUsd, outputUsd, cachedUsd),
+        costs,
         modalities: { input: inputModalities, output: ['text'] },
         tool_call: caps?.tools === true,
         // Surfaced from Neuralwatt `/models` so `complete()` can gate

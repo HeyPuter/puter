@@ -29,11 +29,7 @@ import {
     isContextLengthError,
 } from '../../utils/contextLimit.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
-
-const TOGETHER_AI_CHAT_COST_MAP: Record<string, string> = {
-    prompt_tokens: 'input',
-    completion_tokens: 'output',
-};
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 export class TogetherAIProvider implements IChatProvider {
     #together: Together;
@@ -178,22 +174,16 @@ export class TogetherAIProvider implements IChatProvider {
         }
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        const mappedKey = TOGETHER_AI_CHAT_COST_MAP[k] || k;
-                        return [k, v * modelUsed.costs[mappedKey]];
-                    }),
-                );
-
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
                     this.meteringModelKey(modelUsed.id),
-                    costsOverride,
+                    modelUsed,
+                    OpenAIUtil.splitCachedPrompt(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

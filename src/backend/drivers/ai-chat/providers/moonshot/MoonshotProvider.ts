@@ -31,6 +31,7 @@ import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 export class MoonshotProvider implements IChatProvider {
     #openai: OpenAI;
@@ -109,20 +110,16 @@ export class MoonshotProvider implements IChatProvider {
         }
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * modelUsed.costs[key]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
                     this.meteringModelKey(modelUsed.id),
-                    costsOverride,
+                    modelUsed,
+                    OpenAIUtil.splitCachedPrompt(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

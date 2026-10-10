@@ -41,7 +41,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 160,
             completion_tokens: 640,
-            cached_tokens: 0,
         },
     },
 
@@ -65,7 +64,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 120,
-            cached_tokens: 0,
         },
     },
     {
@@ -87,7 +85,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 240,
-            cached_tokens: 0,
         },
     },
     {
@@ -241,7 +238,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 5,
             completion_tokens: 40,
-            cached_tokens: 0,
         },
     },
 
@@ -265,7 +261,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 30,
             completion_tokens: 150,
-            cached_tokens: 0,
         },
     },
 
@@ -291,7 +286,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 60,
             completion_tokens: 360,
-            cached_tokens: 0,
         },
     },
     {
@@ -315,7 +309,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 320,
-            cached_tokens: 0,
         },
     },
     {
@@ -339,7 +332,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 25,
             completion_tokens: 200,
-            cached_tokens: 0,
         },
     },
     {
@@ -363,7 +355,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 30,
             completion_tokens: 240,
-            cached_tokens: 0,
         },
     },
 
@@ -389,7 +380,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 24.8,
             completion_tokens: 148.5,
-            cached_tokens: 0,
         },
     },
     {
@@ -413,7 +403,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 60,
             completion_tokens: 360,
-            cached_tokens: 0,
         },
     },
 
@@ -437,7 +426,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 20,
             completion_tokens: 160,
-            cached_tokens: 0,
         },
     },
     // -- Omni models (text interface, audio costs excluded) ---------
@@ -463,7 +451,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 43,
             completion_tokens: 166,
-            cached_tokens: 0,
         },
     },
     // -- Translation models -----------------------------------------
@@ -486,7 +473,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 246,
             completion_tokens: 737,
-            cached_tokens: 0,
         },
     },
 
@@ -509,7 +495,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 120,
-            cached_tokens: 0,
         },
     },
     {
@@ -530,7 +515,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 120,
-            cached_tokens: 0,
         },
     },
     {
@@ -551,7 +535,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 120,
-            cached_tokens: 0,
         },
     },
     // 'qwen-plus-latest' floats to the newest snapshot; kept on the newest
@@ -574,7 +557,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 120,
-            cached_tokens: 0,
         },
     },
     // -- Qwen3.7 Max snapshots and preview ------------------------
@@ -596,7 +578,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 250,
             completion_tokens: 750,
-            cached_tokens: 0,
         },
     },
     {
@@ -617,7 +598,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 250,
             completion_tokens: 750,
-            cached_tokens: 0,
         },
     },
     {
@@ -638,7 +618,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 250,
             completion_tokens: 750,
-            cached_tokens: 0,
         },
     },
     // No vendor-documented release date for the preview; omitted rather
@@ -660,7 +639,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 250,
             completion_tokens: 750,
-            cached_tokens: 0,
         },
     },
     // -- Qwen3.5 Plus snapshots -----------------------------------
@@ -683,7 +661,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 240,
-            cached_tokens: 0,
         },
     },
     {
@@ -705,7 +682,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 240,
-            cached_tokens: 0,
         },
     },
     // -- Qwen3.5 / Qwen3.7 / Qwen3.8 Flash -----------------------
@@ -793,7 +769,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 50,
             completion_tokens: 300,
-            cached_tokens: 0,
         },
     },
     {
@@ -814,7 +789,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 200,
             completion_tokens: 600,
-            cached_tokens: 0,
         },
     },
     // -- Omni additions (text interface, audio costs excluded) ----
@@ -839,7 +813,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 40,
             completion_tokens: 220,
-            cached_tokens: 0,
         },
     },
     {
@@ -863,7 +836,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 140,
             completion_tokens: 830,
-            cached_tokens: 0,
         },
     },
     {
@@ -909,7 +881,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 16,
             completion_tokens: 49,
-            cached_tokens: 0,
         },
     },
     // No vendor-documented release date; omitted rather than guessed.
@@ -930,7 +901,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 12,
             completion_tokens: 36,
-            cached_tokens: 0,
         },
     },
     // -- Third-party models hosted on Model Studio ------------------
@@ -953,7 +923,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 140,
             completion_tokens: 440,
-            cached_tokens: 0,
         },
     },
     {
@@ -973,7 +942,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 140,
             completion_tokens: 440,
-            cached_tokens: 0,
         },
     },
     // No vendor-documented release date for the preview; omitted rather
@@ -994,7 +962,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 280,
             completion_tokens: 880,
-            cached_tokens: 0,
         },
     },
     // Time-of-day pricing upstream (busy $0.44/$1.32, idle $0.22/$0.66
@@ -1018,7 +985,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 44,
             completion_tokens: 132,
-            cached_tokens: 0,
         },
     },
     // Time-of-day pricing upstream (busy $0.30/$1.20, idle $0.15/$0.60
@@ -1041,7 +1007,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 30,
             completion_tokens: 120,
-            cached_tokens: 0,
         },
     },
     {
@@ -1062,7 +1027,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 240,
             completion_tokens: 480,
-            cached_tokens: 0,
         },
     },
     // Time-of-day pricing upstream (busy $1.32/$3.96, idle $0.66/$1.98
@@ -1085,7 +1049,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 132,
             completion_tokens: 396,
-            cached_tokens: 0,
         },
     },
     {
@@ -1106,7 +1069,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 95,
             completion_tokens: 400,
-            cached_tokens: 0,
         },
     },
 ];

@@ -526,7 +526,7 @@ describe('MoonshotProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -536,14 +536,14 @@ describe('MoonshotProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('moonshotai:kimi-k2.6');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * Number(kimi.costs.prompt_tokens),
+            prompt_tokens: 90 * Number(kimi.costs.prompt_tokens),
             completion_tokens: 50 * Number(kimi.costs.completion_tokens),
             cached_tokens: 10 * Number(kimi.costs.cached_tokens ?? 0),
         });
@@ -667,7 +667,7 @@ describe('MoonshotProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -677,7 +677,7 @@ describe('MoonshotProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('moonshotai:kimi-k2.6');
         expect(overrides).toEqual({
-            prompt_tokens: 4 * Number(kimi.costs.prompt_tokens),
+            prompt_tokens: 3 * Number(kimi.costs.prompt_tokens),
             completion_tokens: 2 * Number(kimi.costs.completion_tokens),
             cached_tokens: 1 * Number(kimi.costs.cached_tokens ?? 0),
         });
