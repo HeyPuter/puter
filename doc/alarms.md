@@ -134,6 +134,11 @@ occurrence is reported up to a small burst, then one per interval. A fault
 recurring hundreds of times a second still counts every occurrence, but it
 does not write a log line or build an alert payload for each one.
 
+The count lasts only as long as the client remembers the alarm. One that
+hasn't recurred for 24 hours is forgotten, and the client holds at most 1000
+at once, dropping the least recently raised first. Either way the next
+occurrence is a new alarm, with its count and burst starting over.
+
 Below that, the chat transport won't repost the same alarm id within
 `repeatThrottleMs` (default 15 minutes). The first occurrence always posts,
 and the next one that gets through reports how many piled up in between —
