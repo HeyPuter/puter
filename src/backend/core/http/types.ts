@@ -115,7 +115,7 @@ export interface RouteRateLimit {
  *     subdomain → requireAuth → emailConfirmed → requireUserActor → adminOnly →
  *     allowedAppIds → phoneVerified → cardVerified → anyVerified →
  *     requireReputation → requireSubscription → rateLimit → requireCredits →
- *     concurrent → `middleware` → handler
+ *     concurrent → userProtected → `middleware` → handler
  *
  * Options that imply `requireAuth` are deduped to a single auth gate.
  */
@@ -230,6 +230,14 @@ export interface RouteOptions {
     antiCsrf?: boolean;
 
     /**
+     * Security-critical account routes: session cookie only, a fresh
+     * not-suspended user row on `req.userProtected`, and the password (or an
+     * OIDC revalidation cookie). Temp accounts are refused unless
+     * `allowTempUsers`. Implies `requireUserActor`.
+     */
+    userProtected?: boolean | { allowTempUsers: true };
+
+    /**
      * Only allow pages on this deployment's GUI origin; requests with no
      * `Origin` header still pass. For routes returning a session credential;
      * see `guiOriginGate`.
@@ -335,43 +343,33 @@ export const PREFIX_METADATA_KEY = '__puterControllerPrefix' as const;
 // rather than `{requireAuth: boolean}`), letting the conditional branches
 // match by value.
 
+/** Option shapes that make the materializer run an auth gate. */
+type AuthImplyingOptions =
+    | { requireAuth: true }
+    | { requireUserActor: true }
+    | { userProtected: true | { allowTempUsers: true } }
+    | { requireVerified: true }
+    | { adminOnly: true | readonly string[] | string[] }
+    | { allowedAppIds: readonly string[] | string[] }
+    | { noUserSession: true }
+    | { requirePhoneVerified: true }
+    | { requireCardVerified: true }
+    | {
+          requireAnyVerified:
+              | readonly VerificationFactor[]
+              | VerificationFactor[];
+      }
+    | { requireSubscription: true | readonly string[] | string[] }
+    | { requireReputation: string };
+
 /**
  * `true` iff the materializer will run an auth gate before the handler.
  * Branches match readonly _and_ mutable arrays so callers don't need `as const`
  * on every options literal.
  */
-export type AuthRequired<O extends RouteOptions> = O extends {
-    requireAuth: true;
-}
+export type AuthRequired<O extends RouteOptions> = O extends AuthImplyingOptions
     ? true
-    : O extends { requireUserActor: true }
-      ? true
-      : O extends { adminOnly: true | readonly string[] | string[] }
-        ? true
-        : O extends { allowedAppIds: readonly string[] | string[] }
-          ? true
-          : O extends { noUserSession: true }
-            ? true
-            : O extends { requirePhoneVerified: true }
-              ? true
-              : O extends { requireCardVerified: true }
-                ? true
-                : O extends {
-                        requireAnyVerified:
-                            | readonly VerificationFactor[]
-                            | VerificationFactor[];
-                    }
-                  ? true
-                  : O extends {
-                          requireSubscription:
-                              | true
-                              | readonly string[]
-                              | string[];
-                      }
-                    ? true
-                    : O extends { requireReputation: string }
-                      ? true
-                      : false;
+    : false;
 
 /** Express `Request` with `actor` narrowed based on the route's options. */
 export type TypedRequest<O extends RouteOptions> = Omit<Request, 'actor'> & {

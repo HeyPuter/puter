@@ -18,11 +18,11 @@
  */
 
 import bcrypt from 'bcrypt';
-import type { Request, RequestHandler, Response } from 'express';
+import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { Controller, Get, Patch, Post } from '../../core/http/decorators.js';
 import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
@@ -45,18 +45,7 @@ import {
     STEP_UP_COOKIE_NAME,
     stepUpCookieOptions,
 } from '../../core/http/middleware/stepUpSession.js';
-import {
-    createUserProtectedGate,
-    createWebSessionActorGate,
-} from '../../core/http/middleware/userProtected.js';
-import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import {
-    ROUTES_METADATA_KEY,
-    type CollectedRoute,
-    type RouteMethod,
-    type RouteOptions,
-    type RoutePath,
-} from '../../core/http/types.js';
+import { createWebSessionActorGate } from '../../core/http/middleware/userProtected.js';
 import {
     createRecoveryCode,
     hashRecoveryCode,
@@ -281,6 +270,9 @@ const PASS_RECOVERY_EMAIL_TARGET_LIMIT = {
     window: 60 * 60_000,
 } as const;
 
+/** Session-management writes accept web-session actors only. */
+const WEB_SESSION_GATE = createWebSessionActorGate();
+
 const BUILT_IN_ADMIN_USERNAMES: ReadonlySet<string> = new Set(
     DEFAULT_ADMIN_USERNAMES,
 );
@@ -302,14 +294,6 @@ const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
 /**
  * Auth controller — login/logout, permission grants/revokes, session
  * management, OTP, and permission checks.
- *
- * Routes are declared via decorators (@Get/@Post on each handler). The
- * `/user-protected/*` and `/user-protected/delete-own-user` routes also need a
- * per-instance `createUserProtectedGate(...)` middleware built from
- * `this.config / this.stores / this.services`, which can't live in a static
- * decorator literal — those are wired imperatively in the `registerRoutes`
- * override below. The override also re-runs the default decorator-walker logic
- * so the rest of the routes register normally.
  */
 @Controller('')
 export class AuthController extends PuterController {
@@ -2199,14 +2183,19 @@ export class AuthController extends PuterController {
     }
 
     // -- User-protected mutations ------------------------------------
-    //
-    // The `/user-protected/*` and `/user-protected/delete-own-user`
-    // routes are wired in the `registerRoutes` override below because
-    // their `middleware: createUserProtectedGate(...)` argument depends
-    // on `this.config / this.stores / this.services` and so can't live
-    // in a static decorator literal. The handler bodies stay here as
-    // ordinary methods so tests can call them directly.
 
+    @Post('/user-protected/change-password', {
+        userProtected: true,
+        // The forced-change gate refuses everything else, so this is the one
+        // route an account owing a password change may reach.
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'passwd',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleChangePassword(req: Request, res: Response): Promise<void> {
         const { new_pass } = req.body ?? {};
         if (!new_pass)
@@ -2261,6 +2250,11 @@ export class AuthController extends PuterController {
         res.send('Password successfully updated.');
     }
 
+    @Post('/user-protected/change-username', {
+        userProtected: true,
+        requireVerified: true,
+        rateLimit: CHANGE_USERNAME_ATTEMPT_LIMIT,
+    })
     async handleChangeUsername(req: Request, res: Response): Promise<void> {
         // A provisioned account's name belongs to the team that made it: the
         // console lists its members by username and the audit log records them
@@ -2359,6 +2353,15 @@ export class AuthController extends PuterController {
         res.json({ username: new_username });
     }
 
+    @Post('/user-protected/change-email', {
+        userProtected: true,
+        rateLimit: {
+            scope: 'change-email-start',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleChangeEmail(req: Request, res: Response): Promise<void> {
         // The address is where admin-issued credentials and team notices go;
         // same reasoning as the username and deletion guards above.
@@ -3404,10 +3407,15 @@ export class AuthController extends PuterController {
         res.json(sessions);
     }
 
-    // Wired imperatively in `registerRoutes` so the cookie-only gate
-    // (built from `this.config`) can be composed in. Cookie-only is
-    // mandatory: an access token must not be able to revoke its own
+    // Web sessions only: an access token must not be able to revoke its own
     // issuing web session.
+    @Post('/auth/revoke-session', {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        antiCsrf: true,
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRevokeSession(req: Request, res: Response): Promise<void> {
         const { uuid } = req.body ?? {};
         if (!uuid || typeof uuid !== 'string') {
@@ -3447,6 +3455,19 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
+    @Post('/auth/revoke-all-sessions', {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        antiCsrf: true,
+        rateLimit: {
+            scope: 'revoke-all-sessions',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRevokeAllSessions(req: Request, res: Response): Promise<void> {
         const { include_current, include_apps } = req.body ?? {};
         await this.services.auth.revokeAllSessions(req.actor!, {
@@ -3457,6 +3478,13 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
+    @Patch('/auth/sessions/:uuid/label', {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        antiCsrf: true,
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRenameSession(req: Request, res: Response): Promise<void> {
         const uuid = req.params.uuid;
         const { label } = (req.body ?? {}) as { label?: unknown };
@@ -3946,12 +3974,16 @@ export class AuthController extends PuterController {
         res.json({ ok: true });
     }
 
-    // Wired imperatively in `registerRoutes` so the cookie-only gate
-    // (built from `this.config`) can be composed in. Cookie-only is
-    // mandatory: a leaked access token must not be able to revoke a
-    // personal API token, or revoke by raw uuid — those stay web-session-only
-    // here; `/auth/revoke-own-access-token` covers revoking scoped tokens by
-    // JWT and already refuses PATs itself.
+    // Web sessions only: a leaked access token must not be able to revoke a
+    // personal API token, or revoke by raw uuid;
+    // `/auth/revoke-own-access-token` covers revoking scoped tokens by JWT and
+    // already refuses PATs itself.
+    @Post('/auth/revoke-access-token', {
+        subdomain: 'api',
+        requireUserActor: true,
+        antiCsrf: true,
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRevokeAccessToken(req: Request, res: Response): Promise<void> {
         let { tokenOrUuid } = req.body ?? {};
         if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {
@@ -3968,8 +4000,19 @@ export class AuthController extends PuterController {
         res.json({ ok: true });
     }
 
-    // -- 2FA: setup (user-protected, wired in registerRoutes below) ---
+    // -- 2FA: setup ---------------------------------------------------
 
+    @Post('/user-protected/setup-2fa', {
+        userProtected: true,
+        // A member owing their team's 2FA reaches nothing else until this.
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'setup-2fa',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleSetup2fa(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
             force: true,
@@ -4096,8 +4139,17 @@ export class AuthController extends PuterController {
         });
     }
 
-    // -- 2FA: disable (user-protected, wired in registerRoutes below) -
+    // -- 2FA: disable -------------------------------------------------
 
+    @Post('/user-protected/disable-2fa', {
+        userProtected: true,
+        rateLimit: {
+            scope: 'disable-2fa',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleDisable2fa(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
             force: true,
@@ -4245,14 +4297,34 @@ export class AuthController extends PuterController {
         res.status(204).end();
     }
 
-    // -- Step-up ("elevation"), wired below --------------------------
+    // -- Step-up ("elevation") ---------------------------------------
     //
     // Mints the second-factor cookie for a session that re-proves identity: a
     // fresh TOTP code when 2FA is enabled, otherwise the account password.
     // Privileged endpoints require it on top of the session, so a leaked session
     // alone can't exercise them. Accounts with neither credential (no password
     // and 2FA disabled) can't elevate.
+    //
+    // Served on the root origin (browser form posts) and on `api` (SDK/script
+    // clients with no cookie jar). Not cookie-gated: the password/TOTP in the
+    // body is the control, which also makes CSRF a non-issue.
+    // `requireUserActor` keeps app and access-token actors out, so an access
+    // token can never mint an elevation for its issuer.
 
+    @Post('/auth/elevate', {
+        subdomain: ['api', ''],
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        rateLimit: [
+            { scope: 'elevate', limit: 10, window: 15 * 60_000, key: 'user' },
+            {
+                scope: 'elevate-ip',
+                limit: 40,
+                window: 15 * 60_000,
+                key: 'ip',
+            },
+        ],
+    })
     async handleElevate(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
             force: true,
@@ -4330,13 +4402,17 @@ export class AuthController extends PuterController {
         );
     }
 
-    // -- Delete own account (user-protected, wired below) ------------
+    // -- Delete own account ------------------------------------------
     //
     // Purge S3 objects + fsentries first, then the user row. FK
     // cascades on most related tables are `ON DELETE SET NULL` (not
     // CASCADE), so anything holding tightly to user_id (sessions) we
     // clear explicitly to avoid orphan rows.
 
+    @Post('/user-protected/delete-own-user', {
+        userProtected: { allowTempUsers: true },
+        allowUnconfirmed: true,
+    })
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
         // The team owns the account and is billed for it; only they may close
@@ -4375,254 +4451,6 @@ export class AuthController extends PuterController {
         });
         await this.#cascadeDeleteUser(userId);
         res.json({ success: true });
-    }
-
-    // -- registerRoutes override -------------------------------------
-    //
-    // The `@Controller('')` decorator would normally install a default
-    // `registerRoutes` walker that iterates `prototype[__puterRoutes]`.
-    // We override it here so we can ALSO wire the
-    // `/user-protected/*` (and `/user-protected/delete-own-user`) routes
-    // whose `middleware: createUserProtectedGate(...)` argument is
-    // built from instance state — not expressible inside a static
-    // decorator literal.
-    //
-    // The first half of this method is a transcription of the default
-    // walker (see core/http/decorators.ts → Controller). The second
-    // half adds the imperative routes that need the per-instance gate.
-    override registerRoutes(router: PuterRouter): void {
-        const proto = Object.getPrototypeOf(this) as {
-            [ROUTES_METADATA_KEY]?: CollectedRoute[];
-        };
-        const routes = (proto[ROUTES_METADATA_KEY] ?? []) as CollectedRoute[];
-        for (const r of routes) {
-            const bound = r.handler.bind(this) as RequestHandler;
-            if (r.method === 'use') {
-                if (r.path !== undefined) {
-                    router.use(r.path, r.options, bound);
-                } else {
-                    router.use(r.options, bound);
-                }
-                continue;
-            }
-            if (r.path === undefined) {
-                throw new Error(
-                    `@${r.method.toUpperCase()} decorator missing path`,
-                );
-            }
-            const routerMethod = router[
-                r.method as Exclude<RouteMethod, 'use'>
-            ] as (
-                path: RoutePath,
-                options: RouteOptions,
-                handler: RequestHandler,
-            ) => PuterRouter;
-            routerMethod.call(router, r.path, r.options, bound);
-        }
-
-        // -- User-protected routes (per-instance middleware) ----------
-        const userProtectedDeps = {
-            config: this.config,
-            userStore: this.stores.user,
-            oidcService: this.services.oidc,
-            tokenService: this.services.token,
-        };
-
-        router.post(
-            '/user-protected/change-password',
-            {
-                requireUserActor: true,
-                // The forced-change gate refuses everything else, so this is
-                // the one route an account owing a password change may reach.
-                allowUnconfirmed: true,
-                rateLimit: {
-                    scope: 'passwd',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleChangePassword(req, res),
-        );
-
-        router.post(
-            '/user-protected/change-username',
-            {
-                requireUserActor: true,
-                requireVerified: true,
-                rateLimit: CHANGE_USERNAME_ATTEMPT_LIMIT,
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleChangeUsername(req, res),
-        );
-
-        router.post(
-            '/user-protected/change-email',
-            {
-                requireUserActor: true,
-                rateLimit: {
-                    scope: 'change-email-start',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleChangeEmail(req, res),
-        );
-
-        router.post(
-            '/user-protected/disable-2fa',
-            {
-                requireUserActor: true,
-                rateLimit: {
-                    scope: 'disable-2fa',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleDisable2fa(req, res),
-        );
-
-        router.post(
-            '/user-protected/setup-2fa',
-            {
-                requireUserActor: true,
-                // A member owing their team's 2FA reaches nothing else until this.
-                allowUnconfirmed: true,
-                rateLimit: {
-                    scope: 'setup-2fa',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleSetup2fa(req, res),
-        );
-
-        router.post(
-            '/user-protected/delete-own-user',
-            {
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                middleware: [
-                    createUserProtectedGate(userProtectedDeps as never, {
-                        allowTempUsers: true,
-                    }) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleDeleteOwnUser(req, res),
-        );
-
-        // Step-up. Served on the root origin (browser form posts same-origin)
-        // and on `api` (SDK/script clients, which have no cookie jar and send a
-        // bearer). Deliberately NOT cookie-gated: the password/TOTP in the body
-        // is the control — a stolen token alone can't satisfy it, and it's also
-        // what makes CSRF a non-issue. `requireUserActor` still keeps app and
-        // access-token actors out, so an access token can never mint an
-        // elevation for its issuer.
-        router.post(
-            '/auth/elevate',
-            {
-                subdomain: ['api', ''],
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                rateLimit: [
-                    {
-                        scope: 'elevate',
-                        limit: 10,
-                        window: 15 * 60_000,
-                        key: 'user',
-                    },
-                    {
-                        scope: 'elevate-ip',
-                        limit: 40,
-                        window: 15 * 60_000,
-                        key: 'ip',
-                    },
-                ],
-            },
-            (req, res) => this.handleElevate(req, res),
-        );
-
-        const webSessionGate = createWebSessionActorGate();
-
-        router.post(
-            '/auth/revoke-session',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                antiCsrf: true,
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRevokeSession(req, res),
-        );
-
-        router.post(
-            '/auth/revoke-all-sessions',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                antiCsrf: true,
-                rateLimit: {
-                    scope: 'revoke-all-sessions',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRevokeAllSessions(req, res),
-        );
-
-        router.post(
-            '/auth/revoke-access-token',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                antiCsrf: true,
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRevokeAccessToken(req, res),
-        );
-
-        router.patch(
-            '/auth/sessions/:uuid/label',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                antiCsrf: true,
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRenameSession(req, res),
-        );
     }
 
     // -- Private helpers ----------------------------------------------

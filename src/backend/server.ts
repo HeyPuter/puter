@@ -62,6 +62,7 @@ import {
     validateSubscriptionRequirement,
 } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
+import { createUserProtectedGate } from './core/http/middleware/userProtected';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
@@ -1051,10 +1052,14 @@ export class PuterServer {
         //   adminOnly        => requireAuth
         //   allowedAppIds    => requireAuth
         //   requireUserActor => requireAuth
+        //   userProtected    => requireUserActor
         // Dedupe: only push requireAuthGate once when *any* of these are set.
+        const requireUserActor = Boolean(
+            opts.requireUserActor || opts.userProtected,
+        );
         const needsAuth = Boolean(
             opts.requireAuth ||
-            opts.requireUserActor ||
+            requireUserActor ||
             opts.adminOnly ||
             opts.allowedAppIds ||
             opts.requireVerified ||
@@ -1101,7 +1106,7 @@ export class PuterServer {
         // (rejecting an admin acting through a third-party app) unless the
         // route is also appId-gated, in which case `allowedAppIdsGate` governs
         // which apps may pass.
-        if (opts.requireUserActor) {
+        if (requireUserActor) {
             mwChain.push(
                 requireUserActorGate({
                     allowFullAccess: opts.allowFullAccessToken,
@@ -1314,6 +1319,21 @@ export class PuterServer {
                     limit: ue.limit,
                     extended: ue.extended ?? true,
                 }),
+            );
+        }
+
+        // 3b. Password (or OIDC revalidation) re-check on account routes.
+        if (opts.userProtected) {
+            mwChain.push(
+                ...createUserProtectedGate(
+                    {
+                        config: this.#config,
+                        userStore: this.stores.user,
+                        oidcService: this.services.oidc,
+                        tokenService: this.services.token,
+                    },
+                    opts.userProtected === true ? {} : opts.userProtected,
+                ),
             );
         }
 
