@@ -1344,6 +1344,156 @@ describe('FSService storage allowance', () => {
         ).resolves.toMatchObject({ uploadMode: 'single' });
     });
 
+    // -- Quota is judged before any directory is created --------------
+
+    it('refuses an over-quota batch before creating any directory', async () => {
+        const user = await quotaUser(64);
+        await user.write('full.txt', 'x'.repeat(64));
+        const ensureDirectories = vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'ensureDirectoriesForUserWithCreated',
+        );
+        const resolveParents = vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'resolveParentDirectoriesBatchWithCreated',
+        );
+
+        const error = await caught(() =>
+            limitedFs.batchStartUrlWrites(user.userId, [
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/oq/dir`,
+                        size: 0,
+                        createMissingParents: true,
+                    },
+                    directory: true,
+                },
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/oq/parent/f.txt`,
+                        size: 1,
+                        createMissingParents: true,
+                    },
+                },
+            ]),
+        );
+        const ensureCalls = ensureDirectories.mock.calls.length;
+        const resolveCalls = resolveParents.mock.calls.length;
+        ensureDirectories.mockRestore();
+        resolveParents.mockRestore();
+
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        expect(ensureCalls).toBe(0);
+        expect(resolveCalls).toBe(0);
+        await expect(
+            limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/oq`,
+                { useTryHardRead: true, skipCache: true },
+            ),
+        ).resolves.toBeNull();
+        await expect(
+            limitedServer.stores.uploadReservation.outstanding(user.userId),
+        ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+    });
+
+    it('refuses an over-quota signed start before creating its parents', async () => {
+        const user = await quotaUser(64);
+        await user.write('full.txt', 'x'.repeat(64));
+        const resolveParents = vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'resolveParentDirectoriesBatchWithCreated',
+        );
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/oq-single/f.txt`,
+                    size: 1,
+                    createMissingParents: true,
+                },
+            }),
+        );
+        const resolveCalls = resolveParents.mock.calls.length;
+        resolveParents.mockRestore();
+
+        expect(error.statusCode).toBe(413);
+        expect(resolveCalls).toBe(0);
+        await expect(
+            limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/oq-single`,
+                { useTryHardRead: true, skipCache: true },
+            ),
+        ).resolves.toBeNull();
+    });
+
+    it.each([
+        [
+            'a batch whose parent resolution fails',
+            'resolveParentDirectoriesBatchWithCreated',
+            (userId: number, home: string) =>
+                limitedFs.batchStartUrlWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${home}/Documents/dir-fail/f.txt`,
+                            size: 40,
+                            createMissingParents: true,
+                        },
+                    },
+                ]),
+        ],
+        [
+            'a batch whose directory creation fails',
+            'ensureDirectoriesForUserWithCreated',
+            (userId: number, home: string) =>
+                limitedFs.batchStartUrlWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${home}/Documents/dir-fail`,
+                            size: 0,
+                            createMissingParents: true,
+                        },
+                        directory: true,
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${home}/Documents/dir-fail.txt`,
+                            size: 40,
+                        },
+                    },
+                ]),
+        ],
+        [
+            'a single start whose parent resolution fails',
+            'resolveParentDirectoriesBatchWithCreated',
+            (userId: number, home: string) =>
+                limitedFs.startUrlWrite(userId, {
+                    fileMetadata: {
+                        path: `${home}/Documents/dir-fail/f.txt`,
+                        size: 40,
+                        createMissingParents: true,
+                    },
+                }),
+        ],
+    ] as const)(
+        '%s releases its reservation',
+        async (_label, method, start) => {
+            const user = await quotaUser(64);
+            const failing = vi
+                .spyOn(limitedServer.stores.fsEntry, method)
+                .mockRejectedValueOnce(new Error('directory write failed'));
+
+            await expect(start(user.userId, user.home)).rejects.toThrow(
+                'directory write failed',
+            );
+            failing.mockRestore();
+
+            await expect(
+                limitedServer.stores.uploadReservation.outstanding(user.userId),
+            ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+        },
+    );
+
     it('a refused completion releases its reservation', async () => {
         const user = await quotaUser(64);
         const started = await limitedFs.startUrlWrite(user.userId, {
@@ -2688,6 +2838,56 @@ describe('FSService batch signed writes', () => {
             `${user.home}/Documents/auto`,
             `${user.home}/Documents/auto/created`,
         ]);
+    });
+
+    // File targets are resolved before the batch's directories exist.
+    it('refuses a file where the same batch creates a directory', async () => {
+        const error = await caught(() =>
+            fs.batchStartUrlWrites(user.userId, [
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/clash/inner`,
+                        size: 0,
+                        createMissingParents: true,
+                    },
+                    directory: true,
+                },
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/clash`,
+                        size: 1,
+                        overwrite: true,
+                    },
+                },
+            ]),
+        );
+        expect(error.statusCode).toBe(409);
+        expect(error.legacyCode).toBe('cannot_overwrite_a_directory');
+    });
+
+    it('dedupes a file past a directory the same batch creates', async () => {
+        const responses = await fs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/clash-dd`,
+                    size: 0,
+                    createMissingParents: true,
+                },
+                directory: true,
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/clash-dd`,
+                    size: 1,
+                    dedupeName: true,
+                },
+            },
+        ]);
+
+        const [session] = await fs.getUploadSessions(user.userId, [
+            responses[1]!.sessionId,
+        ]);
+        expect(session?.targetPath).toBe(`${user.home}/Documents/clash-dd (1)`);
     });
 
     it('completes a batch of sessions and rejects duplicate upload ids', async () => {

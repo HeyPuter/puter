@@ -716,7 +716,7 @@ export class FSService extends PuterService {
 
     async #findDedupedPath(
         targetPath: string,
-        reservedPaths: Set<string>,
+        isReserved: (path: string) => boolean,
         loadExistingEntry: (path: string) => Promise<FSEntry | null>,
     ): Promise<string> {
         const parentPath = pathPosix.dirname(targetPath);
@@ -728,7 +728,7 @@ export class FSService extends PuterService {
                 parentPath,
                 `${fileName} (${suffix})${extension}`,
             );
-            if (reservedPaths.has(dedupedPath)) {
+            if (isReserved(dedupedPath)) {
                 continue;
             }
             const existingEntry = await loadExistingEntry(dedupedPath);
@@ -742,9 +742,14 @@ export class FSService extends PuterService {
         });
     }
 
+    /**
+     * `pendingDirectoryPaths` are directories the caller will create before
+     * these files land; a target collides with them as with an existing one.
+     */
     async #resolveWriteTargets(
         userId: number,
         inputs: WriteTargetResolutionInput[],
+        pendingDirectoryPaths: ReadonlySet<string> = new Set(),
     ): Promise<WriteTargetResolutionResult[]> {
         const reservedPaths = new Set<string>();
         const existingEntryCache = new Map<string, Promise<FSEntry | null>>();
@@ -797,8 +802,11 @@ export class FSService extends PuterService {
             let normalizedInput = input.normalizedInput;
             let existingEntry = await loadExistingEntry(normalizedInput.path);
             const pathReservedInBatch = reservedPaths.has(normalizedInput.path);
+            let pendingDirectory =
+                !existingEntry &&
+                pendingDirectoryPaths.has(normalizedInput.path);
 
-            if (pathReservedInBatch || existingEntry) {
+            if (pathReservedInBatch || existingEntry || pendingDirectory) {
                 if (normalizedInput.overwrite) {
                     if (pathReservedInBatch) {
                         throw new HttpError(
@@ -810,7 +818,9 @@ export class FSService extends PuterService {
                 } else if (normalizedInput.dedupeName) {
                     const dedupedPath = await this.#findDedupedPath(
                         normalizedInput.path,
-                        reservedPaths,
+                        (path) =>
+                            reservedPaths.has(path) ||
+                            pendingDirectoryPaths.has(path),
                         loadExistingEntry,
                     );
                     normalizedInput = {
@@ -818,6 +828,7 @@ export class FSService extends PuterService {
                         path: dedupedPath,
                     };
                     existingEntry = await loadExistingEntry(dedupedPath);
+                    pendingDirectory = false;
                 } else if (pathReservedInBatch) {
                     throw new HttpError(
                         409,
@@ -827,7 +838,7 @@ export class FSService extends PuterService {
                 }
             }
 
-            if (existingEntry && existingEntry.isDir) {
+            if (pendingDirectory || existingEntry?.isDir) {
                 throw new HttpError(
                     409,
                     'Cannot overwrite an existing directory',
@@ -2147,45 +2158,33 @@ export class FSService extends PuterService {
             signedWriteRequest.expiresInSeconds ??
             DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
 
-        const [reserveResult, parentResult] = await Promise.allSettled([
-            this.#reserveUploadStorage(
-                userId,
-                [
-                    {
-                        sessionId,
-                        path: normalizedInput.path,
-                        incomingSize: normalizedInput.size,
-                        existingSize,
-                        expiresInSeconds,
-                    },
-                ],
-                storageAllowanceMax,
-            ),
-            this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                userId,
-                [
-                    {
-                        parentPath,
-                        createPaths: normalizedInput.createMissingParents,
-                    },
-                ],
-            ),
-        ]);
-
-        if (reserveResult.status === 'rejected') {
-            throw reserveResult.reason;
-        }
-        // Parent resolution failed but the reservation succeeded: any
-        // directories parent resolution already created are left in place
-        // (unchanged from a plain rejection), and the lease is given back.
-        if (parentResult.status === 'rejected') {
-            await this.#releaseUploadReservations(reserveResult.value);
-            throw parentResult.reason;
-        }
-        const reservedLeases = reserveResult.value;
-        const { parentEntries, createdDirectoryEntries } = parentResult.value;
+        // Reserve before creating any parent, so an over-quota start writes
+        // nothing.
+        const reservedLeases = await this.#reserveUploadStorage(
+            userId,
+            [
+                {
+                    sessionId,
+                    path: normalizedInput.path,
+                    incomingSize: normalizedInput.size,
+                    existingSize,
+                    expiresInSeconds,
+                },
+            ],
+            storageAllowanceMax,
+        );
 
         try {
+            const { parentEntries, createdDirectoryEntries } =
+                await this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                    userId,
+                    [
+                        {
+                            parentPath,
+                            createPaths: normalizedInput.createMissingParents,
+                        },
+                    ],
+                );
             const [parentEntry] = parentEntries;
             if (!parentEntry) {
                 throw new Error(
@@ -2331,128 +2330,143 @@ export class FSService extends PuterService {
             }
             directoryPathSet.add(targetPath);
         }
-        if (directoryItems.length > 0) {
-            const {
-                entries: ensuredDirectoryEntries,
-                createdDirectoryEntries,
-            } = await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
-                userId,
-                directoryItems.map((item) => ({
-                    path: item.normalizedInput.path,
-                    createPaths: item.normalizedInput.createMissingParents,
-                })),
-            );
-            for (const createdDirectoryEntry of createdDirectoryEntries) {
-                createdDirectoryEntriesByPath.set(
-                    createdDirectoryEntry.path,
-                    createdDirectoryEntry,
-                );
+        // Directories this batch will create, which file targets are resolved
+        // against before they exist.
+        const pendingDirectoryPaths = new Set<string>();
+        for (const directoryItem of directoryItems) {
+            if (!directoryItem.normalizedInput.createMissingParents) {
+                continue;
             }
-
-            for (let index = 0; index < directoryItems.length; index++) {
-                const item = directoryItems[index];
-                const directoryEntry = ensuredDirectoryEntries[index];
-                if (!item || !directoryEntry) {
-                    throw new Error(
-                        'Failed to build directory response from batch start data',
-                    );
-                }
-                responsesByIndex.set(
-                    item.index,
-                    this.#toDirectorySignedWriteResponse(
-                        directoryEntry,
-                        createdDirectoryEntriesByPath.has(
-                            item.normalizedInput.path,
-                        ),
-                    ),
-                );
+            for (
+                let path = directoryItem.normalizedInput.path;
+                path !== '/';
+                path = pathPosix.dirname(path)
+            ) {
+                pendingDirectoryPaths.add(path);
             }
         }
 
         const fileItems = normalizedRequests.filter(
             (item) => !item.isDirectory,
         );
-        if (fileItems.length > 0) {
-            const resolvedTargets = await this.#resolveWriteTargets(
-                userId,
-                fileItems.map((item) => ({
-                    index: item.index,
-                    normalizedInput: item.normalizedInput,
-                })),
-            );
-            const resolvedTargetMap = new Map<
-                number,
-                WriteTargetResolutionResult
-            >(
-                resolvedTargets.map((resolvedTarget) => [
-                    resolvedTarget.index,
-                    resolvedTarget,
-                ]),
-            );
-            const resolvedFileItems = fileItems.map((item) => {
-                const resolvedTarget = resolvedTargetMap.get(item.index);
-                if (!resolvedTarget) {
-                    throw new Error(
-                        `Failed to resolve write target for batch index ${item.index}`,
-                    );
-                }
-
-                return {
-                    ...item,
-                    normalizedInput: resolvedTarget.normalizedInput,
-                    existingEntry: resolvedTarget.existingEntry,
-                };
-            });
-
-            const sessionIds = resolvedFileItems.map(() => uuidv4());
-            const claims: UploadReservationClaim[] = resolvedFileItems.map(
-                (item, index) => ({
-                    sessionId: sessionIds[index] as string,
-                    path: item.normalizedInput.path,
-                    incomingSize: item.normalizedInput.size,
-                    existingSize: item.existingEntry?.size ?? 0,
-                    expiresInSeconds:
-                        item.request.expiresInSeconds ??
-                        DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
-                }),
-            );
-
-            const [reserveResult, parentResult] = await Promise.allSettled([
-                this.#reserveUploadStorage(userId, claims, storageAllowanceMax),
-                this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                    userId,
-                    resolvedFileItems.map((item) => ({
-                        parentPath: pathPosix.dirname(
-                            item.normalizedInput.path,
-                        ),
-                        createPaths: item.normalizedInput.createMissingParents,
-                    })),
-                ),
-            ]);
-
-            if (reserveResult.status === 'rejected') {
-                throw reserveResult.reason;
-            }
-            if (parentResult.status === 'rejected') {
-                await this.#releaseUploadReservations(reserveResult.value);
-                throw parentResult.reason;
-            }
-            const reservedLeases = reserveResult.value;
-            const reservationBySessionId = new Map(
-                reservedLeases.map((lease) => [lease.sessionId, lease]),
-            );
-            const {
-                parentEntries,
-                createdDirectoryEntries: createdParentDirectoryEntries,
-            } = parentResult.value;
-            for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
-                createdDirectoryEntriesByPath.set(
-                    createdParentDirectoryEntry.path,
-                    createdParentDirectoryEntry,
+        const resolvedTargets =
+            fileItems.length > 0
+                ? await this.#resolveWriteTargets(
+                      userId,
+                      fileItems.map((item) => ({
+                          index: item.index,
+                          normalizedInput: item.normalizedInput,
+                      })),
+                      pendingDirectoryPaths,
+                  )
+                : [];
+        const resolvedTargetMap = new Map<number, WriteTargetResolutionResult>(
+            resolvedTargets.map((resolvedTarget) => [
+                resolvedTarget.index,
+                resolvedTarget,
+            ]),
+        );
+        const resolvedFileItems = fileItems.map((item) => {
+            const resolvedTarget = resolvedTargetMap.get(item.index);
+            if (!resolvedTarget) {
+                throw new Error(
+                    `Failed to resolve write target for batch index ${item.index}`,
                 );
             }
 
-            try {
+            return {
+                ...item,
+                normalizedInput: resolvedTarget.normalizedInput,
+                existingEntry: resolvedTarget.existingEntry,
+            };
+        });
+
+        const sessionIds = resolvedFileItems.map(() => uuidv4());
+        const claims: UploadReservationClaim[] = resolvedFileItems.map(
+            (item, index) => ({
+                sessionId: sessionIds[index] as string,
+                path: item.normalizedInput.path,
+                incomingSize: item.normalizedInput.size,
+                existingSize: item.existingEntry?.size ?? 0,
+                expiresInSeconds:
+                    item.request.expiresInSeconds ??
+                    DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+            }),
+        );
+
+        // Reserve before creating any directory, so an over-quota batch writes
+        // nothing. A directory-only batch has no claims and reserves nothing.
+        const reservedLeases = await this.#reserveUploadStorage(
+            userId,
+            claims,
+            storageAllowanceMax,
+        );
+        try {
+            if (directoryItems.length > 0) {
+                const {
+                    entries: ensuredDirectoryEntries,
+                    createdDirectoryEntries,
+                } =
+                    await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
+                        userId,
+                        directoryItems.map((item) => ({
+                            path: item.normalizedInput.path,
+                            createPaths:
+                                item.normalizedInput.createMissingParents,
+                        })),
+                    );
+                for (const createdDirectoryEntry of createdDirectoryEntries) {
+                    createdDirectoryEntriesByPath.set(
+                        createdDirectoryEntry.path,
+                        createdDirectoryEntry,
+                    );
+                }
+
+                for (let index = 0; index < directoryItems.length; index++) {
+                    const item = directoryItems[index];
+                    const directoryEntry = ensuredDirectoryEntries[index];
+                    if (!item || !directoryEntry) {
+                        throw new Error(
+                            'Failed to build directory response from batch start data',
+                        );
+                    }
+                    responsesByIndex.set(
+                        item.index,
+                        this.#toDirectorySignedWriteResponse(
+                            directoryEntry,
+                            createdDirectoryEntriesByPath.has(
+                                item.normalizedInput.path,
+                            ),
+                        ),
+                    );
+                }
+            }
+
+            if (resolvedFileItems.length > 0) {
+                const reservationBySessionId = new Map(
+                    reservedLeases.map((lease) => [lease.sessionId, lease]),
+                );
+                const {
+                    parentEntries,
+                    createdDirectoryEntries: createdParentDirectoryEntries,
+                } =
+                    await this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                        userId,
+                        resolvedFileItems.map((item) => ({
+                            parentPath: pathPosix.dirname(
+                                item.normalizedInput.path,
+                            ),
+                            createPaths:
+                                item.normalizedInput.createMissingParents,
+                        })),
+                    );
+                for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
+                    createdDirectoryEntriesByPath.set(
+                        createdParentDirectoryEntry.path,
+                        createdParentDirectoryEntry,
+                    );
+                }
+
                 // Staged, as the single path.
                 const objectKeys = resolvedFileItems.map(() => uuidv4());
                 const uploadModes = resolvedFileItems.map((item) => {
@@ -2677,10 +2691,10 @@ export class FSService extends PuterService {
                     );
                     throw error;
                 }
-            } catch (error) {
-                await this.#releaseUploadReservations(reservedLeases);
-                throw error;
             }
+        } catch (error) {
+            await this.#releaseUploadReservations(reservedLeases);
+            throw error;
         }
 
         const responses = normalizedRequests.map((request) => {
