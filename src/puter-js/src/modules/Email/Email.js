@@ -32,7 +32,8 @@ import { list } from './list.js';
  *
  * @typedef {Object} EmailSendResult
  * @property {string | null} messageId First transport message id reported for this send, when available.
- * @property {number} cost Total charge for this send, in microcents.
+ * @property {number} cost Total charge for this send, in microcents: one delivery's price for each
+ * recipient that got a copy.
  * @property {string[]} suppressed Recipients omitted because they opted out of this app's mail.
  * @property {string[]} failed Recipients whose delivery attempt failed. Everyone else got their copy —
  * retry with just these addresses. A send where every delivery fails rejects instead.
@@ -82,7 +83,8 @@ const preprocessSendArgs = (args) => {
  *           // Inline or Puter-FS attachments:
  *           attachments: [
  *               { filename, content, contentType },  // content = base64
- *               { path: '~/Documents/report.pdf' },  // streamed server-side
+ *               { path: '~/Documents/report.pdf' },  // the caller's file, streamed server-side
+ *               { uid: LOGO_UID },                   // a uid may also name a file of the worker owner's
  *           ],
  *       });
  *   });
@@ -141,6 +143,9 @@ export class EmailModule extends PuterModule {
         iface: 'puter-transactional-email',
         method: 'sendTransactional',
         argNames: ['to', 'subject', 'body'],
+        // This module's instance, not `globalThis.puter`: in a worker the two
+        // differ (`user.puter` vs `me.puter`), and the caller is the one billed.
+        puter: this.puter,
         preprocess: preprocessSendArgs,
         upgradePrompt: {
             method: 'puter.email.sendTransactional',
@@ -157,7 +162,15 @@ export class EmailModule extends PuterModule {
      * @returns {Promise<unknown>}
      */
     send = async (options) => {
-        const req = await fetchUrl(`${this.APIOrigin}/email/send`, { method: "POST", includePuterAuth: true, body: new Blob([await compose(options)], { type: 'message/rfc822' }) });
+        // `includePuterAuth` reads the global instance's token, so any other
+        // instance (a worker's `user.puter`) sends its own.
+        const isGlobal = this.puter === globalThis.puter;
+        const req = await fetchUrl(`${this.APIOrigin}/email/send`, {
+            method: "POST",
+            includePuterAuth: isGlobal,
+            ...(isGlobal ? {} : { authToken: this.authToken }),
+            body: new Blob([await compose(options, this.puter)], { type: 'message/rfc822' }),
+        });
         const result = await req.json();
         if ( ! req.ok ) {
             promptIfUpgradeRequired(

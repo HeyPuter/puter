@@ -59,9 +59,13 @@ export const isPuterEmailAddress = (address: string): boolean =>
 export const puterEmailUsername = (address: string): string =>
     address.split('@')[0];
 
-/** Every address that resolves to `username`. */
+/**
+ * Every address that resolves to `username`, lowercased: callers compare these
+ * against addresses parsed out of headers, which are lowercased too, and a
+ * username stored with capitals would otherwise match nothing.
+ */
 export const puterEmailAddressesOf = (username: string): string[] =>
-    PUTER_EMAIL_DOMAINS.map((domain) => `${username}@${domain}`);
+    PUTER_EMAIL_DOMAINS.map((domain) => `${username.toLowerCase()}@${domain}`);
 
 /**
  * A temp account has neither a password nor an email - the same test

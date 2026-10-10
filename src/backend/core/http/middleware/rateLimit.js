@@ -116,6 +116,31 @@ async function checkMemory(key, limit, windowMs) {
 }
 
 /**
+ * Spend up to `units` from one bucket at once and report how many fit: the
+ * many-unit form of `checkMemory`, for a caller that would otherwise loop.
+ */
+async function claimMemory(key, limit, windowMs, units) {
+    const now = Date.now();
+    let entry = memoryWindows.get(key);
+    if (!entry) {
+        if (memoryWindows.size >= MEMORY_MAX_KEYS) {
+            const oldest = memoryWindows.keys().next().value;
+            memoryWindows.delete(oldest);
+        }
+        entry = { ts: [], windowMs };
+        memoryWindows.set(key, entry);
+    } else {
+        entry.windowMs = windowMs;
+    }
+    const timestamps = entry.ts;
+    const cutoff = now - windowMs;
+    while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
+    const admitted = Math.max(0, Math.min(units, limit - timestamps.length));
+    for (let i = 0; i < admitted; i++) timestamps.push(now);
+    return admitted;
+}
+
+/**
  * Read a bucket's state without spending from it. For gates whose budget is
  * consumed by something other than the request being admitted — a failed
  * credential check, say — where charging the check itself would bill every
@@ -182,6 +207,32 @@ async function checkRedis(
     return true;
 }
 
+/**
+ * `checkRedis` for many units in one round trip: add them all, count, and take
+ * back however many landed over the limit. Same add-then-count shape, so
+ * concurrent claims can under-admit but never over-admit.
+ */
+async function claimRedis(redis, key, limit, windowMs, units) {
+    const redisKey = `rate:${key}`;
+    const now = Date.now();
+    const members = Array.from(
+        { length: units },
+        () => `${now}:${crypto.randomUUID()}`,
+    );
+    const results = await redis
+        .multi()
+        .zremrangebyscore(redisKey, 0, now - windowMs)
+        .zadd(redisKey, ...members.flatMap((member) => [now, member]))
+        .zcard(redisKey)
+        .pexpire(redisKey, windowMs)
+        .exec();
+
+    const count = Number(multiResult(results, 2));
+    const excess = Math.min(units, Math.max(0, count - limit));
+    if (excess > 0) await redis.zrem(redisKey, ...members.slice(-excess));
+    return units - excess;
+}
+
 async function peekRedis(redis, key, limit, windowMs) {
     const redisKey = `rate:${key}`;
     const results = await redis
@@ -214,6 +265,29 @@ async function checkKv(kv, key, limit, windowMs) {
         expireAt: Math.ceil((now + windowMs) / 1000),
     });
     return true;
+}
+
+// `checkKv` for many units: one read, then a row per admitted unit.
+async function claimKv(kv, key, limit, windowMs, units) {
+    const prefix = `rate:${key}:`;
+    const { res } = await kv.list({
+        as: 'keys',
+        pattern: prefix,
+        limit: limit + 1,
+    });
+    const keys = Array.isArray(res) ? res : (res?.items ?? []);
+    const admitted = Math.max(0, Math.min(units, limit - keys.length));
+    const now = Date.now();
+    await Promise.all(
+        Array.from({ length: admitted }, () =>
+            kv.set({
+                key: `${prefix}${now}:${crypto.randomUUID()}`,
+                value: 1,
+                expireAt: Math.ceil((now + windowMs) / 1000),
+            }),
+        ),
+    );
+    return admitted;
 }
 
 // `list` filters by TTL, so a non-expired row is in-window — same read
@@ -390,6 +464,10 @@ function instrumentBackendPair(name, pair) {
             withSpan('rate_limit.peek', attrs, () =>
                 pair.peek(key, limit, windowMs),
             ),
+        claim: (key, limit, windowMs, units) =>
+            withSpan('rate_limit.claim', attrs, () =>
+                pair.claim(key, limit, windowMs, units),
+            ),
         acquire: (key, limit) =>
             withSpan('rate_limit.acquire', attrs, () =>
                 pair.acquire(key, limit),
@@ -400,6 +478,7 @@ function instrumentBackendPair(name, pair) {
 const memoryBackendPair = instrumentBackendPair('memory', {
     rate: checkMemory,
     peek: peekMemory,
+    claim: claimMemory,
     acquire: acquireMemoryConcurrent,
 });
 
@@ -448,6 +527,8 @@ export function configureRateLimit({
                 checkRedis(redis, key, limit, windowMs),
             peek: (key, limit, windowMs) =>
                 peekRedis(redis, key, limit, windowMs),
+            claim: (key, limit, windowMs, units) =>
+                claimRedis(redis, key, limit, windowMs, units),
             acquire: (key, limit) => acquireRedisConcurrent(redis, key, limit),
         });
     }
@@ -455,6 +536,8 @@ export function configureRateLimit({
         backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
             peek: (key, limit) => peekKv(kv, key, limit),
+            claim: (key, limit, windowMs, units) =>
+                claimKv(kv, key, limit, windowMs, units),
             acquire: (key, limit) => acquireKvConcurrent(kv, key, limit),
         });
     }
@@ -706,6 +789,25 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
             err,
         );
         return true;
+    }
+}
+
+/**
+ * `checkRateLimit` for `units` hits at once, in one backend round trip.
+ * Resolves to how many were admitted (0..units) and spent; the rest were not
+ * charged. Fails open, admitting every unit, like the rest of this module.
+ */
+export async function claimRateLimit(key, limit, windowMs, units, backend) {
+    if (!(units > 0)) return 0;
+    const bk = resolveBackend(backend);
+    try {
+        return await bk.claim(key, limit, windowMs, units);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative claim failed, failing open:',
+            err,
+        );
+        return units;
     }
 }
 

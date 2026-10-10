@@ -37,6 +37,7 @@ import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
     checkRateLimit,
+    claimRateLimit,
     concurrencyGate,
     consumeRouteRateLimit,
     configureRateLimit,
@@ -1418,6 +1419,13 @@ describe('rate + concurrent limiting — kv backend', () => {
         expect(await checkRateLimit(uniqueScope(), 0, 60_000)).toBe(false);
     });
 
+    it('claims many units in one call, admitting only what fits', async () => {
+        const key = uniqueScope();
+        expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(3);
+        expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(2);
+        expect(await claimRateLimit(key, 5, 60_000, 1)).toBe(0);
+    });
+
     it('holds a concurrent slot until it is released', async () => {
         const req = { ip: '9.9.9.9', headers: {}, actor: undefined };
         const opts = { limit: 1, backend: 'kv', scope: uniqueScope() };
@@ -1917,5 +1925,61 @@ describe('acquireConcurrent (imperative)', () => {
         const result = await acquireConcurrent('any', 1, 'redis');
         expect(result.ok).toBe(true);
         configureRateLimit();
+    });
+});
+
+describe('claimRateLimit', () => {
+    const uniqueKey = () => `claim-${Math.random().toString(36).slice(2, 10)}`;
+
+    describe.each([
+        ['memory', () => configureRateLimit()],
+        [
+            'redis',
+            () => configureRateLimit({ default: 'redis', redis: new RedisMock() }),
+        ],
+    ])('%s backend', (_name, configure) => {
+        beforeEach(configure);
+
+        it('admits every unit while under the limit', async () => {
+            expect(await claimRateLimit(uniqueKey(), 5, 60_000, 3)).toBe(3);
+        });
+
+        it('admits exactly up to the limit and spends only that', async () => {
+            const key = uniqueKey();
+            expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(3);
+            expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(2);
+            // Nothing spent past the limit, so the bucket is exactly full.
+            expect(await checkRateLimit(key, 5, 60_000)).toBe(false);
+            expect(await checkRateLimit(key, 6, 60_000)).toBe(true);
+        });
+
+        it('admits nothing once the bucket is full', async () => {
+            const key = uniqueKey();
+            expect(await claimRateLimit(key, 2, 60_000, 2)).toBe(2);
+            expect(await claimRateLimit(key, 2, 60_000, 4)).toBe(0);
+        });
+
+        it('shares its bucket with checkRateLimit', async () => {
+            const key = uniqueKey();
+            expect(await checkRateLimit(key, 3, 60_000)).toBe(true);
+            expect(await claimRateLimit(key, 3, 60_000, 5)).toBe(2);
+        });
+    });
+
+    it('claims nothing for zero units', async () => {
+        const key = uniqueKey();
+        expect(await claimRateLimit(key, 1, 60_000, 0)).toBe(0);
+        expect(await checkRateLimit(key, 1, 60_000)).toBe(true);
+    });
+
+    it('fails open, admitting every unit, when the backend throws', async () => {
+        const redis = new RedisMock();
+        redis.multi = () => {
+            throw new Error('redis down');
+        };
+        configureRateLimit({ default: 'redis', redis });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await claimRateLimit(uniqueKey(), 1, 60_000, 4)).toBe(4);
+        spy.mockRestore();
     });
 });
