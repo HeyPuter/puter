@@ -68,10 +68,12 @@ import {
 } from './limits.js';
 import {
     assertAccess as assertLegacyAccess,
+    emitGuiItemEvent,
+    findOverwriteTarget,
     fsEntryMimeType,
+    type GuiItemEventName,
     loadLegacyAssociatedApps,
     signEntryThumbnail,
-    toLegacyEntry,
 } from './legacyFsHelpers.js';
 import type {
     ClientCompleteWriteResponse,
@@ -1536,7 +1538,7 @@ export class FSController extends PuterController {
                         body.create_missing_ancestors,
                 ) ?? false,
         });
-        this.#emitGuiItemAdded(entry);
+        this.#emitGuiItemEvent('outer.gui.item.added', entry);
         res.json(this.#toClientEntry(entry));
     }
 
@@ -1599,7 +1601,7 @@ export class FSController extends PuterController {
 
         const userId = this.#getActorUserId(req);
         const renamed = await this.services.fs.rename(userId, entry, newName);
-        this.#emitGuiItemUpdated(renamed);
+        this.#emitGuiItemEvent('outer.gui.item.updated', renamed);
         res.json(this.#toClientEntry(renamed));
     }
 
@@ -1621,7 +1623,11 @@ export class FSController extends PuterController {
             recursive: this.#toBoolean(body.recursive) ?? false,
             descendantsOnly,
         });
-        this.#emitGuiItemRemoved(entry, descendantsOnly);
+        // `descendants_only` lets the GUI keep the parent (e.g. Trash) and only
+        // drop its children.
+        this.#emitGuiItemEvent('outer.gui.item.removed', entry, {
+            descendants_only: descendantsOnly,
+        });
         res.json({ ok: true });
     }
 
@@ -1646,16 +1652,36 @@ export class FSController extends PuterController {
             await this.#assertAccess(actor, destinationParent.path, 'write');
         }
 
+        const newName =
+            typeof body.new_name === 'string' ? body.new_name : undefined;
+        const overwrite = this.#toBoolean(body.overwrite) ?? false;
+        // Trash/restore rides on this, as on the legacy route.
+        const newMetadata = (body.newMetadata ??
+            body.new_metadata ??
+            undefined) as Record<string, unknown> | undefined;
+        const replaced = overwrite
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  newName ?? source.name,
+              )
+            : null;
         const moved = await this.services.fs.move(userId, {
             source,
             destinationParent,
-            newName:
-                typeof body.new_name === 'string' ? body.new_name : undefined,
-            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            newName,
+            overwrite,
             dedupeName:
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? false,
+            newMetadata,
         });
-        this.#emitGuiItemMoved(source, moved);
+        this.#emitGuiItemEvent('outer.gui.item.moved', moved, {
+            old_path: source.path,
+        });
+        // Moving an entry onto its own path is not an overwrite.
+        if (replaced && replaced.uuid !== source.uuid) {
+            this.#emitGuiItemEvent('outer.gui.item.removed', replaced);
+        }
         res.json(this.#toClientEntry(moved));
     }
 
@@ -1680,19 +1706,30 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const newName =
+            typeof body.new_name === 'string' ? body.new_name : undefined;
+        const overwrite = this.#toBoolean(body.overwrite) ?? false;
+        const replaced = overwrite
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  newName ?? source.name,
+              )
+            : null;
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
-            newName:
-                typeof body.new_name === 'string' ? body.new_name : undefined,
-            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            newName,
+            overwrite,
             dedupeName:
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? true,
             ...(storageAllowanceMax !== undefined
                 ? { storageAllowanceMax }
                 : {}),
         });
-        this.#emitGuiItemAdded(copy);
+        this.#emitGuiItemEvent('outer.gui.item.added', copy);
+        if (replaced)
+            this.#emitGuiItemEvent('outer.gui.item.removed', replaced);
         res.json(this.#toClientEntry(copy));
     }
 
@@ -1725,7 +1762,7 @@ export class FSController extends PuterController {
             target,
             dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
         });
-        this.#emitGuiItemAdded(shortcut);
+        this.#emitGuiItemEvent('outer.gui.item.added', shortcut);
         res.json(this.#toClientEntry(shortcut));
     }
 
@@ -1920,60 +1957,18 @@ export class FSController extends PuterController {
 
     // Fire-and-forget GUI events for single-entry mutations. These feed the
     // desktop cache invalidator and extension listeners (e.g. thumbnails).
-    #emitGuiItemAdded(entry: FSEntry): void {
-        void this.#emitGuiWriteEvent(
-            'outer.gui.item.added',
-            entry,
-            undefined,
-        ).catch(() => undefined);
-    }
-
-    #emitGuiItemUpdated(entry: FSEntry): void {
-        void this.#emitGuiWriteEvent(
-            'outer.gui.item.updated',
-            entry,
-            undefined,
-        ).catch(() => undefined);
-    }
-
-    #emitGuiItemRemoved(entry: FSEntry, descendantsOnly = false): void {
-        // GUI listens for `outer.gui.item.removed`; same envelope shape.
-        // `descendants_only` lets the GUI keep the parent (e.g. Trash) and
-        // only drop its children — without it the GUI removes the parent too.
+    #emitGuiItemEvent(
+        eventName: GuiItemEventName,
+        entry: FSEntry,
+        extra?: Record<string, unknown>,
+    ): void {
         void (async () => {
             try {
-                await this.clients.event.emit(
-                    'outer.gui.item.removed',
-                    {
-                        user_id_list: [entry.userId],
-                        response: {
-                            ...entry,
-                            from_new_service: true,
-                            descendants_only: descendantsOnly,
-                        },
-                    },
-                    {},
-                );
-            } catch {
-                // ignore — non-critical.
-            }
-        })();
-    }
-
-    #emitGuiItemMoved(source: FSEntry, moved: FSEntry): void {
-        void (async () => {
-            try {
-                await this.clients.event.emit(
-                    'outer.gui.item.moved',
-                    {
-                        user_id_list: [moved.userId],
-                        response: {
-                            ...moved,
-                            from_path: source.path,
-                            from_new_service: true,
-                        },
-                    },
-                    {},
+                await emitGuiItemEvent(
+                    this.clients.event,
+                    eventName,
+                    entry,
+                    extra,
                 );
             } catch {
                 // ignore — non-critical.
@@ -2670,28 +2665,16 @@ export class FSController extends PuterController {
         };
     }
 
-    /** `forOwner` — these events go to the owner, not to the acting user. */
-    async #toGuiFsEntry(entry: FSEntry): Promise<Record<string, unknown>> {
-        return toLegacyEntry(this.clients.event, entry, { forOwner: true });
-    }
-
     async #emitGuiWriteEvent(
         eventName: 'outer.gui.item.added' | 'outer.gui.item.updated',
         fsEntry: FSEntry,
         guiMetadata: WriteGuiMetadata | undefined,
     ): Promise<void> {
-        const response = {
-            ...(await this.#toGuiFsEntry(fsEntry)),
-            ...this.#toEventGuiMetadata(guiMetadata),
-            from_new_service: true,
-        };
-        await this.clients.event.emit(
+        await emitGuiItemEvent(
+            this.clients.event,
             eventName,
-            {
-                user_id_list: [fsEntry.userId],
-                response,
-            },
-            {},
+            fsEntry,
+            this.#toEventGuiMetadata(guiMetadata),
         );
     }
 

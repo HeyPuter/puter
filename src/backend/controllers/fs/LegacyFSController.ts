@@ -90,9 +90,12 @@ import {
     assertAccess,
     assertCanCreate,
     assertCanMoveInto,
+    emitGuiItemEvent,
     expandClientPath,
+    findOverwriteTarget,
     getBoolean,
     getString,
+    type GuiItemEventName,
     loadLegacyAssociatedApps,
     resolveV1Selector,
     signEntry,
@@ -828,16 +831,13 @@ export class LegacyFSController extends PuterController {
         // (`overwritten`) so clients can drop its stale row/icon. The copy
         // deletes that entry, so resolve it beforehand.
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
-        let overwrittenEntry = null;
-        if (overwriteRequested) {
-            const targetName = getString(body, 'new_name') ?? source.name;
-            const targetPath =
-                destinationParent.path === '/'
-                    ? `/${targetName}`
-                    : `${destinationParent.path}/${targetName}`;
-            overwrittenEntry =
-                await this.stores.fsEntry.getEntryByPath(targetPath);
-        }
+        const overwrittenEntry = overwriteRequested
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  getString(body, 'new_name') ?? source.name,
+              )
+            : null;
 
         const copy = await this.services.fs.copy(userId, {
             source,
@@ -916,13 +916,11 @@ export class LegacyFSController extends PuterController {
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
         let overwrittenEntry = null;
         if (overwriteRequested) {
-            const targetName = getString(body, 'new_name') ?? source.name;
-            const targetPath =
-                destinationParent.path === '/'
-                    ? `/${targetName}`
-                    : `${destinationParent.path}/${targetName}`;
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(targetPath);
+            const existing = await findOverwriteTarget(
+                this.stores.fsEntry,
+                destinationParent,
+                getString(body, 'new_name') ?? source.name,
+            );
             // Moving an entry onto its own path is not an overwrite.
             if (existing && existing.uuid !== source.uuid) {
                 overwrittenEntry = existing;
@@ -2119,36 +2117,12 @@ export class LegacyFSController extends PuterController {
     };
 
     async #emitGuiEvent(
-        eventName:
-            | 'outer.gui.item.added'
-            | 'outer.gui.item.updated'
-            | 'outer.gui.item.removed'
-            | 'outer.gui.item.moved',
+        eventName: GuiItemEventName,
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
     ): Promise<void> {
-        // GUI consumes snake_case fields (`user_id`, `parent_uid`, `is_dir`,
-        // …) — spreading the raw FSEntry ships camelCase, which the client
-        // silently ignores. Run the entry through `toLegacyEntry` first so
-        // the event payload matches what /stat et al. return, then overlay
-        // per-op extras (e.g. `old_path` for moves).
-        // `forOwner` — the audience is the owner, who can't read the actor's mask.
         try {
-            const response = {
-                ...(await toLegacyEntry(this.clients.event, entry, {
-                    forOwner: true,
-                })),
-                ...extra,
-                from_new_service: true,
-            };
-            await this.clients.event.emit(
-                eventName,
-                {
-                    user_id_list: [entry.userId],
-                    response,
-                },
-                {},
-            );
+            await emitGuiItemEvent(this.clients.event, eventName, entry, extra);
         } catch {
             // Non-critical — GUI event failure must never break the HTTP response.
         }
