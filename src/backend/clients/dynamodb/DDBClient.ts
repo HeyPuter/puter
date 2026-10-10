@@ -43,6 +43,7 @@ import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
 import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
 import {
@@ -124,15 +125,13 @@ const sleep = async (ms: number) => {
 
 // One caller writing an out-of-range number usually keeps doing it, so the
 // warning is per-target and throttled rather than one line per write.
-const REPAIR_WARNING_INTERVAL_MS = 60_000;
-const lastRepairWarningAt = new Map<string, number>();
+const repairWarnings = new BoundedTtlMap<string, true>({
+    maxEntries: 1_000,
+    ttlMs: 60_000,
+});
 
 const warnRepaired = (target: string, message: string): void => {
-    const now = Date.now();
-    const lastWarnedAt = lastRepairWarningAt.get(target) ?? 0;
-    if (now - lastWarnedAt < REPAIR_WARNING_INTERVAL_MS) return;
-
-    lastRepairWarningAt.set(target, now);
+    if (!repairWarnings.shouldEmit(target)) return;
     console.warn(
         `[ddb] clamped an out-of-range value in ${target}: ${message}`,
     );

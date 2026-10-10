@@ -22,6 +22,7 @@ import type {
     AuthService,
     ReauthReason,
 } from '../../../services/auth/AuthService';
+import { BoundedTtlMap } from '../../../util/boundedTtlMap';
 import { assertResolvedActor } from '../../actor';
 import type { TokenSource } from '../types';
 
@@ -68,23 +69,10 @@ const REAUTH_LOG_MAX_KEYS = 1024;
 export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
     const { authService, cookieName } = opts;
 
-    const reauthLoggedAt = new Map<string, number>();
-    const shouldLogReauth = (key: string): boolean => {
-        const now = Date.now();
-        const last = reauthLoggedAt.get(key);
-        if (last !== undefined && now - last < REAUTH_LOG_WINDOW_MS) {
-            return false;
-        }
-        if (reauthLoggedAt.size >= REAUTH_LOG_MAX_KEYS) {
-            // Map iterates in insertion order and every log re-inserts, so
-            // the first key is the least recently logged.
-            const oldest = reauthLoggedAt.keys().next().value;
-            if (oldest !== undefined) reauthLoggedAt.delete(oldest);
-        }
-        reauthLoggedAt.delete(key);
-        reauthLoggedAt.set(key, now);
-        return true;
-    };
+    const reauthLogged = new BoundedTtlMap<string, true>({
+        maxEntries: REAUTH_LOG_MAX_KEYS,
+        ttlMs: REAUTH_LOG_WINDOW_MS,
+    });
 
     return async (req, _res, next): Promise<void> => {
         // If something upstream already attached an actor, respect it.
@@ -144,7 +132,7 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
                         return signedToken;
                     },
                 };
-                if (shouldLogReauth(`${reason}:${auth_id ?? '-'}`)) {
+                if (reauthLogged.shouldEmit(`${reason}:${auth_id ?? '-'}`)) {
                     console.info(
                         `[auth-v2] reauth reason=${reason} auth_id=${auth_id ?? '-'}`,
                     );
