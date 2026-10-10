@@ -25,13 +25,15 @@ import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import { Controller, Get } from './core/http/decorators.ts';
 import { HttpError } from './core/http/HttpError.ts';
-import { extensionStore } from './extensions.ts';
+import { extension, extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import { allocateEphemeralPort, setupTestServer } from './testUtil.ts';
 import type { IConfig } from './types';
@@ -417,6 +419,372 @@ describe('PuterServer host header validation — permissive modes', () => {
             host: '127-0-0-1.nip.io',
         });
         expect(res.status).toBe(200);
+    });
+});
+
+/**
+ * A claimed subdomain answers where an unclaimed one 404s, ahead of everything
+ * after that point in the global stack, and only past its `authorize`. Driven
+ * end to end because the blanket OPTIONS responder, CORS and `subdomain: '*'`
+ * routes only exist on the app.
+ */
+describe('PuterServer claimed subdomains', () => {
+    let server: PuterServer;
+    let port: number;
+    const seen: string[] = [];
+
+    // Everything except what varies per connection or per second.
+    const comparable = (res: RawResponse) => {
+        const headers = { ...res.headers };
+        delete headers.date;
+        delete headers.connection;
+        delete headers['keep-alive'];
+        return { status: res.status, headers, body: res.body };
+    };
+
+    @Controller('/ctl')
+    class ClaimTestController {
+        @Get('/hello', { subdomain: 'claimtest' })
+        hello(_req: Request, res: Response) {
+            res.send('from controller');
+        }
+
+        @Get('/teapot', { subdomain: 'claimtest' })
+        teapot() {
+            throw new HttpError(418, 'Short and stout');
+        }
+    }
+
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        extension.claimSubdomain('claimtest', {
+            authorize: (req) => {
+                seen.push(`${req.method} ${req.path}`);
+                if (req.headers['x-test'] === 'deny') return false;
+                if (req.headers['x-test'] === 'crash') {
+                    throw new Error('store down');
+                }
+                if (req.headers['x-test'] === 'forbid') {
+                    throw new HttpError(403, 'Not you');
+                }
+                return true;
+            },
+        });
+        extension.registerController('claimTest', ClaimTestController as never);
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get(
+            '/hello',
+            { subdomain: 'claimtest' },
+            (_req: Request, res: Response) => {
+                res.send('from extension');
+            },
+        );
+        extension.get('/everywhere', { subdomain: '*' }, (_req, res) => {
+            res.send('everywhere');
+        });
+        extension.get('/hello', (_req: Request, res: Response) => {
+            res.send('root hello');
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.claimedSubdomains.delete('claimtest');
+        delete (extensionStore.controllers as Record<string, unknown>)
+            .claimTest;
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    afterEach(() => {
+        seen.length = 0;
+    });
+
+    const claimed = (
+        path: string,
+        headers: Record<string, string> = {},
+        method = 'GET',
+    ) =>
+        rawRequest(
+            port,
+            path,
+            { ...headers, host: 'claimtest.puter.localhost' },
+            method,
+        );
+
+    const expectHidden = async (
+        path: string,
+        headers: Record<string, string> = {},
+        method = 'GET',
+    ) => {
+        const res = await claimed(path, headers, method);
+        const unclaimed = await rawRequest(
+            port,
+            path,
+            { ...headers, host: 'unclaimed.puter.localhost' },
+            method,
+        );
+        expect(res.status).toBe(404);
+        expect(comparable(res)).toEqual(comparable(unclaimed));
+    };
+
+    it('serves decorated and extension routes once authorized, before CORS', async () => {
+        const fromController = await claimed('/ctl/hello', {
+            origin: 'https://elsewhere.example',
+        });
+        expect(fromController.status).toBe(200);
+        expect(fromController.body).toBe('from controller');
+        expect(
+            fromController.headers['access-control-allow-origin'],
+        ).toBeUndefined();
+
+        const fromExtension = await claimed('/hello');
+        expect(fromExtension.body).toBe('from extension');
+        expect(seen).toEqual(['GET /ctl/hello', 'GET /hello']);
+    });
+
+    it('answers an unauthorized request exactly like an unclaimed subdomain', async () => {
+        for (const path of ['/hello', '/ctl/hello', '/', '/healthcheck']) {
+            await expectHidden(path, { 'x-test': 'deny' });
+        }
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await expectHidden('/hello', { 'x-test': 'crash' });
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('sends an HttpError from authorize through the error handler', async () => {
+        const res = await claimed('/hello', { 'x-test': 'forbid' });
+        expect(res.status).toBe(403);
+        expect(JSON.parse(res.body)).toMatchObject({ message: 'Not you' });
+    });
+
+    it("never serves the main app's routes, even when authorized", async () => {
+        for (const path of [
+            '/everywhere',
+            '/healthcheck',
+            '/version',
+            '/nope',
+        ]) {
+            await expectHidden(path);
+        }
+        expect(seen).toContain('GET /everywhere');
+        const elsewhere = await rawRequest(port, '/everywhere', {
+            host: 'puter.localhost',
+        });
+        expect(elsewhere.body).toBe('everywhere');
+    });
+
+    it("keeps the claim's routes off every other host", async () => {
+        const root = await rawRequest(port, '/hello', {
+            host: 'puter.localhost',
+        });
+        expect(root.body).toBe('root hello');
+        for (const host of [
+            'api.puter.localhost',
+            'unclaimed.puter.localhost',
+        ]) {
+            for (const path of ['/hello', '/ctl/hello']) {
+                const res = await rawRequest(port, path, { host });
+                expect(res.status, `${host}${path}`).toBe(404);
+            }
+        }
+        const rootController = await rawRequest(port, '/ctl/hello', {
+            host: 'puter.localhost',
+        });
+        expect(rootController.body).not.toBe('from controller');
+    });
+
+    it('routes OPTIONS through authorize instead of the blanket 200', async () => {
+        await expectHidden('/hello', { 'x-test': 'deny' }, 'OPTIONS');
+        const res = await claimed('/hello', {}, 'OPTIONS');
+        expect(res.headers.allow).toBe('GET, HEAD');
+        expect(seen).toContain('OPTIONS /hello');
+    });
+
+    it("sends a route's error through the error handler", async () => {
+        const res = await claimed('/ctl/teapot');
+        expect(res.status).toBe(418);
+        expect(JSON.parse(res.body)).toMatchObject({
+            message: 'Short and stout',
+        });
+    });
+
+    it('treats a host carrying a port like the same host without one', async () => {
+        const ported = await rawRequest(port, '/hello', {
+            host: `claimtest.puter.localhost:${port}`,
+        });
+        expect(ported.body).toBe('from extension');
+
+        const unclaimed = await rawRequest(port, '/healthcheck', {
+            host: `unclaimed.puter.localhost:${port}`,
+        });
+        expect(unclaimed.status).toBe(404);
+        expect(
+            unclaimed.headers['access-control-allow-origin'],
+        ).toBeUndefined();
+    });
+
+    it('leaves a deeper host under the claimed label alone', async () => {
+        const res = await rawRequest(port, '/hello', {
+            host: 'claimtest.x.puter.localhost',
+        });
+        const unclaimed = await rawRequest(port, '/hello', {
+            host: 'unclaimed.x.puter.localhost',
+        });
+        expect(seen).toEqual([]);
+        expect(comparable(res)).toEqual(comparable(unclaimed));
+    });
+});
+
+describe('PuterServer claimed subdomain route options', () => {
+    const noop = ((_req: Request, res: Response) =>
+        res.end()) as unknown as RequestHandler;
+
+    beforeEach(() => {
+        extension.claimSubdomain('bootcheck', { authorize: () => true });
+    });
+
+    afterEach(() => {
+        extensionStore.claimedSubdomains.delete('bootcheck');
+        extensionStore.routeHandlers.length = 0;
+    });
+
+    it('refuses options that need the main pipeline', async () => {
+        for (const [option, value] of [
+            ['requireAuth', true],
+            ['requireUserActor', true],
+            ['allowAccessToken', true],
+            ['guiOriginOnly', true],
+            ['antiCsrf', true],
+            ['captcha', true],
+            ['requireCredits', true],
+            ['requireVerified', true],
+            ['noUserSession', true],
+        ] as const) {
+            extensionStore.routeHandlers.length = 0;
+            extensionStore.routeHandlers.push({
+                method: 'get',
+                path: '/gated',
+                options: { subdomain: 'bootcheck', [option]: value },
+                handler: noop,
+            });
+            await expect(setupTestServer()).rejects.toThrow(
+                `route GET /gated: '${option}' is not available on a claimed subdomain`,
+            );
+        }
+    });
+
+    it('hands each claimed route to checkRoute and fails the boot when it throws', async () => {
+        const seenRoutes: string[] = [];
+        extensionStore.claimedSubdomains.delete('bootcheck');
+        extension.claimSubdomain('bootcheck', {
+            authorize: () => true,
+            checkRoute: (options, label) => {
+                seenRoutes.push(`${label} ${String(options.subdomain)}`);
+                if (!options.middleware?.length) {
+                    throw new Error('needs a gate');
+                }
+            },
+        });
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/gated',
+            options: {
+                subdomain: 'bootcheck',
+                middleware: [(_req, _res, next) => next()],
+            },
+            handler: noop,
+        });
+        const server = await setupTestServer();
+        await server.shutdown();
+        expect(seenRoutes).toEqual(['route GET /gated bootcheck']);
+
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/open',
+            options: { subdomain: 'bootcheck' },
+            handler: noop,
+        });
+        await expect(setupTestServer()).rejects.toThrow(
+            'route GET /open: needs a gate',
+        );
+    });
+
+    it('refuses a claimed label written in another case', async () => {
+        for (const subdomain of ['BootCheck', ['api', 'BOOTCHECK']]) {
+            extensionStore.routeHandlers.length = 0;
+            extensionStore.routeHandlers.push({
+                method: 'get',
+                path: '/cased',
+                options: { subdomain },
+                handler: noop,
+            });
+            await expect(setupTestServer()).rejects.toThrow(
+                "route GET /cased: claimed subdomain 'bootcheck' must be written in lowercase",
+            );
+        }
+    });
+
+    it('refuses a claimed subdomain mixed with others', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/mixed',
+            options: { subdomain: ['bootcheck', 'api'] },
+            handler: noop,
+        });
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/mixed: claimed subdomain 'bootcheck' must be the route's only subdomain/,
+        );
+    });
+
+    it('refuses limits keyed on anything but the IP', async () => {
+        for (const options of [
+            { rateLimit: { limit: 1, window: 1000 } },
+            { rateLimit: { limit: 1, window: 1000, key: 'user' as const } },
+            { concurrent: { limit: 1, key: 'fingerprint' as const } },
+        ]) {
+            extensionStore.routeHandlers.length = 0;
+            extensionStore.routeHandlers.push({
+                method: 'get',
+                path: '/limited',
+                options: { subdomain: 'bootcheck', ...options },
+                handler: noop,
+            });
+            await expect(setupTestServer()).rejects.toThrow(
+                /limits on a claimed subdomain must key on 'ip'/,
+            );
+        }
+    });
+
+    it('boots with the options a claimed host supports', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'post',
+            path: '/fine',
+            options: {
+                subdomain: 'bootcheck',
+                bodyJson: { limit: '1kb' },
+                rateLimit: { limit: 5, window: 1000, key: 'ip' },
+                concurrent: { limit: 2, key: 'ip' },
+                middleware: [(_req, _res, next) => next()],
+                requireAuth: false,
+            },
+            handler: noop,
+        });
+        const server = await setupTestServer();
+        await server.shutdown();
     });
 });
 

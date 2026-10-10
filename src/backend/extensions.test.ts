@@ -149,6 +149,35 @@ describe('extension registry writers', () => {
     });
 });
 
+describe('extension.claimSubdomain', () => {
+    const claim = { authorize: () => true };
+
+    afterEach(() => {
+        extensionStore.claimedSubdomains.clear();
+    });
+
+    it('records the claim in the extension store', () => {
+        extension.claimSubdomain('portal', claim);
+        expect(extensionStore.claimedSubdomains.get('portal')).toEqual(claim);
+    });
+
+    it('refuses a second claim, a reserved name, an invalid label and no authorize', () => {
+        extension.claimSubdomain('portal', claim);
+        expect(() => extension.claimSubdomain('portal', claim)).toThrow(
+            /already claimed/,
+        );
+        expect(() => extension.claimSubdomain('api', claim)).toThrow(
+            /reserved/,
+        );
+        expect(() => extension.claimSubdomain('a.b', claim)).toThrow(
+            /Invalid subdomain label/,
+        );
+        expect(() =>
+            extension.claimSubdomain('other', {} as typeof claim),
+        ).toThrow(/without authorize/);
+    });
+});
+
 // ── Event subscription ───────────────────────────────────────────────
 
 describe('extension.on', () => {

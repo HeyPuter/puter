@@ -41,6 +41,10 @@ import type {
     RouteOptions,
     RoutePath,
 } from './core/http/types';
+import {
+    addClaimedSubdomain,
+    type SubdomainClaim,
+} from './core/http/middleware/hostRedirects';
 import type { puterDrivers } from './drivers';
 import type {
     IExtensionDriverInstances,
@@ -86,6 +90,8 @@ export const extensionStore = {
      * middleware translation (subdomain, auth, body parsers, ...).
      */
     routeHandlers: [] as RouteDescriptor[],
+    /** Subdomains of the main domain an extension serves itself. */
+    claimedSubdomains: new Map<string, SubdomainClaim>(),
 };
 
 /**
@@ -341,6 +347,16 @@ export const extension = {
     },
     registerGlobalMiddleware: (middleware: RequestHandler) => {
         extensionStore.globalMiddlewares.push(middleware);
+    },
+
+    /**
+     * Serve `<name>.<config.domain>` in place of the 404 an unclaimed subdomain
+     * gets. `authorize` runs first, before CORS, body parsing and auth; when it
+     * returns true, routes declared with `subdomain: name` answer. Anything
+     * else gets that same 404.
+     */
+    claimSubdomain: (name: string, claim: SubdomainClaim) => {
+        addClaimedSubdomain(extensionStore.claimedSubdomains, name, claim);
     },
 
     // -- Route registration -------------------------------------------

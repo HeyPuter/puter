@@ -21,7 +21,7 @@
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import type { Application, RequestHandler } from 'express';
+import type { IRouter, RequestHandler, Router } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -89,7 +89,11 @@ import {
     createRouteLifecycleMiddleware,
     routeEventKeyBase,
 } from './core/http/routeLifecycle';
-import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
+import {
+    PREFIX_METADATA_KEY,
+    type RouteDescriptor,
+    type RouteOptions,
+} from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
 import {
@@ -114,6 +118,19 @@ import type {
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
 
+/** Route options a claimed subdomain's routes may use. */
+const CLAIMED_ROUTE_OPTIONS = new Set([
+    'subdomain',
+    'middleware',
+    'bodyJson',
+    'bodyRaw',
+    'bodyText',
+    'bodyUrlencoded',
+    'rateLimit',
+    'concurrent',
+    'errorRenderer',
+]);
+
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
     stores!: LayerInstances<typeof puterStores>;
@@ -124,6 +141,8 @@ export class PuterServer {
     #app!: ReturnType<typeof express>;
     #server: ReturnType<ReturnType<typeof express>['listen']> | null = null;
     #removeProcessGuards: (() => void) | null = null;
+    /** Routes for each claimed subdomain, served only past its `authorize`. */
+    #claimRouters = new Map<string, Router>();
 
     #ready: Promise<boolean>;
 
@@ -480,9 +499,18 @@ export class PuterServer {
         // -- Host handling (www → root, user subdomain on main domain → 404)
         // Installed after host validation so we know the host is allowed,
         // and before CORS/body-parsing so we short-circuit without burning
-        // work.
+        // work. A subdomain an extension claimed is answered here too.
         this.#app.use(createWwwRedirect(this.#config));
-        this.#app.use(createUserSubdomainNotFound(this.#config));
+        this.#app.use(
+            createUserSubdomainNotFound(this.#config, (name) => {
+                const claim = extensionStore.claimedSubdomains.get(name);
+                if (!claim) return undefined;
+                return {
+                    authorize: claim.authorize,
+                    handler: this.#claimRouters.get(name),
+                };
+            }),
+        );
 
         // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.
@@ -929,12 +957,20 @@ export class PuterServer {
     }
 
     #materializeRoute(
-        app: Application,
+        app: IRouter,
         routerPrefix: string,
         route: RouteDescriptor,
     ) {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
+
+        // A route for a claimed subdomain lives behind that claim's
+        // `authorize`, on its own router, never on the main app.
+        const claimed = PuterServer.#claimedSubdomainOf(
+            opts,
+            `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}`,
+        );
+        if (claimed) app = this.#claimRouter(claimed);
 
         // Validated here rather than trusted, and by the same function the
         // driver decorator uses: a malformed requirement is a boot failure
@@ -1334,7 +1370,9 @@ export class PuterServer {
 
         // All express + WebDAV verbs accept the same (path, ...handlers) shape.
         // The `RouteMethod` union is the allowlist of method names we expose.
-        const method = app[route.method as keyof Application] as unknown;
+        const method = (app as unknown as Record<string, unknown>)[
+            route.method
+        ];
         if (typeof method !== 'function') {
             throw new Error(
                 `Express app does not support method: ${route.method}`,
@@ -1346,6 +1384,70 @@ export class PuterServer {
             ...mwChain,
             route.handler,
         );
+    }
+
+    #claimRouter(name: string): Router {
+        let router = this.#claimRouters.get(name);
+        if (!router) {
+            router = express.Router();
+            this.#claimRouters.set(name, router);
+        }
+        return router;
+    }
+
+    /**
+     * The claimed subdomain a route is declared for, if any. Claimed hosts
+     * authenticate through the claim's `authorize`, so options that rely on the
+     * main pipeline's actor or origin handling fail the boot instead.
+     */
+    static #claimedSubdomainOf(
+        opts: RouteOptions,
+        label: string,
+    ): string | undefined {
+        const claims = extensionStore.claimedSubdomains;
+        const labels = [opts.subdomain ?? []].flat();
+        for (const name of labels) {
+            const lower = name.toLowerCase();
+            if (lower !== name && claims.has(lower)) {
+                throw new Error(
+                    `${label}: claimed subdomain '${lower}' must be written in lowercase`,
+                );
+            }
+        }
+        if (Array.isArray(opts.subdomain)) {
+            const mixed = opts.subdomain.find((s) => claims.has(s));
+            if (mixed !== undefined) {
+                throw new Error(
+                    `${label}: claimed subdomain '${mixed}' must be the route's only subdomain`,
+                );
+            }
+            return undefined;
+        }
+        if (typeof opts.subdomain !== 'string') return undefined;
+        const claim = claims.get(opts.subdomain);
+        if (!claim) return undefined;
+        for (const [key, value] of Object.entries(opts)) {
+            if (value === undefined || value === false) continue;
+            if (!CLAIMED_ROUTE_OPTIONS.has(key)) {
+                throw new Error(
+                    `${label}: '${key}' is not available on a claimed subdomain`,
+                );
+            }
+        }
+        const limits = [opts.rateLimit, opts.concurrent].flat();
+        for (const limit of limits) {
+            if (limit && (limit.key !== 'ip' || limit.bySubscription)) {
+                throw new Error(
+                    `${label}: limits on a claimed subdomain must key on 'ip'`,
+                );
+            }
+        }
+        try {
+            claim.checkRoute?.(opts, label);
+        } catch (err) {
+            throw new Error(`${label}: ${(err as Error)?.message ?? err}`);
+        }
+        return opts.subdomain;
     }
 
     /**

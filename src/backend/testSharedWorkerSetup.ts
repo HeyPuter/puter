@@ -28,19 +28,20 @@ import { extensionStore } from './extensions';
 // of the pristine state.
 import './server';
 
-type Container = unknown[] | Record<string, unknown>;
+type Container = unknown[] | Map<unknown, unknown> | Record<string, unknown>;
 
 // Copies one level deeper than the container: event listener lists are
 // arrays inside `events`, and registering pushes into them.
-const copyContainer = (value: Container): Container =>
-    Array.isArray(value)
-        ? [...value]
-        : Object.fromEntries(
-              Object.entries(value).map(([k, v]) => [
-                  k,
-                  Array.isArray(v) ? [...v] : v,
-              ]),
-          );
+const copyContainer = (value: Container): Container => {
+    if (Array.isArray(value)) return [...value];
+    if (value instanceof Map) return new Map(value);
+    return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [
+            k,
+            Array.isArray(v) ? [...v] : v,
+        ]),
+    );
+};
 
 // This file is re-evaluated for every test file, so the pristine snapshot
 // lives on globalThis, taken before the first file in the worker runs.
@@ -49,16 +50,24 @@ const globals = globalThis as {
     [SNAPSHOT_KEY]?: Record<string, Container>;
 };
 globals[SNAPSHOT_KEY] ??= Object.fromEntries(
-    Object.entries(extensionStore).map(([k, v]) => [k, copyContainer(v)]),
+    Object.entries(extensionStore).map(([k, v]) => [
+        k,
+        copyContainer(v as Container),
+    ]),
 );
 
 const restoreExtensionStore = () => {
     for (const [key, pristine] of Object.entries(globals[SNAPSHOT_KEY]!)) {
         // The server reads these containers by reference, so refill in place.
-        const live = (extensionStore as Record<string, Container>)[key];
+        const live = (extensionStore as unknown as Record<string, Container>)[
+            key
+        ];
         const fresh = copyContainer(pristine);
         if (Array.isArray(live)) {
             live.splice(0, live.length, ...(fresh as unknown[]));
+        } else if (live instanceof Map) {
+            live.clear();
+            for (const [k, v] of fresh as Map<unknown, unknown>) live.set(k, v);
         } else {
             for (const k of Object.keys(live)) delete live[k];
             Object.assign(live, fresh);

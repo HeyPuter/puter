@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
@@ -25,9 +25,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../../types';
 import { HttpError } from '../HttpError';
 import {
+    addClaimedSubdomain,
     createNativeAppStatic,
     createUserSubdomainNotFound,
     createWwwRedirect,
+    type ResolvedClaim,
+    type SubdomainClaim,
 } from './hostRedirects';
 
 // ── Tiny harness ────────────────────────────────────────────────────
@@ -327,22 +330,392 @@ describe('createUserSubdomainNotFound', () => {
         expect(next).toHaveBeenCalledWith();
     });
 
-    it("passes through when the request host has a port the configured domain doesn't", () => {
-        // Edge case worth pinning: the suffix check is exact-`endsWith`,
-        // so a port mismatch silently bypasses the check. Documenting it
-        // here so a future refactor doesn't change behavior unawares.
+    it("404s a user subdomain whose host carries a port the configured domain doesn't", () => {
+        // Hosts compare without their port, so a ported host can't slip past
+        // the 404 that its port-less form gets.
         const portlessConfig = {
             domain: 'puter.localhost',
             static_hosting_domain: 'site.puter.localhost',
         } as IConfig;
+        for (const host of [
+            'foo.puter.localhost:4100',
+            'foo.puter.localhost:443',
+        ]) {
+            const { next } = run(
+                createUserSubdomainNotFound(portlessConfig),
+                makeReq({ subdomains: ['localhost', 'puter', 'foo'], host }),
+            );
+            expectNotFound(next);
+        }
+    });
+
+    it('passes through a host that only shares the domain as a text suffix', () => {
         const { next } = run(
-            createUserSubdomainNotFound(portlessConfig),
+            createUserSubdomainNotFound(config),
             makeReq({
-                subdomains: ['localhost', 'puter', 'foo'],
-                host: 'foo.puter.localhost:4100',
+                subdomains: ['com', 'evilputer', 'foo'],
+                host: 'foo.evilputer.com',
             }),
         );
         expect(next).toHaveBeenCalledWith();
+    });
+
+    it('passes through local worker hosts while the local worker server is on', () => {
+        const workerHost = 'hello.workers.puter.localhost:4100';
+        const req = () =>
+            makeReq({
+                subdomains: ['localhost', 'puter', 'workers', 'hello'],
+                host: workerHost,
+            });
+        const on = run(
+            createUserSubdomainNotFound({
+                ...selfHosted,
+                workers: { localServer: true },
+            } as IConfig),
+            req(),
+        );
+        expect(on.next).toHaveBeenCalledWith();
+        const off = run(createUserSubdomainNotFound(selfHosted), req());
+        expectNotFound(off.next);
+    });
+});
+
+// -- Claimed subdomains ---------------------------------------------
+
+describe('createUserSubdomainNotFound with claimed subdomains', () => {
+    const config = {
+        domain: 'puter.com',
+        static_hosting_domain: 'puter.site',
+    } as IConfig;
+
+    // Express derives these with the root domain's labels already dropped.
+    const hostReq = (host: string, subdomains: string[]) =>
+        ({
+            subdomains,
+            protocol: 'https',
+            originalUrl: '/',
+            headers: { host },
+        }) as unknown as Request;
+
+    const lookup =
+        (claims: Record<string, ResolvedClaim>) =>
+        (name: string): ResolvedClaim | undefined =>
+            claims[name];
+
+    const allow = () => true;
+
+    /** Resolves with whatever the middleware hands to the global `next`. */
+    const runClaimed = (
+        middleware: RequestHandler,
+        req: Request,
+        res: Response = {} as Response,
+    ): Promise<unknown[]> =>
+        new Promise((resolve) => {
+            middleware(req, res, ((...args: unknown[]) =>
+                resolve(args)) as NextFunction);
+        });
+
+    const unclaimedError = async () => {
+        const [err] = await runClaimed(
+            createUserSubdomainNotFound(config),
+            hostReq('foo.puter.com', ['foo']),
+        );
+        return err as HttpError;
+    };
+
+    const expectUnclaimed404 = async (err: unknown) => {
+        const expected = await unclaimedError();
+        expect(err).toBeInstanceOf(HttpError);
+        expect((err as HttpError).statusCode).toBe(expected.statusCode);
+        expect((err as HttpError).message).toBe(expected.message);
+        expect((err as HttpError).legacyCode).toBe(expected.legacyCode);
+    };
+
+    it('hands an authorized request for the exact claimed host to its routes', async () => {
+        const authorize = vi.fn(allow);
+        const handler = vi.fn((_req, res: Response) => {
+            (res as unknown as { handled: boolean }).handled = true;
+        });
+        const next = vi.fn();
+        const res = {} as Response;
+        const req = hostReq('portal.puter.com', ['portal']);
+        createUserSubdomainNotFound(
+            config,
+            lookup({ portal: { authorize, handler } }),
+        )(req, res, next);
+        await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1));
+        expect(authorize).toHaveBeenCalledWith(req, res);
+        expect((res as unknown as { handled: boolean }).handled).toBe(true);
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('answers an unauthorized request with the unclaimed-subdomain 404', async () => {
+        for (const authorize of [
+            () => false,
+            async () => false,
+            () => 'yes' as unknown as boolean,
+        ]) {
+            const handler = vi.fn();
+            const [err] = await runClaimed(
+                createUserSubdomainNotFound(
+                    config,
+                    lookup({ portal: { authorize, handler } }),
+                ),
+                hostReq('portal.puter.com', ['portal']),
+            );
+            expect(handler).not.toHaveBeenCalled();
+            await expectUnclaimed404(err);
+        }
+    });
+
+    it('treats an authorize that throws as unauthorized', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            for (const authorize of [
+                () => {
+                    throw new Error('store down');
+                },
+                async () => {
+                    throw new Error('store down');
+                },
+            ]) {
+                const [err] = await runClaimed(
+                    createUserSubdomainNotFound(
+                        config,
+                        lookup({ portal: { authorize, handler: vi.fn() } }),
+                    ),
+                    hostReq('portal.puter.com', ['portal']),
+                );
+                await expectUnclaimed404(err);
+            }
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('sends an HttpError thrown by authorize as is', async () => {
+        const forbidden = new HttpError(403, 'Forbidden');
+        const [err] = await runClaimed(
+            createUserSubdomainNotFound(
+                config,
+                lookup({
+                    portal: {
+                        authorize: () => {
+                            throw forbidden;
+                        },
+                        handler: vi.fn(),
+                    },
+                }),
+            ),
+            hostReq('portal.puter.com', ['portal']),
+        );
+        expect(err).toBe(forbidden);
+    });
+
+    it('404s an authorized request when the claim has no routes', async () => {
+        const [err] = await runClaimed(
+            createUserSubdomainNotFound(
+                config,
+                lookup({ portal: { authorize: allow } }),
+            ),
+            hostReq('portal.puter.com', ['portal']),
+        );
+        await expectUnclaimed404(err);
+    });
+
+    it('turns an unanswered request into the unclaimed-subdomain 404', async () => {
+        for (const signal of [undefined, 'route', 'router'] as const) {
+            const [err] = await runClaimed(
+                createUserSubdomainNotFound(
+                    config,
+                    lookup({
+                        portal: {
+                            authorize: allow,
+                            handler: (_req, _res, next) =>
+                                signal ? next(signal) : next(),
+                        },
+                    }),
+                ),
+                hostReq('portal.puter.com', ['portal']),
+            );
+            await expectUnclaimed404(err);
+        }
+    });
+
+    it("passes an error from the claim's routes through unchanged", async () => {
+        const boom = new HttpError(418, 'teapot');
+        const thrown = new Error('async failure');
+        for (const [handler, expected] of [
+            [((_req, _res, next) => next(boom)) as RequestHandler, boom],
+            [
+                (async () => {
+                    throw thrown;
+                }) as RequestHandler,
+                thrown,
+            ],
+        ] as const) {
+            const [err] = await runClaimed(
+                createUserSubdomainNotFound(
+                    config,
+                    lookup({ portal: { authorize: allow, handler } }),
+                ),
+                hostReq('portal.puter.com', ['portal']),
+            );
+            expect(err).toBe(expected);
+        }
+    });
+
+    it('stays silent when a route already answered and then calls next()', async () => {
+        const next = vi.fn();
+        createUserSubdomainNotFound(
+            config,
+            lookup({
+                portal: {
+                    authorize: allow,
+                    handler: (_req, _res, n) => n(),
+                },
+            }),
+        )(
+            hostReq('portal.puter.com', ['portal']),
+            { headersSent: true } as Response,
+            next,
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('does not consult the claim for a deeper host under its label', async () => {
+        const authorize = vi.fn(allow);
+        const [err] = await runClaimed(
+            createUserSubdomainNotFound(
+                config,
+                lookup({ portal: { authorize, handler: vi.fn() } }),
+            ),
+            hostReq('portal.x.puter.com', ['x', 'portal']),
+        );
+        expect(authorize).not.toHaveBeenCalled();
+        expect((err as HttpError).statusCode).toBe(404);
+    });
+
+    it('does not consult the claim when the Host header and the derived subdomain disagree', async () => {
+        const authorize = vi.fn(allow);
+        const [err] = await runClaimed(
+            createUserSubdomainNotFound(
+                config,
+                lookup({ portal: { authorize, handler: vi.fn() } }),
+            ),
+            hostReq('foo.puter.com', ['portal']),
+        );
+        expect(authorize).not.toHaveBeenCalled();
+        expect((err as HttpError).statusCode).toBe(404);
+    });
+
+    it('dispatches the claimed host when it carries a port', async () => {
+        const handler = vi.fn((_req, _res, next: NextFunction) => next());
+        const [err] = await runClaimed(
+            createUserSubdomainNotFound(
+                config,
+                lookup({ portal: { authorize: allow, handler } }),
+            ),
+            hostReq('portal.puter.com:4100', ['portal']),
+        );
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect((err as HttpError).statusCode).toBe(404);
+    });
+
+    it('never shadows a hosting domain that shares the label', async () => {
+        const selfHosted = {
+            domain: 'puter.localhost',
+            static_hosting_domain: 'site.puter.localhost',
+        } as IConfig;
+        const authorize = vi.fn(allow);
+        const args = await runClaimed(
+            createUserSubdomainNotFound(
+                selfHosted,
+                lookup({ site: { authorize, handler: vi.fn() } }),
+            ),
+            hostReq('site.puter.localhost', ['site']),
+        );
+        expect(authorize).not.toHaveBeenCalled();
+        expect(args).toEqual([]);
+    });
+
+    it('looks the claim up on every request', async () => {
+        const claims: Record<string, ResolvedClaim> = {};
+        const middleware = createUserSubdomainNotFound(config, lookup(claims));
+        const handler = vi.fn((_req, _res, next: NextFunction) => next());
+        claims.late = { authorize: allow, handler };
+        await runClaimed(middleware, hostReq('late.puter.com', ['late']));
+        expect(handler).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('addClaimedSubdomain', () => {
+    const claim: SubdomainClaim = { authorize: () => true };
+
+    it('records a valid label', () => {
+        const claims = new Map<string, SubdomainClaim>();
+        addClaimedSubdomain(claims, 'portal-2', claim);
+        expect(claims.get('portal-2')?.authorize).toBe(claim.authorize);
+    });
+
+    it('rejects malformed labels', () => {
+        for (const name of [
+            '',
+            'Portal',
+            'a.b',
+            '-a',
+            'a-',
+            'a_b',
+            'a b',
+            'x'.repeat(64),
+        ]) {
+            expect(() => addClaimedSubdomain(new Map(), name, claim)).toThrow(
+                /Invalid subdomain label/,
+            );
+        }
+    });
+
+    it('rejects subdomains core already handles', () => {
+        for (const name of ['www', 'api', 'js', 'dav', 'docs', 'onlyoffice']) {
+            expect(() => addClaimedSubdomain(new Map(), name, claim)).toThrow(
+                /reserved/,
+            );
+        }
+    });
+
+    it('rejects a second claim on the same name', () => {
+        const claims = new Map<string, SubdomainClaim>();
+        addClaimedSubdomain(claims, 'portal', claim);
+        expect(() =>
+            addClaimedSubdomain(claims, 'portal', { authorize: () => false }),
+        ).toThrow(/already claimed/);
+        expect(claims.get('portal')?.authorize).toBe(claim.authorize);
+    });
+
+    it('keeps checkRoute, and rejects one that is not a function', () => {
+        const checkRoute = () => undefined;
+        const claims = new Map<string, SubdomainClaim>();
+        addClaimedSubdomain(claims, 'portal', { ...claim, checkRoute });
+        expect(claims.get('portal')?.checkRoute).toBe(checkRoute);
+        expect(() =>
+            addClaimedSubdomain(new Map(), 'portal', {
+                ...claim,
+                checkRoute: 'no' as unknown as typeof checkRoute,
+            }),
+        ).toThrow(/invalid checkRoute/);
+    });
+
+    it('rejects a claim without authorize', () => {
+        for (const bad of [undefined, {}, { authorize: true }]) {
+            expect(() =>
+                addClaimedSubdomain(
+                    new Map(),
+                    'portal',
+                    bad as unknown as SubdomainClaim,
+                ),
+            ).toThrow(/without authorize/);
+        }
     });
 });
 
