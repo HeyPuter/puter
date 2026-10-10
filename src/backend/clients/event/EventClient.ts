@@ -18,6 +18,7 @@
  */
 
 import { extensionStore } from '../../extensions';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { withSpan } from '../../util/span.js';
 import { PuterClient } from '../types';
 import {
@@ -28,8 +29,13 @@ import {
     MatchingEvents,
 } from './types';
 
+const NO_LISTENERS: readonly EventListener[] = [];
+
 export class EventClient extends PuterClient {
     #eventListeners: Partial<Record<ListenKey, EventListener[]>> = {};
+    #matchKeyMemo = new BoundedTtlMap<string, readonly ListenKey[]>({
+        maxEntries: 1024,
+    });
 
     onServerStart() {
         this.emit('serverStart', {}, {});
@@ -63,19 +69,8 @@ export class EventClient extends PuterClient {
         data: EventMap[T],
         meta: EventMetadata,
     ) {
-        const parts = key.split('.');
-        for (let i = 0; i < parts.length; i++) {
-            const matchKey = (
-                i === parts.length - 1
-                    ? key
-                    : `${parts.slice(0, i + 1).join('.')}.*`
-            ) as ListenKey;
-            const extensionListeners = extensionStore.events[matchKey];
-            const listeners = (this.#eventListeners[matchKey] || []).concat(
-                extensionListeners || [],
-            );
-            if (!listeners) continue;
-            for (const listener of listeners) {
+        for (const matchKey of this.#matchKeys(key)) {
+            for (const listener of this.#listenersFor(matchKey)) {
                 this.#emitEvent(listener, key, data, meta);
             }
         }
@@ -102,21 +97,10 @@ export class EventClient extends PuterClient {
         // Spanned because callers block on listeners — this is where time
         // spent in extension hooks (e.g. `ip.validate`) gets attributed.
         return withSpan('event.emitAndWait', { 'event.key': key }, async () => {
-            const parts = key.split('.');
-            for (let i = 0; i < parts.length; i++) {
-                const matchKey = (
-                    i === parts.length - 1
-                        ? key
-                        : `${parts.slice(0, i + 1).join('.')}.*`
-                ) as ListenKey;
-                const extensionListeners = extensionStore.events[matchKey];
-                const listeners = (this.#eventListeners[matchKey] || []).concat(
-                    extensionListeners || [],
-                );
-                if (!listeners) continue;
+            for (const matchKey of this.#matchKeys(key)) {
                 // A wildcard listener observes the event; it does not implement it.
                 const isExact = matchKey === key;
-                for (const listener of listeners) {
+                for (const listener of this.#listenersFor(matchKey)) {
                     try {
                         await listener(key, data, meta);
                     } catch (e) {
@@ -142,13 +126,7 @@ export class EventClient extends PuterClient {
      * otherwise perfectly cheap and doesn't need this.
      */
     hasListeners<T extends keyof EventMap>(key: T): boolean {
-        const parts = key.split('.');
-        for (let i = 0; i < parts.length; i++) {
-            const matchKey = (
-                i === parts.length - 1
-                    ? key
-                    : `${parts.slice(0, i + 1).join('.')}.*`
-            ) as ListenKey;
+        for (const matchKey of this.#matchKeys(key)) {
             if (this.#eventListeners[matchKey]?.length) return true;
             if (extensionStore.events[matchKey]?.length) return true;
         }
@@ -191,6 +169,34 @@ export class EventClient extends PuterClient {
         const idx = listeners.indexOf(callback as EventListener);
         if (idx !== -1) listeners.splice(idx, 1);
     }
+    /**
+     * The keys a listener can be registered under to hear `key`: each
+     * `<prefix>.*` shorter than the key, then the key itself. Memoized, since
+     * the same few keys are emitted on every request.
+     */
+    #matchKeys(key: string): readonly ListenKey[] {
+        const cached = this.#matchKeyMemo.get(key);
+        if (cached) return cached;
+        const parts = key.split('.');
+        const matchKeys = parts.map(
+            (_, i) =>
+                (i === parts.length - 1
+                    ? key
+                    : `${parts.slice(0, i + 1).join('.')}.*`) as ListenKey,
+        );
+        this.#matchKeyMemo.set(key, matchKeys);
+        return matchKeys;
+    }
+
+    #listenersFor(matchKey: ListenKey): readonly EventListener[] {
+        const own = this.#eventListeners[matchKey];
+        const fromExtensions = extensionStore.events[matchKey];
+        if (!own?.length && !fromExtensions?.length) return NO_LISTENERS;
+        // A copy, so a listener that unsubscribes mid-dispatch can't make the
+        // loop skip its neighbour.
+        return (own ?? []).concat(fromExtensions ?? []);
+    }
+
     async #emitEvent<T extends keyof EventMap>(
         listener: EventListener,
         key: T,
