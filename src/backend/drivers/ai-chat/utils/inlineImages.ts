@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { secureFetch } from '../../../util/secureHttp.js';
+import { isHttpError } from '../../../core/http/HttpError.js';
+import { fetchImageBytes } from '../../util/imageInput.js';
 
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
@@ -55,49 +56,28 @@ export async function inlineHttpImageUrls(
 
 async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
     try {
-        const response = await secureFetch(url);
-        if (!response.ok) {
+        const { bytes, declaredMime } = await fetchImageBytes(url, {
+            maxBytes: MAX_IMAGE_BYTES,
+        });
+        if (!declaredMime?.startsWith('image/')) {
             setTextError(
                 part,
-                `failed to fetch image (status ${response.status})`,
+                `expected an image, got ${declaredMime || 'unknown MIME type'}`,
             );
             return;
         }
-        const contentLength = Number(
-            response.headers.get('content-length') ?? NaN,
-        );
-        if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
-            setTextError(
-                part,
-                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
-            );
-            return;
-        }
-
-        const arrayBuf = await response.arrayBuffer();
-        if (arrayBuf.byteLength > MAX_IMAGE_BYTES) {
-            setTextError(
-                part,
-                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
-            );
-            return;
-        }
-
-        const mimeType = (response.headers.get('content-type') ?? '')
-            .split(';')[0]
-            ?.trim();
-        if (!mimeType || !mimeType.startsWith('image/')) {
-            setTextError(
-                part,
-                `expected an image, got ${mimeType || 'unknown MIME type'}`,
-            );
-            return;
-        }
-
-        const base64 = Buffer.from(arrayBuf).toString('base64');
         part.type = 'image_url';
-        part.image_url = { url: `data:${mimeType};base64,${base64}` };
+        part.image_url = {
+            url: `data:${declaredMime};base64,${bytes.toString('base64')}`,
+        };
     } catch (err) {
+        if (isHttpError(err) && err.code === 'input_too_large') {
+            setTextError(
+                part,
+                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
+            );
+            return;
+        }
         const message = (err as Error)?.message || 'failed to fetch image';
         setTextError(part, message);
     }

@@ -29,6 +29,7 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { secureFetch } from '../../util/secureHttp.js';
+import { dataUriBytes, parseDataUri } from './dataUri.js';
 
 /**
  * Resolve a file-like input sent through the drivers API into a Buffer.
@@ -79,8 +80,6 @@ export interface OpenedFileInput {
 
 type FileInputStores = { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
-const DATA_URL_PATTERN = /^data:([^;,]+)?(?:;([^,]*))?,(.*)$/s;
-
 export async function loadFileInput(
     stores: FileInputStores,
     fsService: FSService,
@@ -97,23 +96,17 @@ export async function loadFileInput(
 
     // Data URL — decode base64/plain inline.
     if (typeof input === 'string' && input.startsWith('data:')) {
-        const match = DATA_URL_PATTERN.exec(input);
-        if (!match)
+        const uri = parseDataUri(input, 'application/octet-stream');
+        if (!uri)
             throw new HttpError(400, 'Invalid data URL', {
                 legacyCode: 'bad_request',
             });
-        const mime = match[1] ?? 'application/octet-stream';
-        const encoding = (match[2] ?? '').trim();
-        const payload = match[3] ?? '';
-        const buffer =
-            encoding.toLowerCase() === 'base64'
-                ? Buffer.from(payload, 'base64')
-                : Buffer.from(decodeURIComponent(payload));
+        const buffer = dataUriBytes(uri);
         assertMax(buffer, options.maxBytes);
         return {
             buffer,
-            filename: filenameFromMime(mime),
-            mimeType: mime,
+            filename: filenameFromMime(uri.mimeType),
+            mimeType: uri.mimeType,
             fsEntry: null,
         };
     }
@@ -132,18 +125,7 @@ export async function loadFileInput(
                 { legacyCode: 'bad_request' },
             );
         }
-        // Stream under the cap: a remote body is never buffered past maxBytes.
-        const declaredLength = Number(response.headers.get('content-length'));
-        if (options.maxBytes && declaredLength > options.maxBytes) {
-            await response.body?.cancel();
-            throw tooLarge(options.maxBytes);
-        }
-        const buffer = response.body
-            ? await collectStream(
-                  Readable.fromWeb(response.body as WebReadableStream),
-                  options.maxBytes,
-              )
-            : Buffer.alloc(0);
+        const buffer = await readBoundedBody(response, options.maxBytes);
         const contentType = response.headers.get('content-type');
         const mime =
             contentType?.split(';')[0]?.trim() ||
@@ -279,9 +261,11 @@ export async function openFileInputStream(
     };
 }
 
+/** Buffers `body`, refusing to hold more than `maxBytes` of it. */
 async function collectStream(
     body: Readable,
     maxBytes: number | undefined,
+    tooLargeError: (maxBytes: number) => Error = tooLarge,
 ): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -292,11 +276,34 @@ async function collectStream(
         total += buf.byteLength;
         if (maxBytes && total > maxBytes) {
             body.destroy();
-            throw tooLarge(maxBytes);
+            throw tooLargeError(maxBytes);
         }
         chunks.push(buf);
     }
     return Buffer.concat(chunks, total);
+}
+
+/**
+ * Buffers a fetched body under the same cap, refusing a declared length over it
+ * before reading a byte.
+ */
+export async function readBoundedBody(
+    response: Response,
+    maxBytes: number | undefined,
+    tooLargeError: (maxBytes: number) => Error = tooLarge,
+): Promise<Buffer> {
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (maxBytes && declaredLength > maxBytes) {
+        await response.body?.cancel();
+        throw tooLargeError(maxBytes);
+    }
+    return response.body
+        ? collectStream(
+              Readable.fromWeb(response.body as WebReadableStream),
+              maxBytes,
+              tooLargeError,
+          )
+        : Buffer.alloc(0);
 }
 
 function requireActorUser(actor: Actor): void {

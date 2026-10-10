@@ -21,10 +21,12 @@ import { assertImagePrompt } from '../../imageValidation.js';
 import Replicate from 'replicate';
 import { formatAspectRatio } from '../../imageDimensions.js';
 import {
+    inputImageTooLarge,
     parseDataUri,
     resolveSingleInputImage,
     toUrlOrDataUri,
 } from '../../inputImage.js';
+import { readBoundedBody } from '../../../util/fileInput.js';
 import sharp from 'sharp';
 import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
@@ -63,31 +65,6 @@ const INPUT_MEASURE_MAX_BYTES = 30 * 1024 * 1024;
 const INPUT_MEASURE_TIMEOUT_MS = 30_000;
 
 const PREDICTION_FAILED_PREFIX = 'Prediction failed:';
-
-/** Buffer a response body, refusing to hold more than `maxBytes` of it. */
-async function readBounded(
-    response: Response,
-    maxBytes: number,
-): Promise<Buffer> {
-    const reader = response.body?.getReader();
-    if (!reader) return Buffer.alloc(0);
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > maxBytes) {
-            await reader.cancel();
-            throw new HttpError(400, `Input image exceeds ${maxBytes} bytes`, {
-                legacyCode: 'bad_request',
-                code: 'input_too_large',
-            });
-        }
-        chunks.push(value);
-    }
-    return Buffer.concat(chunks);
-}
 
 function hasUpstreamStatus(err: unknown): boolean {
     const e = err as {
@@ -738,11 +715,12 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             const inlineImage = parseDataUri(url);
             const buffer = inlineImage
                 ? Buffer.from(inlineImage.base64, 'base64')
-                : await readBounded(
+                : await readBoundedBody(
                       await secureFetch(url, {
                           signal: AbortSignal.timeout(INPUT_MEASURE_TIMEOUT_MS),
                       }),
                       INPUT_MEASURE_MAX_BYTES,
+                      inputImageTooLarge,
                   );
             const meta = await sharp(buffer).metadata();
             const megapixels =

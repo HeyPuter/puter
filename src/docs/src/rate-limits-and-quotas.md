@@ -69,7 +69,7 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
-An input over its limit is rejected before it reaches the model. OCR input limits are under [OCR](#ocr).
+An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
 
 Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
 
@@ -93,6 +93,7 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 
 | Provider | Limit |
 |----------|-------|
+| All | Up to 16 reference images; more fails with `bad_request`. A reference given as a URL is fetched with a 30-second timeout and capped at 30 MB. |
 | xAI | Up to 5 reference images; more fails with `bad_request`. |
 | Together | Image routes are excluded because they require third-party data sharing; generation fails before any upstream call. |
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |

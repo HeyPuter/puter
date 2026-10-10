@@ -32,7 +32,11 @@ import type {
     IImageModel,
     IImageProvider,
 } from '../../types.js';
-import { isHttpUrl, toBase64DataUri } from '../../inputImage.js';
+import {
+    isHttpUrl,
+    parseDataUri,
+    toBase64DataUri,
+} from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
@@ -289,9 +293,9 @@ export class GeminiImageProvider implements IImageProvider {
 
         if (input_images?.length) {
             for (const img of input_images) {
-                const parsed = this.#parseDataUri(img);
+                const parsed = parseDataUri(img);
                 const mimeType =
-                    parsed?.mimeType ??
+                    parsed?.mime ??
                     this.#detectMimeType(img) ??
                     input_image_mime_type ??
                     'image/png';
@@ -395,9 +399,9 @@ export class GeminiImageProvider implements IImageProvider {
 
     #detectMimeType(data: string): string | undefined {
         // Handle data URIs like "data:image/jpeg;base64,..."
-        const parsed = this.#parseDataUri(data);
+        const parsed = parseDataUri(data);
         if (parsed) {
-            return parsed.mimeType;
+            return parsed.mime;
         }
 
         for (const [signature, mimeType] of Object.entries(MIME_SIGNATURES)) {
@@ -406,22 +410,5 @@ export class GeminiImageProvider implements IImageProvider {
             }
         }
         return undefined;
-    }
-
-    #parseDataUri(
-        data: string,
-    ): { mimeType: string; base64: string } | undefined {
-        if (!data.startsWith('data:image/')) return undefined;
-
-        const commaIdx = data.indexOf(',');
-        if (commaIdx === -1) return undefined;
-
-        const header = data.substring(5, commaIdx); // after "data:" up to ","
-        if (!header.endsWith(';base64')) return undefined;
-
-        const mimeType = header.substring(0, header.length - 7); // strip ";base64"
-        if (mimeType.length === 0) return undefined;
-
-        return { mimeType, base64: data.substring(commaIdx + 1) };
     }
 }

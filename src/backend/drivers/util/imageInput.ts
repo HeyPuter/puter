@@ -26,6 +26,19 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 import { secureFetch } from '../../util/secureHttp.js';
+import { parseDataUri as parseDataUriParts } from './dataUri.js';
+import { readBoundedBody } from './fileInput.js';
+import { isUpstreamTimeoutError } from './upstreamErrors.js';
+
+const MAX_INPUT_IMAGE_BYTES = 30 * 1024 * 1024;
+const INPUT_IMAGE_TIMEOUT_MS = 30_000;
+
+/** An input image over the byte cap; the caller's to shrink. */
+export const inputImageTooLarge = (maxBytes: number): HttpError =>
+    new HttpError(400, `Input image exceeds ${maxBytes} bytes`, {
+        legacyCode: 'bad_request',
+        code: 'input_too_large',
+    });
 
 export function isHttpUrl(s: unknown): boolean {
     return (
@@ -62,33 +75,56 @@ export function toUrlOrDataUri(img: string, mimeHint?: string): string {
         : `data:${mimeHint ?? 'image/png'};base64,${img}`;
 }
 
-const DATA_URI_PATTERN = /^data:([^;,]+)?(?:;base64)?,(.*)$/s;
-
-/** Parse a `data:<mime>;base64,<payload>` URI into raw base64 + mime. */
+/**
+ * Parse a data-URI input image into its payload + mime (default image/png). The
+ * payload is taken as base64 even without the `;base64` marker, which clients
+ * often leave off.
+ */
 export function parseDataUri(
     s: string,
 ): { base64: string; mime: string } | null {
-    const m = DATA_URI_PATTERN.exec(s);
-    if (!m) return null;
-    return { base64: m[2] ?? '', mime: m[1] ?? 'image/png' };
+    const uri = parseDataUriParts(s, 'image/png');
+    return uri && { base64: uri.data, mime: uri.mimeType };
 }
 
-/** Fetch image bytes and MIME type with SSRF protection. */
+/**
+ * Fetch image bytes and MIME type with SSRF protection, bounded in size and
+ * time. The MIME type is the declared one, or image/png when none is declared.
+ */
 export async function fetchImageBytes(
     url: string,
-): Promise<{ bytes: Buffer; mime: string }> {
-    const res = await secureFetch(url);
-    if (!res.ok) {
-        throw new HttpError(
-            400,
-            `Failed to fetch input image (status ${res.status})`,
-            { legacyCode: 'bad_request' },
-        );
+    {
+        maxBytes = MAX_INPUT_IMAGE_BYTES,
+        timeoutMs = INPUT_IMAGE_TIMEOUT_MS,
+    }: { maxBytes?: number; timeoutMs?: number } = {},
+): Promise<{ bytes: Buffer; mime: string; declaredMime?: string }> {
+    try {
+        const res = await secureFetch(url, {
+            signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!res.ok) {
+            await res.body?.cancel();
+            throw new HttpError(
+                400,
+                `Failed to fetch input image (status ${res.status})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const bytes = await readBoundedBody(res, maxBytes, inputImageTooLarge);
+        const declaredMime =
+            res.headers.get('content-type')?.split(';')[0]?.trim() ||
+            undefined;
+        return { bytes, mime: declaredMime ?? 'image/png', declaredMime };
+    } catch (err) {
+        if (isUpstreamTimeoutError(err)) {
+            throw new HttpError(
+                400,
+                `Timed out fetching input image after ${timeoutMs} ms`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        throw err;
     }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const mime =
-        res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/png';
-    return { bytes: buffer, mime };
 }
 
 /** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
