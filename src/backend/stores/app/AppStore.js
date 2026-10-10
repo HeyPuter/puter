@@ -138,6 +138,14 @@ const APP_BOOLEAN_COLUMNS = new Set([
 ]);
 
 export class AppStore extends PuterStore {
+    /** @type {import('../types').RowCache<any>} */
+    #cache = this.rowCache({
+        prefix: CACHE_KEY_PREFIX,
+        props: APP_ID_PROPERTIES,
+        ttlSeconds: CACHE_TTL_SECONDS,
+        revive: (app) => this.#normalizeRow(app),
+    });
+
     // -- Reads --------------------------------------------------------
 
     async getByUid(uid) {
@@ -181,10 +189,9 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Shared engine behind `getByIds` / `getByUids`. Dedupes input values,
-     * reads cache via a pipelined MGET, and resolves remaining misses with a
-     * single `SELECT … WHERE <prop> IN (…)` per chunk. The returned map is
-     * keyed by `prop`'s value.
+     * Shared engine behind `getByIds` / `getByUids`: a pipelined cache read,
+     * then one `SELECT … WHERE <prop> IN (…)` per chunk of misses. The returned
+     * map is keyed by `prop`'s value.
      */
     async #getManyByProperty(prop, values) {
         // `prop` is interpolated into SQL, so it may only ever be one of the
@@ -192,76 +199,32 @@ export class AppStore extends PuterStore {
         if (!BATCH_LOOKUP_COLUMNS.has(prop)) {
             throw new Error(`AppStore: unsupported batch lookup key ${prop}`);
         }
-
-        const result = new Map();
-        const uniqueValues = [
-            ...new Set(
-                (Array.isArray(values) ? values : []).filter(
-                    (value) => value !== null && value !== undefined,
-                ),
-            ),
-        ];
-        if (uniqueValues.length === 0) return result;
-
-        const missingValues = [];
-        try {
-            const pipeline = this.clients.redis.pipeline();
-            for (const value of uniqueValues) {
-                pipeline.get(this.#cacheKey(prop, value));
-            }
-            const cacheResults = (await pipeline.exec()) ?? [];
-            for (let i = 0; i < uniqueValues.length; i++) {
-                const value = uniqueValues[i];
-                const raw = cacheResults[i]?.[1];
-                if (typeof raw === 'string') {
-                    try {
-                        result.set(value, JSON.parse(raw));
-                        continue;
-                    } catch {
-                        // Fall through to DB on any parse failure.
-                    }
+        const present = (Array.isArray(values) ? values : []).filter(
+            (value) => value !== null && value !== undefined,
+        );
+        return this.#cache.getMany(prop, present, async (missing, primary) => {
+            const apps = [];
+            for (
+                let offset = 0;
+                offset < missing.length;
+                offset += BULK_QUERY_CHUNK_SIZE
+            ) {
+                const chunk = missing.slice(
+                    offset,
+                    offset + BULK_QUERY_CHUNK_SIZE,
+                );
+                const placeholders = chunk.map(() => '?').join(', ');
+                const sql = `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`;
+                const rows = primary
+                    ? await this.clients.db.pread(sql, chunk)
+                    : await this.clients.db.read(sql, chunk);
+                for (const row of rows) {
+                    const app = this.#normalizeRow(row);
+                    if (app) apps.push(app);
                 }
-                missingValues.push(value);
             }
-        } catch {
-            missingValues.push(...uniqueValues);
-        }
-
-        for (
-            let offset = 0;
-            offset < missingValues.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = missingValues.slice(
-                offset,
-                offset + BULK_QUERY_CHUNK_SIZE,
-            );
-            const placeholders = chunk.map(() => '?').join(', ');
-            const rows = await this.clients.db.read(
-                `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
-                chunk,
-            );
-            for (const row of rows) {
-                const app = this.#normalizeRow(row);
-                if (!app) continue;
-                // Tombstoned: let the primary say if it's really gone.
-                if (
-                    await this.isCacheKeyTombstoned([
-                        this.#cacheKey(prop, app[prop]),
-                    ])
-                ) {
-                    const fresh = await this.#readFromDb(prop, app[prop], {
-                        primary: true,
-                    });
-                    if (fresh) result.set(fresh[prop], fresh);
-                    continue;
-                }
-                result.set(app[prop], app);
-                this.#writeCache(app).catch(() => {});
-            }
-        }
-
-        return result;
+            return apps;
+        });
     }
 
     async existsByName(name) {
@@ -696,7 +659,7 @@ export class AppStore extends PuterStore {
             // data instead of returning a copy of the app under its old
             // name.
             await this.publishCacheKeys({
-                keys: [this.#cacheKey('name', before.name)],
+                keys: [this.#cache.key('name', before.name)],
                 broadcast: true,
             });
         }
@@ -916,27 +879,26 @@ export class AppStore extends PuterStore {
     // -- Cache invalidation -------------------------------------------
 
     async invalidate(app) {
-        const keys = this.#cacheKeysForApp(app);
-        await this.publishCacheKeys({ keys, broadcast: true });
+        await this.#cache.invalidate(app);
         await this.#invalidateListCachesForApps([app]);
     }
 
     /** Invalidate a deleted row; pass it as read _before_ the delete. */
     async markDeleted(app) {
-        await this.tombstoneCacheKeys(this.#cacheKeysForApp(app));
+        await this.#cache.markDeleted(app);
         await this.#invalidateListCachesForApps([app]);
     }
 
     async invalidateById(id) {
         const app =
-            (await this.#readCache('id', id)) ??
+            (await this.#cache.read(this.#cache.key('id', id))) ??
             (await this.#readFromDb('id', id));
         if (app) await this.invalidate(app);
     }
 
     async invalidateByUid(uid) {
         const app =
-            (await this.#readCache('uid', uid)) ??
+            (await this.#cache.read(this.#cache.key('uid', uid))) ??
             (await this.#readFromDb('uid', uid));
         if (app) await this.invalidate(app);
     }
@@ -953,21 +915,9 @@ export class AppStore extends PuterStore {
 
     async #getByProperty(prop, value) {
         if (value === undefined || value === null) return null;
-
-        const cached = await this.#readCache(prop, value);
-        if (cached) return cached;
-
-        // Only the primary reliably knows a tombstoned row is gone.
-        const tombstoned = await this.isCacheKeyTombstoned([
-            this.#cacheKey(prop, value),
-        ]);
-        const normalized = await this.#readFromDb(prop, value, {
-            primary: tombstoned,
-        });
-        if (!normalized) return null;
-
-        this.#writeCache(normalized).catch(() => {});
-        return normalized;
+        return this.#cache.get(this.#cache.key(prop, value), (primary) =>
+            this.#readFromDb(prop, value, { primary }),
+        );
     }
 
     async #readFromDb(prop, value, { primary = false } = {}) {
@@ -1038,10 +988,6 @@ export class AppStore extends PuterStore {
         return this.#normalizeRow(rows[0]);
     }
 
-    #cacheKey(prop, value) {
-        return `${CACHE_KEY_PREFIX}:${prop}:${value}`;
-    }
-
     #listCacheKey(whereClause, params, limit, offset = 0) {
         return `${LIST_CACHE_KEY_PREFIX}:${JSON.stringify([
             whereClause,
@@ -1086,42 +1032,7 @@ export class AppStore extends PuterStore {
     }
 
     #cacheKeysForApp(app) {
-        const keys = [];
-        for (const prop of APP_ID_PROPERTIES) {
-            if (app[prop] !== undefined && app[prop] !== null) {
-                keys.push(this.#cacheKey(prop, app[prop]));
-            }
-        }
-        return keys;
-    }
-
-    async #readCache(prop, value) {
-        try {
-            const raw = await this.clients.redis.get(
-                this.#cacheKey(prop, value),
-            );
-            return raw ? this.#normalizeRow(JSON.parse(raw)) : null;
-        } catch {
-            return null;
-        }
-    }
-
-    async #writeCache(app) {
-        const keys = this.#cacheKeysForApp(app);
-        const serialized = JSON.stringify(app);
-        // A replica behind the delete still returns the row.
-        await this.writeCacheUnlessDeleted(keys, async () => {
-            await Promise.all(
-                keys.map((k) =>
-                    this.clients.redis.set(
-                        k,
-                        serialized,
-                        'EX',
-                        CACHE_TTL_SECONDS,
-                    ),
-                ),
-            );
-        });
+        return this.#cache.keysFor(app);
     }
 
     async #writeListCache(cacheKey, apps) {
