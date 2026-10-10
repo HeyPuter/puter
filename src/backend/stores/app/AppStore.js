@@ -420,7 +420,11 @@ export class AppStore extends PuterStore {
         );
         const affected = (result?.affectedRows ?? result?.changes ?? 0) > 0;
         if (affected) {
-            const fresh = await this.getById(appId);
+            // Not `getById`: on a cache miss it would cache the replica's
+            // pre-claim row.
+            const fresh = await this.#readFromDb('id', appId, {
+                primary: true,
+            });
             if (fresh) {
                 await this.invalidate(fresh);
             }
@@ -570,7 +574,7 @@ export class AppStore extends PuterStore {
         await this.clearCacheTombstones(
             this.#cacheKeysForApp({ id: insertId, uid, name: allowed.name }),
         );
-        const fresh = await this.getById(insertId);
+        const fresh = await this.#readBackById(insertId);
         if (fresh?.name) {
             await this.#clearOldAppNamesForName(fresh.name);
         }
@@ -651,7 +655,7 @@ export class AppStore extends PuterStore {
         await this.clearCacheTombstones(
             this.#cacheKeysForApp({ id: insertId, uid, name: fields.name }),
         );
-        const fresh = await this.getById(insertId);
+        const fresh = await this.#readBackById(insertId);
         await this.#invalidateListCachesForApps([fresh]);
         return fresh;
     }
@@ -685,7 +689,7 @@ export class AppStore extends PuterStore {
             await this.#clearOldAppNamesForName(allowed.name);
         }
 
-        const fresh = await this.#readFromDb('id', appId);
+        const fresh = await this.#readFromDb('id', appId, { primary: true });
         await this.#invalidateListCachesForApps([before, fresh]);
         if (fresh) {
             await this.#refreshCache({ ...fresh, ...allowed });
@@ -970,6 +974,18 @@ export class AppStore extends PuterStore {
         return normalized;
     }
 
+    /** A row this store just wrote, from the primary; cached on the way out. */
+    async #readBackById(id) {
+        const fresh = await this.#readFromDb('id', id, { primary: true });
+        if (!fresh) return null;
+        try {
+            await this.#writeCache(fresh);
+        } catch {
+            // Best effort; the next read fills it.
+        }
+        return fresh;
+    }
+
     async #readFromDb(prop, value, { primary = false } = {}) {
         const read = primary
             ? (sql, params) => this.clients.db.pread(sql, params)
@@ -1157,7 +1173,7 @@ export class AppStore extends PuterStore {
 
     async #refreshCache(app) {
         const keys = this.#cacheKeysForApp(app);
-        // `update` reads the replica, so it can refresh a row already deleted.
+        // A delete can land between `update`'s read and this refresh.
         await this.writeCacheUnlessDeleted(keys, () =>
             this.#publishRefresh(keys, app),
         );

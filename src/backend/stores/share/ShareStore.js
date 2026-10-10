@@ -53,10 +53,12 @@ const SHARED_IDS_CHUNK_SIZE = 1000;
 export class ShareStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUid(uid) {
-        const rows = await this.clients.db.read(
+    /** Pass `primary` to read back a row just written; a replica may lag. */
+    async getByUid(uid, { primary = false } = {}) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `uid` = ? LIMIT 1',
             [uid],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -623,7 +625,7 @@ export class ShareStore extends PuterStore {
                 [mode, data, existing[0].uid],
             );
             return {
-                row: await this.getByUid(existing[0].uid),
+                row: await this.getByUid(existing[0].uid, { primary: true }),
                 created: false,
             };
         }
@@ -644,7 +646,10 @@ export class ShareStore extends PuterStore {
                 fsentryId,
             ],
         );
-        return { row: await this.getByUid(uid), created: true };
+        return {
+            row: await this.getByUid(uid, { primary: true }),
+            created: true,
+        };
     }
 
     async create({ issuerUserId, recipientEmail, data }) {
@@ -660,7 +665,7 @@ export class ShareStore extends PuterStore {
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `data`) VALUES (?, ?, ?, ?)',
             [uid, issuerUserId, recipientEmail, serialized],
         );
-        return this.getByUid(uid);
+        return this.getByUid(uid, { primary: true });
     }
 
     /**
@@ -731,7 +736,10 @@ export class ShareStore extends PuterStore {
                 data,
             ],
         );
-        return this.getActive({ holderUserId, fsentryId, issuerUserId });
+        return this.getActive(
+            { holderUserId, fsentryId, issuerUserId },
+            { primary: true },
+        );
     }
 
     /**
@@ -797,7 +805,10 @@ export class ShareStore extends PuterStore {
                 data,
             ],
         );
-        return this.getActiveGroup({ holderGroupId, fsentryId, issuerUserId });
+        return this.getActiveGroup(
+            { holderGroupId, fsentryId, issuerUserId },
+            { primary: true },
+        );
     }
 
     /**
@@ -805,12 +816,17 @@ export class ShareStore extends PuterStore {
      * @param {number} input.holderGroupId
      * @param {number} input.fsentryId
      * @param {number} input.issuerUserId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async getActiveGroup({ holderGroupId, fsentryId, issuerUserId }) {
-        const rows = await this.clients.db.read(
+    async getActiveGroup(
+        { holderGroupId, fsentryId, issuerUserId },
+        { primary = false } = {},
+    ) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `holder_group_id` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
             [holderGroupId, fsentryId, issuerUserId],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -847,12 +863,17 @@ export class ShareStore extends PuterStore {
      * @param {number} input.holderUserId
      * @param {number} input.fsentryId
      * @param {number} input.issuerUserId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async getActive({ holderUserId, fsentryId, issuerUserId }) {
-        const rows = await this.clients.db.read(
+    async getActive(
+        { holderUserId, fsentryId, issuerUserId },
+        { primary = false } = {},
+    ) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `holder_user_id` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
             [holderUserId, fsentryId, issuerUserId],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -905,7 +926,7 @@ export class ShareStore extends PuterStore {
             ],
         );
         if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
-        return this.getByUid(uid);
+        return this.getByUid(uid, { primary: true });
     }
 
     /**
@@ -1037,11 +1058,12 @@ export class ShareStore extends PuterStore {
             : this.clients.db.read(sql, params);
     }
 
-    async getAnyone(fsentryId) {
-        const rows = await this.#readAnyone(
-            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1',
-            [fsentryId],
-        );
+    async getAnyone(fsentryId, { primary = false } = {}) {
+        const sql =
+            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1';
+        const rows = primary
+            ? await this.clients.db.pread(sql, [fsentryId])
+            : await this.#readAnyone(sql, [fsentryId]);
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -1140,7 +1162,7 @@ export class ShareStore extends PuterStore {
                 issuerUserId,
             ],
         );
-        return this.getAnyone(fsentryId);
+        return this.getAnyone(fsentryId, { primary: true });
     }
 
     /**
@@ -1230,6 +1252,12 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    #select(sql, params, primary) {
+        return primary
+            ? this.clients.db.pread(sql, params)
+            : this.clients.db.read(sql, params);
+    }
 
     /** The recursive walk of a directory's row ids, by parent linkage. */
     #subtreeCte() {

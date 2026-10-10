@@ -612,7 +612,7 @@ export class SubdomainStore extends PuterStore {
             [...values, ...whereParams],
         );
 
-        const after = await this.getByUuid(uuid, { userId });
+        const after = await this.getByUuid(uuid, { userId, primary: true });
         if (before?.subdomain && before.subdomain !== after?.subdomain) {
             await this.publishCacheKeys({
                 keys: [this.#cacheKey(before.subdomain)],

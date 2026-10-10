@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 
 describe('NotificationStore', () => {
@@ -82,6 +82,32 @@ describe('NotificationStore', () => {
             value: 'plain text',
         });
         expect(created.value).toBe('plain text');
+    });
+
+    it('returns the created row before the replica has it', async () => {
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of `notification` come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `notification`/u.test(q) ? [] : realRead(q, p),
+            );
+        let created;
+        try {
+            created = await store.create({
+                userId: user.id,
+                value: { title: 'lagged' },
+            });
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(created?.user_id).toBe(user.id);
+        expect(created?.value).toEqual({ title: 'lagged' });
     });
 
     it('rejects a create with no user', async () => {
