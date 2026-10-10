@@ -36,6 +36,8 @@ import type { UserRow } from '../user/UserStore';
 const U2A_CACHE_TTL_SECONDS = 5 * 60;
 const U2U_CACHE_TTL_SECONDS = 5 * 60;
 const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
+// Rows per INSERT; five parameters each stays under SQLite's 999 limit.
+const ACCESS_TOKEN_PERM_INSERT_CHUNK = 100;
 
 const AUDIT_PAGE_SIZE = 50;
 const MAX_AUDIT_PAGE_SIZE = 200;
@@ -1210,12 +1212,29 @@ export class PermissionStore extends PuterStore {
 
     // -- SQL: access token permissions -------------------------------
 
-    async hasAccessTokenPerm(
-        tokenUid: string,
-        permission: string,
-    ): Promise<boolean> {
-        const all = await this.#readAccessTokenPerms(tokenUid);
-        return all.includes(permission);
+    /** The token's whole grant list, so a check reads it once. */
+    async listAccessTokenPerms(tokenUid: string): Promise<string[]> {
+        const cacheKey = this.#tokenCacheKey(tokenUid);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed;
+            }
+        } catch {
+            // Fall through to DB.
+        }
+
+        const rows = await this.clients.db.read(
+            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [tokenUid],
+        );
+        const perms = rows.map((r) => String(r.permission));
+
+        this.clients.redis
+            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
+            .catch(() => {});
+        return perms;
     }
 
     /** Whether the token holds any of `permissions`, from one read. */
@@ -1223,12 +1242,65 @@ export class PermissionStore extends PuterStore {
         tokenUid: string,
         permissions: readonly string[],
     ): Promise<boolean> {
-        const all = await this.#readAccessTokenPerms(tokenUid);
+        const all = await this.listAccessTokenPerms(tokenUid);
         return permissions.some((permission) => all.includes(permission));
     }
 
-    /** Call from AuthService after it mutates `access_token_permissions`. */
-    async invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
+    /** Record a new token's grants, chunked multi-row inserts. */
+    async insertAccessTokenPerms(
+        tokenUid: string,
+        authorizer: { userId: number | null; appId: number | null },
+        grants: ReadonlyArray<{
+            permission: string;
+            extra?: Record<string, unknown>;
+        }>,
+    ): Promise<void> {
+        for (
+            let offset = 0;
+            offset < grants.length;
+            offset += ACCESS_TOKEN_PERM_INSERT_CHUNK
+        ) {
+            const chunk = grants.slice(
+                offset,
+                offset + ACCESS_TOKEN_PERM_INSERT_CHUNK,
+            );
+            await this.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES ' +
+                    chunk.map(() => '(?, ?, ?, ?, ?)').join(', '),
+                chunk.flatMap(({ permission, extra }) => [
+                    tokenUid,
+                    authorizer.userId,
+                    authorizer.appId,
+                    permission,
+                    extra ? JSON.stringify(extra) : '{}',
+                ]),
+            );
+        }
+        await this.#invalidateAccessTokenPerms(tokenUid);
+    }
+
+    /** Drop a token's grant manifest. */
+    async deleteAccessTokenPerms(tokenUid: string): Promise<void> {
+        await this.clients.db.write(
+            'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [tokenUid],
+        );
+        await this.#invalidateAccessTokenPerms(tokenUid);
+    }
+
+    /**
+     * The user recorded as authorizing a token's grants. Null for a token with
+     * none, which every full-access token is.
+     */
+    async getAccessTokenAuthorizerId(tokenUid: string): Promise<number | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+            [tokenUid],
+        )) as Array<{ authorizer_user_id?: number | null }>;
+        return rows[0]?.authorizer_user_id ?? null;
+    }
+
+    async #invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
         await this.publishCacheKeys({
             keys: [this.#tokenCacheKey(tokenUid)],
             broadcast: true,
@@ -1568,30 +1640,6 @@ export class PermissionStore extends PuterStore {
             .set(cacheKey, JSON.stringify(decoded), 'EX', U2A_CACHE_TTL_SECONDS)
             .catch(() => {});
         return decoded;
-    }
-
-    async #readAccessTokenPerms(tokenUid: string): Promise<string[]> {
-        const cacheKey = this.#tokenCacheKey(tokenUid);
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) return parsed;
-            }
-        } catch {
-            // Fall through to DB.
-        }
-
-        const rows = await this.clients.db.read(
-            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [tokenUid],
-        );
-        const perms = rows.map((r) => String(r.permission));
-
-        this.clients.redis
-            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
-            .catch(() => {});
-        return perms;
     }
 
     /** Parse the JSON `extra` column into an object. */

@@ -22,6 +22,7 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
+import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
@@ -376,17 +377,20 @@ export const createPuterSiteMiddleware = (
             if (!hasStickyCookie) {
                 try {
                     const token =
-                        await layers.services.auth.createPrivateAssetToken({
-                            appUid: privateApp!.uid,
-                            userUid: identity.userUid,
-                            sessionUuid: identity.sessionUuid,
-                            subdomain,
-                            privateHost: host,
-                        });
+                        await layers.services.auth.createHostedAssetToken(
+                            'private',
+                            {
+                                appUid: privateApp!.uid,
+                                userUid: identity.userUid,
+                                sessionUuid: identity.sessionUuid,
+                                subdomain,
+                                host,
+                            },
+                        );
                     res.cookie(
-                        layers.services.auth.getPrivateAssetCookieNameV2(),
+                        HOSTED_ASSET_COOKIES.private.name,
                         token,
-                        layers.services.auth.getPrivateAssetCookieOptions({
+                        layers.services.auth.getHostedAssetCookieOptions({
                             requestHostname: host,
                         }),
                     );
@@ -458,7 +462,8 @@ export const createPuterSiteMiddleware = (
                     associatedApp?.uid
                 ) {
                     const token =
-                        await layers.services.auth.createPublicHostedActorToken(
+                        await layers.services.auth.createHostedAssetToken(
+                            'public',
                             {
                                 appUid: associatedApp.uid,
                                 userUid: identity.userUid,
@@ -468,9 +473,9 @@ export const createPuterSiteMiddleware = (
                             },
                         );
                     res.cookie(
-                        layers.services.auth.getPublicHostedActorCookieNameV2(),
+                        HOSTED_ASSET_COOKIES.public.name,
                         token,
-                        layers.services.auth.getPublicHostedActorCookieOptions({
+                        layers.services.auth.getHostedAssetCookieOptions({
                             requestHostname: host,
                         }),
                     );
