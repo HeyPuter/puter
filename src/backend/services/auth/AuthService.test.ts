@@ -3162,6 +3162,103 @@ describe('AuthService (integration)', () => {
             ).toBeNull();
         });
     });
+
+    describe('purgeEndedSessions', () => {
+        const GATE_KEY = 'sessions:purge:gate';
+        const DAY = 24 * 60 * 60;
+
+        const makeSession = async (
+            userId: number,
+            kind: string,
+            column?: 'revoked_at' | 'expires_at',
+            daysAgo?: number,
+        ) => {
+            const { uuid } = await server.stores.session.create(userId, {
+                kind,
+            });
+            if (column) {
+                await server.clients.db.write(
+                    `UPDATE \`sessions\` SET \`${column}\` = ? WHERE \`uuid\` = ?`,
+                    [Math.floor(Date.now() / 1000) - daysAgo! * DAY, uuid],
+                );
+            }
+            return uuid as string;
+        };
+
+        const exists = async (uuid: string) => {
+            const rows = await server.clients.db.read(
+                'SELECT 1 FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                [uuid],
+            );
+            return rows.length > 0;
+        };
+
+        it('deletes rows ended past their retention and keeps the rest', async () => {
+            await server.clients.redis.del(GATE_KEY);
+            const user = await makeUser();
+            const id = user.id;
+            const oldRevoked = await makeSession(id, 'asset', 'revoked_at', 31);
+            const oldExpired = await makeSession(id, 'asset', 'expires_at', 31);
+            const recentRevoked = await makeSession(
+                id,
+                'asset',
+                'revoked_at',
+                29,
+            );
+            const recentExpired = await makeSession(
+                id,
+                'asset',
+                'expires_at',
+                29,
+            );
+            const webMonthOld = await makeSession(id, 'web', 'revoked_at', 31);
+            const webYearOld = await makeSession(id, 'web', 'revoked_at', 366);
+            const live = await makeSession(id, 'web');
+
+            expect(
+                await authService.purgeEndedSessions(),
+            ).toBeGreaterThanOrEqual(3);
+
+            expect(await exists(oldRevoked)).toBe(false);
+            expect(await exists(oldExpired)).toBe(false);
+            expect(await exists(webYearOld)).toBe(false);
+            expect(await exists(recentRevoked)).toBe(true);
+            expect(await exists(recentExpired)).toBe(true);
+            expect(await exists(webMonthOld)).toBe(true);
+            expect(await exists(live)).toBe(true);
+        });
+
+        it('skips while another run holds the gate', async () => {
+            await server.clients.redis.del(GATE_KEY);
+            await server.clients.redis.set(GATE_KEY, 'other-node');
+            const user = await makeUser();
+            const oldRevoked = await makeSession(
+                user.id,
+                'asset',
+                'revoked_at',
+                31,
+            );
+
+            expect(await authService.purgeEndedSessions()).toBeNull();
+            expect(await exists(oldRevoked)).toBe(true);
+            await server.clients.redis.del(GATE_KEY);
+        });
+
+        it('frees the gate when the walk fails', async () => {
+            await server.clients.redis.del(GATE_KEY);
+            const spy = vi
+                .spyOn(server.clients.db, 'read')
+                .mockRejectedValueOnce(new Error('db down'));
+            try {
+                await expect(authService.purgeEndedSessions()).rejects.toThrow(
+                    'db down',
+                );
+                expect(await server.clients.redis.get(GATE_KEY)).toBeNull();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+    });
 });
 
 // -- Origin alias groups ----------------------------------------------

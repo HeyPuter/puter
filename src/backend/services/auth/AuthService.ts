@@ -56,6 +56,19 @@ const MAX_ORIGIN_UID_GENERATIONS = 8;
 // (database clock) before the session counts as older than the app.
 const APP_SESSION_CLOCK_SKEW_SECONDS = 60;
 
+// Revoked and expired sessions are kept this long, so a stale token still gets
+// `session_revoked`/`session_expired` rather than `invalid`, then deleted. Web
+// rows double as sign-in history, so they stay longer.
+const SESSION_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+const WEB_SESSION_RETENTION_SECONDS = 365 * 24 * 60 * 60;
+// Every node checks hourly; the gate lets one node through per week.
+const SESSION_PURGE_CHECK_MS = 60 * 60 * 1000;
+const SESSION_PURGE_GATE_KEY = 'sessions:purge:gate';
+const SESSION_PURGE_GATE_SECONDS = 7 * 24 * 60 * 60;
+// Ids per DELETE, with a pause between, so replicas keep up.
+const SESSION_PURGE_SPAN = 5000;
+const SESSION_PURGE_PAUSE_MS = 50;
+
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 export type ReauthReason = 'session_revoked' | 'session_expired';
@@ -84,7 +97,12 @@ export interface AuthResult {
 export class AuthService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
+    #sessionPurge: ReturnType<typeof setInterval> | null = null;
+    #stopping = false;
+
     override onServerStart(): void {
+        this.#armSessionPurge();
+
         // Users implicitly hold read access to their own email — needed for
         // any permission-gated path that asks for `user:<uuid>:email:read`
         // (puter-js's `user:<uuid>:email:read` permission request flows
@@ -103,6 +121,87 @@ export class AuthService extends PuterService {
                 return undefined;
             },
         });
+    }
+
+    override onServerPrepareShutdown(): void {
+        this.#stopping = true;
+        if (this.#sessionPurge) clearInterval(this.#sessionPurge);
+        this.#sessionPurge = null;
+    }
+
+    // -- Session purge -----------------------------------------------
+
+    /**
+     * Delete sessions revoked or expired longer ago than their retention,
+     * walking the table by id. Returns the rows deleted, or null when another
+     * node already holds this week's gate.
+     */
+    async purgeEndedSessions(): Promise<number | null> {
+        const claimed = await this.clients.redis.set(
+            SESSION_PURGE_GATE_KEY,
+            String(Date.now()),
+            'EX',
+            SESSION_PURGE_GATE_SECONDS,
+            'NX',
+        );
+        if (claimed !== 'OK') return null;
+
+        const now = nowSeconds();
+        const cutoffs = {
+            cutoff: now - SESSION_RETENTION_SECONDS,
+            webCutoff: now - WEB_SESSION_RETENTION_SECONDS,
+        };
+        let purged = 0;
+        let finished = false;
+        try {
+            const maxId = await this.stores.session.maxId();
+            for (
+                let afterId = 0;
+                afterId < maxId;
+                afterId += SESSION_PURGE_SPAN
+            ) {
+                if (this.#stopping) return purged;
+                purged += await this.stores.session.purgeEndedInRange(
+                    afterId,
+                    SESSION_PURGE_SPAN,
+                    cutoffs,
+                );
+                await new Promise((resolve) =>
+                    setTimeout(resolve, SESSION_PURGE_PAUSE_MS),
+                );
+            }
+            finished = true;
+            return purged;
+        } finally {
+            // A walk cut short frees the gate, so another node restarts it on
+            // its next check instead of next week.
+            if (!finished) {
+                try {
+                    await this.clients.redis.del(SESSION_PURGE_GATE_KEY);
+                } catch {
+                    // The gate expires on its own.
+                }
+            }
+        }
+    }
+
+    #armSessionPurge(): void {
+        const timer = setInterval(() => {
+            void this.#runSessionPurge();
+        }, SESSION_PURGE_CHECK_MS);
+        timer.unref?.();
+        this.#sessionPurge = timer;
+    }
+
+    async #runSessionPurge(): Promise<void> {
+        try {
+            const purged = await this.purgeEndedSessions();
+            if (purged !== null) {
+                console.log(`[auth] purged ${purged} ended sessions`);
+            }
+        } catch (err) {
+            console.warn('[auth] session purge failed', err);
+        }
     }
 
     // -- Public API --------------------------------------------------

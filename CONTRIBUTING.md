@@ -18,6 +18,10 @@ Match the shape of similar code already in the repo. [doc/architecture.md](doc/a
 
 In plain-JS files, typing is encouraged via JSDoc `@type` annotations using the TypeScript type system, with `@typedef` for shared shapes. Don't type API surfaces as `unknown` or untyped `...args` unless the values are passed through transparently to an upstream layer that owns their type.
 
+**Reuse before adding.** Search `src/backend/util/`, the owning layer, and `extensions/` before writing a helper, cache, validator, serializer, or provider adapter, and extend what exists instead of adding a parallel copy; copies drift. Don't add base classes, interfaces, factories, or wrappers with a single implementation or caller.
+
+**Keep hot paths cheap.** Batch instead of querying per row in a loop, bound every query, cache, and outbound call, and build static data once rather than per request. Persistence goes through the table's store so cache invalidation stays with the write.
+
 ## 3. Don't expose system or user information
 
 Scan your diff for stray logs, debug routes, internal paths, secrets, tokens, or user data in errors/responses. When in doubt, return less. Flag any auth, permission, or data-export changes in the PR description.
@@ -27,6 +31,8 @@ For private security reports, see [SECURITY.md](SECURITY.md).
 ## 4. AI-assisted code is fine — understood code is required
 
 Don't commit code you couldn't have written, debugged, or defended yourself. Read the diff, run it, and be ready to explain it in review.
+
+Agents miss code outside their context and re-implement it. Check the diff for new helpers that duplicate existing ones before opening the PR.
 
 ## 5. Adding or changing APIs
 
