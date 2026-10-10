@@ -4751,6 +4751,33 @@ describe('LegacyFSController.readdirSubdomains', () => {
         const rows = captured.body as Array<{ subdomain: string }>;
         expect(rows.some((r) => r.subdomain === sd)).toBe(true);
     });
+
+    it('returns every site past one store page, with only the listing columns', async () => {
+        const { actor, userId } = await makeUser();
+        const names = Array.from(
+            { length: 501 },
+            (_, i) => `sdp-${i}-${uuidv4().slice(0, 8)}`,
+        );
+        for (const name of names) {
+            await server.clients.db.write(
+                'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+                [uuidv4(), name, userId],
+            );
+        }
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirSubdomains(makeReq({ body: {}, actor }), res),
+        );
+        const rows = captured.body as Array<Record<string, unknown>>;
+        expect(rows.map((r) => r.subdomain)).toEqual(names);
+        expect(Object.keys(rows[0]!).sort()).toEqual([
+            'root_dir_id',
+            'subdomain',
+            'ts',
+            'uuid',
+        ]);
+    });
 });
 
 // ── updateFsentryThumbnail ──────────────────────────────────────────

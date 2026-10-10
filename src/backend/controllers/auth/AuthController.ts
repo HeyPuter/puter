@@ -702,11 +702,9 @@ export class AuthController extends PuterController {
 
         // Consume the recovery code
         codes.splice(idx, 1);
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_recovery_codes` = ? WHERE `uuid` = ?',
-            [codes.join(','), user.uuid],
-        );
-        await this.stores.user.invalidateById(user.id);
+        await this.stores.user.update(user.id, {
+            otp_recovery_codes: codes.join(','),
+        });
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
@@ -4036,11 +4034,10 @@ export class AuthController extends PuterController {
         }
         const hashedCodes = codes.map((c) => hashRecoveryCode(c));
 
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_secret` = ?, `otp_recovery_codes` = ? WHERE `uuid` = ?',
-            [result.secret, hashedCodes.join(','), user.uuid],
-        );
-        await this.stores.user.invalidateById(user.id);
+        await this.stores.user.update(user.id, {
+            otp_secret: result.secret,
+            otp_recovery_codes: hashedCodes.join(','),
+        });
 
         res.json({
             url: result.url,
@@ -4114,11 +4111,7 @@ export class AuthController extends PuterController {
                 });
             }
 
-            await this.clients.db.write(
-                'UPDATE `user` SET `otp_enabled` = ? WHERE `uuid` = ?',
-                [this.clients.db.booleanValue(true), user.uuid],
-            );
-            await this.stores.user.invalidateById(user.id);
+            await this.stores.user.update(user.id, { otp_enabled: true });
 
             if (this.clients.email && user.email) {
                 try {
@@ -4168,11 +4161,11 @@ export class AuthController extends PuterController {
             );
         }
 
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_enabled` = ?, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
-            [this.clients.db.booleanValue(false), user.uuid],
-        );
-        await this.stores.user.invalidateById(user.id);
+        await this.stores.user.update(user.id, {
+            otp_enabled: false,
+            otp_recovery_codes: null,
+            otp_secret: null,
+        });
 
         if (this.clients.email && user.email) {
             try {

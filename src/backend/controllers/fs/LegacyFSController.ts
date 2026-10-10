@@ -124,6 +124,9 @@ const BATCH_MAX_FIELD_SIZE = 1 * 1024 * 1024; // 1 MiB per operation/fileinfo JS
 const BATCH_MAX_OPS = BATCH_MAX_PARTS;
 const BATCH_MUTATING_OPS = new Set(['mkdir', 'shortcut', 'move', 'delete']);
 
+/** Rows per `readdir-subdomains` read; the response pages until done. */
+const SUBDOMAIN_PAGE_SIZE = 500;
+
 // An op's `as` names the path it produced; later ops in the same batch refer
 // to it as `$name` or `$name/rest`, since a deduped mkdir can land elsewhere.
 function resolveBatchRef(raw: string, refs: Map<string, string>): string {
@@ -1162,11 +1165,25 @@ export class LegacyFSController extends PuterController {
             return;
         }
         const userId = this.#getActorUserId(req);
-        const rows = await this.clients.db.read(
-            'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
-            [userId],
-        );
-        res.json(rows);
+        const sites: Array<Record<string, unknown>> = [];
+        let afterId: number | undefined;
+        for (;;) {
+            const page = (await this.stores.subdomain.listByUserId(userId, {
+                afterId,
+                limit: SUBDOMAIN_PAGE_SIZE,
+            })) as Array<Record<string, unknown>>;
+            for (const row of page) {
+                sites.push({
+                    subdomain: row.subdomain,
+                    root_dir_id: row.root_dir_id,
+                    uuid: row.uuid,
+                    ts: row.ts,
+                });
+            }
+            if (page.length < SUBDOMAIN_PAGE_SIZE) break;
+            afterId = Number(page[page.length - 1]!.id);
+        }
+        res.json(sites);
     };
 
     updateFsentryThumbnail = async (
