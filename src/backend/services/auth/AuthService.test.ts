@@ -834,6 +834,27 @@ describe('AuthService (integration)', () => {
             expect(row?.last_user_agent).toBe('new-ua');
         });
 
+        it('touch: false authenticates without writing the session row', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                { ip: '7.7.7.7', user_agent: 'kept-ua' },
+            );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            await ageSessionForTouch(sessionUuid);
+
+            const result = await authService.authenticate(token, {
+                ip: '8.8.8.8',
+                userAgent: 'other-ua',
+                touch: false,
+            });
+
+            expect(result.actor?.user.uuid).toBe(user.uuid);
+            const row = await readRawRow(sessionUuid);
+            expect(row?.last_ip).toBe('7.7.7.7');
+            expect(row?.last_user_agent).toBe('kept-ua');
+        });
+
         it('session token: omitting ctx leaves last_ip / last_user_agent unchanged', async () => {
             const user = await makeUser();
             const { token, session } = await authService.createSessionToken(

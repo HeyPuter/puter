@@ -73,6 +73,16 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 export type ReauthReason = 'session_revoked' | 'session_expired';
 
+/**
+ * Request metadata for `authenticate`. `touch: false` checks the token without
+ * recording activity on its session, for re-checks no user made.
+ */
+export interface AuthenticateContext {
+    ip?: string;
+    userAgent?: string;
+    touch?: boolean;
+}
+
 export interface AuthResult {
     actor?: Actor;
     reauth?: { reason: ReauthReason; auth_id?: string };
@@ -269,7 +279,7 @@ export class AuthService extends PuterService {
     @Span('auth.authenticate')
     async authenticate(
         token: string,
-        ctx: { ip?: string; userAgent?: string } = {},
+        ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
         let decoded: AnyTokenPayload;
         try {
@@ -2397,7 +2407,7 @@ export class AuthService extends PuterService {
 
     async #actorFromSessionToken(
         decoded: SessionTokenPayload,
-        ctx: { ip?: string; userAgent?: string } = {},
+        ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
@@ -2430,21 +2440,14 @@ export class AuthService extends PuterService {
 
         if (!session) return { invalid: true };
 
-        this.stores.session
-            .touch({
-                uuid: session.uuid,
-                userId: user.id,
-                ip: ctx.ip,
-                userAgent: ctx.userAgent,
-            })
-            .catch(() => {});
+        void this.#touchSession(session.uuid, user.id, ctx);
 
         return { actor: this.#buildUserActor(user, session) };
     }
 
     async #actorFromAppUnderUserToken(
         decoded: AppUnderUserTokenPayload,
-        ctx: { ip?: string; userAgent?: string } = {},
+        ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
         const user = await this.stores.user.getByUuid(decoded.user_uid);
         if (!user) return { invalid: true };
@@ -2485,14 +2488,7 @@ export class AuthService extends PuterService {
             return { reauth: { reason: 'session_revoked' } };
         }
 
-        this.stores.session
-            .touch({
-                uuid: session?.uuid,
-                userId: user.id,
-                ip: ctx.ip,
-                userAgent: ctx.userAgent,
-            })
-            .catch(() => {});
+        void this.#touchSession(session.uuid, user.id, ctx);
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
         this.#applyHandlerDepth(actor, decoded);
@@ -2535,7 +2531,7 @@ export class AuthService extends PuterService {
 
     async #actorFromAccessTokenToken(
         decoded: AccessTokenPayload,
-        ctx: { ip?: string; userAgent?: string } = {},
+        ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
         if (!decoded.token_uid || !decoded.user_uid) return { invalid: true };
 
@@ -2611,16 +2607,7 @@ export class AuthService extends PuterService {
             godmodeApp = { uid: app.uid, id: app.id };
         }
 
-        if (session) {
-            this.stores.session
-                .touch({
-                    uuid: session.uuid,
-                    userId: user.id,
-                    ip: ctx.ip,
-                    userAgent: ctx.userAgent,
-                })
-                .catch(() => {});
-        }
+        if (session) void this.#touchSession(session.uuid, user.id, ctx);
 
         const actor = makeActor({
             user: this.#actorUserFromRow(user),
@@ -2638,6 +2625,25 @@ export class AuthService extends PuterService {
         });
         this.#applyHandlerDepth(actor, decoded);
         return { actor };
+    }
+
+    /** Best effort: activity bookkeeping never fails an authentication. */
+    async #touchSession(
+        sessionUuid: string,
+        userId: number,
+        ctx: AuthenticateContext,
+    ): Promise<void> {
+        if (ctx.touch === false) return;
+        try {
+            await this.stores.session.touch({
+                uuid: sessionUuid,
+                userId,
+                ip: ctx.ip,
+                userAgent: ctx.userAgent,
+            });
+        } catch {
+            // The next authenticated request touches again.
+        }
     }
 
     /** An events handler token's depth and expiry; see `Actor.handlerDepth`. */
