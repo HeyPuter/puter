@@ -304,8 +304,6 @@ describe('thumbnails extension — handleThumbnailRead', () => {
     let s3: S3Client;
     let s3Presign: S3Client;
 
-    const stubDb = { write: vi.fn().mockResolvedValue(undefined) };
-
     beforeAll(async () => {
         server = await setupTestServer();
         s3 = server.clients.s3.get();
@@ -344,7 +342,7 @@ describe('thumbnails extension — handleThumbnailRead', () => {
                 s3Presign,
                 bucketName: BUCKET,
                 bucketEndpoint: 'http://127.0.0.1:4566/puter-local/',
-                db: stubDb,
+                fsEntry: server.stores.fsEntry,
             });
 
             expect(typeof entry.thumbnail).toBe('string');
@@ -383,7 +381,7 @@ describe('thumbnails extension — handleThumbnailRead', () => {
             s3Presign,
             bucketName: BUCKET,
             bucketEndpoint: 'http://127.0.0.1:4566/puter-local/',
-            db: stubDb,
+            fsEntry: server.stores.fsEntry,
         });
         expect(entry.thumbnail).toBeNull();
     });
@@ -398,7 +396,7 @@ describe('thumbnails extension — handleThumbnailRead', () => {
             s3Presign,
             bucketName: BUCKET,
             bucketEndpoint: 'http://127.0.0.1:4566/puter-local/',
-            db: stubDb,
+            fsEntry: server.stores.fsEntry,
         });
         // Signed for OUR bucket; `attacker-named-bucket` never reached S3.
         const signed = entry.thumbnail as string;
@@ -414,7 +412,7 @@ describe('thumbnails extension — handleThumbnailRead', () => {
             s3Presign,
             bucketName: BUCKET,
             bucketEndpoint: 'http://127.0.0.1:4566/puter-local/',
-            db: stubDb,
+            fsEntry: server.stores.fsEntry,
         });
         expect(entry.thumbnail).toBe('about:blank');
     });
@@ -426,42 +424,156 @@ describe('thumbnails extension — handleThumbnailRead', () => {
             s3Presign,
             bucketName: BUCKET,
             bucketEndpoint: 'http://127.0.0.1:4566/puter-local/',
-            db: stubDb,
+            fsEntry: server.stores.fsEntry,
         });
         expect(entry.thumbnail).toBeUndefined();
     });
 
-    it('migrates an inline data: URL by uploading to S3 and updating the DB row', async () => {
-        const entryUuid = crypto.randomUUID();
-        const entry: Record<string, unknown> = {
-            uuid: entryUuid,
-            thumbnail: `data:image/png;base64,${TINY_PNG_BASE64}`,
-        };
+    // -- inline data: URL migration --
 
+    // A file whose thumbnail was stored inline, as rows from before storage
+    // pointers are. Creating it leaves it in the entry cache.
+    const inlineThumbnailEntry = async (thumbnail: string) => {
+        const username = `thumb-${Math.random().toString(36).slice(2, 10)}`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            user,
+        );
+        const documents = (await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Documents`,
+        ))!;
+        return server.stores.fsEntry.createNonFileEntry({
+            parent: documents,
+            name: 'legacy.png',
+            kind: 'empty-file',
+            thumbnail,
+        });
+    };
+
+    // Passes every command through, keeping the keys of the uploads.
+    const recordingClient = () => {
+        const putKeys: string[] = [];
+        const client = {
+            send: async (command: unknown) => {
+                if (command instanceof PutObjectCommand) {
+                    putKeys.push(command.input.Key!);
+                }
+                return s3.send(command as never);
+            },
+        } as unknown as S3Client;
+        return { client, putKeys };
+    };
+
+    // What a listing does: read the entry through the store, then sign it.
+    const readThumbnail = async (uuid: string, client: S3Client) => {
+        const stored = (await server.stores.fsEntry.getEntryByUuid(uuid))!;
+        const entry: Record<string, unknown> = {
+            uuid,
+            thumbnail: stored.thumbnail,
+        };
         await handleThumbnailRead(entry, {
-            s3,
+            s3: client,
             s3Presign,
             bucketName: BUCKET,
-            bucketEndpoint: 'http://127.0.0.1:4566/puter-local/',
-            db: stubDb,
+            bucketEndpoint: BUCKET_ENDPOINT,
+            fsEntry: server.stores.fsEntry,
         });
+        return entry.thumbnail;
+    };
 
-        // The handler should have replaced the data URL with a signed
-        // S3 URL and kicked off the DB migration write.
-        expect(typeof entry.thumbnail).toBe('string');
-        expect((entry.thumbnail as string).startsWith('http')).toBe(true);
-        // Allow the best-effort write microtask to settle.
-        await Promise.resolve();
-        expect(stubDb.write).toHaveBeenCalledWith(
-            'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-            [
-                expect.stringMatching(
-                    new RegExp(`^s3://${BUCKET}/thumbnails/${entryUuid}/`),
-                ),
-                entryUuid,
-            ],
+    it('migrates an inline data: URL to storage once, then serves the stored pointer', async () => {
+        const entry = await inlineThumbnailEntry(
+            `data:image/png;base64,${TINY_PNG_BASE64}`,
         );
+        const { client, putKeys } = recordingClient();
+
+        const first = await readThumbnail(entry.uuid, client);
+        const second = await readThumbnail(entry.uuid, client);
+
+        expect(putKeys).toHaveLength(1);
+        const [key] = putKeys;
+        expect(key).toMatch(new RegExp(`^thumbnails/${entry.uuid}/`));
+        const pointer = `s3://${BUCKET}/${key}`;
+        // The cached entry and the row both hold the new pointer.
+        expect(
+            (await server.stores.fsEntry.getEntryByUuid(entry.uuid))!.thumbnail,
+        ).toBe(pointer);
+        expect(
+            (await server.stores.fsEntry.getEntryByUuidFromPrimary(entry.uuid))!
+                .thumbnail,
+        ).toBe(pointer);
+        for (const signed of [first, second]) {
+            expect(signed).toMatch(/^http/);
+            expect(signed).toContain(key);
+        }
     });
+
+    it('keeps one object when reads of the same entry migrate it concurrently', async () => {
+        const thumbnail = `data:image/png;base64,${TINY_PNG_BASE64}`;
+        const entry = await inlineThumbnailEntry(thumbnail);
+        const { client, putKeys } = recordingClient();
+        const read = async () => {
+            const payload: Record<string, unknown> = {
+                uuid: entry.uuid,
+                thumbnail,
+            };
+            await handleThumbnailRead(payload, {
+                s3: client,
+                s3Presign,
+                bucketName: BUCKET,
+                bucketEndpoint: BUCKET_ENDPOINT,
+                fsEntry: server.stores.fsEntry,
+            });
+            return payload.thumbnail;
+        };
+
+        await Promise.all([read(), read()]);
+
+        expect(putKeys).toHaveLength(2);
+        const stored = (await server.stores.fsEntry.getEntryByUuidFromPrimary(
+            entry.uuid,
+        ))!.thumbnail;
+        const winner = putKeys.find(
+            (key) => stored === `s3://${BUCKET}/${key}`,
+        );
+        expect(winner).toBeDefined();
+        // The losing read's upload is not left behind.
+        for (const key of putKeys) {
+            expect(await objectExists(s3, key)).toBe(key === winner);
+        }
+    });
+
+    it.each([
+        [
+            'does not decode to an image',
+            `data:image/png;base64,${Buffer.from('not an image').toString('base64')}`,
+        ],
+        ['has no payload', 'data:image/png;base64'],
+    ])(
+        'does not migrate an inline thumbnail that %s',
+        async (_label, thumbnail) => {
+            const entry = await inlineThumbnailEntry(thumbnail);
+            const { client, putKeys } = recordingClient();
+
+            expect(await readThumbnail(entry.uuid, client)).toBe(thumbnail);
+
+            expect(putKeys).toHaveLength(0);
+            expect(
+                (await server.stores.fsEntry.getEntryByUuidFromPrimary(
+                    entry.uuid,
+                ))!.thumbnail,
+            ).toBe(thumbnail);
+        },
+    );
 
     it('leaves an inline data: URL as is when there is no entry to bind it to', async () => {
         const thumbnail = `data:image/png;base64,${TINY_PNG_BASE64}`;
@@ -471,7 +583,7 @@ describe('thumbnails extension — handleThumbnailRead', () => {
             s3Presign,
             bucketName: BUCKET,
             bucketEndpoint: BUCKET_ENDPOINT,
-            db: stubDb,
+            fsEntry: server.stores.fsEntry,
         });
         expect(entry.thumbnail).toBe(thumbnail);
     });
@@ -568,32 +680,28 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         copyUuid: string,
         client: S3Client = s3,
     ) => {
-        const db = { write: vi.fn().mockResolvedValue(undefined) };
+        const fsEntry = {
+            updateEntryThumbnailByUuid: vi.fn().mockResolvedValue(null),
+        };
         await handleFsCopyNodeThumbnail(
             { copy: { thumbnail, uuid: copyUuid } },
             {
                 s3: client,
                 bucketName: BUCKET,
                 bucketEndpoint: BUCKET_ENDPOINT,
-                db,
+                fsEntry,
             },
         );
-        return db;
+        return fsEntry.updateEntryThumbnailByUuid;
     };
 
     // The key the copied row was repointed at, asserting it is bound to it.
     const repointedKey = (
-        db: Awaited<ReturnType<typeof copyNode>>,
+        update: Awaited<ReturnType<typeof copyNode>>,
         copyUuid: string,
     ): string => {
-        expect(db.write).toHaveBeenCalledTimes(1);
-        const [sql, [pointer, uuid]] = db.write.mock.calls[0] as [
-            string,
-            [string, string],
-        ];
-        expect(sql).toBe(
-            'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-        );
+        expect(update).toHaveBeenCalledTimes(1);
+        const [uuid, pointer] = update.mock.calls[0] as [string, string];
         expect(uuid).toBe(copyUuid);
         expect(pointer).toMatch(
             new RegExp(`^s3://${BUCKET}/thumbnails/${copyUuid}/`),
@@ -612,15 +720,17 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
             await putObject(s3, sourceKey, body);
 
             const copyUuid = crypto.randomUUID();
-            const db = await copyNode(`s3://${BUCKET}/${sourceKey}`, copyUuid);
+            const update = await copyNode(
+                `s3://${BUCKET}/${sourceKey}`,
+                copyUuid,
+            );
 
             // The copied row was repointed at a fresh object of its own...
-            expect(db.write).toHaveBeenCalledTimes(1);
-            const [, params] = db.write.mock.calls[0] as [
+            expect(update).toHaveBeenCalledTimes(1);
+            const [updatedUuid, newPointer] = update.mock.calls[0] as [
                 string,
-                [string, string],
+                string,
             ];
-            const [newPointer, updatedUuid] = params;
             expect(updatedUuid).toBe(copyUuid);
             expect(
                 newPointer.startsWith(`s3://${BUCKET}/thumbnails/${copyUuid}/`),
@@ -656,7 +766,7 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         await putObject(client, sourceKey, body);
 
         const copyUuid = crypto.randomUUID();
-        const db = await copyNode(
+        const update = await copyNode(
             `s3://${BUCKET}/${sourceKey}`,
             copyUuid,
             client,
@@ -665,7 +775,7 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         const duplicated = await client.send(
             new GetObjectCommand({
                 Bucket: BUCKET,
-                Key: repointedKey(db, copyUuid),
+                Key: repointedKey(update, copyUuid),
             }),
         );
         expect(duplicated.ContentType).toBe('image/png');
@@ -708,15 +818,12 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
 
     it('drops the pointer when the shared object is already gone', async () => {
         const copyUuid = crypto.randomUUID();
-        const db = await copyNode(
+        const update = await copyNode(
             `s3://${BUCKET}/${mintedKey()}`, // never uploaded
             copyUuid,
         );
 
-        expect(db.write).toHaveBeenCalledTimes(1);
-        const [sql, params] = db.write.mock.calls[0] as [string, [string]];
-        expect(sql).toContain('NULL');
-        expect(params).toEqual([copyUuid]);
+        expect(update.mock.calls).toEqual([[copyUuid, null]]);
     });
 
     // Only reachable for objects uploaded before upload URLs were size-bound;
@@ -726,12 +833,9 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         await putObject(s3, sourceKey, Buffer.alloc(2 * 1024 * 1024 + 1));
 
         const copyUuid = crypto.randomUUID();
-        const db = await copyNode(`s3://${BUCKET}/${sourceKey}`, copyUuid);
+        const update = await copyNode(`s3://${BUCKET}/${sourceKey}`, copyUuid);
 
-        expect(db.write).toHaveBeenCalledTimes(1);
-        const [sql, params] = db.write.mock.calls[0] as [string, [string]];
-        expect(sql).toContain('NULL');
-        expect(params).toEqual([copyUuid]);
+        expect(update.mock.calls).toEqual([[copyUuid, null]]);
     });
 
     it('drops the pointer when the object outgrows the bound after its size was checked', async () => {
@@ -755,41 +859,38 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         } as unknown as S3Client;
 
         const copyUuid = crypto.randomUUID();
-        const db = await copyNode(
+        const update = await copyNode(
             `s3://${BUCKET}/${sourceKey}`,
             copyUuid,
             racing,
         );
 
-        expect(db.write).toHaveBeenCalledTimes(1);
-        const [sql, params] = db.write.mock.calls[0] as [string, [string]];
-        expect(sql).toContain('NULL');
-        expect(params).toEqual([copyUuid]);
+        expect(update.mock.calls).toEqual([[copyUuid, null]]);
         expect(sent.some((c) => c instanceof PutObjectCommand)).toBe(false);
     });
 
     it('does not duplicate an object the pointer names but we did not mint', async () => {
         const foreignKey = crypto.randomUUID(); // shaped like an fs object key
-        const db = await copyNode(
+        const update = await copyNode(
             `s3://${BUCKET}/${foreignKey}`,
             crypto.randomUUID(),
         );
-        expect(db.write).not.toHaveBeenCalled();
+        expect(update).not.toHaveBeenCalled();
     });
 
     it('leaves an external image URL to ride along as is', async () => {
         const sourceKey = legacyKey();
         await putObject(s3, sourceKey, Buffer.from(TINY_PNG_BASE64, 'base64'));
-        const db = await copyNode(
+        const update = await copyNode(
             `https://cdn.example.com/${BUCKET}/${sourceKey}`,
             crypto.randomUUID(),
         );
-        expect(db.write).not.toHaveBeenCalled();
+        expect(update).not.toHaveBeenCalled();
     });
 
     it('is a no-op when the copy has no thumbnail', async () => {
-        const db = await copyNode(null, crypto.randomUUID());
-        expect(db.write).not.toHaveBeenCalled();
+        const update = await copyNode(null, crypto.randomUUID());
+        expect(update).not.toHaveBeenCalled();
     });
 });
 
@@ -973,14 +1074,10 @@ describe('thumbnails extension — signed batch upload through /fs', () => {
         const desktop = (await server.stores.fsEntry.getEntryByPath(
             `/${username}/Desktop`,
         ))!;
-        // The listener writes the row directly, so read it the same way.
-        const storedThumbnail = async (uuid: string) => {
-            const [row] = (await server.clients.db.read(
-                'SELECT `thumbnail` FROM `fsentries` WHERE `uuid` = ?',
-                [uuid],
-            )) as Array<{ thumbnail: string | null }>;
-            return row?.thumbnail ?? null;
-        };
+        // Through the entry cache, which the listener's write refreshes.
+        const storedThumbnail = async (uuid: string) =>
+            (await server.stores.fsEntry.getEntryByUuid(uuid))?.thumbnail ??
+            null;
 
         const copy = await runWithContext({ actor }, () =>
             fs.copy(userId, { source, destinationParent: desktop }),
