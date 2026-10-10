@@ -96,30 +96,51 @@ const DYNAMO_PROBE_KEY = {
     key: 'liveness-probe',
 };
 
+interface LoopStalls {
+    /** Time blocked beyond the timer's interval, summed over every stall. */
+    totalMs: number;
+    longestMs: number;
+}
+
 /**
- * Times the longest gap between ticks of a short timer, for as long as a probe
- * runs. The gap still open when `stop` is called counts too, so a stall that
- * ends just before the reply is read isn't missed. Returns ms blocked beyond
- * the timer's own interval.
+ * Measures event-loop stalls from the gaps between ticks of a short timer, for
+ * as long as a probe runs. The gap still open when `stop` is called counts too,
+ * so a stall that ends just before the reply is read isn't missed.
  */
-const watchLoopStalls = (): (() => number) => {
+const watchLoopStalls = (): (() => LoopStalls) => {
     const startedAt = Date.now();
     let lastTick = startedAt;
-    let longest = 0;
+    let totalMs = 0;
+    let longestMs = 0;
+    let expired = false;
+    // Gaps under twice the interval are timer jitter, not a stall.
+    const blockedIn = (gap: number) =>
+        gap < LOOP_WATCH_INTERVAL_MS * 2 ? 0 : gap - LOOP_WATCH_INTERVAL_MS;
     const timer = setInterval(() => {
         const now = Date.now();
-        longest = Math.max(longest, now - lastTick);
+        const blocked = blockedIn(now - lastTick);
+        totalMs += blocked;
+        longestMs = Math.max(longestMs, blocked);
         lastTick = now;
         // A probe that never settles must not leave this running.
-        if (now - startedAt > CHECK_TIMEOUT_MS) clearInterval(timer);
+        if (now - startedAt > CHECK_TIMEOUT_MS) {
+            clearInterval(timer);
+            expired = true;
+        }
     }, LOOP_WATCH_INTERVAL_MS);
     timer.unref?.();
     return () => {
         clearInterval(timer);
-        const gap = Math.max(longest, Date.now() - lastTick);
-        return Math.max(0, gap - LOOP_WATCH_INTERVAL_MS);
+        const open = expired ? 0 : blockedIn(Date.now() - lastTick);
+        return {
+            totalMs: totalMs + open,
+            longestMs: Math.max(longestMs, open),
+        };
     };
 };
+
+const describeStalls = ({ totalMs, longestMs }: LoopStalls): string =>
+    `event loop blocked ${totalMs}ms total, longest ${longestMs}ms`;
 
 type CheckFn = () => Promise<unknown> | unknown;
 type FailHandler = (err: unknown) => Promise<void> | void;
@@ -343,11 +364,11 @@ export class ServerHealthService extends PuterService {
                 const stopWatch = watchLoopStalls();
                 const startedAt = Date.now();
                 let rows: unknown[];
-                let blockedMs: number;
+                let stalls: LoopStalls;
                 try {
                     rows = (await db.read('SELECT 1 AS ok')) as unknown[];
                 } finally {
-                    blockedMs = stopWatch();
+                    stalls = stopWatch();
                 }
                 const durationMs = Date.now() - startedAt;
                 this.#stats.database_liveness_latency_ms = durationMs;
@@ -356,14 +377,14 @@ export class ServerHealthService extends PuterService {
                     throw new Error('database liveness query returned no rows');
                 }
                 if (durationMs <= latencyFailMs) return;
-                if (durationMs - blockedMs <= latencyFailMs) {
+                if (durationMs - stalls.totalMs <= latencyFailMs) {
                     console.warn(
-                        `[server-health] database-liveness took ${durationMs}ms, but the event loop was blocked for ${blockedMs}ms of it`,
+                        `[server-health] database-liveness took ${durationMs}ms but passed (${describeStalls(stalls)})`,
                     );
                     return;
                 }
                 throw new Error(
-                    `database liveness latency ${durationMs}ms > threshold ${latencyFailMs}ms (event loop blocked up to ${blockedMs}ms)`,
+                    `database liveness latency ${durationMs}ms > threshold ${latencyFailMs}ms (${describeStalls(stalls)})`,
                 );
             });
         }
@@ -583,7 +604,7 @@ export class ServerHealthService extends PuterService {
                     () =>
                         reject(
                             new Error(
-                                `Health check timed out (event loop blocked up to ${stopWatch()}ms)`,
+                                `Health check timed out (${describeStalls(stopWatch())})`,
                             ),
                         ),
                     CHECK_TIMEOUT_MS,
