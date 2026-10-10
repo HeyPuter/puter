@@ -45,6 +45,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
+import { translateProviderError } from '../../../../controllers/drivers/DriverController.js';
 
 // Keep URL downloads offline; other input parsing stays real.
 const { fetchImageBytesMock } = vi.hoisted(() => ({
@@ -372,24 +373,46 @@ describe('CloudflareImageProvider.generate output extraction', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('throws 400 with the upstream error message on a non-2xx response', async () => {
-        const provider = makeProvider();
-        fetchSpy.mockResolvedValueOnce(
-            new Response(JSON.stringify({ error: 'boom' }), {
-                status: 500,
-                headers: { 'content-type': 'application/json' },
-            }),
-        );
+    it.each([
+        [429, 429, 'upstream_rate_limited'],
+        [401, 500, 'upstream_auth_failed'],
+        [500, 400, 'upstream_provider_unavailable'],
+        [400, 400, 'upstream_bad_request'],
+    ])(
+        'maps an upstream %i to %i %s at the driver boundary',
+        async (upstreamStatus, statusCode, legacyCode) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        success: false,
+                        errors: [{ message: 'boom' }],
+                    }),
+                    {
+                        status: upstreamStatus,
+                        headers: { 'content-type': 'application/json' },
+                    },
+                ),
+            );
 
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: '@cf/black-forest-labs/flux-1-schnell',
-                    prompt: 'hi',
-                } as never),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
+            let callerError: unknown;
+            try {
+                await withTestActor(() =>
+                    provider.generate({
+                        model: '@cf/black-forest-labs/flux-1-schnell',
+                        prompt: 'hi',
+                    } as never),
+                );
+            } catch (e) {
+                callerError = translateProviderError(e);
+            }
+            expect(callerError).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { upstreamStatus },
+            });
+        },
+    );
 
     it('throws 400 when JSON response carries no usable image string', async () => {
         const provider = makeProvider();

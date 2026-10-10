@@ -489,7 +489,10 @@ export class CloudflareImageProvider implements IImageProvider {
             const message =
                 this.#extractErrorMessage(payload) ||
                 `Cloudflare image generation failed with status ${response.status}`;
-            throw new HttpError(400, message, { legacyCode: 'unknown_error' });
+            // The driver boundary maps the upstream status to the caller's.
+            throw Object.assign(new Error(message), {
+                status: response.status,
+            });
         }
 
         if (typeof payload === 'object' && payload !== null) {
