@@ -353,10 +353,12 @@ export class TeamStore extends PuterStore {
             [uid, TEAM_KIND],
         );
         if (result.anyRowsAffected && team) {
-            // Bounded by the fan-out cap, and this runs once per deletion.
-            await this.bustMembership(team.id);
-            await this.#bustRow(uid);
-            await Promise.all(memberIds.map((id) => this.bustMember(uid, id)));
+            // One update for the lot; bounded by the fan-out cap.
+            await this.#bust(
+                `team:members:${team.id}`,
+                `team:row:${uid}`,
+                ...memberIds.map((id) => `team:member:${uid}:${id}`),
+            );
         }
         return result.anyRowsAffected;
     }
@@ -570,12 +572,9 @@ export class TeamStore extends PuterStore {
         }
     }
 
+    /** Peer regions cache these too, and membership gates access there. */
     async #bust(...keys: string[]): Promise<void> {
-        try {
-            await Promise.all(keys.map((k) => this.clients.redis.del(k)));
-        } catch {
-            /* the TTL clears it */
-        }
+        await this.publishCacheKeys({ keys, broadcast: true });
     }
 
     /** Busts everything keyed on this team's membership. */

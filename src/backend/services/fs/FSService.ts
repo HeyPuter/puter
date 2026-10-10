@@ -76,7 +76,6 @@ import {
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
-import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
 import {
     isOwnersTrash,
     isTildePath,
@@ -273,13 +272,6 @@ export class FSService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
     override onServerStart(): void {
-        // Wire cache invalidation: listens to events emitted by FS
-        // mutations and invalidates Redis-cached fsentries.
-        new FSEntryCacheInvalidationEventHandler(
-            this.stores.fsEntry,
-            this.clients.event,
-        );
-
         this.#registerPermissionRules();
     }
 
@@ -290,8 +282,8 @@ export class FSService extends PuterService {
      * only pulls the stores it actually needs.
      *
      * The path rewriter relies on `FSEntryStore.getEntryByPath`'s Redis cache
-     * (60s TTL), which is invalidated on every rename/move/delete through the
-     * existing event wiring.
+     * (60s TTL), which the store invalidates, in every region, on each
+     * rename/move/delete.
      */
     #registerPermissionRules(): void {
         const permissions = this.services.permission;

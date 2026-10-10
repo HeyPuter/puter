@@ -157,6 +157,31 @@ const pathOf = async (uuid: string): Promise<string | null> => {
     return rows[0]?.path ?? null;
 };
 
+type CacheUpdate = { cacheKey: string[]; data?: unknown };
+
+/** The `outer.cacheUpdate` payloads emitted, for peer regions, during `run`. */
+const captureCacheUpdates = async (
+    run: () => Promise<unknown>,
+): Promise<CacheUpdate[]> => {
+    const seen: CacheUpdate[] = [];
+    const listener = (_key: string, data: CacheUpdate) => {
+        seen.push(data);
+    };
+    server.clients.event.on('outer.cacheUpdate', listener);
+    try {
+        await run();
+    } finally {
+        server.clients.event.off('outer.cacheUpdate', listener);
+    }
+    return seen;
+};
+
+const entryCacheKeys = (entry: FSEntry): string[] => [
+    `prodfsv2:fsentry:id:${entry.id}`,
+    `prodfsv2:fsentry:uuid:${entry.uuid}`,
+    `prodfsv2:fsentry:path:any:${entry.path}`,
+];
+
 describe('FSEntryStore path normalization', () => {
     it('rejects an empty or traversing path everywhere it normalizes', async () => {
         const user = await makeUser();
@@ -316,6 +341,109 @@ describe('FSEntryStore cache invalidation', () => {
         await expect(
             store.invalidateEntryCacheById(-1),
         ).resolves.toBeUndefined();
+    });
+
+    it('tells peer regions to drop a deleted entry', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/pd.txt`);
+
+        const updates = await captureCacheUpdates(() =>
+            store.deleteEntry(file),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining(entryCacheKeys(file)),
+        );
+    });
+
+    it('tells peer regions to drop both paths of a moved entry', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/pm.txt`);
+        const newPath = `${user.home}/Documents/pm-moved.txt`;
+
+        const updates = await captureCacheUpdates(() =>
+            store.updateEntry(file.uuid, {
+                name: 'pm-moved.txt',
+                path: newPath,
+            }),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining([
+                ...entryCacheKeys(file),
+                `prodfsv2:fsentry:path:any:${newPath}`,
+            ]),
+        );
+    });
+
+    it('tells peer regions to drop an overwritten file', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/po.txt`);
+
+        const updates = await captureCacheUpdates(() =>
+            store.batchCreateEntries([
+                {
+                    userId: user.userId,
+                    uuid: uuidv4(),
+                    path: file.path,
+                    size: 7,
+                    overwrite: true,
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                },
+            ]),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining(entryCacheKeys(file)),
+        );
+    });
+
+    it('sends a batch delete to peers as one update, not one per entry', async () => {
+        const user = await makeUser();
+        const entries = [
+            await createFile(user, `${user.home}/Documents/pb1.txt`),
+            await createFile(user, `${user.home}/Documents/pb2.txt`),
+            await createFile(user, `${user.home}/Documents/pb3.txt`),
+        ];
+
+        const updates = await captureCacheUpdates(() =>
+            store.deleteEntries(entries),
+        );
+
+        expect(updates).toHaveLength(1);
+        expect(updates[0]!.cacheKey).toEqual(
+            expect.arrayContaining(entries.flatMap(entryCacheKeys)),
+        );
+    });
+
+    it('stops a peer serving its copy once it applies the broadcast', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/pa.txt`);
+        const cached = await store.getEntryByUuid(file.uuid);
+
+        const updates = await captureCacheUpdates(() =>
+            store.deleteEntry(file),
+        );
+
+        // Stand in for the peer: its Redis still holds what it cached before
+        // the delete, so its reads keep finding the entry.
+        for (const key of entryCacheKeys(file)) {
+            await server.clients.redis.setex(key, 60, JSON.stringify(cached));
+        }
+        await expect(store.getEntryByPath(file.path)).resolves.not.toBeNull();
+
+        for (const update of updates) {
+            await server.clients.event.emitAndWait(
+                'outer.cacheUpdate',
+                update,
+                { from_outside: true },
+            );
+        }
+
+        await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
+        await expect(store.getEntryByUuid(file.uuid)).resolves.toBeNull();
+        await expect(store.getEntryById(file.id)).resolves.toBeNull();
     });
 });
 
