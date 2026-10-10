@@ -66,13 +66,8 @@ const makeDriver = async () => {
         server.stores,
         server.services,
     );
-    d.onServerStart();
-    for (let i = 0; i < 200; i++) {
-        const m = await d.models();
-        if (m.length > 0) return d;
-        await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error('ChatCompletionDriver model map never populated in test');
+    await d.onServerStart();
+    return d;
 };
 
 const drain = async (stream: Readable): Promise<void> => {

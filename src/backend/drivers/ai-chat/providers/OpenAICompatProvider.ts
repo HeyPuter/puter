@@ -20,6 +20,7 @@
 import type { CompletionUsage } from 'openai/resources/completions.mjs';
 import type { Actor } from '../../../core/actor.js';
 import { Context } from '../../../core/context.js';
+import { HttpError } from '../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../services/metering/MeteringService.js';
 import type {
     IChatCompleteResult,
@@ -162,9 +163,12 @@ export class OpenAICompatProvider implements IChatProvider {
         throw new Error('Method not implemented.');
     }
 
-    async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
+    async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+    ): Promise<IChatCompleteResult> {
         const options = this.#options;
-        const model = await this.resolveModel(args.model);
+        const model = resolved ?? (await this.resolveModel(args.model));
         const actor = Context.get('actor');
         const signal = Context.get('abortSignal');
 
@@ -271,7 +275,10 @@ export class OpenAICompatProvider implements IChatProvider {
         });
     }
 
-    /** The catalog entry for a requested id or alias, case-insensitively. */
+    /**
+     * The catalog entry for a requested id or alias, case-insensitively, for a
+     * caller that didn't pass the one the driver resolved.
+     */
     protected async resolveModel(requested: string): Promise<IChatModel> {
         const models = await this.models();
         let index = this.#index.get(models);
@@ -285,11 +292,11 @@ export class OpenAICompatProvider implements IChatProvider {
             }
             this.#index.set(models, index);
         }
-        const model =
-            index.get(normalizeModelKey(requested ?? '')) ??
-            index.get(normalizeModelKey(this.getDefaultModel()));
+        const model = index.get(normalizeModelKey(requested ?? ''));
         if (!model) {
-            throw new Error(`Model not found: ${requested}`);
+            throw new HttpError(400, `Model not found: ${requested}`, {
+                legacyCode: 'bad_request',
+            });
         }
         return model;
     }

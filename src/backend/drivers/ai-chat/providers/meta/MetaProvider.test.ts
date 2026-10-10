@@ -498,17 +498,18 @@ describe('MetaProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
-        createMock.mockResolvedValueOnce(OK_COMPLETION);
-        await complete(makeProvider(), { model: 'totally-not-a-real-model' });
+    it('rejects an unknown id instead of substituting the default', async () => {
+        const provider = makeProvider();
 
-        expect(createMock.mock.calls[0]![0].model).toBe('muse-spark-1.2');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'meta:muse-spark-1.2',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 

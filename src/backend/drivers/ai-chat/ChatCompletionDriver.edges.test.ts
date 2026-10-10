@@ -93,14 +93,8 @@ const makeDriver = async (config: Record<string, unknown>) => {
         server.stores,
         server.services,
     );
-    d.onServerStart();
-    // `onServerStart` kicks off the model map without awaiting it.
-    for (let i = 0; i < 200; i++) {
-        const models = await d.models();
-        if (models.length > 1) return d;
-        await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error('model map never populated');
+    await d.onServerStart();
+    return d;
 };
 
 let fullDriver: ChatCompletionDriver;

@@ -93,7 +93,7 @@ export class MetaProvider extends OpenAICompatProvider {
         this.#fsService = fsService;
     }
 
-    override async complete(args: ICompleteArguments) {
+    override async complete(args: ICompleteArguments, resolved?: IChatModel) {
         if (!Array.isArray(args.messages)) {
             throw new HttpError(400, '`messages` must be an array', {
                 legacyCode: 'bad_request',
@@ -107,7 +107,7 @@ export class MetaProvider extends OpenAICompatProvider {
             this.#fsService,
             Context.get('actor'),
         );
-        return super.complete(args);
+        return super.complete(args, resolved);
     }
 
     protected override vendorParams(

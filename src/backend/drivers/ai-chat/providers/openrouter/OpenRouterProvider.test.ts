@@ -438,7 +438,7 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:anthropic/claude-sonnet',
+                model: 'openrouter:anthropic/claude-haiku-4.5',
                 messages: [
                     {
                         role: 'user',

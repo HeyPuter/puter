@@ -104,6 +104,7 @@ import {
     isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
+import { CATALOG_TTL_MS } from './utils/cachedRemoteCatalog.js';
 import { fromFinishReason } from './utils/stopReason.js';
 import { AIChatStream } from './utils/Streaming.js';
 import {
@@ -491,6 +492,9 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #providers: Record<string, IChatProvider> = Object.create(null);
     #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
+    /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
+    #catalogEntries = new WeakMap<IChatModel, IChatModel>();
+    #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -501,9 +505,18 @@ export class ChatCompletionDriver extends PuterDriver {
         );
     }
 
-    override onServerStart() {
+    override async onServerStart() {
         this.#registerProviders();
-        this.#buildModelMap();
+        await this.#buildModelMap();
+        // Gateway catalogs change under us; rebuild once they've expired.
+        this.#modelMapRefresh = setInterval(() => {
+            void this.#buildModelMap();
+        }, CATALOG_TTL_MS);
+        this.#modelMapRefresh.unref?.();
+    }
+
+    override onServerShutdown() {
+        clearInterval(this.#modelMapRefresh);
     }
 
     // -- Interface methods -------------------------------------------
@@ -745,11 +758,14 @@ export class ChatCompletionDriver extends PuterDriver {
             if (!useFakeProvider) {
                 await this.#resolvePuterPaths(attemptProvider, args, actor);
             }
-            return attemptProvider.complete({
-                ...args,
-                model: attemptModel.id,
-                provider: attemptModel.provider,
-            });
+            return attemptProvider.complete(
+                {
+                    ...args,
+                    model: attemptModel.id,
+                    provider: attemptModel.provider,
+                },
+                this.#catalogEntries.get(attemptModel),
+            );
         };
 
         try {
@@ -1831,12 +1847,28 @@ export class ChatCompletionDriver extends PuterDriver {
      *
      * Entries join a bucket by identity key (see `isIdentityKey`); display
      * names remain addressable but never merge two providers' entries.
+     *
+     * Built into a fresh map that replaces the old one whole, so a refresh
+     * never serves a half-built map. A provider whose catalog fails is left out
+     * of this build rather than failing it.
      */
     async #buildModelMap() {
-        for (const providerName in this.#providers) {
-            const provider = this.#providers[providerName];
+        const names = Object.keys(this.#providers);
+        const catalogs = await Promise.allSettled(
+            names.map(async (name) => this.#providers[name].models()),
+        );
+        const modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
-            for (const entry of await provider.models()) {
+        names.forEach((providerName, i) => {
+            const catalog = catalogs[i]!;
+            if (catalog.status === 'rejected') {
+                console.warn(
+                    `[ai-chat] ${providerName} catalog unavailable: ${(catalog.reason as Error)?.message ?? catalog.reason}`,
+                );
+                return;
+            }
+
+            for (const entry of catalog.value) {
                 // Catalogs are module-level constants shared by every driver
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
@@ -1874,19 +1906,23 @@ export class ChatCompletionDriver extends PuterDriver {
                 const bucket =
                     keys
                         .filter(isIdentityKey)
-                        .map((key) => this.#modelIdMap[key])
+                        .map((key) => modelIdMap[key])
                         .find(Boolean) ?? [];
-                bucket.push({ ...model, provider: providerName });
+                const routed = { ...model, provider: providerName };
+                this.#catalogEntries.set(routed, entry);
+                bucket.push(routed);
 
                 // First registration owns a key: a name already claimed by
                 // another model keeps pointing where it did.
                 for (const key of keys) {
-                    this.#modelIdMap[key] ??= bucket;
+                    modelIdMap[key] ??= bucket;
                 }
 
                 bucket.sort(compareModelPreference);
             }
-        }
+        });
+
+        this.#modelIdMap = modelIdMap;
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {

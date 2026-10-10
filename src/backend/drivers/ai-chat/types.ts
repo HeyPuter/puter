@@ -293,7 +293,14 @@ export interface IChatProvider {
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
     list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
-    complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
+    /**
+     * `model` is this provider's own catalog entry for `arg.model`, as the
+     * driver resolved it; a provider resolves `arg.model` itself without it.
+     */
+    complete(
+        arg: ICompleteArguments,
+        model?: IChatModel,
+    ): Promise<IChatCompleteResult>;
     checkModeration(
         text: string,
     ): Promise<{ flagged: boolean; categories?: string[] }> | void;
