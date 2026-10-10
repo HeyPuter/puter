@@ -357,19 +357,22 @@ export class BytePlusVideoProvider extends VideoProvider {
             },
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
         });
-        const payload = (await response.json().catch(() => ({}))) as Record<
-            string,
-            unknown
-        >;
+        let payload: { error?: { code?: string; message?: string } } = {};
+        try {
+            payload = (await response.json()) ?? {};
+        } catch {
+            // Non-JSON body; the status alone decides.
+        }
         if (!response.ok) {
-            const message =
-                ((payload.error as Record<string, unknown>)
-                    ?.message as string) ??
-                `BytePlus video API error (status ${response.status})`;
-            throw new HttpError(response.status >= 500 ? 502 : 400, message, {
-                legacyCode: 'upstream_failed',
-                fields: { provider: 'byteplus' },
-            });
+            // Carry the upstream status so the poller can retry 429/5xx and
+            // the driver boundary maps it like any SDK error.
+            throw Object.assign(
+                new Error(
+                    payload.error?.message ??
+                        `BytePlus video API error (status ${response.status})`,
+                ),
+                { status: response.status, code: payload.error?.code },
+            );
         }
         return payload;
     }
