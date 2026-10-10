@@ -40,6 +40,21 @@ const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
 const AUDIT_PAGE_SIZE = 50;
 const MAX_AUDIT_PAGE_SIZE = 200;
 
+/** The user-to-app grant a user's first sign-in to an app records. */
+export const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
+
+const INSTALLED_APPS_ORDER_COLUMNS = {
+    id: 'apps.id',
+    name: 'apps.name',
+    uid: 'apps.uid',
+    title: 'apps.title',
+    installed_at: 'installed_at',
+} as const;
+export type InstalledAppsOrder = keyof typeof INSTALLED_APPS_ORDER_COLUMNS;
+export const INSTALLED_APPS_ORDERS = Object.keys(
+    INSTALLED_APPS_ORDER_COLUMNS,
+) as InstalledAppsOrder[];
+
 // Re-export for back-compat — PermissionService et al. import `UserRow` from here.
 // The canonical definition lives in `UserStore`, which owns the user table.
 export type { UserRow };
@@ -815,6 +830,97 @@ export class PermissionStore extends PuterStore {
             // A key left absent is the safe miss: the next read goes to the DB.
             console.warn('[permission] u2a cache re-fill failed:', e);
         }
+    }
+
+    /**
+     * The apps a user has granted anything to, each with when it first was
+     * (`installed_at`), one page at a time.
+     */
+    async listAppsGrantedByUser(
+        userId: number,
+        {
+            orderBy,
+            descending,
+            limit,
+            offset,
+        }: {
+            orderBy: InstalledAppsOrder;
+            descending: boolean;
+            limit: number;
+            offset: number;
+        },
+    ): Promise<Array<Record<string, unknown>>> {
+        const orderColumn = INSTALLED_APPS_ORDER_COLUMNS[orderBy];
+        return this.clients.db.read(
+            `SELECT
+                apps.name,
+                apps.uid,
+                apps.title,
+                apps.description,
+                apps.icon,
+                apps.index_url,
+                apps.owner_user_id,
+                MIN(perm.dt) AS installed_at
+            FROM apps
+            LEFT JOIN user_to_app_permissions AS perm ON apps.id = perm.app_id
+            WHERE perm.user_id = ?
+            GROUP BY apps.id, apps.name, apps.uid, apps.title, apps.description
+            ORDER BY ${orderColumn} ${descending ? 'DESC' : 'ASC'}
+            LIMIT ?
+            OFFSET ?`,
+            [userId, limit, offset],
+        );
+    }
+
+    /**
+     * Users who have authenticated into an app, oldest first, with whether each
+     * one shared their email with it (`user:<uuid>:email:read`).
+     */
+    async listAppAuthenticatedUsers(
+        appId: number,
+        { limit, offset }: { limit: number; offset: number },
+    ): Promise<
+        Array<{
+            id: number;
+            username: string;
+            uuid: string;
+            email: string | null;
+            emailShared: boolean;
+        }>
+    > {
+        const users = (await this.clients.db.read(
+            `SELECT u.id, u.username, u.uuid, u.email FROM user_to_app_permissions p
+             INNER JOIN ${this.clients.db.quoteIdentifier('user')} u ON p.user_id = u.id
+             WHERE p.permission = ? AND p.app_id = ?
+             ORDER BY (p.dt IS NOT NULL), p.dt, p.user_id
+             LIMIT ? OFFSET ?`,
+            [APP_AUTHENTICATED_FLAG, appId, limit, offset],
+        )) as Array<{
+            id: number;
+            username: string;
+            uuid: string;
+            email: string | null;
+        }>;
+        if (users.length === 0) return [];
+
+        const emailGrants = users.map((u) => `user:${u.uuid}:email:read`);
+        const grants = (await this.clients.db.read(
+            `SELECT user_id FROM user_to_app_permissions
+             WHERE app_id = ? AND permission IN (${emailGrants.map(() => '?').join(', ')})`,
+            [appId, ...emailGrants],
+        )) as Array<{ user_id: number }>;
+        const shared = new Set(grants.map((g) => Number(g.user_id)));
+        return users.map((u) => ({ ...u, emailShared: shared.has(u.id) }));
+    }
+
+    /** How many users have authenticated into an app. */
+    async countAppUsers(appId: number): Promise<number> {
+        const [row] = (await this.clients.db.read(
+            `SELECT COUNT(*) AS n FROM user_to_app_permissions
+             WHERE permission = ? AND app_id = ?`,
+            [APP_AUTHENTICATED_FLAG, appId],
+        )) as Array<{ n: number | string }>;
+        return Number(row?.n ?? 0);
     }
 
     async upsertUserAppPerm(

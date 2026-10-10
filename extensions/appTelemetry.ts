@@ -145,44 +145,17 @@ export class AppTelemetryDriver extends PuterDriver {
         }
         if (!ownsApp) throw new HttpError(403, 'Permission denied');
 
-        const appId = (app as { id: number }).id;
-
-        const users = (await this.clients.db.read(
-            `SELECT u.id, u.username, u.uuid, u.email FROM user_to_app_permissions p
-             INNER JOIN ${this.clients.db.quoteIdentifier('user')} u ON p.user_id = u.id
-             WHERE p.permission = 'flag:app-is-authenticated' AND p.app_id = ?
-             ORDER BY (p.dt IS NOT NULL), p.dt, p.user_id
-             LIMIT ? OFFSET ?`,
-            [appId, safeLimit, safeOffset],
-        )) as Array<{
-            id: number;
-            username: string;
-            uuid: string;
-            email: string | null;
-        }>;
-
-        // Only surface a user's email if *that user* granted this app the
-        // `user:<their-uuid>:email:read` permission — the same grant
-        // `puter.perms.requestEmail()` obtains and `whoami` honours. This is a
-        // per-user check keyed on the app (not the calling owner-actor): a
-        // user may have authenticated into the app without sharing their
-        // email. Resolve the whole page in one query.
-        const emailPermitted = new Set<number>();
-        if (users.length > 0) {
-            const permStrings = users.map((u) => `user:${u.uuid}:email:read`);
-            const placeholders = permStrings.map(() => '?').join(', ');
-            const grants = (await this.clients.db.read(
-                `SELECT user_id FROM user_to_app_permissions
-                 WHERE app_id = ? AND permission IN (${placeholders})`,
-                [appId, ...permStrings],
-            )) as Array<{ user_id: number }>;
-            for (const g of grants) emailPermitted.add(g.user_id);
-        }
-
-        return users.map((e) =>
-            emailPermitted.has(e.id)
-                ? { user: e.username, user_uuid: e.uuid, user_email: e.email }
-                : { user: e.username, user_uuid: e.uuid },
+        // An email surfaces only for a user who granted *this app*
+        // `user:<their-uuid>:email:read` — the grant `puter.perms.requestEmail()`
+        // obtains and `whoami` honours. Authenticating alone doesn't share it.
+        const users = await this.stores.permission.listAppAuthenticatedUsers(
+            (app as { id: number }).id,
+            { limit: safeLimit, offset: safeOffset },
+        );
+        return users.map((u) =>
+            u.emailShared
+                ? { user: u.username, user_uuid: u.uuid, user_email: u.email }
+                : { user: u.username, user_uuid: u.uuid },
         );
     }
 
@@ -195,13 +168,7 @@ export class AppTelemetryDriver extends PuterDriver {
         const app = await this.stores.app.getByUid(app_uuid);
         if (!app) throw new HttpError(404, 'App not found');
 
-        const [row] = (await this.clients.db.read(
-            `SELECT COUNT(*) AS n FROM user_to_app_permissions
-             WHERE permission = 'flag:app-is-authenticated' AND app_id = ?`,
-            [(app as { id: number }).id],
-        )) as Array<{ n: number }>;
-
-        return row?.n ?? 0;
+        return this.stores.permission.countAppUsers((app as { id: number }).id);
     }
 }
 
