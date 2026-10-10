@@ -23,8 +23,10 @@ import { insufficientCreditsError } from '../../../../services/metering/enforcem
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
+import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
+import { TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
 import { SPEECHIFY_TTS_COSTS } from './costs.js';
 
 // Public API base only — never an internal/consumer Speechify endpoint.
@@ -170,57 +172,25 @@ export class SpeechifyTTSProvider extends TTSProvider {
                 ? text
                 : `<speak>${text}</speak>`;
 
-            const response = await fetch(`${API_BASE}/v1/audio/speech`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.#apiKey}`,
-                    'Content-Type': 'application/json',
-                    [CALLER_HEADER]: CALLER_VALUE,
-                },
-                body: JSON.stringify({
-                    input,
-                    voice_id: voice,
-                    model,
-                    audio_format: format,
-                }),
-            });
-
-            if (!response.ok) {
-                const errText = await response.text().catch(() => '');
-                console.error(
-                    `[SpeechifyTTSProvider] API returned ${response.status}: ${errText}`,
-                );
-                // Map upstream status to an `upstream_*` HttpError so the
-                // alarm gate skips it. Mirrors ElevenLabs/xAI's translator —
-                // 4xx and 5xx both surface as 400 to the client (with the
-                // appropriate legacyCode), 429 stays 429, auth stays 500.
-                const legacyCode =
-                    response.status >= 500
-                        ? 'upstream_provider_unavailable'
-                        : response.status === 401 || response.status === 403
-                          ? 'upstream_auth_failed'
-                          : response.status === 429
-                            ? 'upstream_rate_limited'
-                            : 'upstream_bad_request';
-                const exposedStatus =
-                    legacyCode === 'upstream_rate_limited'
-                        ? 429
-                        : legacyCode === 'upstream_auth_failed'
-                          ? 500
-                          : 400;
-                throw new HttpError(
-                    exposedStatus,
-                    errText ||
-                        `Speechify TTS request failed (status ${response.status})`,
-                    {
-                        legacyCode,
-                        fields: {
-                            provider: 'speechify',
-                            upstreamStatus: response.status,
-                        },
+            const response = await upstreamFetch(
+                'Speechify TTS',
+                `${API_BASE}/v1/audio/speech`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${this.#apiKey}`,
+                        'Content-Type': 'application/json',
+                        [CALLER_HEADER]: CALLER_VALUE,
                     },
-                );
-            }
+                    body: JSON.stringify({
+                        input,
+                        voice_id: voice,
+                        model,
+                        audio_format: format,
+                    }),
+                },
+                { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
+            );
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const data: any = await response.json();

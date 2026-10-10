@@ -23,8 +23,10 @@ import { insufficientCreditsError } from '../../../../services/metering/enforcem
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
+import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
 import { TTSProvider } from '../TTSProvider.js';
+import { TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
@@ -68,7 +70,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         this.defaultVoiceId = config.defaultVoiceId ?? DEFAULT_VOICE_ID;
     }
 
-    private async request(
+    private request(
         path: string,
         opts: {
             method?: string;
@@ -77,72 +79,19 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         } = {},
     ): Promise<Response> {
         const { method = 'GET', body, headers = {} } = opts;
-
-        const response = await fetch(`${this.baseUrl}${path}`, {
-            method,
-            headers: {
-                'xi-api-key': this.apiKey,
-                ...(body ? { 'Content-Type': 'application/json' } : {}),
-                ...headers,
-            },
-            body: body ? JSON.stringify(body) : undefined,
-        });
-
-        if (response.ok) {
-            return response;
-        }
-
-        let detail: unknown = null;
-        try {
-            detail = await response.json();
-        } catch {
-            // ignore
-        }
-
-        console.error('[ElevenLabsTTSProvider] request failed', {
-            path,
-            status: response.status,
-            detail,
-        });
-
-        // Map upstream status to an `upstream_*` HttpError so the alarm
-        // gate skips it. Anything 4xx from ElevenLabs (voice_not_found,
-        // invalid model, bad payload, auth) is a user-caused error from
-        // our perspective — expose as 400. 5xx is an outage on their
-        // side — also expose as 400 (`upstream_provider_unavailable`)
-        // since the user can't act on it but it's not our bug.
-        const upstreamCode =
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (detail as any)?.detail?.code ?? (detail as any)?.code;
-        const upstreamMessage =
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (detail as any)?.detail?.message ?? (detail as any)?.message;
-        const legacyCode =
-            response.status >= 500
-                ? 'upstream_provider_unavailable'
-                : response.status === 401 || response.status === 403
-                  ? 'upstream_auth_failed'
-                  : response.status === 429
-                    ? 'upstream_rate_limited'
-                    : 'upstream_bad_request';
-        const exposedStatus =
-            legacyCode === 'upstream_rate_limited'
-                ? 429
-                : legacyCode === 'upstream_auth_failed'
-                  ? 500
-                  : 400;
-        throw new HttpError(
-            exposedStatus,
-            upstreamMessage ??
-                `ElevenLabs request failed (status ${response.status})`,
+        return upstreamFetch(
+            'ElevenLabs',
+            `${this.baseUrl}${path}`,
             {
-                legacyCode,
-                fields: {
-                    provider: 'elevenlabs',
-                    upstreamStatus: response.status,
-                    upstreamCode,
+                method,
+                headers: {
+                    'xi-api-key': this.apiKey,
+                    ...(body ? { 'Content-Type': 'application/json' } : {}),
+                    ...headers,
                 },
+                body: body ? JSON.stringify(body) : undefined,
             },
+            { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
         );
     }
 

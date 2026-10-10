@@ -29,6 +29,7 @@ import {
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
+import { upstreamFetch } from '../util/upstreamErrors.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 /**
@@ -41,6 +42,8 @@ const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
 const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
+// Covers the upload as well as the conversion.
+const CONVERT_TIMEOUT_MS = 10 * 60 * 1000;
 
 const PROVIDERS = ['elevenlabs'] as const;
 
@@ -268,51 +271,16 @@ export class VoiceChangerDriver extends PuterDriver {
             const search = searchParams.toString();
             if (search) url.search = search;
 
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'xi-api-key': this.#apiKey },
-                body: formData,
-            });
-
-            if (!response.ok) {
-                let detail: unknown = null;
-                try {
-                    detail = await response.json();
-                } catch {
-                    // Non-JSON body — ignore.
-                }
-                const message =
-                    detail && typeof detail === 'object' && 'detail' in detail
-                        ? String((detail as { detail: unknown }).detail)
-                        : `ElevenLabs returned ${response.status}`;
-                // Tag upstream status as `upstream_*` so the alarm gate
-                // skips paging on ElevenLabs 5xx outages (we expose them
-                // as 400 like the TTS provider does — user can't act on
-                // them, but it's not our bug either).
-                const legacyCode =
-                    response.status >= 500
-                        ? 'upstream_provider_unavailable'
-                        : response.status === 401 || response.status === 403
-                          ? 'upstream_auth_failed'
-                          : response.status === 429
-                            ? 'upstream_rate_limited'
-                            : 'upstream_bad_request';
-                const exposedStatus =
-                    legacyCode === 'upstream_rate_limited'
-                        ? 429
-                        : legacyCode === 'upstream_auth_failed'
-                          ? 500
-                          : legacyCode === 'upstream_provider_unavailable'
-                            ? 400
-                            : response.status;
-                throw new HttpError(exposedStatus, message, {
-                    legacyCode,
-                    fields: {
-                        provider: 'elevenlabs',
-                        upstreamStatus: response.status,
-                    },
-                });
-            }
+            const response = await upstreamFetch(
+                'ElevenLabs',
+                url,
+                {
+                    method: 'POST',
+                    headers: { 'xi-api-key': this.#apiKey },
+                    body: formData,
+                },
+                { timeoutMs: CONVERT_TIMEOUT_MS },
+            );
 
             const arrayBuffer = await response.arrayBuffer();
             const stream = Readable.from(Buffer.from(arrayBuffer));

@@ -20,6 +20,7 @@
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { loadFileInput } from '../../../util/fileInput.js';
+import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import type {
     ISpeechToTextDeps,
     ISpeechToTextModel,
@@ -39,6 +40,8 @@ import { SpeechToTextProvider } from '../SpeechToTextProvider.js';
 
 const API_BASE = 'https://api.x.ai/v1';
 const MAX_AUDIO_FILE_SIZE = 500 * 1024 * 1024; // 500 MB per xAI docs
+// Covers the upload as well as the transcription.
+const STT_TIMEOUT_MS = 10 * 60 * 1000;
 // $0.10 per hour = 10 cents per hour = 10 * 1_000_000 microcents per hour
 // Per second: 10_000_000 / 3600 ≈ 2778 microcents per second
 const UCENTS_PER_SECOND = 2778;
@@ -213,48 +216,16 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
                 formData.append('file', blob, filename);
             }
 
-            const response = await fetch(`${API_BASE}/stt`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.#apiKey}`,
+            const response = await upstreamFetch(
+                'xAI STT',
+                `${API_BASE}/stt`,
+                {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${this.#apiKey}` },
+                    body: formData,
                 },
-                body: formData,
-            });
-
-            if (!response.ok) {
-                const errText = await response.text().catch(() => '');
-                console.error(
-                    `[XAISpeechToTextProvider] API returned ${response.status}: ${errText}`,
-                );
-                // Mirrors ElevenLabs / XAITTS — map upstream status to an
-                // `upstream_*` HttpError so the alarm gate skips it.
-                const legacyCode =
-                    response.status >= 500
-                        ? 'upstream_provider_unavailable'
-                        : response.status === 401 || response.status === 403
-                          ? 'upstream_auth_failed'
-                          : response.status === 429
-                            ? 'upstream_rate_limited'
-                            : 'upstream_bad_request';
-                const exposedStatus =
-                    legacyCode === 'upstream_rate_limited'
-                        ? 429
-                        : legacyCode === 'upstream_auth_failed'
-                          ? 500
-                          : 400;
-                throw new HttpError(
-                    exposedStatus,
-                    errText ||
-                        `xAI STT request failed (status ${response.status})`,
-                    {
-                        legacyCode,
-                        fields: {
-                            provider: 'xai',
-                            upstreamStatus: response.status,
-                        },
-                    },
-                );
-            }
+                { timeoutMs: STT_TIMEOUT_MS },
+            );
 
             const result = await response.json();
 

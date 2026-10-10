@@ -49,6 +49,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { setupTestServer } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import type { SpeechToTextDriver } from '../../SpeechToTextDriver.js';
+import { callerError } from '../../../integrationTestUtil.js';
 
 // Mirror the driver's per-second cost so test expectations stay in lockstep
 // with the real value rather than restating an arbitrary literal.
@@ -319,6 +320,7 @@ describe('XAISpeechToTextProvider audio input handling', () => {
         expect(String(url)).toBe('https://api.x.ai/v1/stt');
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>).Authorization).toBe(
             'Bearer xai-test-key',
         );
@@ -598,13 +600,15 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('bad request', { status: 400 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });
@@ -615,13 +619,15 @@ describe('XAISpeechToTextProvider error paths', () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(new Response('oops', { status: 503 }));
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_provider_unavailable',
         });
@@ -634,13 +640,15 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('forbidden', { status: 403 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 500,
             legacyCode: 'upstream_auth_failed',
         });
@@ -653,33 +661,37 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('slow down', { status: 429 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 429,
             legacyCode: 'upstream_rate_limited',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('tags upstream errors with provider=xai and the original status', async () => {
+    it('tags upstream errors with the original status', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
             new Response('boom', { status: 502 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
-            fields: { provider: 'xai', upstreamStatus: 502 },
+        ).toMatchObject({
+            fields: { upstreamStatus: 502 },
         });
     });
 

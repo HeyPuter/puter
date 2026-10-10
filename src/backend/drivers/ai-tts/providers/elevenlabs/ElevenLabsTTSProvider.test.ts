@@ -45,7 +45,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { callerError, withTestActor } from '../../../integrationTestUtil.js';
 import { ElevenLabsTTSProvider } from './ElevenLabsTTSProvider.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
@@ -316,6 +316,7 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         );
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>)['xi-api-key']).toBe(
             'test-key',
         );
@@ -496,9 +497,9 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
             }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });
