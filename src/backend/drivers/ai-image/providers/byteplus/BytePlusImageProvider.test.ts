@@ -39,10 +39,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { BYTEPLUS_IMAGE_GENERATION_MODELS } from './models.js';
 import { BytePlusImageProvider } from './BytePlusImageProvider.js';
 
@@ -83,6 +85,14 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = (
     config: { apiKey?: string; apiBaseUrl?: string } = {},
 ) =>
@@ -91,7 +101,7 @@ const makeProvider = (
             apiKey: config.apiKey ?? 'test-key',
             ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
         },
-        server.services.metering,
+        aiMetering(),
     );
 
 beforeEach(() => {
@@ -136,11 +146,7 @@ describe('BytePlusImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new BytePlusImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new BytePlusImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -196,6 +202,35 @@ describe('BytePlusImageProvider.generate gates', () => {
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(generateMock).not.toHaveBeenCalled();
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+    });
+
+    it('holds the image cost while ModelArk runs and releases it afterwards', async () => {
+        const actor = makeActor({
+            user: { id: 92, uuid: `ark-hold-${Date.now()}`, username: 'hold' },
+        });
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return sampleResponse;
+        });
+
+        await withTestActor(
+            () =>
+                makeProvider().generate({
+                    model: 'seedream-4-0',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(
+            findModel('seedream-4-0-250828').costs['per-image'] * 1_000_000,
+        );
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

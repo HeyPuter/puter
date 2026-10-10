@@ -23,7 +23,7 @@ import { imageDataUri } from '../../imageOutput.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageModel,
@@ -65,7 +65,7 @@ export class CloudflareImageProvider implements IImageProvider {
     #apiToken: string;
     #accountId: string;
     #apiBaseUrl: string;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
 
     constructor(
         config: {
@@ -73,7 +73,7 @@ export class CloudflareImageProvider implements IImageProvider {
             accountId: string;
             apiBaseUrl?: string;
         },
-        meteringService: MeteringService,
+        meteringService: AiMeteringService,
     ) {
         this.#apiToken = config.apiToken;
         this.#accountId = config.accountId;
@@ -192,38 +192,44 @@ export class CloudflareImageProvider implements IImageProvider {
             (acc, component) => acc + component.totalCostMicroCents,
             0,
         );
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const usagePrefix = `cloudflare:${this.#getMeteringModelKey(selectedModel)}`;
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            usagePrefix,
             totalCostInMicroCents,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw insufficientCreditsError();
         }
 
-        const response = await this.#runModel(selectedModel, {
-            ...options,
-            ratio,
-            steps,
-            inputImage,
-            maskBytes,
-        });
+        try {
+            const response = await this.#runModel(selectedModel, {
+                ...options,
+                ratio,
+                steps,
+                inputImage,
+                maskBytes,
+            });
 
-        this.#meteringService.batchIncrementUsages(
-            actor,
-            costComponents
-                .filter(
-                    (component) =>
-                        component.usageAmount > 0 &&
-                        component.totalCostMicroCents > 0,
-                )
-                .map((component) => ({
-                    usageType: `cloudflare:${this.#getMeteringModelKey(selectedModel)}:${component.key}`,
-                    usageAmount: component.usageAmount,
-                    costOverride: component.totalCostMicroCents,
-                })),
-        );
+            this.#meteringService.batchIncrementUsages(
+                actor,
+                costComponents
+                    .filter(
+                        (component) =>
+                            component.usageAmount > 0 &&
+                            component.totalCostMicroCents > 0,
+                    )
+                    .map((component) => ({
+                        usageType: `${usagePrefix}:${component.key}`,
+                        usageAmount: component.usageAmount,
+                        costOverride: component.totalCostMicroCents,
+                    })),
+            );
 
-        return response;
+            return response;
+        } finally {
+            await hold.release();
+        }
     }
 
     #getModel(model?: string): CloudflareImageModel {

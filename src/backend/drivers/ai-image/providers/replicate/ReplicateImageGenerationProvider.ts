@@ -30,7 +30,11 @@ import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import {
+    type CreditHold,
+    NO_CREDIT_HOLD,
+} from '../../../../services/metering/types.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import { secureFetch } from '../../../../util/secureHttp.js';
 import type { IGenerateParams, IImageProvider } from '../../types.js';
 import {
@@ -117,9 +121,12 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
     ];
 
     #client: Replicate;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         if (!config.apiKey) {
             throw new Error('Replicate image generation requires an API key');
         }
@@ -288,7 +295,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                       : undefined,
               );
 
-        const assertCredits = async (inputMegapixels: number) => {
+        const estimateCost = (inputMegapixels: number): number => {
             const totalCostMicroCents = catalogInput
                 ? catalogCostComponents(selectedModel, catalogInput, {
                       inputMp: inputMegapixels,
@@ -309,183 +316,196 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                     { legacyCode: 'unknown_error' },
                 );
             }
-            const usageAllowed = await this.#meteringService.hasEnoughCredits(
-                actor,
-                totalCostMicroCents,
-            );
-            if (!usageAllowed) {
-                throw insufficientCreditsError();
-            }
+            return totalCostMicroCents;
         };
-        // Measuring input images fetches caller-supplied URLs, so the credit
-        // gate runs on the output-only estimate before any of that I/O and
-        // again once the input surcharge is known.
-        await assertCredits(0);
-        const inputMp =
-            allInputUrls.length > 0
-                ? await this.#measureInputMegapixels(
-                      allInputUrls,
-                      !catalogInput,
-                  )
-                : 0;
-        if (inputMp > 0) await assertCredits(inputMp);
-
-        const input =
-            catalogInput ??
-            this.#buildRequest(selectedModel, {
-                prompt,
-                ratio,
-                transformed,
-                inputImages,
-                singleImage,
-            });
-
-        const deadline = Date.now() + PREDICTION_WINDOW_MS;
-        const expired = () => Date.now() >= deadline;
-        const timeout = () =>
-            new HttpError(
-                504,
-                'Timed out waiting for Replicate image generation',
-                {
-                    legacyCode: 'upstream_timeout',
-                    fields: { provider: 'replicate' },
-                },
+        const holdCredits = async (amount: number): Promise<CreditHold> => {
+            const hold = await this.#meteringService.reserveAiCredits(
+                actor,
+                `replicate:${selectedModel.id}`,
+                amount,
             );
-        let interrupted: unknown;
-        let output: unknown;
-        let predictionSeconds: number | undefined;
+            if (!hold) throw insufficientCreditsError();
+            return hold;
+        };
+        // Measuring input images fetches caller-supplied URLs, so the
+        // output-only estimate is held before any of that I/O, and the input
+        // surcharge on top of it once it is known.
+        const outputOnlyCost = estimateCost(0);
+        const outputHold = await holdCredits(outputOnlyCost);
+        let inputHold = NO_CREDIT_HOLD;
         try {
-            // Keep the creation response so a disconnect cannot discard the ID needed to cancel.
-            let prediction = await this.#client.predictions.create({
-                ...(selectedModel.replicateVersion
-                    ? { version: selectedModel.replicateVersion }
-                    : {
-                          model: selectedModel.replicateId as `${string}/${string}`,
-                      }),
-                input,
-                wait: 60,
-            });
-            const pending = () =>
-                prediction.status === 'starting' ||
-                prediction.status === 'processing';
-            if (pending() && !signal?.aborted && !expired()) {
-                try {
-                    prediction = await this.#client.wait(
-                        prediction,
-                        { interval: 2000 },
-                        async (current) =>
-                            signal?.aborted ||
-                            expired() ||
-                            !['starting', 'processing'].includes(
-                                current.status,
-                            ),
-                    );
-                } catch (error) {
-                    // Only our own abort or deadline is an interruption worth
-                    // cancelling for. A poll failure or the SDK's "Prediction
-                    // failed" throw is the prediction's real outcome: it must
-                    // not cancel a healthy run or bill a stale one.
-                    if (!signal?.aborted && !expired()) throw error;
-                }
-            }
-            if (signal?.aborted) interrupted = aborted();
-            else if (expired()) interrupted = timeout();
-            if (interrupted && pending()) {
-                try {
-                    prediction = await this.#client.predictions.cancel(
-                        prediction.id,
-                    );
-                } catch {
-                    // Recheck briefly for a completed result; the upstream deadline bounds remaining work.
-                }
-                if (pending()) {
-                    const cleanupDeadline = Date.now() + CLEANUP_WINDOW_MS;
-                    prediction = await this.#client.wait(
-                        prediction,
-                        { interval: 2000 },
-                        async (current) =>
-                            Date.now() >= cleanupDeadline ||
-                            !['starting', 'processing'].includes(
-                                current.status,
-                            ),
-                    );
-                }
-            }
-            if (prediction.status !== 'succeeded' && interrupted) {
-                throw interrupted;
-            }
-            if (
-                prediction.status === 'failed' ||
-                prediction.status === 'canceled' ||
-                (prediction.status as string) === 'aborted'
-            ) {
-                if (signal?.aborted) throw aborted();
-                throw new Error(
-                    `Prediction failed: ${prediction.error || prediction.status}`,
+            const inputMp =
+                allInputUrls.length > 0
+                    ? await this.#measureInputMegapixels(
+                          allInputUrls,
+                          !catalogInput,
+                      )
+                    : 0;
+            if (inputMp > 0) {
+                inputHold = await holdCredits(
+                    estimateCost(inputMp) - outputOnlyCost,
                 );
             }
-            output = prediction.output;
-            predictionSeconds = prediction.metrics?.predict_time;
-        } catch (err) {
-            if (signal?.aborted) throw aborted();
-            if (expired()) throw timeout();
-            throw this.#translatePredictionFailure(err);
-        }
 
-        const selectedOutput =
-            selectedModel.outputIndex !== undefined && Array.isArray(output)
-                ? output[selectedModel.outputIndex]
-                : output;
-        const url = this.#extractUrl(selectedOutput);
-        if (!url) {
-            throw new HttpError(
-                400,
-                'Failed to extract image URL from Replicate response',
-                { legacyCode: 'unknown_error' },
-            );
-        }
+            const input =
+                catalogInput ??
+                this.#buildRequest(selectedModel, {
+                    prompt,
+                    ratio,
+                    transformed,
+                    inputImages,
+                    singleImage,
+                });
 
-        if (catalogInput) {
-            const seconds = predictionSeconds ?? 0;
-            if (
-                selectedModel.costs.second !== undefined &&
-                (!Number.isFinite(predictionSeconds) || seconds < 0)
-            ) {
-                throw new HttpError(
-                    502,
-                    'Replicate response did not include billable runtime',
+            const deadline = Date.now() + PREDICTION_WINDOW_MS;
+            const expired = () => Date.now() >= deadline;
+            const timeout = () =>
+                new HttpError(
+                    504,
+                    'Timed out waiting for Replicate image generation',
                     {
-                        legacyCode: 'upstream_failed',
+                        legacyCode: 'upstream_timeout',
+                        fields: { provider: 'replicate' },
                     },
                 );
+            let interrupted: unknown;
+            let output: unknown;
+            let predictionSeconds: number | undefined;
+            try {
+                // Keep the creation response so a disconnect cannot discard the ID needed to cancel.
+                let prediction = await this.#client.predictions.create({
+                    ...(selectedModel.replicateVersion
+                        ? { version: selectedModel.replicateVersion }
+                        : {
+                              model: selectedModel.replicateId as `${string}/${string}`,
+                          }),
+                    input,
+                    wait: 60,
+                });
+                const pending = () =>
+                    prediction.status === 'starting' ||
+                    prediction.status === 'processing';
+                if (pending() && !signal?.aborted && !expired()) {
+                    try {
+                        prediction = await this.#client.wait(
+                            prediction,
+                            { interval: 2000 },
+                            async (current) =>
+                                signal?.aborted ||
+                                expired() ||
+                                !['starting', 'processing'].includes(
+                                    current.status,
+                                ),
+                        );
+                    } catch (error) {
+                        // Only our own abort or deadline is an interruption worth
+                        // cancelling for. A poll failure or the SDK's "Prediction
+                        // failed" throw is the prediction's real outcome: it must
+                        // not cancel a healthy run or bill a stale one.
+                        if (!signal?.aborted && !expired()) throw error;
+                    }
+                }
+                if (signal?.aborted) interrupted = aborted();
+                else if (expired()) interrupted = timeout();
+                if (interrupted && pending()) {
+                    try {
+                        prediction = await this.#client.predictions.cancel(
+                            prediction.id,
+                        );
+                    } catch {
+                        // Recheck briefly for a completed result; the upstream deadline bounds remaining work.
+                    }
+                    if (pending()) {
+                        const cleanupDeadline = Date.now() + CLEANUP_WINDOW_MS;
+                        prediction = await this.#client.wait(
+                            prediction,
+                            { interval: 2000 },
+                            async (current) =>
+                                Date.now() >= cleanupDeadline ||
+                                !['starting', 'processing'].includes(
+                                    current.status,
+                                ),
+                        );
+                    }
+                }
+                if (prediction.status !== 'succeeded' && interrupted) {
+                    throw interrupted;
+                }
+                if (
+                    prediction.status === 'failed' ||
+                    prediction.status === 'canceled' ||
+                    (prediction.status as string) === 'aborted'
+                ) {
+                    if (signal?.aborted) throw aborted();
+                    throw new Error(
+                        `Prediction failed: ${prediction.error || prediction.status}`,
+                    );
+                }
+                output = prediction.output;
+                predictionSeconds = prediction.metrics?.predict_time;
+            } catch (err) {
+                if (signal?.aborted) throw aborted();
+                if (expired()) throw timeout();
+                throw this.#translatePredictionFailure(err);
             }
-            const measuredOutputMp = selectedModel.billingRates?.some(
-                (rate) => rate.costs.output_mp !== undefined,
-            )
-                ? await this.#measureMegapixels(url, false)
-                : outputMp;
-            this.#meteringService.batchIncrementUsages(
-                actor,
-                catalogCostComponents(selectedModel, catalogInput, {
-                    inputMp,
-                    outputMp: measuredOutputMp,
-                    seconds,
-                }).filter((component) => component.usageAmount > 0),
-            );
-        } else
-            this.#recordUsage(
-                actor,
-                selectedModel,
-                outputMp,
-                goFast,
-                inputMp,
-                generationMode,
-            );
 
-        if (signal?.aborted) throw aborted();
-        // A prediction that finished during deadline cleanup is paid for and
-        // usable, so the caller gets the image rather than a 504.
-        return url;
+            const selectedOutput =
+                selectedModel.outputIndex !== undefined && Array.isArray(output)
+                    ? output[selectedModel.outputIndex]
+                    : output;
+            const url = this.#extractUrl(selectedOutput);
+            if (!url) {
+                throw new HttpError(
+                    400,
+                    'Failed to extract image URL from Replicate response',
+                    { legacyCode: 'unknown_error' },
+                );
+            }
+
+            if (catalogInput) {
+                const seconds = predictionSeconds ?? 0;
+                if (
+                    selectedModel.costs.second !== undefined &&
+                    (!Number.isFinite(predictionSeconds) || seconds < 0)
+                ) {
+                    throw new HttpError(
+                        502,
+                        'Replicate response did not include billable runtime',
+                        {
+                            legacyCode: 'upstream_failed',
+                        },
+                    );
+                }
+                const measuredOutputMp = selectedModel.billingRates?.some(
+                    (rate) => rate.costs.output_mp !== undefined,
+                )
+                    ? await this.#measureMegapixels(url, false)
+                    : outputMp;
+                this.#meteringService.batchIncrementUsages(
+                    actor,
+                    catalogCostComponents(selectedModel, catalogInput, {
+                        inputMp,
+                        outputMp: measuredOutputMp,
+                        seconds,
+                    }).filter((component) => component.usageAmount > 0),
+                );
+            } else
+                this.#recordUsage(
+                    actor,
+                    selectedModel,
+                    outputMp,
+                    goFast,
+                    inputMp,
+                    generationMode,
+                );
+
+            if (signal?.aborted) throw aborted();
+            // A prediction that finished during deadline cleanup is paid for and
+            // usable, so the caller gets the image rather than a 504.
+            return url;
+        } finally {
+            await Promise.all([outputHold.release(), inputHold.release()]);
+        }
     }
 
     #getModel(model?: string): ReplicateImageModel {

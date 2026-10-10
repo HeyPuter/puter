@@ -41,11 +41,13 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { Context, runWithContext } from '../../../../core/context.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { ReplicateImageGenerationProvider } from './ReplicateImageGenerationProvider.js';
 import { REPLICATE_IMAGE_GENERATION_MODELS } from './models.js';
 
@@ -96,11 +98,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
-const makeProvider = () =>
-    new ReplicateImageGenerationProvider(
-        { apiKey: 'test-key' },
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
         server.services.metering,
+        server.clients.event,
+        'ai-image',
     );
+
+const makeProvider = () =>
+    new ReplicateImageGenerationProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     createPredictionMock.mockReset();
@@ -137,7 +144,7 @@ describe('ReplicateImageGenerationProvider construction', () => {
             () =>
                 new ReplicateImageGenerationProvider(
                     { apiKey: '' },
-                    server.services.metering,
+                    aiMetering(),
                 ),
         ).toThrow(/API key/i);
     });
@@ -197,6 +204,72 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(createPredictionMock).not.toHaveBeenCalled();
+    });
+
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 93,
+                uuid: `replicate-${name}-${Date.now()}`,
+                username: name,
+            },
+        });
+
+    it('holds the output and input estimate while Replicate runs and releases both', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('hold');
+        // Unreadable inputs are priced at one megapixel each.
+        secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
+        let heldDuringCall = -1;
+        createPredictionMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return {
+                id: 'held',
+                status: 'succeeded',
+                output: ['https://r.example/img.png'],
+            };
+        });
+
+        // flux-2-dev fast mode: 1.2 cents per output MP and per input MP.
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'black-forest-labs/flux-2-dev',
+                    prompt: 'hi',
+                    input_images: ['https://example.com/a.png'],
+                }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(Math.round(2.4 * 1_000_000));
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
+    });
+
+    it('releases the output hold when the input surcharge is unaffordable', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('surcharge');
+        secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
+        hasCreditsSpy.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+        await expect(
+            withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'black-forest-labs/flux-2-dev',
+                        prompt: 'hi',
+                        input_images: ['https://example.com/a.png'],
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(createPredictionMock).not.toHaveBeenCalled();
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

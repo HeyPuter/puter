@@ -39,10 +39,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
 
@@ -73,6 +75,14 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = (
     overrides: Partial<{
         apiToken: string;
@@ -86,7 +96,7 @@ const makeProvider = (
             accountId: 'acct-test',
             ...overrides,
         } as never,
-        server.services.metering,
+        aiMetering(),
     );
 
 beforeEach(() => {
@@ -174,6 +184,36 @@ describe('CloudflareImageProvider.generate credit gate', () => {
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('holds the estimate while Cloudflare runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 91, uuid: `cf-hold-${Date.now()}`, username: 'hold' },
+        });
+        let heldDuringCall = -1;
+        fetchSpy.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return okJsonResponse({ result: { image: 'AAAA' } });
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: '@cf/black-forest-labs/flux-1-schnell',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        expect(estimate).toBeGreaterThan(0);
+        expect(heldDuringCall).toBe(Math.ceil(estimate));
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

@@ -19,7 +19,7 @@
 
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
@@ -47,7 +47,12 @@ type BytePlusVideoConfig = {
 interface ArkVideoTask {
     id: string;
     status:
-        'queued' | 'running' | 'cancelled' | 'succeeded' | 'failed' | 'expired';
+        | 'queued'
+        | 'running'
+        | 'cancelled'
+        | 'succeeded'
+        | 'failed'
+        | 'expired';
     content?: { video_url?: string };
     usage?: { completion_tokens?: number; total_tokens?: number };
     resolution?: string;
@@ -69,9 +74,12 @@ export class BytePlusVideoProvider extends VideoProvider {
     #apiKey: string;
     #baseUrl: string;
     #pollIntervalMs: number;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
 
-    constructor(config: BytePlusVideoConfig, meteringService: MeteringService) {
+    constructor(
+        config: BytePlusVideoConfig,
+        meteringService: AiMeteringService,
+    ) {
         super();
         if (!config.apiKey) {
             throw new Error('BytePlus video generation requires an API key');
@@ -158,79 +166,92 @@ export class BytePlusVideoProvider extends VideoProvider {
         // `durationSeconds` enumerates the model's whole-second range, so a
         // sub-minimum request rounds up to the shortest supported clip rather
         // than being rejected as unaffordable.
-        const cappedSeconds = await capSecondsToRemainingCredits({
-            metering: this.#meteringService,
-            actor,
-            perSecondMicroCents,
-            requestedSeconds,
-            allowedSeconds: model.durationSeconds,
-        });
+        const { seconds: cappedSeconds, hold } =
+            await capSecondsToRemainingCredits({
+                metering: this.#meteringService,
+                actor,
+                usageType: `byteplus-video-generation:${model.id}:${costKey}`,
+                perSecondMicroCents,
+                requestedSeconds,
+                allowedSeconds: model.durationSeconds,
+            });
 
-        const body: Record<string, unknown> = {
-            model: model.id,
-            content: this.#buildContent(prompt, spec, model.id, {
-                inputReference,
-                lastFrame,
-                referenceImages,
-            }),
-            resolution: resolutionKey === '4k' ? '4K' : resolutionKey,
-            duration: cappedSeconds,
-            watermark: false,
-        };
-        if (spec.supportsAudio) {
-            body.generate_audio = audioOn;
-        }
-        const ratio = this.#deriveRatio(width, height);
-        if (ratio) {
-            body.ratio = ratio;
-        }
-        if (
-            spec.supportsSeed &&
-            typeof seed === 'number' &&
-            Number.isFinite(seed)
-        ) {
-            body.seed = Math.round(seed);
-        }
+        try {
+            const body: Record<string, unknown> = {
+                model: model.id,
+                content: this.#buildContent(prompt, spec, model.id, {
+                    inputReference,
+                    lastFrame,
+                    referenceImages,
+                }),
+                resolution: resolutionKey === '4k' ? '4K' : resolutionKey,
+                duration: cappedSeconds,
+                watermark: false,
+            };
+            if (spec.supportsAudio) {
+                body.generate_audio = audioOn;
+            }
+            const ratio = this.#deriveRatio(width, height);
+            if (ratio) {
+                body.ratio = ratio;
+            }
+            if (
+                spec.supportsSeed &&
+                typeof seed === 'number' &&
+                Number.isFinite(seed)
+            ) {
+                body.seed = Math.round(seed);
+            }
 
-        const task = await this.#createTask(body);
-        const finalTask = await this.#pollUntilComplete(task.id);
+            const task = await this.#createTask(body);
+            const finalTask = await this.#pollUntilComplete(task.id);
 
-        if (finalTask.status !== 'succeeded') {
-            const errorMessage =
-                finalTask.error?.message ??
-                `Video generation ${finalTask.status}`;
-            throw videoJobFailure(
-                'byteplus',
-                errorMessage,
-                finalTask.error?.code,
+            if (finalTask.status !== 'succeeded') {
+                const errorMessage =
+                    finalTask.error?.message ??
+                    `Video generation ${finalTask.status}`;
+                throw videoJobFailure(
+                    'byteplus',
+                    errorMessage,
+                    finalTask.error?.code,
+                );
+            }
+
+            const videoUrl = finalTask.content?.video_url;
+            if (typeof videoUrl !== 'string' || !videoUrl.trim()) {
+                throw new Error(
+                    'BytePlus response did not include a video URL',
+                );
+            }
+
+            // Bill the tokens the task actually reports; fall back to the
+            // pre-flight estimate if usage is missing.
+            const finalResolutionKey = this.#normalizeResolution(
+                finalTask.resolution,
+                model,
+                resolutionKey,
             );
+            const finalCostKey = this.#costKey(
+                model,
+                finalResolutionKey,
+                audioOn,
+            );
+            const finalCentsPerToken =
+                model.costs?.[finalCostKey] ?? centsPerToken;
+            const tokens =
+                finalTask.usage?.completion_tokens ??
+                Math.round(tokensPerSecond * cappedSeconds);
+            await this.#meteringService.incrementUsage(
+                actor,
+                `byteplus-video-generation:${model.id}:${finalCostKey}`,
+                tokens,
+                tokens * finalCentsPerToken * 1_000_000,
+            );
+
+            return videoUrl;
+        } finally {
+            await hold.release();
         }
-
-        const videoUrl = finalTask.content?.video_url;
-        if (typeof videoUrl !== 'string' || !videoUrl.trim()) {
-            throw new Error('BytePlus response did not include a video URL');
-        }
-
-        // Bill the tokens the task actually reports; fall back to the
-        // pre-flight estimate if usage is missing.
-        const finalResolutionKey = this.#normalizeResolution(
-            finalTask.resolution,
-            model,
-            resolutionKey,
-        );
-        const finalCostKey = this.#costKey(model, finalResolutionKey, audioOn);
-        const finalCentsPerToken = model.costs?.[finalCostKey] ?? centsPerToken;
-        const tokens =
-            finalTask.usage?.completion_tokens ??
-            Math.round(tokensPerSecond * cappedSeconds);
-        await this.#meteringService.incrementUsage(
-            actor,
-            `byteplus-video-generation:${model.id}:${finalCostKey}`,
-            tokens,
-            tokens * finalCentsPerToken * 1_000_000,
-        );
-
-        return videoUrl;
     }
 
     #buildContent(

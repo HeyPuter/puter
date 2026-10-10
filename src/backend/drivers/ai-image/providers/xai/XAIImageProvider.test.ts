@@ -49,6 +49,7 @@ import {
     sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { XAIImageProvider } from './XAIImageProvider.js';
 
@@ -91,8 +92,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new XAIImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new XAIImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateMock.mockReset();
@@ -123,8 +132,7 @@ describe('XAIImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new XAIImageProvider({ apiKey: '' }, server.services.metering),
+            () => new XAIImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -224,6 +232,104 @@ describe('XAIImageProvider.generate credit gate', () => {
 
         expect(generateMock).not.toHaveBeenCalled();
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+    });
+
+    const perImage =
+        XAI_IMAGE_GENERATION_MODELS[0].costs['output:1k'] * 1_000_000;
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 51,
+                uuid: `xai-${name}-${Math.random().toString(36).slice(2)}`,
+                username: name,
+            },
+        });
+
+    // Usage lands only once a generation finishes, so a request that starts
+    // meanwhile has to see the first one's cost already committed.
+    it('refuses a concurrent generation the balance only covers once', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('concurrent');
+        const metering = server.services.metering;
+        const remaining = await metering.getRemainingUsage(actor);
+        await metering.incrementUsage(
+            actor,
+            'test:prior-spend',
+            1,
+            remaining - perImage * 1.5,
+        );
+
+        let finishFirst: () => void = () => {};
+        generateMock
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () =>
+                            resolve({ data: [{ url: 'https://x.ai/img/1' }] });
+                    }),
+            )
+            .mockResolvedValue({ data: [{ url: 'https://x.ai/img/2' }] });
+        const first = withTestActor(
+            () => provider.generate({ prompt: 'first' }),
+            actor,
+        );
+        await vi.waitFor(() => expect(generateMock).toHaveBeenCalledTimes(1));
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'second' }), actor),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(generateMock).toHaveBeenCalledTimes(1);
+
+        finishFirst();
+        expect(await first).toBe('https://x.ai/img/1');
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
+    });
+
+    it('holds at the model cost factor', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('factor');
+        const asked: string[] = [];
+        const doubled = (key: string, event: { factor: number }) => {
+            asked.push(key);
+            event.factor = 2;
+        };
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return { data: [{ url: 'https://x.ai/img/1' }] };
+        });
+
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withTestActor(
+                () => provider.generate({ prompt: 'hi' }),
+                actor,
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(asked).toContain(
+            'ai.cost.factor.ai-image.xai:grok-imagine-image',
+        );
+        expect(heldDuringCall).toBe(perImage * 2);
+    });
+
+    it('releases the hold when xAI fails', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('fail');
+        generateMock.mockRejectedValueOnce(new Error('upstream down'));
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'hi' }), actor),
+        ).rejects.toThrow('upstream down');
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 
