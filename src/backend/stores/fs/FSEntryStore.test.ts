@@ -567,9 +567,9 @@ describe('FSEntryStore directory resolution', () => {
         await expect(
             store.resolveParentDirectoriesBatch(1, []),
         ).resolves.toEqual([]);
-        await expect(store.ensureDirectoriesForUser(1, [])).resolves.toEqual(
-            [],
-        );
+        await expect(
+            store.ensureDirectoriesForUserWithCreated(1, []),
+        ).resolves.toEqual({ entries: [], createdDirectoryEntries: [] });
         await expect(
             store.resolveParentDirectoriesBatchWithCreated(1, []),
         ).resolves.toEqual({ parentEntries: [], createdDirectoryEntries: [] });
@@ -603,13 +603,14 @@ describe('FSEntryStore directory resolution', () => {
     it('ensures directories and refuses the root path', async () => {
         const user = await makeUser();
 
-        const entries = await store.ensureDirectoriesForUser(user.userId, [
-            { path: `${user.home}/Documents/ens/deep`, createPaths: true },
-        ]);
+        const { entries } = await store.ensureDirectoriesForUserWithCreated(
+            user.userId,
+            [{ path: `${user.home}/Documents/ens/deep`, createPaths: true }],
+        );
         expect(entries[0]?.path).toBe(`${user.home}/Documents/ens/deep`);
 
         const root = await caught(() =>
-            store.ensureDirectoriesForUser(user.userId, [
+            store.ensureDirectoriesForUserWithCreated(user.userId, [
                 { path: '/', createPaths: true },
             ]),
         );
@@ -622,7 +623,7 @@ describe('FSEntryStore directory resolution', () => {
         await createFile(user, `${user.home}/Documents/occupier`);
 
         const missing = await caught(() =>
-            store.ensureDirectoriesForUser(user.userId, [
+            store.ensureDirectoriesForUserWithCreated(user.userId, [
                 {
                     path: `${user.home}/Documents/never`,
                     createPaths: false,
@@ -633,7 +634,7 @@ describe('FSEntryStore directory resolution', () => {
         expect(missing.message).toContain('Directory path does not exist');
 
         const occupied = await caught(() =>
-            store.ensureDirectoriesForUser(user.userId, [
+            store.ensureDirectoriesForUserWithCreated(user.userId, [
                 {
                     path: `${user.home}/Documents/occupier`,
                     createPaths: false,
@@ -750,7 +751,7 @@ describe('FSEntryStore entry creation', () => {
     it('refuses to clobber an existing entry without overwrite, or a directory with it', async () => {
         const user = await makeUser();
         await createFile(user, `${user.home}/Documents/keep.txt`);
-        await store.ensureDirectoriesForUser(user.userId, [
+        await store.ensureDirectoriesForUserWithCreated(user.userId, [
             { path: `${user.home}/Documents/keepdir`, createPaths: true },
         ]);
 
@@ -1399,7 +1400,7 @@ describe('FSEntryStore search', () => {
 
     it('restricts results to a path scope and caps the limit', async () => {
         const user = await makeUser();
-        await store.ensureDirectoriesForUser(user.userId, [
+        await store.ensureDirectoriesForUserWithCreated(user.userId, [
             { path: `${user.home}/Documents/scope`, createPaths: true },
         ]);
         await createFile(user, `${user.home}/Documents/scope/inside.txt`);
@@ -1598,7 +1599,7 @@ describe('FSEntryStore home and prefix rewrites', () => {
 
     it('rewrites a path prefix and reports how many rows moved', async () => {
         const user = await makeUser();
-        await store.ensureDirectoriesForUser(user.userId, [
+        await store.ensureDirectoriesForUserWithCreated(user.userId, [
             { path: `${user.home}/Documents/old/inner`, createPaths: true },
         ]);
         await createFile(user, `${user.home}/Documents/old/inner/f.txt`);

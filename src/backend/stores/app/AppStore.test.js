@@ -578,15 +578,11 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getById(bad.id)).metadata).toBeNull();
     });
 
-    it('existsByName / existsByIndexUrl answer the driver uniqueness checks', async () => {
+    it('existsByName answers the driver uniqueness check', async () => {
         const app = await createApp();
 
         expect(await appStore.existsByName(app.name)).toBe(true);
         expect(await appStore.existsByName('definitely-not-taken')).toBe(false);
-        expect(await appStore.existsByIndexUrl(app.index_url)).toBe(true);
-        expect(
-            await appStore.existsByIndexUrl('https://unused.example.com/'),
-        ).toBe(false);
     });
 
     it('rejects a duplicate app name at the database level', async () => {

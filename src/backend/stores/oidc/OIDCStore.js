@@ -91,13 +91,6 @@ export class OIDCStore extends PuterStore {
         }
     }
 
-    async unlinkByUserId(userId, provider) {
-        await this.clients.db.write(
-            'DELETE FROM `user_oidc_providers` WHERE `user_id` = ? AND `provider` = ?',
-            [userId, provider],
-        );
-    }
-
     async unlinkAllByUserId(userId) {
         await this.clients.db.write(
             'DELETE FROM `user_oidc_providers` WHERE `user_id` = ?',

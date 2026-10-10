@@ -1595,17 +1595,6 @@ export class FSEntryStore extends PuterStore {
         };
     }
 
-    async ensureDirectoriesForUser(
-        userId: number,
-        requests: { path: string; createPaths: boolean }[],
-    ): Promise<FSEntry[]> {
-        const { entries } = await this.ensureDirectoriesForUserWithCreated(
-            userId,
-            requests,
-        );
-        return entries;
-    }
-
     async ensureDirectoriesForUserWithCreated(
         userId: number,
         requests: { path: string; createPaths: boolean }[],

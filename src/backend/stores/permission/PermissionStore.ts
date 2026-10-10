@@ -493,27 +493,6 @@ export class PermissionStore extends PuterStore {
         }));
     }
 
-    /**
-     * Delete every user-to-user grant at or beneath `permission`, clearing the
-     * flat KV view too, and return the rows removed so the caller can audit
-     * them and bust caches.
-     *
-     * The subject lives in the permission text rather than a column, so no
-     * foreign key can cascade it — this is how a deleted fsentry's grants get
-     * withdrawn. `permission` has no index, so this is a table scan: fine on
-     * deletion, never on a hot path.
-     */
-    async deleteUserUserPermsByPermissionPrefix(permission: string): Promise<
-        Array<{
-            holder_user_id: number;
-            issuer_user_id: number;
-            permission: string;
-        }>
-    > {
-        return this.deleteUserUserPermsByPermissionPrefixes([permission]);
-    }
-
-    /** As above, for several prefixes in one scan. */
     /** The group analogue: a deleted node's group grants must go with it. */
     async deleteUserGroupPermsByPermissionPrefixes(
         permissions: string[],
@@ -541,6 +520,16 @@ export class PermissionStore extends PuterStore {
         return rows;
     }
 
+    /**
+     * Delete every user-to-user grant at or beneath any of `permissions`, in
+     * one scan, clearing the flat KV view too, and return the rows removed so
+     * the caller can audit them and bust caches.
+     *
+     * The subject lives in the permission text rather than a column, so no
+     * foreign key can cascade it — this is how a deleted fsentry's grants get
+     * withdrawn. `permission` has no index, so this is a table scan: fine on
+     * deletion, never on a hot path.
+     */
     async deleteUserUserPermsByPermissionPrefixes(
         permissions: string[],
     ): Promise<
@@ -1416,10 +1405,6 @@ export class PermissionStore extends PuterStore {
             'EX',
             ttlSeconds,
         );
-    }
-
-    async invalidateScanCache(cacheKey: string): Promise<void> {
-        await this.publishCacheKeys({ keys: [cacheKey] });
     }
 
     // -- Per-permission check cache (for `checkMany`) -----------------

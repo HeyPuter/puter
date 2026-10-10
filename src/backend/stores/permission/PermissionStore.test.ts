@@ -879,13 +879,6 @@ describe('PermissionStore', () => {
             ).toHaveLength(1);
         });
 
-        it('drops a scan cache entry on explicit invalidation', async () => {
-            const key = store.buildScanCacheKey(`actor-${uuidv4()}`, ['p'], 0);
-            await store.setScanCache(key, { allowed: false });
-            await store.invalidateScanCache(key);
-            expect(await store.getScanCache(key)).toBeNull();
-        });
-
         it('round-trips a multi-permission check cache, omitting unset entries', async () => {
             const actorUid = `actor-${uuidv4()}`;
             await store.setMultiCheckCache(
@@ -1016,8 +1009,8 @@ describe('PermissionStore', () => {
             const keeper = `fs:${uuidv4()}:read`;
             await store.upsertUserUserPerm(holder.id, issuer.id, keeper, {});
 
-            const removed = await store.deleteUserUserPermsByPermissionPrefix(
-                `fs:${uid}`,
+            const removed = await store.deleteUserUserPermsByPermissionPrefixes(
+                [`fs:${uid}`],
             );
 
             expect(removed).toHaveLength(3);
@@ -1043,10 +1036,10 @@ describe('PermissionStore', () => {
 
             // `_` and `%` are LIKE wildcards; unescaped they would match this.
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix('fs:%'),
+                await store.deleteUserUserPermsByPermissionPrefixes(['fs:%']),
             ).toEqual([]);
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix('fs:_'),
+                await store.deleteUserUserPermsByPermissionPrefixes(['fs:_']),
             ).toEqual([]);
             expect(
                 await store.readLinkedUserUserPerms(holder.id, [victim]),
@@ -1055,9 +1048,9 @@ describe('PermissionStore', () => {
 
         it('returns an empty list when the prefix matches nothing', async () => {
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix(
+                await store.deleteUserUserPermsByPermissionPrefixes([
                     `fs:${uuidv4()}`,
-                ),
+                ]),
             ).toEqual([]);
         });
 

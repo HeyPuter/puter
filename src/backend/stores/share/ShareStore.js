@@ -56,22 +56,6 @@ export class ShareStore extends PuterStore {
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
-    async listByRecipientEmail(email) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `recipient_email` = ? ORDER BY `created_at` DESC',
-            [email],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    async listByIssuer(issuerUserId) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `issuer_user_id` = ? ORDER BY `created_at` DESC',
-            [issuerUserId],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
     /**
      * Active shares held by a user, keyset-paginated. `id` is the tiebreaker,
      * so a row added mid-iteration can't shift earlier pages.
@@ -286,32 +270,27 @@ export class ShareStore extends PuterStore {
 
     /** Everyone with an active share on one node, whoever issued it. */
     async listByFsentry(fsentryId) {
-        return this.listByFsentries([fsentryId]);
+        return this.listReaching([fsentryId]);
     }
 
-    /** As above, across several nodes in one query. */
-    async listByFsentries(fsentryIds) {
+    /**
+     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
+     * the caller has already resolved to row ids.
+     *
+     * This sits behind every file-write event, so it must stay on
+     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
+     * OR-ing a path match does not, and the optimizer falls back to a scan of
+     * `share`.
+     *
+     * @param {number[]} fsentryIds
+     */
+    async listReaching(fsentryIds) {
         if (fsentryIds.length === 0) return [];
         const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
             `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
                 'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
             fsentryIds,
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    /**
-     * Every active share the holder has on any of `fsentryIds`. Used to find
-     * which shared root an entry was reached through, in one round trip.
-     */
-    async listByHolderAndFsentries(holderUserId, fsentryIds) {
-        if (fsentryIds.length === 0) return [];
-        const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`share\` WHERE \`holder_user_id\` = ? AND ` +
-                `\`fsentry_id\` IN (${placeholders}) ORDER BY \`id\``,
-            [holderUserId, ...fsentryIds],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -368,28 +347,6 @@ export class ShareStore extends PuterStore {
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 'ORDER BY `share`.`id`',
             [fsentryId],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    /**
-     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
-     * the caller has already resolved to row ids.
-     *
-     * This sits behind every file-write event, so it must stay on
-     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
-     * OR-ing a path match does not, and the optimizer falls back to a scan of
-     * `share`.
-     *
-     * @param {number[]} fsentryIds
-     */
-    async listReaching(fsentryIds) {
-        if (fsentryIds.length === 0) return [];
-        const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
-                'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
-            fsentryIds,
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -979,14 +936,6 @@ export class ShareStore extends PuterStore {
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
-    async deleteByRecipientEmail(email) {
-        const result = await this.clients.db.write(
-            'DELETE FROM `share` WHERE `recipient_email` = ?',
-            [email],
-        );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
-    }
-
     // -- Anyone with the link -----------------------------------------
     //
     // One row per node with `anyone` = 1 and no holder of any kind. Unlike
@@ -1156,15 +1105,6 @@ export class ShareStore extends PuterStore {
     // -- Daily quota --------------------------------------------------
     // Counted in KV, not by querying `share`: the ceiling is on shares
     // *created*, so a COUNT of live rows would let a revoke recycle the slot.
-
-    /** @param {number} userId */
-    async getDailyShareCount(userId) {
-        const { res } = await this.stores.kv.get({
-            key: this.#dailyQuotaKey(userId),
-        });
-        const count = /** @type {{ count?: unknown } | null} */ (res)?.count;
-        return typeof count === 'number' ? count : 0;
-    }
 
     /**
      * @param {number} userId

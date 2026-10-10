@@ -237,14 +237,6 @@ export class AppStore extends PuterStore {
         return rows.length > 0;
     }
 
-    async existsByIndexUrl(indexUrl) {
-        const rows = await this.clients.db.read(
-            'SELECT `id` FROM `apps` WHERE `index_url` = ? LIMIT 1',
-            [indexUrl],
-        );
-        return rows.length > 0;
-    }
-
     /**
      * Find the oldest app whose `index_url` matches one of `candidates`. Used
      * by the driver to detect duplicate puter-hosted index_url rows

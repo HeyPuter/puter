@@ -374,23 +374,6 @@ describe('SubdomainStore listing and counting', () => {
         expect(await store.existsBySubdomain(`${p}missing`)).toBe(false);
     });
 
-    it('resolves custom domains by exact match and by listing', async () => {
-        const userId = await makeUser();
-        const p = prefix();
-        const row = await createFor(userId, `${p}dom`);
-        await store.update(row.uuid, { domain: `${p}example.com` });
-
-        expect((await store.getByDomain(`${p}example.com`))?.uuid).toBe(
-            row.uuid,
-        );
-        expect(await store.getByDomain('nobody.example')).toBeNull();
-        expect(
-            (await store.listByDomain(`${p}example.com`)).map(
-                (r: { uuid: string }) => r.uuid,
-            ),
-        ).toEqual([row.uuid]);
-    });
-
     it('lists and counts by prefix, scoped to the owner', async () => {
         const userId = await makeUser();
         const other = await makeUser();
@@ -561,6 +544,22 @@ describe('SubdomainStore reads and writes', () => {
         await expect(
             store.deleteByUuid('no-such-uuid'),
         ).resolves.toBeUndefined();
+    });
+
+    it('writes without scanning any set of cached keys', async () => {
+        const userId = await makeUser();
+        const smembers = vi.spyOn(server.clients.redis, 'smembers');
+        try {
+            const row = await store.create({
+                userId,
+                subdomain: `sds-scan-${Math.random().toString(36).slice(2, 8)}`,
+            });
+            await store.update(row.uuid, { domain: 'scan.example' });
+            await store.deleteByUuid(row.uuid);
+            expect(smembers).not.toHaveBeenCalled();
+        } finally {
+            smembers.mockRestore();
+        }
     });
 });
 
