@@ -47,41 +47,27 @@ export type IPuterDriver<T extends WithCostsReporting = WithCostsReporting> =
 
 /**
  * Base class for drivers. A driver implements a named interface (e.g.
- * `puter-chat-completion`); several drivers may implement the same one. Declare
- * it with `@Driver(interface, options)` or by setting the readonly fields below
- * imperatively.
+ * `puter-chat-completion`); several drivers may implement the same one, and
+ * declares itself through the readonly fields below.
  */
 export const PuterDriver = class PuterDriver implements WithCostsReporting {
-    /** The interface this driver implements. Set by `@Driver` or override. */
+    /** The interface this driver implements. */
     declare readonly driverInterface?: string;
-    /** Unique name within its interface. Set by `@Driver` or override. */
+    /** Unique name within its interface. */
     declare readonly driverName?: string;
     /** When true, this is the default driver for its interface. */
     declare readonly isDefault?: boolean;
-    /**
-     * Rate-limit policy applied to RPC calls into this driver. Set by
-     * `@Driver({ rateLimit: ... })` or declared imperatively. See
-     * `DriverRateLimitConfig` in `./meta` for the shape.
-     */
+    /** Rate-limit policy for RPC calls into this driver; see `./meta`. */
     declare readonly rateLimit?: DriverRateLimitConfig;
-    /**
-     * Concurrent in-flight policy applied to RPC calls into this driver. Set by
-     * `@Driver({ concurrent: ... })` or declared imperatively. See
-     * `DriverConcurrentConfig` in `./meta` for the shape.
-     */
+    /** In-flight cap for RPC calls into this driver; see `./meta`. */
     declare readonly concurrent?: DriverConcurrentConfig;
     /**
      * When true, `/drivers/call` rejects bare account-session ("root") tokens
      * for this driver — callers need an app/worker token or a dashboard-minted
-     * API token. Set by `@Driver({ noUserSession: true })` or declared
-     * imperatively. See `DriverMeta.noUserSession` in `./meta`.
+     * API token. See `DriverMeta.noUserSession` in `./meta`.
      */
     declare readonly noUserSession?: boolean;
-    /**
-     * Subscriber-only methods on this driver. Set by `@Driver({
-     * requireSubscription: ... })` or declared imperatively. See
-     * `DriverRequireSubscriptionConfig` in `./meta` for the shape.
-     */
+    /** Subscriber-only methods on this driver; see `./meta`. */
     declare readonly requireSubscription?: DriverRequireSubscriptionConfig;
 
     constructor(

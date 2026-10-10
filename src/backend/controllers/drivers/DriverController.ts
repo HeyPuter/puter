@@ -41,10 +41,7 @@ import {
     isDriverStreamResult,
     resolveCallableMethods,
     resolveDriverMeta,
-    resolveDriverMethodConcurrent,
-    resolveDriverMethodRateLimit,
-    resolveDriverMethodRequireReputation,
-    resolveDriverMethodRequireSubscription,
+    resolvePerMethod,
 } from '../../drivers/meta.js';
 import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
@@ -301,16 +298,10 @@ export class DriverController extends PuterController {
         }
         const fn = driver[method];
 
-        // Resolve the concrete driver name for permission keys, falling
-        // back through prototype metadata → instance field → requested name.
-        const resolvedDriverName =
-            (driver as Record<string, unknown>).driverName ??
-            (Object.getPrototypeOf(driver) as Record<string, unknown>)
-                .__driverName ??
-            requestedDriver ??
-            'unknown';
-
         const driverMeta = this.#meta.get(driver);
+        // The concrete driver name, not an alias, keys the permission check.
+        const resolvedDriverName =
+            driverMeta?.driverName ?? requestedDriver ?? 'unknown';
 
         // Drivers flagged `noUserSession` refuse the bare
         // account-session ("root") token: callers must present an app or
@@ -355,13 +346,13 @@ export class DriverController extends PuterController {
         }
 
         // Methods that ask for a trusted-enough account. Declared per-driver
-        // (`@Driver({ requireReputation })`) for the same reason the
+        // (`requireReputation`) for the same reason the
         // subscription block is. Checked ahead of the plan and rate-limit
         // gates, matching the route chain: whether this account should be
         // reaching the method at all is settled before what it pays for or how
         // often it may ask. Inert unless the running config gives the named
         // tier a score.
-        const reputationRequirement = resolveDriverMethodRequireReputation(
+        const reputationRequirement = resolvePerMethod(
             driverMeta?.requireReputation,
             method,
         );
@@ -373,13 +364,13 @@ export class DriverController extends PuterController {
             );
         }
 
-        // Subscriber-only methods. Declared per-driver
-        // (`@Driver({ requireSubscription })`) because `/drivers/call` is a
-        // single route and a route option would apply to every driver at once.
+        // Subscriber-only methods. Declared per-driver (`requireSubscription`)
+        // because `/drivers/call` is a single route and a route option would
+        // apply to every driver at once.
         // Checked before the rate limit — the same order the route chain uses
         // — so a caller whose plan never included the method is told that
         // rather than spending a bucket on it.
-        const subscriptionRequirement = resolveDriverMethodRequireSubscription(
+        const subscriptionRequirement = resolvePerMethod(
             driverMeta?.requireSubscription,
             method,
         );
@@ -398,16 +389,12 @@ export class DriverController extends PuterController {
         }
 
         // Per-method rate-limit and concurrent specs both live on the
-        // driver's resolved meta (set by `@Driver({ rateLimit, concurrent })`
-        // or imperative fields). Rate-limit is single-shot; concurrent
+        // driver's resolved meta. Rate-limit is single-shot; concurrent
         // acquires a slot that must be released when the response is done
         // — we hook `res.finish` / `res.close` for that so streamed
         // responses hold their slot until the stream drains, and aborted
         // requests still give the slot back.
-        const rateLimitSpec = resolveDriverMethodRateLimit(
-            driverMeta?.rateLimit,
-            method,
-        );
+        const rateLimitSpec = resolvePerMethod(driverMeta?.rateLimit, method);
         if (
             !(await checkDriverRateLimit(req, ifaceName, method, rateLimitSpec))
         ) {
@@ -418,10 +405,7 @@ export class DriverController extends PuterController {
             });
         }
 
-        const concurrentSpec = resolveDriverMethodConcurrent(
-            driverMeta?.concurrent,
-            method,
-        );
+        const concurrentSpec = resolvePerMethod(driverMeta?.concurrent, method);
         // Only acquire (and attach release listeners) when the driver
         // actually declared a concurrency cap. Skipping in the unbounded
         // case keeps the hot path free of needless event-listener churn
