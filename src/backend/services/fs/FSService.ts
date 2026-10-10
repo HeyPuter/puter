@@ -66,6 +66,7 @@ import type {
 import type { puterStores } from '../../stores/index.js';
 import type { LayerInstances } from '../../types.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import { AclMode } from '../acl/ACLService.js';
 import type { puterServices } from '../index.js';
 import {
@@ -4010,7 +4011,7 @@ export class FSService extends PuterService {
             // documented as idempotent — re-fetch and return the winner if
             // it's a directory; otherwise surface the same 409 the pre-INSERT
             // check would have produced.
-            if (!this.#isUniqueViolation(err)) throw err;
+            if (!isUniqueViolation(err)) throw err;
             const insertedPath =
                 parent.path === '/' ? `/${name}` : `${parent.path}/${name}`;
             // The dup violation proves a row exists, so a replica miss here
@@ -4031,12 +4032,6 @@ export class FSService extends PuterService {
         }
         this.#emitFsEvent('fs.create.directory', created);
         return created;
-    }
-
-    #isUniqueViolation(err: unknown): boolean {
-        if (!(err instanceof Error) || !('code' in err)) return false;
-        const code = (err as { code?: unknown }).code;
-        return code === 'ER_DUP_ENTRY' || code === 'SQLITE_CONSTRAINT';
     }
 
     /**
@@ -4832,7 +4827,7 @@ export class FSService extends PuterService {
             // The name was taken after the probe above: a concurrent move, or
             // an occupant the replica hadn't seen yet. Resolve it as if the
             // probe had found it, then try once more.
-            if (!this.#isUniqueViolation(err)) throw err;
+            if (!isUniqueViolation(err)) throw err;
             const raced = await this.stores.fsEntry.getEntryByPath(
                 pathIn(name),
                 { useTryHardRead: true },
