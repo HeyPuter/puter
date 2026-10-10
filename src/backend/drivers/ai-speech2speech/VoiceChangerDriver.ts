@@ -17,15 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
+    withAiCreditHold,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
@@ -35,7 +34,7 @@ import {
     readProviderKey,
 } from '../util/providerRegistry.js';
 import { SAMPLE_AUDIO_URL } from '../util/testMode.js';
-import { upstreamFetch } from '../util/upstreamErrors.js';
+import { upstreamBodyStream, upstreamFetch } from '../util/upstreamErrors.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 /**
@@ -211,99 +210,88 @@ export class VoiceChangerDriver extends PuterDriver {
         const ucentsPerSecond = VOICE_CHANGER_COSTS[usageKey] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
 
-        const hold = await this.#aiMetering.reserveAiCredits(
+        const formData = new FormData();
+        const blob = new Blob([loaded.buffer as BlobPart], {
+            type: loaded.mimeType ?? 'application/octet-stream',
+        });
+        formData.append('audio', blob, loaded.filename);
+        formData.append('model_id', modelId);
+
+        const settings = args.voice_settings ?? args.voiceSettings;
+        if (settings !== undefined && settings !== null) {
+            formData.append(
+                'voice_settings',
+                typeof settings === 'string'
+                    ? settings
+                    : JSON.stringify(settings),
+            );
+        }
+        if (args.seed !== undefined && args.seed !== null) {
+            formData.append('seed', String(args.seed));
+        }
+        if (typeof args.remove_background_noise === 'boolean') {
+            formData.append(
+                'remove_background_noise',
+                String(args.remove_background_noise),
+            );
+        }
+        if (args.file_format) {
+            formData.append('file_format', args.file_format);
+        }
+
+        const searchParams = new URLSearchParams();
+        const outputFormat = args.output_format || DEFAULT_OUTPUT_FORMAT;
+        if (outputFormat) searchParams.set('output_format', outputFormat);
+        if (
+            args.optimize_streaming_latency !== undefined &&
+            args.optimize_streaming_latency !== null
+        ) {
+            searchParams.set(
+                'optimize_streaming_latency',
+                String(args.optimize_streaming_latency),
+            );
+        }
+        if (args.enable_logging !== undefined && args.enable_logging !== null) {
+            searchParams.set('enable_logging', String(args.enable_logging));
+        }
+
+        const url = new URL(
+            `/v1/speech-to-speech/${voiceId}`,
+            elevenlabs.baseUrl,
+        );
+        const search = searchParams.toString();
+        if (search) url.search = search;
+
+        const metering = this.#aiMetering;
+        return withAiCreditHold(
+            metering,
             actor,
             usageKey,
             estimatedCost,
+            async (): Promise<DriverStreamResult> => {
+                const response = await upstreamFetch(
+                    'ElevenLabs',
+                    url,
+                    {
+                        method: 'POST',
+                        headers: { 'xi-api-key': elevenlabs.apiKey },
+                        body: formData,
+                    },
+                    { timeoutMs: CONVERT_TIMEOUT_MS },
+                );
+                metering.incrementUsage(
+                    actor,
+                    usageKey,
+                    estimatedSeconds,
+                    estimatedCost,
+                );
+                return {
+                    dataType: 'stream',
+                    content_type:
+                        response.headers.get('content-type') ?? 'audio/mpeg',
+                    stream: upstreamBodyStream('ElevenLabs', response),
+                };
+            },
         );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            const formData = new FormData();
-            const blob = new Blob([loaded.buffer as BlobPart], {
-                type: loaded.mimeType ?? 'application/octet-stream',
-            });
-            formData.append('audio', blob, loaded.filename);
-            formData.append('model_id', modelId);
-
-            const settings = args.voice_settings ?? args.voiceSettings;
-            if (settings !== undefined && settings !== null) {
-                formData.append(
-                    'voice_settings',
-                    typeof settings === 'string'
-                        ? settings
-                        : JSON.stringify(settings),
-                );
-            }
-            if (args.seed !== undefined && args.seed !== null) {
-                formData.append('seed', String(args.seed));
-            }
-            if (typeof args.remove_background_noise === 'boolean') {
-                formData.append(
-                    'remove_background_noise',
-                    String(args.remove_background_noise),
-                );
-            }
-            if (args.file_format) {
-                formData.append('file_format', args.file_format);
-            }
-
-            const searchParams = new URLSearchParams();
-            const outputFormat = args.output_format || DEFAULT_OUTPUT_FORMAT;
-            if (outputFormat) searchParams.set('output_format', outputFormat);
-            if (
-                args.optimize_streaming_latency !== undefined &&
-                args.optimize_streaming_latency !== null
-            ) {
-                searchParams.set(
-                    'optimize_streaming_latency',
-                    String(args.optimize_streaming_latency),
-                );
-            }
-            if (
-                args.enable_logging !== undefined &&
-                args.enable_logging !== null
-            ) {
-                searchParams.set('enable_logging', String(args.enable_logging));
-            }
-
-            const url = new URL(
-                `/v1/speech-to-speech/${voiceId}`,
-                elevenlabs.baseUrl,
-            );
-            const search = searchParams.toString();
-            if (search) url.search = search;
-
-            const response = await upstreamFetch(
-                'ElevenLabs',
-                url,
-                {
-                    method: 'POST',
-                    headers: { 'xi-api-key': elevenlabs.apiKey },
-                    body: formData,
-                },
-                { timeoutMs: CONVERT_TIMEOUT_MS },
-            );
-
-            const arrayBuffer = await response.arrayBuffer();
-            const stream = Readable.from(Buffer.from(arrayBuffer));
-            this.#aiMetering.incrementUsage(
-                actor,
-                usageKey,
-                estimatedSeconds,
-                ucentsPerSecond * estimatedSeconds,
-            );
-
-            return {
-                dataType: 'stream',
-                content_type:
-                    response.headers.get('content-type') ?? 'audio/mpeg',
-                stream,
-            };
-        } finally {
-            await hold.release();
-        }
     }
 }

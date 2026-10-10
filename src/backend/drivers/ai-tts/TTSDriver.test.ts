@@ -157,10 +157,8 @@ const withActor = <T>(fn: () => T | Promise<T>): Promise<T> =>
 const withDriverName = <T>(driverName: string, fn: () => T | Promise<T>) =>
     Promise.resolve(runWithContext({ actor: SYSTEM_ACTOR, driverName }, fn));
 
-const openaiAudioResponse = () => ({
-    arrayBuffer: async () =>
-        new Uint8Array(Buffer.from('mp3-bytes')).buffer as ArrayBuffer,
-});
+// The SDK resolves `audio.speech.create` with the raw fetch Response.
+const openaiAudioResponse = () => new Response('mp3-bytes');
 
 // Polly's DescribeVoices needs a non-empty Voices list so the
 // engine-default-voice resolver finds something.

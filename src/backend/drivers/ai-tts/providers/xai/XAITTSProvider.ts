@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import { upstreamFetch } from '../../../util/upstreamErrors.js';
+import {
+    upstreamBodyStream,
+    upstreamFetch,
+} from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
 import type {
     ITTSVoice,
@@ -160,7 +162,6 @@ export class XAITTSProvider implements ITTSProvider {
                     },
                     { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
                 );
-                const buffer = Buffer.from(await response.arrayBuffer());
                 return {
                     dataType: 'stream',
                     content_type:
@@ -168,7 +169,7 @@ export class XAITTSProvider implements ITTSProvider {
                         response.headers.get('content-type') ||
                         'audio/mpeg',
                     chunked: true,
-                    stream: Readable.from(buffer),
+                    stream: upstreamBodyStream('xAI TTS', response),
                 };
             },
         );

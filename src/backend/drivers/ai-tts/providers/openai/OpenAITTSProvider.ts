@@ -18,12 +18,12 @@
  */
 
 import OpenAI from 'openai';
-import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import { upstreamBodyStream } from '../../../util/upstreamErrors.js';
 import type {
     ITTSVoice,
     ITTSEngine,
@@ -215,12 +215,11 @@ export class OpenAITTSProvider implements ITTSProvider {
             text,
             async () => {
                 const response = await this.openai.audio.speech.create(payload);
-                const buffer = Buffer.from(await response.arrayBuffer());
                 return {
                     dataType: 'stream',
                     content_type: contentType,
                     chunked: true,
-                    stream: Readable.from(buffer),
+                    stream: upstreamBodyStream('OpenAI TTS', response),
                 };
             },
         );

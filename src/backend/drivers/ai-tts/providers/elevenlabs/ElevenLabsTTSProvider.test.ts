@@ -475,6 +475,30 @@ describe('ElevenLabsTTSProvider.synthesize streaming output', () => {
         expect(Buffer.concat(chunks).toString()).toBe('AAA-BBB');
     });
 
+    it('answers before the upstream body has finished arriving', async () => {
+        const provider = makeProvider();
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(body, { headers: { 'content-type': 'audio/mpeg' } }),
+        );
+
+        // Resolves with the upstream still open: nothing is buffered first.
+        const result = (await withTestActor(() =>
+            provider.synthesize({ text: 'hi' }),
+        )) as { stream: Readable };
+        controller.enqueue(Buffer.from('AAA'));
+        controller.close();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.stream) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toBe('AAA');
+    });
+
     it('uses the response content-type header when present', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse('x', 'audio/wav'));
