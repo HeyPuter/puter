@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { AppIconHostConfig } from './appIcon.js';
+import { getAppIconCdnUrl, getAppIconUrl } from './appIcon.js';
 import { buildHostedBackingDenial } from './hostedAppBacking.js';
 import type { PrivateLaunchDecision } from './privateLaunchAccess.js';
 
@@ -98,4 +100,36 @@ export function toAppView(
         if (gates.viewerUserId !== app.owner_user_id) delete view.index_url;
     }
     return view;
+}
+
+export interface AppSummaryOptions {
+    apiBaseUrl?: string;
+    config?: AppIconHostConfig;
+    iconSize?: number;
+}
+
+/**
+ * The summary the desktop launches from directly, without re-reading the app
+ * (suggested, recommended, recent and taskbar apps), so every launch-relevant
+ * flag belongs here.
+ */
+export function toAppSummary(
+    app: AppRow,
+    { apiBaseUrl, config, iconSize }: AppSummaryOptions,
+) {
+    return {
+        uuid: app.uid,
+        name: app.name,
+        title: app.title,
+        icon: getAppIconUrl(app, { apiBaseUrl }, iconSize) ?? app.icon ?? null,
+        // Direct subdomain URL for the client to try before `icon`.
+        iconCdnUrl: config ? getAppIconCdnUrl(app, config, iconSize) : null,
+        godmode: Boolean(app.godmode),
+        maximize_on_start: Boolean(app.maximize_on_start),
+        index_url: app.index_url,
+        feedback_enabled: Boolean(app.feedback_enabled),
+        // An app with no owner isn't owned by a Puter user — it's an
+        // "external" (origin-bootstrapped) app.
+        external: app.owner_user_id == null || app.owner_user_id === '',
+    };
 }

@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { toAppView } from './appView.js';
+import { toAppSummary, toAppView } from './appView.js';
 
 const row = (overrides: Record<string, unknown> = {}) => ({
     id: 42,
@@ -111,5 +111,52 @@ describe('toAppView', () => {
 
         expect(view.privateAccess).toBe(denied);
         expect(view).not.toHaveProperty('index_url');
+    });
+});
+
+describe('toAppSummary', () => {
+    const config = { static_hosting_domain: 'puter.site' };
+
+    it('builds the launch summary with a sized icon URL', () => {
+        expect(
+            toAppSummary(row(), {
+                apiBaseUrl: 'https://api.puter.com',
+                config,
+                iconSize: 64,
+            }),
+        ).toEqual({
+            uuid: 'app-1234',
+            name: 'cool-app',
+            title: 'Cool App',
+            icon: 'https://api.puter.com/app-icon/app-1234/64',
+            iconCdnUrl: null,
+            godmode: false,
+            maximize_on_start: false,
+            index_url: 'https://cool-app.example.com/',
+            feedback_enabled: true,
+            external: false,
+        });
+    });
+
+    it('points at the generated icon file once the icon is an http(s) URL', () => {
+        const summary = toAppSummary(
+            row({ icon: 'https://api.puter.com/app-icon/x' }),
+            { config, iconSize: 64 },
+        );
+
+        expect(summary.iconCdnUrl).toBe(
+            'https://puter-app-icons.puter.site/app-1234-64.png',
+        );
+    });
+
+    it('falls back to the raw icon without an API base URL, and marks ownerless apps external', () => {
+        const summary = toAppSummary(
+            row({ icon: 'https://cdn.example.com/i.png', owner_user_id: null }),
+            {},
+        );
+
+        expect(summary.icon).toBe('https://cdn.example.com/i.png');
+        expect(summary.iconCdnUrl).toBeNull();
+        expect(summary.external).toBe(true);
     });
 });

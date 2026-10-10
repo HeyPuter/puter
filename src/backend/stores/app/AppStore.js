@@ -124,7 +124,7 @@ const READ_ONLY_COLUMNS = new Set([
     'is_private',
 ]);
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
-const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid']);
+const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid', 'name']);
 const APP_BOOLEAN_COLUMNS = new Set([
     'godmode',
     'maximize_on_start',
@@ -148,6 +148,67 @@ export class AppStore extends PuterStore {
     }
     async getByName(name) {
         return this.#getByProperty('name', name);
+    }
+
+    /**
+     * Batched `getByName`, keyed by the requested names: a name the collation
+     * matched case-insensitively and a recent old name both resolve.
+     */
+    async getByNames(names) {
+        const requested = [
+            ...new Set(
+                (Array.isArray(names) ? names : []).filter(
+                    (name) => typeof name === 'string' && name.length > 0,
+                ),
+            ),
+        ];
+        const live = new Map(
+            [...(await this.#getManyByProperty('name', requested))].map(
+                ([name, app]) => [String(name).toLowerCase(), app],
+            ),
+        );
+        const missing = requested.filter(
+            (name) => !live.has(name.toLowerCase()),
+        );
+        const renamed =
+            missing.length > 0
+                ? await this.#resolveByOldNames(missing)
+                : new Map();
+
+        const result = new Map();
+        for (const name of requested) {
+            const key = name.toLowerCase();
+            const app = live.get(key) ?? renamed.get(key);
+            if (app) result.set(name, app);
+        }
+        return result;
+    }
+
+    /** Batched `#resolveByOldName`, keyed by lowercased old name. */
+    async #resolveByOldNames(names) {
+        const result = new Map();
+        for (
+            let offset = 0;
+            offset < names.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = names.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+            const rows = await this.clients.db.read(
+                `SELECT a.*, ${this.#createdEpochColumn('a.')}, o.\`name\` AS \`old_name\`
+                 FROM \`apps\` AS a
+                 INNER JOIN \`old_app_names\` AS o ON o.\`app_uid\` = a.\`uid\`
+                 WHERE o.\`name\` IN (${chunk.map(() => '?').join(', ')})
+                   AND o.\`timestamp\` >= ${this.#oldNameCutoffClause()}
+                 ORDER BY o.\`timestamp\` DESC`,
+                chunk,
+            );
+            for (const { old_name: oldName, ...row } of rows) {
+                const key = String(oldName).toLowerCase();
+                // Newest redirect wins, as in `#resolveByOldName`.
+                if (!result.has(key)) result.set(key, this.#normalizeRow(row));
+            }
+        }
+        return result;
     }
 
     /** Cache-free existence check against the primary. */

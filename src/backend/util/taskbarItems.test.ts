@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../server.ts';
 import { setupTestServer } from '../testUtil.ts';
 import { getTaskbarItems } from './taskbarItems.ts';
@@ -120,6 +120,39 @@ describe('getTaskbarItems', () => {
             maximize_on_start: false,
             description: 'a test app',
         });
+    });
+
+    it('resolves the whole taskbar with one batched lookup per key, not one per entry', async () => {
+        const owner = await makeUser([]);
+        const apps = await Promise.all([0, 1, 2].map(() => makeApp(owner.id)));
+        const byUid = await makeApp(owner.id);
+        const user = await makeUser([
+            ...apps.map((app) => ({ name: app.name, type: 'app' })),
+            { uid: byUid.uid, type: 'app' },
+        ]);
+        const appStore = server.stores.app;
+        const spies = {
+            getByName: vi.spyOn(appStore, 'getByName'),
+            getByUid: vi.spyOn(appStore, 'getByUid'),
+            getById: vi.spyOn(appStore, 'getById'),
+            getByNames: vi.spyOn(appStore, 'getByNames'),
+            getByUids: vi.spyOn(appStore, 'getByUids'),
+        };
+        try {
+            const items = await getTaskbarItems(user as never, deps);
+
+            expect(items.map((i) => i.uid)).toEqual([
+                ...apps.map((app) => app.uid),
+                byUid.uid,
+            ]);
+            expect(spies.getByName).not.toHaveBeenCalled();
+            expect(spies.getByUid).not.toHaveBeenCalled();
+            expect(spies.getById).not.toHaveBeenCalled();
+            expect(spies.getByNames).toHaveBeenCalledTimes(1);
+            expect(spies.getByUids).toHaveBeenCalledTimes(1);
+        } finally {
+            for (const spy of Object.values(spies)) spy.mockRestore();
+        }
     });
 
     it('skips non-app entries, the explorer pin, and unresolvable apps', async () => {
