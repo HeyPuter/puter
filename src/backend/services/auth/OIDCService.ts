@@ -18,24 +18,18 @@
  */
 
 import type { LayerInstances } from '../../types';
-import type { EventMetadata } from '../../clients/event/types.js';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
-import {
-    cleanEmail,
-    isBlockedEmail,
-    isStorableEmail,
-} from '../../util/email.js';
-import { generate_identifier } from '../../util/identifier.js';
-import {
-    checkSignupBonus,
-    validateSignupBonus,
-} from '../../util/signupBonus.js';
-import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { signupClientIp } from '../user/SignupService.js';
+import { cleanEmail, isStorableEmail } from '../../util/email.js';
+import { generateUsername } from '../../util/username.js';
+import { provisionUser } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
+import { HttpError } from '../../core/http/HttpError.js';
 import crypto from 'node:crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { verifyOidcIdToken, type JwksCacheEntry } from './oidcIdToken';
 
 const GOOGLE_DISCOVERY_URL =
@@ -530,176 +524,53 @@ export class OIDCService extends PuterService {
             };
         }
 
-        // Generate a unique username
-        let username: string;
-        let attempts = 0;
-        do {
-            username = generate_identifier();
-            attempts++;
-            if (attempts > 20)
-                return {
-                    success: false,
-                    error: 'Failed to generate unique username.',
-                };
-        } while (
-            (await this.stores.user.getByUsername(username)) ||
-            (await this.stores.fsEntry.findHomePathConflict(
-                username,
-                undefined,
-                { includeDescendants: true },
-            ))
-        );
+        const username = await generateUsername(this.stores);
+        if (!username) {
+            return {
+                success: false,
+                error: 'Failed to generate unique username.',
+            };
+        }
 
-        // Create user — no password, email assumed confirmed by provider
-        const { v4: uuidv4 } = await import('uuid');
-        const req = Context.get('req');
-        const clientIp = req.ip || req.socket?.remoteAddress || null;
+        const req = Context.get('req')!;
+        const clientIp = signupClientIp(req);
         const proxyIpChain = req.headers['x-forwarded-for'];
 
-        // Run abuse-prevention validate hook. OIDC ignores
-        // requires_email_confirmation (provider already verified) and
-        // no_temp_user (OIDC users are never temp), so only `allow` matters.
-        const validateEvent = {
+        // Before the signup gate: the abuse harness reads the verdict the
+        // `email.validate` hook caches for this address.
+        try {
+            await this.services.signup.validateEmail(email);
+        } catch (e) {
+            if (!(e instanceof HttpError)) throw e;
+            return { success: false, error: e.message };
+        }
+
+        // OIDC users are never temp and the provider verified the address, so
+        // only the block and the phone/card requirements matter here.
+        const gate = await this.services.signup.runSignupGate({
             req,
             // IdP already authenticated the user, so captcha listeners
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
-            source: 'oidc' as const,
+            source: 'oidc',
             data: { username, email, ...(bonusCode ? { bonusCode } : {}) },
-            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
-            // would let a client pick its own per-IP abuse bucket.
-            ip: clientIp,
-            user_agent: req?.headers?.['user-agent'] ?? null,
             email,
-            // See the same field in AuthController: the canonical form
-            // `email.validate` is given, so the abuse harness can find the
-            // verdict that hook cached.
-            clean_email: cleanEmail(email),
-            // OIDC signups are never temp users.
-            is_temp: false,
-            allow: true,
-            no_temp_user: false,
-            requires_email_confirmation: false,
-            requires_phone_verification: false,
-            requires_card_verification: false,
-            reputation: null as number | null,
-            message: null as string | null,
-            code: null as string | null,
-            // Stamped by the abuse harness for flagged signups — the id keying
-            // the persisted decision trail, surfaced to a blocked user as the
-            // Request Code so support can look the decision up.
-            trail_id: undefined as string | undefined,
-        };
-        // Email validation — mirrors AuthController#validateEmail, and runs
-        // BEFORE the signup harness for the same reason it does there: the
-        // address verdict is an input to the reputation decision. The abuse
-        // extension's `email.validate` handler caches its Kickbox verdict and
-        // its `emailQuality` check reads that cache under
-        // `puter.signup.validate`, so emitting these two in the other order
-        // silently drops the email signal from every OIDC signup.
-        if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
-            return {
-                success: false,
-                error: 'This email is not allowed.',
-            };
-        }
-        const emailEvent = {
-            email: cleanEmail(email),
-            allow: true,
-            message: null as string | null,
-        };
-        const emailMeta: EventMetadata = {};
-        try {
-            await this.clients.event?.emitAndWait(
-                'email.validate',
-                emailEvent,
-                emailMeta,
-            );
-        } catch (e) {
-            console.warn('[oidc] email validate hook failed:', e);
-            emailMeta.listener_failed = true;
-        }
-        if (emailMeta.listener_failed || !emailEvent.allow) {
-            return {
-                success: false,
-                error:
-                    emailEvent.message ??
-                    'This email cannot be used. Please try a different email address.',
-            };
-        }
-
-        // Refuse a dead code before the validate hook records the attempt; see
-        // the same check in AuthController.
-        if (
-            bonusCode &&
-            !(
-                await checkSignupBonus(this.clients.event, bonusCode, {
-                    ip: clientIp,
-                    fingerprint: null,
-                })
-            ).valid
-        ) {
+            isTemp: false,
+            bonusCode,
+        });
+        if (gate.verdict === 'bonus_code_invalid') {
             return {
                 success: false,
                 error: 'This bonus code is invalid or no longer available.',
                 code: 'bonus_code_invalid',
             };
         }
-
-        const validateMeta: EventMetadata = {};
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent,
-                validateMeta,
-            );
-        } catch (e) {
-            console.warn('[oidc] validate hook failed:', e);
-            validateMeta.listener_failed = true;
-        }
-        // A check that could not run is not a check that passed.
-        if (validateMeta.listener_failed || !validateEvent.allow) {
+        if (gate.verdict !== 'allowed') {
             return {
                 success: false,
-                error: validateEvent.message ?? 'Signup blocked',
-                code: validateEvent.code ?? 'signup_blocked',
-                requestCode: validateEvent.trail_id,
+                error: gate.message ?? 'Signup blocked',
+                code: gate.code ?? 'signup_blocked',
+                requestCode: gate.requestCode,
             };
-        }
-
-        const cfg = this.config as {
-            always_require_phone_verification?: boolean;
-            always_require_card_verification?: boolean;
-        };
-        let force_phone_verification =
-            Boolean(validateEvent.requires_phone_verification) ||
-            Boolean(cfg.always_require_phone_verification);
-        let force_card_verification =
-            Boolean(validateEvent.requires_card_verification) ||
-            Boolean(cfg.always_require_card_verification);
-
-        if (bonusCode) {
-            const verdict = await validateSignupBonus(
-                this.clients.event,
-                bonusCode,
-                {
-                    source: 'oidc',
-                    email,
-                    clean_email: cleanEmail(email),
-                    ip: clientIp,
-                    reputation: validateEvent.reputation,
-                    requires_phone_verification: force_phone_verification,
-                    requires_card_verification: force_card_verification,
-                },
-            );
-            if (!verdict.accepted) {
-                return {
-                    success: false,
-                    error: 'This bonus code is invalid or no longer available.',
-                    code: 'bonus_code_invalid',
-                };
-            }
-            force_phone_verification = verdict.requiresPhoneVerification;
-            force_card_verification = verdict.requiresCardVerification;
         }
 
         // The caller checked this email was free before we got here, but the
@@ -711,77 +582,58 @@ export class OIDCService extends PuterService {
             return { success: false, raced: true };
         }
 
-        let created: UserRow;
+        // Default user group: the IdP verified the address, so no temp group.
+        let user: UserRow;
         try {
-            created = await this.stores.user.create({
-                username,
-                uuid: uuidv4(),
-                password: null,
-                email,
-                clean_email: cleanEmail(email),
-                free_storage: this.config.storage_capacity ?? null,
-                // Email is provider-verified, so the email step is always
-                // skipped; the phone/card gates still apply when the harness
-                // flagged them.
-                requires_email_confirmation: false,
-                // Confirmed in the INSERT rather than a follow-up update: an
-                // unconfirmed, password-less row does not own its address, so
-                // deferring this would let two concurrent callbacks both insert
-                // and only collide when they confirm — too late to report as a
-                // race.
-                email_confirmed: true,
-                requires_phone_verification: force_phone_verification,
-                requires_card_verification: force_card_verification,
-                ...(validateEvent.reputation != null
-                    ? { reputation: validateEvent.reputation }
-                    : {}),
-                audit_metadata: {
-                    ip: clientIp,
-                    ip_fwd: proxyIpChain,
-                    user_agent: req?.headers?.['user-agent'],
-                    origin: req?.headers?.origin,
+            user = await provisionUser(
+                {
+                    db: this.clients.db,
+                    userStore: this.stores.user,
+                    groupStore: this.stores.group,
                 },
-                signup_ip: clientIp,
-                // The abuse harness and the admin IP lookup both key on this
-                // column, so it holds the trusted client address; the raw
-                // forwarded chain stays in `audit_metadata.ip_fwd`.
-                signup_ip_forwarded: clientIp,
-                signup_user_agent: req?.headers?.['user-agent'] ?? null,
-                signup_origin: req?.headers?.origin,
-                signup_server: this.config.serverId,
-                referrer: referrer ?? null,
-            });
+                {
+                    username,
+                    uuid: uuidv4(),
+                    password: null,
+                    email,
+                    clean_email: cleanEmail(email),
+                    free_storage: this.config.storage_capacity ?? null,
+                    // Email is provider-verified, so the email step is always
+                    // skipped; the phone/card gates still apply when the harness
+                    // flagged them.
+                    requires_email_confirmation: false,
+                    // Confirmed in the INSERT rather than a follow-up update: an
+                    // unconfirmed, password-less row does not own its address, so
+                    // deferring this would let two concurrent callbacks both insert
+                    // and only collide when they confirm — too late to report as a
+                    // race.
+                    email_confirmed: true,
+                    requires_phone_verification: gate.requiresPhoneVerification,
+                    requires_card_verification: gate.requiresCardVerification,
+                    ...(gate.reputation != null
+                        ? { reputation: gate.reputation }
+                        : {}),
+                    audit_metadata: {
+                        ip: clientIp,
+                        ip_fwd: proxyIpChain,
+                        user_agent: req?.headers?.['user-agent'],
+                        origin: req?.headers?.origin,
+                    },
+                    signup_ip: clientIp,
+                    // The abuse harness and the admin IP lookup both key on this
+                    // column, so it holds the trusted client address; the raw
+                    // forwarded chain stays in `audit_metadata.ip_fwd`.
+                    signup_ip_forwarded: clientIp,
+                    signup_user_agent: req?.headers?.['user-agent'] ?? null,
+                    signup_origin: req?.headers?.origin,
+                    signup_server: this.config.serverId,
+                    referrer: referrer ?? null,
+                },
+                this.config.default_user_group,
+            );
         } catch (e) {
             if (!isOwnedEmailConflict(e)) throw e;
             return { success: false, raced: true };
-        }
-
-        if (!created) {
-            return { success: false, error: 'User creation failed.' };
-        }
-
-        // Default user group — OIDC users skip the temp group entirely since
-        // the email is already verified by the IdP.
-        const defaultGroup = this.config.default_user_group;
-        if (defaultGroup) {
-            try {
-                await this.stores.group.addUsers(defaultGroup, [
-                    created.username,
-                ]);
-            } catch (e) {
-                console.warn('[oidc] group assignment failed:', e);
-            }
-        }
-
-        // Provision home directory + default folders. Idempotent.
-        try {
-            await generateDefaultFsentries(
-                this.clients.db,
-                this.stores.user,
-                created,
-            );
-        } catch (e) {
-            console.warn('[oidc] generateDefaultFsentries failed:', e);
         }
 
         // Link OIDC provider (after provisioning so a failed link doesn't
@@ -792,16 +644,11 @@ export class OIDCService extends PuterService {
         // holding an account nobody can ever sign in to, so tear it down and let
         // the caller re-resolve onto the winner.
         try {
-            await this.stores.oidc.link(
-                created.id,
-                providerId,
-                claims.sub,
-                null,
-            );
+            await this.stores.oidc.link(user.id, providerId, claims.sub, null);
         } catch (e) {
             if ((e as { statusCode?: number })?.statusCode !== 409) throw e;
             try {
-                await this.services.userAccount.cascadeDelete(created.id);
+                await this.services.userAccount.cascadeDelete(user.id);
             } catch (cleanupError) {
                 console.warn(
                     '[oidc] failed to clean up raced account:',
@@ -811,65 +658,18 @@ export class OIDCService extends PuterService {
             return { success: false, raced: true };
         }
 
-        // Re-read so callers see email_confirmed / *_uuid / *_id fields
-        // written above.
-        const user = await this.stores.user.getById(created.id, {
-            force: true,
-        });
-        const resolved = user ?? created;
-
-        // Fire signup events — keys match the password-based signup path so
-        // downstream listeners (welcome email, mailchimp sync, etc.) treat
-        // both signup routes identically.
-        //
-        // That includes `user.email-confirmed`: the provider's attestation IS
-        // the confirmation, and anything keyed on owning a confirmed address —
+        // `user.email-confirmed` too: the provider's attestation IS the
+        // confirmation, and anything keyed on owning a confirmed address —
         // pending share invites, most importantly — has no other moment to
-        // fire. Without it, an invitee who follows the email and signs in with
-        // Google never receives what was shared with them.
-        try {
-            this.clients.event?.emit(
-                'user.email-confirmed',
-                {
-                    user_id: resolved.id,
-                    user_uid: resolved.uuid,
-                    email: resolved.email,
-                },
-                {},
-            );
-        } catch {
-            // ignore — event emission shouldn't block signup
-        }
-        try {
-            this.clients.event?.emit(
-                'puter.signup.success',
-                {
-                    user_id: resolved.id,
-                    user_uuid: resolved.uuid,
-                    email: resolved.email,
-                    username: resolved.username,
-                    // Same derivation as the validate event above — the two
-                    // have to agree or per-IP counters are written under one
-                    // key and read under another.
-                    ip: clientIp,
-                    ...(bonusCode ? { bonus_code: bonusCode } : {}),
-                },
-                {},
-            );
-        } catch {
-            // ignore — event emission shouldn't block signup
-        }
-        try {
-            this.clients.event?.emit(
-                'user.save_account',
-                { user_id: resolved.id },
-                {},
-            );
-        } catch {
-            // ignore
-        }
+        // fire.
+        this.services.signup.announceSignup(user, {
+            ip: clientIp,
+            bonusCode,
+            emailConfirmed: true,
+            saveAccount: true,
+        });
 
-        return { success: true, user: resolved };
+        return { success: true, user };
     }
 
     // -- Internals ---------------------------------------------------

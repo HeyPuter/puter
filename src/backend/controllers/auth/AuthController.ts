@@ -18,7 +18,6 @@
  */
 
 import bcrypt from 'bcrypt';
-import type { EventMetadata } from '../../clients/event/types.js';
 import type { Request, RequestHandler, Response } from 'express';
 import crypto from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
@@ -64,7 +63,6 @@ import {
     createSecret as otpCreateSecret,
     verify as verifyOtp,
 } from '../../services/auth/OTPUtil.js';
-import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import type { CardFallbackDeps } from '../../util/cardFallback.js';
 import {
@@ -79,29 +77,25 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
-import { isUniqueViolation } from '../../util/dbError.js';
-import {
-    cleanEmail,
-    isBlockedEmail,
-    isStorableEmail,
-} from '../../util/email.js';
+import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
-import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
-import { isReservedUsername } from '../../util/reservedUsernames.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
     isAbsentBonusCode,
     normalizeBonusCode,
-    validateSignupBonus,
 } from '../../util/signupBonus.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
-    generateDefaultFsentries,
-    promoteToVerifiedGroup,
-} from '../../util/userProvisioning.js';
+    assertValidUsername,
+    generateUsername,
+    isUsernameTaken,
+    usernameConflict,
+    usernameRejection,
+} from '../../util/username.js';
+import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import {
     assertBoundedManageGrant,
     isKvSharePermission,
@@ -127,8 +121,6 @@ import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 
-export const USERNAME_REGEX = /^\w{1,}$/;
-export const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
@@ -833,7 +825,7 @@ export class AuthController extends PuterController {
 
         // Fill in temp user defaults
         if (is_temp) {
-            body.username ??= await this.#generateRandomUsername();
+            body.username ??= await this.#generateTempUsername();
             body.email ??= `${body.username}@gmail.com`;
             body.password ??= uuidv4();
         }
@@ -847,25 +839,7 @@ export class AuthController extends PuterController {
             throw new HttpError(400, 'username must be a string.', {
                 legacyCode: 'bad_request',
             });
-        if (!USERNAME_REGEX.test(body.username)) {
-            throw new HttpError(
-                400,
-                'Username can only contain letters, numbers and underscore (_).',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (body.username.length > USERNAME_MAX_LENGTH) {
-            throw new HttpError(
-                400,
-                `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (isReservedUsername(body.username)) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'username_already_in_use',
-            });
-        }
+        assertValidUsername(body.username);
         if (!is_temp) {
             if (!body.email)
                 throw new HttpError(400, 'Email is required', {
@@ -881,7 +855,7 @@ export class AuthController extends PuterController {
                     'Please enter a valid email address.',
                     { legacyCode: 'bad_request' },
                 );
-            await this.#validateEmail(body.email);
+            await this.services.signup.validateEmail(body.email);
             if (!body.password)
                 throw new HttpError(400, 'Password is required', {
                     legacyCode: 'bad_request',
@@ -912,490 +886,14 @@ export class AuthController extends PuterController {
             if (!bonusCode) throw bonusCodeInvalidError();
         }
 
-        // Signup-disabled gate. Runs before the duplicate checks so a
-        // disabled endpoint doesn't reveal which usernames or emails
-        // exist. Claiming a pre-existing placeholder row is still
-        // allowed, so permanent signups look the email up first.
-        if (this.config.disable_user_signup) {
-            let claimable = false;
-            if (!is_temp) {
-                const existing = await this.stores.user.findEmailOwner(
-                    body.email,
-                );
-                claimable = Boolean(
-                    existing &&
-                    !existing.email_confirmed &&
-                    existing.password === null,
-                );
-            }
-            if (!claimable) {
-                throw new HttpError(403, 'User registration is disabled.', {
-                    legacyCode: 'signup_disabled',
-                });
-            }
-        }
-
-        // Duplicate username check
-        if (await this.stores.user.getByUsername(body.username)) {
-            throw new HttpError(
-                400,
-                'This username already exists in our database. Please use another one.',
-                { legacyCode: 'bad_request' },
-            );
-        }
-
-        // ...and the same against the filesystem: a free username whose home
-        // path is occupied (exactly or by leftover rows underneath it) would
-        // provision a second root there, and the two trees then resolve
-        // interchangeably.
-        if (
-            await this.stores.fsEntry.findHomePathConflict(
-                body.username,
-                undefined,
-                { includeDescendants: true },
-            )
-        ) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        // Duplicate confirmed-email check. A confirmed account (any
-        // credential type — password OR OIDC) on this email → reject.
-        //
-        // A pseudo-user is an UNCONFIRMED placeholder row: email
-        // present, password null, email_confirmed = 0. Those rows
-        // (e.g. admin-created pre-provisioning) are NOT a block —
-        // signup claims them: the INSERT becomes an UPDATE on the
-        // pseudo row.
-        //
-        // OIDC-created accounts have password null but email_confirmed
-        // = 1, so they fall in the reject branch — signup can't hijack
-        // someone's OIDC account by knowing their email. To add a
-        // password to an OIDC account, the owner logs in via OIDC and
-        // uses the authenticated change-password flow.
-        //
-        // Matching runs against both raw `email` and canonical `clean_email` so
-        // gmail-style aliases (`foo.bar+tag@gmail.com` vs
-        // `foobar@gmail.com`) collapse to the same account.
-        //
-        // This is the cheap early check: it keeps an obvious duplicate from
-        // paying for the validate hook and a bcrypt round. It is NOT the
-        // guarantee — everything between here and the insert widens the window,
-        // so the check runs again against the primary immediately before the
-        // write, and the unique index catches whatever still slips through.
-        const clientIp: string | null =
-            req.ip || req.socket?.remoteAddress || null;
-        const proxyIpChain = req.headers['x-forwarded-for'];
-
-        let pseudo_user = is_temp
-            ? null
-            : await this.#resolveSignupEmailClaim(body.email);
-
-        // A dead code fails here rather than after the gate below, which records
-        // an allowed attempt against the address as if an account followed.
-        if (
-            bonusCode &&
-            !(
-                await checkSignupBonus(this.clients.event, bonusCode, {
-                    ip: clientIp,
-                    fingerprint,
-                })
-            ).valid
-        ) {
-            throw bonusCodeInvalidError();
-        }
-
-        // Extension-level validation gate. Abuse-prevention extensions
-        // inspect the incoming signup and can:
-        //   - block it outright via `event.allow = false`
-        //   - force email confirmation via `event.requires_email_confirmation = true`
-        //   - skip temp-user creation via `event.no_temp_user = true`
-        // Listeners run sequentially so multi-signal checks (rate limit +
-        // IP reputation + domain reputation) can short-circuit cleanly.
-        const validateEvent = {
+        const user = await this.services.signup.signup({
             req,
-            data: body,
-            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
-            // would let a client pick its own per-IP abuse bucket.
-            ip: clientIp,
-            email: body.email,
-            // The same canonical form `email.validate` was given, so a check
-            // in the abuse harness can look up the verdict that hook cached
-            // for this address. Without it an alias (`a+tag@outlook.com`,
-            // `a.b@icloud.com`) reaches the two hooks under two different keys.
-            clean_email: cleanEmail(body.email),
-            // Temp signups carry a synthetic `<username>@gmail.com` and skip
-            // #validateEmail entirely, so an email check must know not to
-            // reason about the address at all.
-            is_temp,
-            allow: true,
-            no_temp_user: false,
-            requires_email_confirmation: false,
-            // Set by the abuse harness for low-reputation signups: the account is
-            // created + logged in but gated behind SMS phone verification (in
-            // addition to email confirmation) instead of being blocked.
-            requires_phone_verification: false,
-            // Same idea, one rung up the ladder: gate the account behind
-            // credit-card verification (a $0 auth handled by an extension).
-            requires_card_verification: false,
-            message: null,
-            code: null,
-            user_agent: req?.headers?.['user-agent'] ?? null,
+            body,
+            isTemp: is_temp,
             fingerprint,
-            // Populated by the abuse extension's v2 harness; persisted to the
-            // user row below so the signup-time reputation is referable later.
-            reputation: null as number | null,
-            // Stamped by the abuse harness for flagged signups — the id keying
-            // the `abuse:trail:<id>` decision trail (carrying both the live and
-            // shadow trails). Surfaced to a blocked user as the Request Code so
-            // the code they quote support leads straight to their trail.
-            trail_id: undefined as string | undefined,
-        };
-        const validateMeta: EventMetadata = {};
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent,
-                validateMeta,
-            );
-        } catch (e) {
-            console.warn('[signup] validate hook failed:', e);
-            validateMeta.listener_failed = true;
-        }
-        // A check that could not run is not a check that passed.
-        if (validateMeta.listener_failed || !validateEvent.allow) {
-            // Pass the trail id back to a blocked user as the Request Code (when
-            // the harness stamped one), embedded in the message so the existing
-            // signup-block UI surfaces it without a GUI change.
-            const requestCode = validateEvent.trail_id;
-            throw new HttpError(
-                403,
-                (validateEvent.message ?? 'Signup blocked') +
-                    (requestCode ? ` Request Code: ${requestCode}` : ''),
-                {
-                    ...(validateEvent.code
-                        ? { legacyCode: validateEvent.code as never }
-                        : {}),
-                },
-            );
-        }
-        if (is_temp && validateEvent.no_temp_user) {
-            throw new HttpError(
-                403,
-                validateEvent.message ?? 'Temporary accounts are disabled',
-                {
-                    legacyCode: 'must_login_or_signup',
-                    ...(validateEvent.code
-                        ? { legacyCode: validateEvent.code as never }
-                        : {}),
-                },
-            );
-        }
-        const force_email_confirmation = Boolean(
-            validateEvent.requires_email_confirmation,
-        );
-        let force_phone_verification =
-            Boolean(validateEvent.requires_phone_verification) ||
-            // Test/QA switch: force the SMS gate on every signup regardless of
-            // reputation (see config.always_require_phone_verification).
-            Boolean(this.config.always_require_phone_verification);
-        let force_card_verification = Boolean(
-            validateEvent.requires_card_verification ||
-            // Test/QA switch: force the card gate on every signup regardless of
-            // reputation (see config.always_require_card_verification).
-            this.config.always_require_card_verification,
-        );
-
-        if (bonusCode) {
-            const verdict = await validateSignupBonus(
-                this.clients.event,
-                bonusCode,
-                {
-                    email: body.email,
-                    clean_email: cleanEmail(body.email),
-                    ip: clientIp,
-                    fingerprint,
-                    reputation: validateEvent.reputation,
-                    requires_phone_verification: force_phone_verification,
-                    requires_card_verification: force_card_verification,
-                },
-            );
-            if (!verdict.accepted) throw bonusCodeInvalidError();
-            force_phone_verification = verdict.requiresPhoneVerification;
-            force_card_verification = verdict.requiresCardVerification;
-        }
-
-        // Prepare shared fields
-        const user_uuid = uuidv4();
-        const email_confirm_code = String(crypto.randomInt(100000, 1000000));
-        const email_confirm_token = uuidv4();
-        const password_hash = is_temp
-            ? null
-            : await bcrypt.hash(body.password, 8);
-
-        const signupSqlTs = new Date()
-            .toISOString()
-            .slice(0, 19)
-            .replace('T', ' ');
-
-        // Re-run the claim against the primary now that the slow work is done.
-        // The check above ran before the validate hook (network round-trips to
-        // the abuse listeners) and before bcrypt — hundreds of milliseconds in
-        // which a concurrent signup can take the address, or claim the very
-        // placeholder row we were about to convert.
-        if (!is_temp) {
-            pseudo_user = await this.#resolveSignupEmailClaim(body.email, {
-                force: true,
-                releaseSeat: true,
-            });
-        }
-
-        let user;
-        if (pseudo_user) {
-            // -- Pseudo-user claim (convert the placeholder row) --
-            //
-            // Guarded, not a plain update: the address never changes hands here
-            // (the row already holds it), so the unique index has nothing to
-            // catch. Two signups that both read this row as claimable would
-            // otherwise both "succeed", the second overwriting the first's
-            // username and password on a row the first was already given a
-            // session for.
-            let claimed: boolean;
-            try {
-                claimed = await this.stores.user.claimPlaceholder(
-                    pseudo_user.id,
-                    {
-                        username: body.username,
-                        password: password_hash,
-                        uuid: user_uuid,
-                        email_confirm_code,
-                        email_confirm_token,
-                        email_confirmed: 0,
-                        requires_email_confirmation: 1,
-                        last_activity_ts: signupSqlTs,
-                        ...(validateEvent.reputation != null
-                            ? { reputation: validateEvent.reputation }
-                            : {}),
-                        requires_phone_verification: force_phone_verification
-                            ? 1
-                            : 0,
-                        requires_card_verification: force_card_verification
-                            ? 1
-                            : 0,
-                    },
-                );
-            } catch (e) {
-                if (
-                    await this.#isUsernameTaken(
-                        e,
-                        body.username,
-                        pseudo_user.id,
-                    )
-                ) {
-                    throw new HttpError(
-                        400,
-                        'This username already exists in our database. Please use another one.',
-                        { legacyCode: 'bad_request' },
-                    );
-                }
-                throw e;
-            }
-            if (!claimed) {
-                throw new HttpError(
-                    400,
-                    'This email already exists in our database. Please use another one.',
-                    { legacyCode: 'bad_request' },
-                );
-            }
-
-            // Move from temp group to regular user group
-            if (this.config.default_temp_group) {
-                try {
-                    await this.stores.group.removeUsers(
-                        this.config.default_temp_group,
-                        [body.username],
-                    );
-                } catch {
-                    // Best-effort — missing membership shouldn't block signup
-                }
-            }
-            if (this.config.default_user_group) {
-                try {
-                    await this.stores.group.addUsers(
-                        this.config.default_user_group,
-                        [body.username],
-                    );
-                } catch (e) {
-                    console.warn('[signup] group assignment failed:', e);
-                }
-            }
-
-            user = await this.stores.user.getById(pseudo_user.id, {
-                force: true,
-            });
-        } else {
-            // -- New user ----------------------------------------
-            try {
-                user = await this.stores.user.create({
-                    username: body.username,
-                    uuid: user_uuid,
-                    password: password_hash,
-                    email: is_temp ? null : body.email,
-                    clean_email: is_temp ? null : cleanEmail(body.email),
-                    free_storage: this.config.storage_capacity ?? null,
-                    requires_email_confirmation:
-                        !is_temp || force_email_confirmation,
-                    email_confirm_code,
-                    email_confirm_token,
-                    audit_metadata: {
-                        ip: clientIp,
-                        ip_fwd: proxyIpChain,
-                        user_agent: req.headers?.['user-agent'],
-                        origin: req.headers?.origin,
-                        fingerprint,
-                    },
-                    signup_ip: clientIp,
-                    // The abuse harness and the admin IP lookup both key on
-                    // this column, so it holds the trusted client address; the
-                    // raw forwarded chain stays in `audit_metadata.ip_fwd`.
-                    signup_ip_forwarded: clientIp,
-                    signup_user_agent: req.headers?.['user-agent'] ?? null,
-                    signup_origin:
-                        (req.headers?.origin as string | null) ?? null,
-                    signup_server: (this.config as { serverId?: string })
-                        .serverId,
-                    referrer: body.referrer ?? null,
-                    last_activity_ts: signupSqlTs,
-                    reputation: validateEvent.reputation,
-                    // Phone collected later in the verification dialog (null now).
-                    phone: null,
-                    requires_phone_verification: force_phone_verification,
-                    requires_card_verification: force_card_verification,
-                } as never);
-            } catch (e) {
-                // Lost the race to another signup between the re-check above and
-                // this insert. The index is the only thing that can see that, so
-                // translate it into the answer the pre-check would have given.
-                if (isOwnedEmailConflict(e)) {
-                    throw new HttpError(
-                        400,
-                        'This email already exists in our database. Please use another one.',
-                        { legacyCode: 'bad_request' },
-                    );
-                }
-                if (await this.#isUsernameTaken(e, body.username)) {
-                    throw new HttpError(
-                        400,
-                        'This username already exists in our database. Please use another one.',
-                        { legacyCode: 'bad_request' },
-                    );
-                }
-                throw e;
-            }
-
-            // Add to default group
-            const defaultGroup = is_temp
-                ? this.config.default_temp_group
-                : this.config.default_user_group;
-            if (defaultGroup) {
-                try {
-                    await this.stores.group.addUsers(defaultGroup, [
-                        user.username,
-                    ]);
-                } catch (e) {
-                    console.warn('[signup] group assignment failed:', e);
-                }
-            }
-        }
-
-        // -- Provision FS home + default folders -----------------
-        // Idempotent — skips if `user.trash_uuid` is already set (pseudo
-        // users who went through a prior signup won't double-create).
-        try {
-            await generateDefaultFsentries(
-                this.clients.db,
-                this.stores.user,
-                user!,
-            );
-        } catch (e) {
-            console.warn('[signup] generateDefaultFsentries failed:', e);
-        }
-
-        // -- Send email confirmation -----------------------------
-        if (
-            !is_temp &&
-            user!.requires_email_confirmation &&
-            this.clients.email
-        ) {
-            const sendCode = body.send_confirmation_code ?? true;
-            try {
-                let sent;
-                if (sendCode) {
-                    sent = await this.clients.email.send(
-                        user!.email!,
-                        'email_verification_code',
-                        {
-                            code: email_confirm_code,
-                        },
-                    );
-                } else {
-                    const link = `${this.config.origin ?? ''}/confirm-email-by-token?token=${email_confirm_token}&user_uuid=${user!.uuid}`;
-                    sent = await this.clients.email.send(
-                        user!.email!,
-                        'email_verification_link',
-                        { link },
-                    );
-                }
-                // `null` = dropped for want of a transport; silent otherwise.
-                if (sent === null) {
-                    this.#confirmationEmailFailed('signup', user!, null);
-                }
-            } catch (e) {
-                this.#confirmationEmailFailed('signup', user!, e);
-            }
-        }
-
-        // Fire signup events (best-effort). `user.save_account` is fired
-        // for every non-temp signup (fresh or pseudo-claim) — downstream
-        // consumers (mailchimp sync, welcome email, etc.) key off it.
-        try {
-            this.clients.event?.emit(
-                'puter.signup.success' as never,
-                {
-                    user_id: user!.id,
-                    user_uuid: user!.uuid,
-                    email: user!.email,
-                    username: user!.username,
-                    fingerprint,
-                    // Reflects the row that was actually created/claimed —
-                    // a pseudo-user claim ends up with credentials, so it
-                    // reports false here. Same signal completeLogin uses.
-                    is_temp: user!.password === null && user!.email === null,
-                    // Same derivation as the validate event above — the two
-                    // have to agree or per-IP counters are written under one
-                    // key and read under another.
-                    ip: clientIp,
-                    ...(bonusCode ? { bonus_code: bonusCode } : {}),
-                } as never,
-                {},
-            );
-        } catch {
-            // ignore — event emission shouldn't block signup
-        }
-        if (!is_temp) {
-            try {
-                this.clients.event?.emit(
-                    'user.save_account' as never,
-                    { user_id: user!.id } as never,
-                    {},
-                );
-            } catch {
-                // ignore
-            }
-        }
-
-        await this.#completeLogin(req, res, user!);
+            bonusCode,
+        });
+        await this.#completeLogin(req, res, user);
     }
 
     /**
@@ -1534,20 +1032,9 @@ export class AuthController extends PuterController {
             email_confirm_code: code,
         });
 
-        if (this.clients.email) {
-            try {
-                const sent = await this.clients.email.send(
-                    user.email,
-                    'email_verification_code',
-                    { code },
-                );
-                if (sent === null) {
-                    this.#confirmationEmailFailed('resend', user, null);
-                }
-            } catch (e) {
-                this.#confirmationEmailFailed('resend', user, e);
-            }
-        }
+        await this.services.signup.sendConfirmationEmail(user, 'resend', {
+            code,
+        });
         res.json({});
     }
 
@@ -1600,7 +1087,7 @@ export class AuthController extends PuterController {
         // Re-validate the email at confirmation time — the address may
         // have been added to the blocklist (or flagged by an extension)
         // after signup but before confirmation.
-        await this.#validateEmail(user.email!);
+        await this.services.signup.validateEmail(user.email!);
 
         // An account that already confirmed this address proved access to the
         // inbox, and revoking it below would hand the address to whoever
@@ -1654,64 +1141,6 @@ export class AuthController extends PuterController {
         }
 
         res.json({ email_confirmed: true, original_client_socket_id });
-    }
-
-    /**
-     * Alarm on a confirmation email that did not reach the recipient. A
-     * `requires_email_confirmation` account is refused by
-     * `requireVerifiedAccount` everywhere, so a lost code leaves an account
-     * that cannot be used. `cause === null` is the silent case: `sendRaw` drops
-     * the message rather than throwing when no transport is configured.
-     *
-     * `sole_gate` reports that no phone/card gate is outstanding either, so
-     * this user is stuck on the email alone. `dedup` because one broken mail
-     * path fails once per signup and is still one thing to fix.
-     */
-    #confirmationEmailFailed(
-        stage: 'signup' | 'resend',
-        user: {
-            uuid?: string | null;
-            username?: string | null;
-            email?: string | null;
-            requires_phone_verification?: unknown;
-            requires_card_verification?: unknown;
-        },
-        cause: unknown,
-    ): void {
-        const email = user.email ?? null;
-        const detail =
-            cause instanceof Error
-                ? cause.message
-                : cause === null
-                  ? 'no transport configured (message dropped)'
-                  : String(cause);
-        console.warn(
-            `[${stage === 'signup' ? 'signup' : 'send-confirm-email'}] ` +
-                `confirmation email not delivered: ${detail}`,
-        );
-        // Best-effort: failing to alarm must not fail the signup.
-        try {
-            this.clients.alarm?.create(
-                `auth:confirmation-email-send-failed:${stage}`,
-                'Confirmation email could not be sent — gated accounts cannot be used until it arrives',
-                {
-                    stage,
-                    user_uid: user.uuid ?? null,
-                    username: user.username ?? null,
-                    email,
-                    email_domain: email?.split('@')[1] ?? null,
-                    sole_gate:
-                        !user.requires_phone_verification &&
-                        !user.requires_card_verification,
-                    detail,
-                    ...(cause instanceof Error ? { error: cause } : {}),
-                },
-                'warning',
-                { dedup: true },
-            );
-        } catch (e) {
-            console.warn(`[${stage}] confirmation-email alarm failed:`, e);
-        }
     }
 
     // -- Phone verification (SMS via Prelude) ------------------------
@@ -2900,25 +2329,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        if (!USERNAME_REGEX.test(new_username)) {
-            throw new HttpError(
-                400,
-                'Username can only contain letters, numbers and underscore (_).',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (new_username.length > USERNAME_MAX_LENGTH) {
-            throw new HttpError(
-                400,
-                `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (isReservedUsername(new_username)) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'username_already_in_use',
-            });
-        }
+        assertValidUsername(new_username);
         if (await this.stores.user.getByUsername(new_username)) {
             throw new HttpError(400, 'This username is already taken.', {
                 legacyCode: 'username_already_in_use',
@@ -2953,7 +2364,8 @@ export class AuthController extends PuterController {
             });
         } catch (e) {
             if (
-                await this.#isUsernameTaken(
+                await isUsernameTaken(
+                    this.stores.user,
                     e,
                     new_username,
                     req.actor!.user.id!,
@@ -3019,7 +2431,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        await this.#validateEmail(new_email);
+        await this.services.signup.validateEmail(new_email);
 
         // Block if any OTHER confirmed account (password or OIDC) already
         // owns that email. Match raw + canonical to collapse gmail
@@ -3247,30 +2659,19 @@ export class AuthController extends PuterController {
         if (
             !username ||
             typeof username !== 'string' ||
-            !USERNAME_REGEX.test(username)
+            usernameRejection(username) === 'format'
         ) {
             throw new HttpError(400, 'Invalid username.', {
                 legacyCode: 'bad_request',
             });
         }
-        if (username.length > USERNAME_MAX_LENGTH) {
-            throw new HttpError(
-                400,
-                `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (isReservedUsername(username)) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'username_already_in_use',
-            });
-        }
+        assertValidUsername(username);
         if (!email || !isStorableEmail(email)) {
             throw new HttpError(400, 'Please enter a valid email address.', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.#validateEmail(email);
+        await this.services.signup.validateEmail(email);
         if (!password || typeof password !== 'string') {
             throw new HttpError(400, 'Password is required.', {
                 legacyCode: 'password_required',
@@ -3286,17 +2687,13 @@ export class AuthController extends PuterController {
         }
 
         // Duplicate checks
-        const existingUsername = await this.stores.user.getByUsername(username);
-        if (existingUsername && existingUsername.id !== user.id) {
+        const conflict = await usernameConflict(this.stores, username, user.id);
+        if (conflict === 'account') {
             throw new HttpError(400, 'This username is already taken.', {
                 legacyCode: 'username_already_in_use',
             });
         }
-        if (
-            await this.stores.fsEntry.findHomePathConflict(username, user.id, {
-                includeDescendants: true,
-            })
-        ) {
+        if (conflict === 'home') {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
@@ -3305,7 +2702,8 @@ export class AuthController extends PuterController {
         // reject on ANY confirmed account (OIDC accounts have
         // password=null but are real) — not just password-holders.
         const canonical = cleanEmail(email);
-        const existingEmail = await this.#signupEmailHolder(email);
+        const existingEmail =
+            await this.services.signup.signupEmailHolder(email);
         if (
             existingEmail &&
             existingEmail.id !== user.id &&
@@ -3323,7 +2721,7 @@ export class AuthController extends PuterController {
 
         // bcrypt above is slow enough for someone else to take the address in
         // the meantime, so re-check against the primary before the write.
-        const raced = await this.#signupEmailHolder(email, {
+        const raced = await this.services.signup.signupEmailHolder(email, {
             force: true,
             releaseSeat: true,
         });
@@ -3354,7 +2752,7 @@ export class AuthController extends PuterController {
                     legacyCode: 'email_already_in_use' as never,
                 });
             }
-            if (await this.#isUsernameTaken(e, username, user.id)) {
+            if (await isUsernameTaken(this.stores.user, e, username, user.id)) {
                 throw new HttpError(400, 'This username is already taken.', {
                     legacyCode: 'username_already_in_use',
                 });
@@ -3374,27 +2772,10 @@ export class AuthController extends PuterController {
             }
         }
 
-        // Move from temp group to user group
-        if (this.config.default_temp_group) {
-            try {
-                await this.stores.group.removeUsers(
-                    this.config.default_temp_group,
-                    [username],
-                );
-            } catch {
-                // Best-effort
-            }
-        }
-        if (this.config.default_user_group) {
-            try {
-                await this.stores.group.addUsers(
-                    this.config.default_user_group,
-                    [username],
-                );
-            } catch (e) {
-                console.warn('[save-account] group add failed:', e);
-            }
-        }
+        await promoteToVerifiedGroup(this.stores.group, this.config, {
+            ...user,
+            username,
+        });
 
         // Send confirmation email
         if (this.clients.email) {
@@ -5300,150 +4681,16 @@ export class AuthController extends PuterController {
         await this.services.userAccount.cascadeDelete(userId);
     }
 
-    async #generateRandomUsername(): Promise<string> {
-        let username: string;
-        let attempts = 0;
-        do {
-            username = generate_identifier();
-            attempts++;
-            if (attempts > 20)
-                throw new HttpError(
-                    409,
-                    'Failed to generate unique username. Try again later.',
-                    { legacyCode: 'conflict' },
-                );
-        } while (await this.stores.user.getByUsername(username));
+    async #generateTempUsername(): Promise<string> {
+        const username = await generateUsername(this.stores);
+        if (!username) {
+            throw new HttpError(
+                409,
+                'Failed to generate unique username. Try again later.',
+                { legacyCode: 'conflict' },
+            );
+        }
         return username;
-    }
-
-    /**
-     * Whether a failed write to user `ownId` (none for an insert) lost
-     * `username` to another account. The primary is read because the winner may
-     * not have replicated yet.
-     */
-    async #isUsernameTaken(
-        err: unknown,
-        username: string,
-        ownId?: number,
-    ): Promise<boolean> {
-        if (!isUniqueViolation(err)) return false;
-        const holder = await this.stores.user.getByUsername(username, {
-            force: true,
-        });
-        return Boolean(holder && holder.id !== ownId);
-    }
-
-    /**
-     * Decide whether a signup may take `email`, and hand back the placeholder
-     * row it should convert instead of inserting a new one.
-     *
-     * Throws when a live account already owns the address. Returns the
-     * unconfirmed, password-less pseudo row when one exists (admin
-     * pre-provisioning — signup claims it), or null when the address is free.
-     *
-     * Called twice per signup: once early, to fail fast before the validate
-     * hook and bcrypt, and once against the primary immediately before the
-     * write, which is also where a seat gives up an unconfirmed address.
-     */
-    async #resolveSignupEmailClaim(
-        email: string,
-        opts: { force?: boolean; releaseSeat?: boolean } = {},
-    ): Promise<UserRow | null> {
-        const existing = await this.#signupEmailHolder(email, opts);
-        if (!existing) return null;
-        // A provisioned account looks exactly like a claimable placeholder --
-        // no password, unconfirmed -- but claiming it hands a stranger that
-        // team's membership.
-        const orgSeat = await this.stores.team.getOrgSeat(existing.id);
-        if (
-            existing.email_confirmed ||
-            existing.password !== null ||
-            orgSeat !== null
-        ) {
-            throw new HttpError(
-                400,
-                'This email already exists in our database. Please use another one.',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        return existing;
-    }
-
-    /**
-     * The account holding `email` that a signup has to contend with. A seat
-     * whose address its team typed and nobody confirmed doesn't count; with
-     * `releaseSeat` the seat gives the address up so the signup can take it.
-     */
-    async #signupEmailHolder(
-        email: string,
-        opts: { force?: boolean; releaseSeat?: boolean } = {},
-    ): Promise<UserRow | null> {
-        let force = opts.force;
-        for (;;) {
-            const holder = await this.stores.user.findEmailOwner(email, {
-                force,
-            });
-            if (!holder || holder.email_confirmed) return holder;
-            if (!(await this.stores.team.getOrgSeat(holder.id))) return holder;
-            if (!opts.releaseSeat) return null;
-            if (
-                !(await this.services.team.releaseUnconfirmedSeatEmail(
-                    holder.id,
-                ))
-            )
-                return holder;
-            force = true;
-        }
-    }
-
-    /**
-     * Config-blocklist + extension-driven email validation. Config blocklist
-     * (suffix match on cleaned email) blocks first; then the `email.validate`
-     * event lets extensions (abuse) reject. Throws HttpError(400) on
-     * rejection.
-     */
-    async #validateEmail(email: string): Promise<void> {
-        if (
-            isBlockedEmail(
-                email,
-                (this.config as { blockedEmailDomains?: string[] })
-                    .blockedEmailDomains,
-            )
-        ) {
-            throw new HttpError(400, 'This email is not allowed.', {
-                legacyCode: 'email_not_allowed' as never,
-            });
-        }
-
-        const validateEvent: {
-            email: string;
-            allow: boolean;
-            message: string | null;
-        } = {
-            email: cleanEmail(email),
-            allow: true,
-            message: null,
-        };
-        // Same shape as the OIDC path: a gate that did not run is not a pass.
-        const meta: { listener_failed?: boolean } = {};
-        try {
-            await this.clients.event?.emitAndWait(
-                'email.validate',
-                validateEvent,
-                meta,
-            );
-        } catch (e) {
-            console.warn('[email-validate] hook failed:', e);
-            meta.listener_failed = true;
-        }
-        if (meta.listener_failed || !validateEvent.allow) {
-            throw new HttpError(
-                400,
-                validateEvent.message ??
-                    'This email cannot be used. Please try a different email address.',
-                { legacyCode: 'bad_request' },
-            );
-        }
     }
 
     /**
