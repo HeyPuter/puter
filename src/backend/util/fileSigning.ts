@@ -17,9 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { HttpError } from '../core/http/HttpError.js';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
+import { secretsEqual } from './secureCompare.js';
 
 /**
  * File URL signing. A signed URL carries `uid`, `expires` and `signature`; that
@@ -91,20 +92,15 @@ function computeOwnerBoundSignature(
 }
 
 /**
- * Constant-time equality for the hex signature strings. A plain `===`
- * short-circuits on the first differing character, leaking a byte-by-byte
- * timing oracle on the one value an attacker controls and submits repeatedly.
- * Length mismatch (or non-hex input) returns false without a timing-variable
- * compare.
+ * Constant-time equality for the hex signature strings; compares the decoded
+ * bytes, so hex case doesn't matter.
  */
 function signaturesEqual(provided: string, expected: string): boolean {
     if (provided.length !== expected.length) return false;
-    const a = Buffer.from(provided, 'hex');
-    const b = Buffer.from(expected, 'hex');
-    // Malformed hex yields a shorter buffer than the hex length implies;
-    // timingSafeEqual requires equal lengths, so guard before comparing.
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
+    return secretsEqual(
+        Buffer.from(provided, 'hex'),
+        Buffer.from(expected, 'hex'),
+    );
 }
 
 /**
