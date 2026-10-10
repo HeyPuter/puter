@@ -102,6 +102,43 @@ export function toAppView(
     return view;
 }
 
+/** An app's view plus what a direct read adds, as `AppService.views` returns it. */
+export interface AppClientView {
+    view: AppView;
+    /** The origin when this row is its origin's canonical app, else null. */
+    createdFromOrigin: string | null;
+}
+
+/**
+ * The `puter-apps` read shape: the gated view, `created_from_origin`, stats,
+ * and the owner block when the viewer owns the app.
+ */
+export function toAppReadView(
+    app: AppRow,
+    { view, createdFromOrigin }: AppClientView,
+    {
+        viewer,
+        stats,
+        iconSize,
+    }: {
+        viewer?: { id?: number; username?: string; uuid?: string } | null;
+        stats?: unknown;
+        /** Echoed back; kept for clients that send it. */
+        iconSize?: unknown;
+    } = {},
+): Record<string, unknown> {
+    const result: Record<string, unknown> = {
+        ...view,
+        created_from_origin: createdFromOrigin,
+        stats: stats ?? null,
+    };
+    if (viewer?.id !== undefined && viewer.id === app.owner_user_id) {
+        result.owner = { username: viewer.username, uuid: viewer.uuid };
+    }
+    if (iconSize) result.icon_size = iconSize;
+    return result;
+}
+
 export interface AppSummaryOptions {
     apiBaseUrl?: string;
     config?: AppIconHostConfig;

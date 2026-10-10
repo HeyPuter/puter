@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { setupTestServer } from '../../testUtil.js';
 
@@ -34,9 +35,12 @@ beforeAll(async () => {
     server = await setupTestServer();
     const router = new PuterRouter();
     server.controllers.hosting.registerRoutes(router);
-    deleteSite = router.routes.find(
+    const handler = router.routes.find(
         (route) => route.path === '/delete-site',
     ).handler;
+    // Handlers run inside the request context, which carries the actor.
+    deleteSite = (req, res) =>
+        runWithContext({ actor: req.actor }, () => handler(req, res));
 });
 
 afterAll(async () => {

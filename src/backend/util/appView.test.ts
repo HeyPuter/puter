@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { toAppSummary, toAppView } from './appView.js';
+import { toAppReadView, toAppSummary, toAppView } from './appView.js';
 
 const row = (overrides: Record<string, unknown> = {}) => ({
     id: 42,
@@ -158,5 +158,37 @@ describe('toAppSummary', () => {
         expect(summary.icon).toBe('https://cdn.example.com/i.png');
         expect(summary.iconCdnUrl).toBeNull();
         expect(summary.external).toBe(true);
+    });
+});
+
+describe('toAppReadView', () => {
+    const clientView = () => ({
+        view: toAppView(row(), []),
+        createdFromOrigin: 'https://cool-app.example.com',
+    });
+
+    it('adds created_from_origin and stats, and the owner block only for the owner', () => {
+        const forOwner = toAppReadView(row(), clientView(), {
+            viewer: { id: 7, username: 'dev', uuid: 'u-7' },
+            stats: { open_count: 3 },
+        });
+        const forOther = toAppReadView(row(), clientView(), {
+            viewer: { id: 8, username: 'other', uuid: 'u-8' },
+        });
+
+        expect(forOwner).toMatchObject({
+            created_from_origin: 'https://cool-app.example.com',
+            stats: { open_count: 3 },
+            owner: { username: 'dev', uuid: 'u-7' },
+        });
+        expect(forOther.stats).toBeNull();
+        expect(forOther).not.toHaveProperty('owner');
+        expect(forOther).not.toHaveProperty('icon_size');
+    });
+
+    it('echoes a requested icon size', () => {
+        expect(
+            toAppReadView(row(), clientView(), { iconSize: 64 }).icon_size,
+        ).toBe(64);
     });
 });

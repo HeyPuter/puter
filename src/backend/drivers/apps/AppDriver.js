@@ -29,6 +29,7 @@ import {
     normalizeRawBase64ImageString,
     validateIconDataUrl,
 } from '../../util/appIcon.js';
+import { toAppReadView } from '../../util/appView.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     buildHostedSubdomainIndexUrlCandidates,
@@ -380,9 +381,10 @@ export class AppDriver extends PuterDriver {
             this.services.app.views(visible, actor),
         ]);
         const items = visible.map((app, i) =>
-            this.#decorate(app, views[i], actor, {
-                ...params,
+            toAppReadView(app, views[i], {
+                viewer: actor.user,
                 stats: statsByUid.get(app.uid),
+                iconSize: params.icon_size,
             }),
         );
         if (!paginated) return items;
@@ -837,31 +839,11 @@ export class AppDriver extends PuterDriver {
     async #toClient(app, actor, params = {}) {
         if (!app) return null;
         const [clientView] = await this.services.app.views([app], actor);
-        return this.#decorate(app, clientView, actor, params);
-    }
-
-    /**
-     * This driver's additions to the shared app view. `params` carries the RPC
-     * caller's input, so nothing launch-relevant is read from it.
-     */
-    #decorate(app, { view, createdFromOrigin }, actor, params) {
-        const result = {
-            ...view,
-            created_from_origin: createdFromOrigin,
-            stats: params.stats ?? null,
-        };
-        // Owner info — only exposed to the owner
-        if (actor?.user?.id === app.owner_user_id) {
-            result.owner = {
-                username: actor.user.username,
-                uuid: actor.user.uuid,
-            };
-        }
-        // Icon sizing hook (for future AppIconService integration)
-        if (params.icon_size) {
-            result.icon_size = params.icon_size;
-        }
-        return result;
+        return toAppReadView(app, clientView, {
+            viewer: actor?.user,
+            stats: params.stats,
+            iconSize: params.icon_size,
+        });
     }
 
     #extractPuterHostedSubdomain(indexUrl) {

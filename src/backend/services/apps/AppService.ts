@@ -18,7 +18,11 @@
  */
 
 import type { Actor } from '../../core/actor.js';
-import { toAppView, type AppRow, type AppView } from '../../util/appView.js';
+import {
+    toAppView,
+    type AppClientView,
+    type AppRow,
+} from '../../util/appView.js';
 import { hostedIndexUrlBackingsAreUnavailable } from '../../util/hostedAppBacking.js';
 import {
     resolvePrivateLaunchAccess,
@@ -33,12 +37,6 @@ interface CanonicalForIndexUrl {
     expectedUid: string;
     /** Null when `expectedUid` is derived and has no row. */
     canonicalApp: AppRow | null;
-}
-
-export interface AppClientView {
-    view: AppView;
-    /** The origin when this row is its origin's canonical app, else null. */
-    createdFromOrigin: string | null;
 }
 
 /** Parsed `protocol//hostname[:port]` origin of an index_url, or null. */
