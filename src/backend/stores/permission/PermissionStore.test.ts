@@ -20,7 +20,7 @@
 
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
@@ -81,6 +81,34 @@ describe('PermissionStore', () => {
         it('returns nothing for an empty permission list', async () => {
             const holder = await makeUser();
             expect(await store.getFlatUserPerms(holder.id, [])).toEqual([]);
+        });
+
+        it('drops many flat entries in one batched KV delete', async () => {
+            const holder = await makeUser();
+            const perms = [1, 2, 3].map(() => `fs:${uuidv4()}:read`);
+            for (const perm of perms) {
+                await store.setFlatUserPerm(holder.id, perm, {
+                    permission: perm,
+                });
+            }
+
+            const kv = server.stores.kv;
+            const del = vi.spyOn(kv, 'del');
+            const batchDel = vi.spyOn(kv, 'batchDel');
+            try {
+                await store.delFlatUserPerms(
+                    perms.map((permission) => ({
+                        holderUserId: holder.id,
+                        permission,
+                    })),
+                );
+                expect(batchDel).toHaveBeenCalledTimes(1);
+                expect(del).not.toHaveBeenCalled();
+            } finally {
+                del.mockRestore();
+                batchDel.mockRestore();
+            }
+            expect(await store.getFlatUserPerms(holder.id, perms)).toEqual([]);
         });
 
         it('dedupes repeated permission strings and skips missing keys', async () => {

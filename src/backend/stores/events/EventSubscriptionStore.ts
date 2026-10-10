@@ -819,13 +819,33 @@ export class EventSubscriptionStore extends PuterStore {
         token: string;
         subId: string;
     }): Promise<void> {
-        await this.clients.redis.hdel(
-            durableMapKey(row.ownerUserId),
-            row.subId,
-        );
-        await this.#dropRows(row.ownerUserId, [
-            { token: row.token, subId: row.subId },
-        ]);
+        await this.dropDurables([row]);
+    }
+
+    /** `dropDurable` for many rows: one pass per owner rather than per row. */
+    async dropDurables(
+        rows: ReadonlyArray<{
+            ownerUserId: number;
+            token: string;
+            subId: string;
+        }>,
+    ): Promise<void> {
+        const byOwner = new Map<
+            number,
+            Array<{ token: string; subId: string }>
+        >();
+        for (const { ownerUserId, token, subId } of rows) {
+            const owned = byOwner.get(ownerUserId);
+            if (owned) owned.push({ token, subId });
+            else byOwner.set(ownerUserId, [{ token, subId }]);
+        }
+        for (const [ownerUserId, owned] of byOwner) {
+            await this.clients.redis.hdel(
+                durableMapKey(ownerUserId),
+                ...owned.map((row) => row.subId),
+            );
+            await this.#dropRows(ownerUserId, owned);
+        }
     }
 
     /**

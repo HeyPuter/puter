@@ -295,17 +295,15 @@ export class PermissionStore extends PuterStore {
 
     /** Local half of a flat delete. Never emits, so a remote one can't loop. */
     async #applyFlatUserPermDeletes(entries: FlatPermRef[]): Promise<void> {
-        await Promise.all(
-            entries.map(({ holderUserId, permission }) =>
-                this.stores.kv.del({
-                    key: PermissionUtil.join(
-                        PERM_KEY_PREFIX,
-                        String(holderUserId),
-                        permission,
-                    ),
-                }),
+        await this.stores.kv.batchDel({
+            keys: entries.map(({ holderUserId, permission }) =>
+                PermissionUtil.join(
+                    PERM_KEY_PREFIX,
+                    String(holderUserId),
+                    permission,
+                ),
             ),
-        );
+        });
     }
 
     // -- SQL: user-to-user permissions -------------------------------

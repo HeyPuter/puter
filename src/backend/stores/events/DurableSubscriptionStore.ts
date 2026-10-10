@@ -429,11 +429,8 @@ export class DurableSubscriptionStore extends PuterStore {
                 });
         }
 
-        const owners = new Set<number>();
-        for (const row of suspended) {
-            await this.stores.eventSubscription.dropDurable(row);
-            owners.add(row.ownerUserId);
-        }
+        await this.stores.eventSubscription.dropDurables(suspended);
+        const owners = new Set(suspended.map((row) => row.ownerUserId));
         const bumps = await Promise.all(
             [...owners].map((owner) => this.#bump(owner)),
         );
@@ -917,13 +914,12 @@ export class DurableSubscriptionStore extends PuterStore {
             rows.map((row) => row.subId),
         );
 
-        const owners = new Set<number>();
+        await this.stores.eventSubscription.dropDurables(rows);
         for (const row of rows) {
-            await this.stores.eventSubscription.dropDurable(row);
             // Whatever was still owed to a row that no longer exists.
             await this.stores.pendingDelivery.purge(row.subId).catch(() => {});
-            owners.add(row.ownerUserId);
         }
+        const owners = new Set(rows.map((row) => row.ownerUserId));
         for (const ownerUserId of owners) await this.#bump(ownerUserId);
         return rows.length;
     }

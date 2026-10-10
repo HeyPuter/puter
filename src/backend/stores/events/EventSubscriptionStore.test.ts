@@ -913,6 +913,25 @@ describe('reading rows for dispatch', () => {
         expect(kept).toEqual([session]);
     });
 
+    it('drops many cached rows in one pass per owner', async () => {
+        const rows = durableRows(3);
+        await store.cacheDurable(rows);
+
+        const hdel = vi.spyOn(redis, 'hdel');
+        try {
+            await store.dropDurables(rows);
+            expect(hdel).toHaveBeenCalledTimes(1);
+        } finally {
+            hdel.mockRestore();
+        }
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+    });
+
     it('bounds each token on its own', async () => {
         await store.cacheDurable(durableRows(100));
         await store.add(makeSub({ token: 'f#other', anchorUid: 'other' }));
