@@ -31,10 +31,8 @@ import {
 } from '../../util/appIcon.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
-    buildHostedBackingDenial,
     buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
-    hostedIndexUrlBackingsAreUnavailable,
 } from '../../util/hostedAppBacking.js';
 import {
     normalizeLimit,
@@ -42,7 +40,6 @@ import {
     openCursor,
     sealCursor,
 } from '../../util/pagination.js';
-import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
     validateArrayOfStrings,
     validateBool,
@@ -118,19 +115,6 @@ const hasIndexUrlUniquenessExemption = (candidates) => {
     }
     return false;
 };
-
-/** Parsed `protocol//hostname[:port]` origin of an index_url, or null. */
-function indexUrlOrigin(indexUrl) {
-    if (!indexUrl) return null;
-    try {
-        const parsed = new URL(indexUrl);
-        return `${parsed.protocol}//${parsed.hostname}${
-            parsed.port ? `:${parsed.port}` : ''
-        }`;
-    } catch {
-        return null;
-    }
-}
 
 /**
  * Driver exposing the `puter-apps` interface.
@@ -388,77 +372,18 @@ export class AppDriver extends PuterDriver {
             );
         }
 
-        // Resolve protected-app visibility:
-        //  1. Cheap local short-circuits (non-protected, self-app, owner).
-        //  2. Single batched permission check for whatever's left — one
-        //     scan pass covers every remaining app, vs a per-app round
-        //     trip through the permission service.
-        const needsPermCheck = [];
-        const localVisible = new Set();
-        for (const app of apps) {
-            if (
-                !app.protected ||
-                actor.effectiveApp?.uid === app.uid ||
-                actor.user?.id === app.owner_user_id
-            ) {
-                localVisible.add(app);
-            } else {
-                needsPermCheck.push(app);
-            }
-        }
-
-        let permGrants;
-        if (needsPermCheck.length > 0) {
-            try {
-                permGrants = await this.permService.checkMany(
-                    actor,
-                    needsPermCheck.map((a) => `app:uid#${a.uid}:access`),
-                );
-            } catch {
-                permGrants = new Map();
-            }
-        } else {
-            permGrants = new Map();
-        }
-
-        const visible = apps.filter(
-            (app) =>
-                localVisible.has(app) ||
-                permGrants.get(`app:uid#${app.uid}:access`),
-        );
-
-        // Pre-fetch in parallel:
-        //  - per-uid stats (already pipelined inside getAppsStats)
-        //  - filetype associations as a single IN-list query (was N queries)
-        //  - canonical-index-url resolution and the hosted-backing check,
-        //    each batched across every visible app
-        const [
-            statsByUid,
-            filetypesByAppId,
-            canonicalByApp,
-            hostedUnavailableByApp,
-        ] = await Promise.all([
+        // Protected apps are filtered by one batched grant check; stats and
+        // the shared views are each one batched lookup across the page.
+        const visible = await this.services.app.filterReadable(apps, actor);
+        const [statsByUid, views] = await Promise.all([
             this.appStore.getAppsStats(visible.map((a) => a.uid)),
-            this.appStore.getFiletypeAssociationsByIds(
-                visible.map((a) => a.id),
-            ),
-            this.#resolveCanonicalForIndexUrls(visible),
-            this.#hostedBackingUnavailableFlags(visible),
+            this.services.app.views(visible, actor),
         ]);
-
-        const items = await Promise.all(
-            visible.map((app, i) =>
-                this.#toClient(
-                    app,
-                    actor,
-                    { ...params, stats: statsByUid.get(app.uid) },
-                    {
-                        filetypes: filetypesByAppId.get(app.id) ?? [],
-                        canonical: canonicalByApp[i],
-                        hostedBackingUnavailable: hostedUnavailableByApp[i],
-                    },
-                ),
-            ),
+        const items = visible.map((app, i) =>
+            this.#decorate(app, views[i], actor, {
+                ...params,
+                stats: statsByUid.get(app.uid),
+            }),
         );
         if (!paginated) return items;
 
@@ -878,25 +803,9 @@ export class AppDriver extends PuterDriver {
         return null;
     }
 
-    async #canReadApp(app, actor) {
-        if (!app.protected) return true;
-        // Self-app access
-        if (actor.effectiveApp?.uid === app.uid) return true;
-        // Owner access
-        if (actor.user?.id === app.owner_user_id) return true;
-        // Permission check
-        try {
-            return await this.permService.check(
-                actor,
-                `app:uid#${app.uid}:access`,
-            );
-        } catch {
-            return false;
-        }
-    }
-
     async #checkReadAccess(app, actor) {
-        if (await this.#canReadApp(app, actor)) return;
+        const [readable] = await this.services.app.filterReadable([app], actor);
+        if (readable) return;
         throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
@@ -925,230 +834,33 @@ export class AppDriver extends PuterDriver {
 
     // -- Serialization ------------------------------------------------
 
-    /**
-     * Resolve the canonical app row backing each app's `index_url`, batched
-     * across `apps`. Returns an array aligned with `apps`, each entry `{
-     * origin, expectedUid, canonicalApp }`:
-     *
-     * - `origin` — the parsed origin string from `index_url`.
-     * - `expectedUid` — the canonical app uid for that origin (oldest
-     *   `apps.index_url` match, or a deterministic UUIDv5 fallback for unknown
-     *   origins).
-     * - `canonicalApp` — the actual `apps` row at `expectedUid`, or `null` when
-     *   the uid is a UUIDv5 fallback with no DB row.
-     *
-     * Used in `#toClient` for two things:
-     *
-     * 1. `created_from_origin` derivation (only set when `expectedUid ===
-     *    app.uid`, mirroring v1 AppES).
-     * 2. The canonical-private gate — when `expectedUid !== app.uid` and
-     *    `canonicalApp.is_private`, the row is squatting on someone else's
-     *    private hosted URL. We must run the privateAccess gate against the
-     *    _canonical_ row, not the possibly-public squatter row, otherwise
-     *    pre-existing data from before the `subdomain_not_owned` check leaks
-     *    the victim's index_url.
-     *
-     * An entry is `null` when its app has no `index_url` or it doesn't parse.
-     */
-    async #resolveCanonicalForIndexUrls(apps) {
-        const origins = apps.map((app) => indexUrlOrigin(app.index_url));
-        const uniqueOrigins = [...new Set(origins.filter((o) => o !== null))];
-
-        let uidByOrigin = new Map();
-        if (uniqueOrigins.length > 0) {
-            try {
-                uidByOrigin =
-                    await this.services.auth.appUidsFromOrigins(uniqueOrigins);
-            } catch {
-                uidByOrigin = new Map();
-            }
-        }
-
-        // Avoid a needless DB hit on the self-match common case — `app` is
-        // already the row we'd be re-fetching.
-        const uidsToFetch = new Set();
-        for (let i = 0; i < apps.length; i++) {
-            if (!origins[i]) continue;
-            const expectedUid = uidByOrigin.get(origins[i]) ?? null;
-            if (expectedUid && expectedUid !== apps[i].uid) {
-                uidsToFetch.add(expectedUid);
-            }
-        }
-
-        let canonicalAppByUid = new Map();
-        if (uidsToFetch.size > 0) {
-            try {
-                canonicalAppByUid = await this.appStore.getByUids([
-                    ...uidsToFetch,
-                ]);
-            } catch {
-                canonicalAppByUid = new Map();
-            }
-        }
-
-        return apps.map((app, i) => {
-            const origin = origins[i];
-            if (!origin) return null;
-            const expectedUid = uidByOrigin.get(origin) ?? null;
-            if (!expectedUid) return null;
-            if (expectedUid === app.uid) {
-                return { origin, expectedUid, canonicalApp: app };
-            }
-            return {
-                origin,
-                expectedUid,
-                canonicalApp: canonicalAppByUid.get(expectedUid) ?? null,
-            };
-        });
-    }
-
-    /**
-     * Launch-safety check for puter-hosted `index_url`s, batched across `apps`.
-     * See `util/hostedAppBacking.ts` — the check lives there because every
-     * producer of launchable app metadata needs it, not just this driver.
-     */
-    async #hostedBackingUnavailableFlags(apps) {
-        return hostedIndexUrlBackingsAreUnavailable({
-            apps,
-            subdomainStore: this.stores.subdomain,
-            config: this.config,
-        });
-    }
-
-    async #toClient(app, actor, params = {}, prefetched = {}) {
+    async #toClient(app, actor, params = {}) {
         if (!app) return null;
+        const [clientView] = await this.services.app.views([app], actor);
+        return this.#decorate(app, clientView, actor, params);
+    }
 
-        // `select` batches these lookups per page and passes them in
-        // `prefetched`; single-app callers resolve them here. Never read them
-        // from `params`, which carries the RPC caller's input.
-        const [filetypes, canonicalForIndexUrl, hostedBackingUnavailable] =
-            await Promise.all([
-                prefetched.filetypes !== undefined
-                    ? Promise.resolve(prefetched.filetypes)
-                    : this.appStore.getFiletypeAssociations(app.id),
-                prefetched.canonical !== undefined
-                    ? Promise.resolve(prefetched.canonical)
-                    : this.#resolveCanonicalForIndexUrls([app]).then(
-                          (r) => r[0],
-                      ),
-                prefetched.hostedBackingUnavailable !== undefined
-                    ? Promise.resolve(prefetched.hostedBackingUnavailable)
-                    : this.#hostedBackingUnavailableFlags([app]).then(
-                          (r) => r[0],
-                      ),
-            ]);
-
-        const createdFromOrigin =
-            canonicalForIndexUrl && canonicalForIndexUrl.expectedUid === app.uid
-                ? canonicalForIndexUrl.origin
-                : null;
-
+    /**
+     * This driver's additions to the shared app view. `params` carries the RPC
+     * caller's input, so nothing launch-relevant is read from it.
+     */
+    #decorate(app, { view, createdFromOrigin }, actor, params) {
         const result = {
-            uid: app.uid,
-            name: app.name,
-            title: app.title,
-            description: app.description,
-            icon: app.icon,
-            index_url: app.index_url,
-            background: Boolean(app.background),
-            maximize_on_start: Boolean(app.maximize_on_start),
-            feedback_enabled: Boolean(app.feedback_enabled),
-            godmode: Boolean(app.godmode),
-            is_private: Boolean(app.is_private),
-            protected: Boolean(app.protected),
-            approved_for_listing: Boolean(app.approved_for_listing),
-            approved_for_opening_items: Boolean(app.approved_for_opening_items),
-            approved_for_incentive_program: Boolean(
-                app.approved_for_incentive_program,
-            ),
-            metadata: app.metadata ?? null,
-            filetype_associations: filetypes,
-            created_at: app.created_at ?? app.timestamp,
+            ...view,
             created_from_origin: createdFromOrigin,
             stats: params.stats ?? null,
         };
-
-        // Owner info — only expose if actor is the owner or has access
+        // Owner info — only exposed to the owner
         if (actor?.user?.id === app.owner_user_id) {
             result.owner = {
                 username: actor.user.username,
                 uuid: actor.user.uuid,
             };
         }
-
         // Icon sizing hook (for future AppIconService integration)
         if (params.icon_size) {
             result.icon_size = params.icon_size;
         }
-
-        // Private-app gate: callers without an ownership / purchase / grant
-        // must not receive `index_url` (the direct hosting URL). They still
-        // see metadata (title, icon, description) so the marketplace UI can
-        // render a purchase CTA. Owners + entitled users pass through
-        // unchanged. Attach `privateAccess` so clients know to redirect to
-        // app-center rather than launch.
-        //
-        // Gate target picking:
-        //   1. Canonical mismatch + canonical is private → gate against
-        //      the *canonical* row. Catches pre-existing bug data where
-        //      a row's `index_url` points at someone else's private hosted
-        //      URL but the row itself has `is_private = 0`. The
-        //      authoritative privacy decision belongs to the canonical
-        //      row's owner, not the squatter.
-        //   2. Otherwise, if this row is itself private → gate against
-        //      this row (the legitimate path).
-        //   3. Otherwise no gate — public app, no entitlement check.
-        const canonicalApp = canonicalForIndexUrl?.canonicalApp ?? null;
-        const expectedUid = canonicalForIndexUrl?.expectedUid;
-        const canonicalMismatchPrivate =
-            !!expectedUid &&
-            expectedUid !== app.uid &&
-            !!canonicalApp?.is_private;
-        const gateTarget = canonicalMismatchPrivate
-            ? canonicalApp
-            : result.is_private
-              ? app
-              : null;
-        if (gateTarget) {
-            const isOwner =
-                actor?.user?.id !== undefined &&
-                actor.user.id === gateTarget.owner_user_id;
-            const privateAccess = isOwner
-                ? { hasAccess: true, checkedBy: 'core/app-owner' }
-                : await resolvePrivateLaunchAccess({
-                      app: {
-                          uid: gateTarget.uid,
-                          name: gateTarget.name,
-                          is_private: true,
-                      },
-                      eventClient: this.clients.event,
-                      userUid: actor?.user?.uuid ?? null,
-                      source: canonicalMismatchPrivate
-                          ? 'appDriver:toClient:canonical-private'
-                          : 'appDriver:toClient',
-                      args: {},
-                  });
-            result.privateAccess = privateAccess;
-            if (!privateAccess.hasAccess) {
-                delete result.index_url;
-            }
-        }
-
-        // Hosted-subdomain launch guard (independent of the private-app
-        // gate): deny launch when the app's puter-hosted backing is gone or
-        // has been reclaimed by another user, so the GUI never appends the
-        // launch token to an origin the app owner no longer controls. Only
-        // set when not already denied so a private app's existing decision
-        // is preserved.
-        if (hostedBackingUnavailable) {
-            if (result.privateAccess?.hasAccess !== false) {
-                result.privateAccess = buildHostedBackingDenial();
-            }
-            if (actor?.user?.id !== app.owner_user_id) {
-                delete result.index_url;
-            }
-        }
-
         return result;
     }
 

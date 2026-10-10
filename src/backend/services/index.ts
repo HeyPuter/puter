@@ -21,6 +21,7 @@ import { AppOriginBlocklistService } from './abuse/AppOriginBlocklistService';
 import { ACLService } from './acl/ACLService';
 import { AppIconService } from './appIcon/AppIconService';
 import { AppPermissionService } from './apps/AppPermissionService';
+import { AppService } from './apps/AppService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
@@ -71,6 +72,7 @@ declare module './types' {
         subdomainPermission: SubdomainPermissionService;
         recommendedApps: RecommendedAppsService;
         suggestedApps: SuggestedAppsService;
+        app: AppService;
         socket: SocketService;
         events: EventsService;
         eventForward: EventForwardService;
@@ -129,6 +131,8 @@ export const puterServices = {
     subdomainPermission: SubdomainPermissionService,
     recommendedApps: RecommendedAppsService,
     suggestedApps: SuggestedAppsService,
+    // Reaches `auth` and `permission` at call time only.
+    app: AppService,
     socket: SocketService,
     // Delivers through `socket` and resolves paths through `fs`, so it follows
     // both; `fs` reaches back for dispatch at call time only.

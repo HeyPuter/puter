@@ -30,6 +30,7 @@ import type { Actor } from '../../core/actor.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import type { AppView } from '../../util/appView.js';
 import { MANAGE_PERM_PREFIX } from '../../services/permission/consts.js';
 import {
     APP_ICONS_SUBDOMAIN,
@@ -243,6 +244,7 @@ export class SubdomainDriver extends PuterDriver {
         }
         const [shaped] = await this.#hydrateRows(
             created ? [created as Record<string, unknown>] : [],
+            actor,
         );
         return shaped ?? null;
     }
@@ -264,7 +266,7 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'not_found',
             });
         await this.#checkReadAccess(row, actor);
-        const [shaped] = await this.#hydrateRows([row]);
+        const [shaped] = await this.#hydrateRows([row], actor);
         return shaped ?? null;
     }
 
@@ -327,7 +329,7 @@ export class SubdomainDriver extends PuterDriver {
             );
         }
 
-        const items = await this.#hydrateRows(rows);
+        const items = await this.#hydrateRows(rows, actor);
         if (!paginated) return items;
 
         let total: number | undefined;
@@ -398,6 +400,7 @@ export class SubdomainDriver extends PuterDriver {
         );
         const [shaped] = await this.#hydrateRows(
             updated ? [updated as Record<string, unknown>] : [],
+            actor,
         );
 
         try {
@@ -679,10 +682,12 @@ export class SubdomainDriver extends PuterDriver {
      * associated_app_id / app_owner → app shapes) with one batched lookup per
      * store, regardless of how many rows we're shaping. Used by both `select`
      * (many rows) and the single-row paths (`create`/`read`/`update`/`upsert`)
-     * so the wire shape stays identical.
+     * so the wire shape stays identical. Embedded apps get the same launch
+     * gates as a direct app read, for `actor`.
      */
     async #hydrateRows(
         rows: Array<Record<string, unknown>>,
+        actor: Actor,
     ): Promise<Array<Record<string, unknown>>> {
         if (rows.length === 0) return [];
 
@@ -727,12 +732,20 @@ export class SubdomainDriver extends PuterDriver {
                 this.stores.app.getFiletypeAssociationsByIds(allAppIds),
             ]);
 
+        const embeddedApps = [...appsById.values()];
+        const embedViews = await this.services.app.views(embeddedApps, actor, {
+            source: 'subdomainDriver:embed',
+            filetypesByAppId,
+        });
+        const appViewsById = new Map(
+            embeddedApps.map((app, i) => [Number(app.id), embedViews[i]!.view]),
+        );
+
         return rows.map((row) =>
             this.#shapeRow(row, {
                 usersById,
                 entriesById,
-                appsById,
-                filetypesByAppId,
+                appViewsById,
                 associatedAppIdByRowUuid,
             }),
         );
@@ -829,8 +842,7 @@ export class SubdomainDriver extends PuterDriver {
         lookups: {
             usersById: Map<number, UserRow>;
             entriesById: Map<number, FSEntry>;
-            appsById: Map<number, Record<string, unknown>>;
-            filetypesByAppId: Map<number, string[]>;
+            appViewsById: Map<number, AppView>;
             associatedAppIdByRowUuid: Map<string, number>;
         },
     ): Record<string, unknown> {
@@ -862,7 +874,7 @@ export class SubdomainDriver extends PuterDriver {
                 : null;
         const associatedApp =
             associatedAppRefId != null
-                ? (lookups.appsById.get(associatedAppRefId) ?? null)
+                ? (lookups.appViewsById.get(associatedAppRefId) ?? null)
                 : null;
 
         const appOwnerRefId =
@@ -873,7 +885,7 @@ export class SubdomainDriver extends PuterDriver {
                   : Number(row.app_owner);
         const appOwnerApp =
             appOwnerRefId != null
-                ? (lookups.appsById.get(appOwnerRefId) ?? null)
+                ? (lookups.appViewsById.get(appOwnerRefId) ?? null)
                 : null;
 
         return {
@@ -883,22 +895,12 @@ export class SubdomainDriver extends PuterDriver {
             // is set; the mapping declares `domain` as a string column.
             domain: typeof row.domain === 'string' ? row.domain : '',
             root_dir: rootEntry ? mapEntryToSubdomainRootDir(rootEntry) : null,
-            associated_app: associatedApp
-                ? mapAppForEmbed(
-                      associatedApp,
-                      lookups.filetypesByAppId.get(associatedAppRefId!) ?? [],
-                  )
-                : null,
+            associated_app: associatedApp,
             created_at: createdAt,
             owner: owner
                 ? { username: owner.username, uuid: owner.uuid }
                 : null,
-            app_owner: appOwnerApp
-                ? mapAppForEmbed(
-                      appOwnerApp,
-                      lookups.filetypesByAppId.get(appOwnerRefId!) ?? [],
-                  )
-                : null,
+            app_owner: appOwnerApp,
             protected: Boolean(row.protected),
         };
     }
@@ -949,37 +951,5 @@ function mapEntryToSubdomainRootDir(entry: FSEntry): Record<string, unknown> {
         subdomains: entry.subdomains ?? [],
         workers: entry.workers ?? [],
         has_website: entry.hasWebsite ?? (entry.subdomains?.length ?? 0) > 0,
-    };
-}
-
-/**
- * Embed shape for nested app references (`associated_app`, `app_owner`).
- * Follows v1's AppES read shape minus the per-app async work
- * (`created_from_origin`, private-app gating) — those are top-level-read
- * concerns, not relevant for an app embed inside a subdomain row.
- */
-function mapAppForEmbed(
-    app: Record<string, unknown>,
-    filetypes: string[],
-): Record<string, unknown> {
-    return {
-        uid: app.uid,
-        name: app.name,
-        title: app.title,
-        description: app.description,
-        icon: app.icon,
-        index_url: app.index_url,
-        background: Boolean(app.background),
-        maximize_on_start: Boolean(app.maximize_on_start),
-        is_private: Boolean(app.is_private),
-        protected: Boolean(app.protected),
-        approved_for_listing: Boolean(app.approved_for_listing),
-        approved_for_opening_items: Boolean(app.approved_for_opening_items),
-        approved_for_incentive_program: Boolean(
-            app.approved_for_incentive_program,
-        ),
-        metadata: app.metadata ?? null,
-        filetype_associations: filetypes,
-        created_at: app.created_at ?? app.timestamp ?? null,
     };
 }
