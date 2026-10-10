@@ -1124,4 +1124,25 @@ describe('PuterServer shutdown order', () => {
             'client',
         ]);
     });
+
+    // close() only drops connections idle at that moment; one mid-request
+    // stays open until PuterServer severs it after the prepare hooks.
+    it('finishes while a connection is mid-request', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+
+        const socket = net.connect(port, '127.0.0.1');
+        socket.on('error', () => {});
+        await new Promise<void>((resolve) => socket.once('connect', resolve));
+        socket.write('GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        try {
+            await server.shutdown();
+        } finally {
+            socket.destroy();
+        }
+    }, 15_000);
 });

@@ -132,6 +132,13 @@ export default defineConfig(({ mode }) => ({
     },
     test: {
         globals: true,
+        // A console call still in flight when a file tears down is dropped
+        // with this error; that loses a log line, not a test result.
+        onUnhandledError: (error) =>
+            !(
+                error.name === 'EnvironmentTeardownError' &&
+                error.message.includes('"onUserConsoleLog"')
+            ),
         ...(isPgmockMode
             ? {
                   testTimeout: pgmockTimeoutMs,

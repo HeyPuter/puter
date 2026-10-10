@@ -149,18 +149,23 @@ describe('UploadReservationStore', () => {
         const id = owner();
         const item = lease(300);
         await store.take(id, [item], 10_000);
-        await store.settle(id, [{ sessionId: item.sessionId, bytes: 300 }], 50);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            await store.settle(
+                id,
+                [{ sessionId: item.sessionId, bytes: 300 }],
+                50,
+            );
+            expect((await store.outstanding(id)).settledBytes).toBe(300);
 
-        expect((await store.outstanding(id)).settledBytes).toBe(300);
-        await vi.waitFor(
-            async () => {
-                expect(await store.outstanding(id)).toEqual({
-                    activeBytes: 0,
-                    settledBytes: 0,
-                });
-            },
-            { timeout: 2000, interval: 25 },
-        );
+            vi.setSystemTime(Date.now() + 51);
+            expect(await store.outstanding(id)).toEqual({
+                activeBytes: 0,
+                settledBytes: 0,
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('settling a member that was never taken adds nothing', async () => {
@@ -179,18 +184,19 @@ describe('UploadReservationStore', () => {
 
     it('drops leases nobody released once they expire', async () => {
         const id = owner();
-        await store.take(id, [lease(5000, 50)], 10_000);
-        expect((await store.outstanding(id)).activeBytes).toBe(5000);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            await store.take(id, [lease(5000, 50)], 10_000);
+            expect((await store.outstanding(id)).activeBytes).toBe(5000);
 
-        await vi.waitFor(
-            async () => {
-                expect(await store.outstanding(id)).toEqual({
-                    activeBytes: 0,
-                    settledBytes: 0,
-                });
-            },
-            { timeout: 2000, interval: 25 },
-        );
+            vi.setSystemTime(Date.now() + 51);
+            expect(await store.outstanding(id)).toEqual({
+                activeBytes: 0,
+                settledBytes: 0,
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     // All of an owner's leases share one cache key, so a short-lived lease
