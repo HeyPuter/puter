@@ -579,13 +579,13 @@ export class PermissionService extends PuterService {
             return;
         }
 
+        const held = new Set(
+            await this.stores.permission.listAccessTokenPerms(
+                actor.accessToken.uid,
+            ),
+        );
         for (const permission of options) {
-            const hasTokenPerm =
-                await this.stores.permission.hasAccessTokenPerm(
-                    actor.accessToken.uid,
-                    permission,
-                );
-            if (!hasTokenPerm) continue;
+            if (!held.has(permission)) continue;
             const issuerReading = await this.scan(issuerActor, permission);
             reading.push({
                 $: 'path',

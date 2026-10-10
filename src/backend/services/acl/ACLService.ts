@@ -180,22 +180,12 @@ export class ACLService extends PuterService {
             // access_token_permissions rows; the flag lives on the JWT).
             if (actor.accessToken.fullAccess) return true;
 
-            for (const ancestor of ancestors) {
-                for (const permission of this.permissionsFor(
-                    ancestor.uid,
-                    mode,
-                )) {
-                    if (
-                        await this.stores.permission.hasAccessTokenPerm(
-                            actor.accessToken.uid,
-                            permission,
-                        )
-                    ) {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            return this.stores.permission.hasAnyAccessTokenPerm(
+                actor.accessToken.uid,
+                ancestors.flatMap((ancestor) =>
+                    this.permissionsFor(ancestor.uid, mode),
+                ),
+            );
         }
 
         // App-under-user: underlying user must also hold the permission.

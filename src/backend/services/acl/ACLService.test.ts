@@ -77,7 +77,7 @@ function makeService() {
     const stores = {
         permission: {
             // Default: token carries no explicit fs grant rows.
-            hasAccessTokenPerm: vi.fn().mockResolvedValue(false),
+            hasAnyAccessTokenPerm: vi.fn().mockResolvedValue(false),
         },
         user: {
             getByUsername: vi.fn().mockResolvedValue(null),
@@ -123,7 +123,7 @@ describe('ACLService.check — full-access tokens', () => {
         expect(allowed).toBe(true);
         // The grant comes from the fullAccess short-circuit (bounded by the
         // issuer check), NOT from per-token permission rows or a scan.
-        expect(stores.permission.hasAccessTokenPerm).not.toHaveBeenCalled();
+        expect(stores.permission.hasAnyAccessTokenPerm).not.toHaveBeenCalled();
         expect(services.permission.scan).not.toHaveBeenCalled();
     });
 
@@ -159,7 +159,7 @@ describe('ACLService.check — full-access tokens', () => {
     it('cannot exceed the issuer: denied even with a token perm row when the issuer lacks access', async () => {
         const { service, stores } = makeService();
         // Even if the token row claims the grant, the issuer gate runs first.
-        stores.permission.hasAccessTokenPerm.mockResolvedValue(true);
+        stores.permission.hasAnyAccessTokenPerm.mockResolvedValue(true);
 
         const allowed = await service.check(
             fullAccessTokenActor(),
@@ -187,12 +187,12 @@ describe('ACLService.check — scoped tokens (regression)', () => {
         );
 
         expect(allowed).toBe(false);
-        expect(stores.permission.hasAccessTokenPerm).toHaveBeenCalled();
+        expect(stores.permission.hasAnyAccessTokenPerm).toHaveBeenCalled();
     });
 
     it('grants when the token carries an explicit fs permission row', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockResolvedValue(true);
+        stores.permission.hasAnyAccessTokenPerm.mockResolvedValue(true);
 
         const allowed = await service.check(
             scopedTokenActor(),
@@ -201,6 +201,26 @@ describe('ACLService.check — scoped tokens (regression)', () => {
         );
 
         expect(allowed).toBe(true);
+    });
+
+    it('reads the token grants once for the whole ancestor chain', async () => {
+        const { service, stores } = makeService();
+
+        await service.check(
+            scopedTokenActor(),
+            resource('/issuer/a/b/c.txt'),
+            'read',
+        );
+
+        expect(stores.permission.hasAnyAccessTokenPerm).toHaveBeenCalledTimes(
+            1,
+        );
+        const [, asked] =
+            stores.permission.hasAnyAccessTokenPerm.mock.calls[0]!;
+        // Four nodes, each answered by read, write or manage.
+        expect(asked).toHaveLength(12);
+        expect(asked).toContain('fs:uid\\C/issuer/a/b/c.txt:read');
+        expect(asked).toContain('manage:fs:uid\\C/issuer');
     });
 });
 
@@ -218,7 +238,7 @@ describe('ACLService.check — system actor', () => {
             'write',
         );
         expect(allowed).toBe(true);
-        expect(stores.permission.hasAccessTokenPerm).not.toHaveBeenCalled();
+        expect(stores.permission.hasAnyAccessTokenPerm).not.toHaveBeenCalled();
         expect(services.permission.scan).not.toHaveBeenCalled();
     });
 });
@@ -598,9 +618,9 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
 describe('ACLService.check — scoped tokens and manage', () => {
     it('accepts a manage grant recorded against the token', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockImplementation(
-            async (_uid: string, permission: string) =>
-                permission === 'manage:fs:uid\\C/issuer/projects',
+        stores.permission.hasAnyAccessTokenPerm.mockImplementation(
+            async (_uid: string, permissions: string[]) =>
+                permissions.includes('manage:fs:uid\\C/issuer/projects'),
         );
         expect(
             await service.check(
@@ -613,9 +633,9 @@ describe('ACLService.check — scoped tokens and manage', () => {
 
     it('accepts a manage grant recorded against the token for a write', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockImplementation(
-            async (_uid: string, permission: string) =>
-                permission === 'manage:fs:uid\\C/issuer/projects',
+        stores.permission.hasAnyAccessTokenPerm.mockImplementation(
+            async (_uid: string, permissions: string[]) =>
+                permissions.includes('manage:fs:uid\\C/issuer/projects'),
         );
         expect(
             await service.check(
@@ -628,9 +648,9 @@ describe('ACLService.check — scoped tokens and manage', () => {
 
     it('accepts an ancestor grant recorded against the token', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockImplementation(
-            async (_uid: string, permission: string) =>
-                permission === 'fs:uid\\C/issuer:write',
+        stores.permission.hasAnyAccessTokenPerm.mockImplementation(
+            async (_uid: string, permissions: string[]) =>
+                permissions.includes('fs:uid\\C/issuer:write'),
         );
         expect(
             await service.check(
@@ -903,6 +923,39 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 }),
             ),
         ).toBe(false);
+    });
+
+    it('reads a scoped token grant list once per check, however deep the path', async () => {
+        const issuer = await makeUser();
+        const tokenUid = `tok-${uuidv4()}`;
+        const token: Actor = {
+            user: issuer.user,
+            accessToken: {
+                uid: tokenUid,
+                issuer,
+                authorized: null,
+                fullAccess: false,
+            },
+        };
+        const home = `/${issuer.user.username}`;
+        const deep = resource(`${home}/a/b/c/d.txt`);
+        const top = acl.permissionsFor(`uid:${home}`, 'read')[0]!;
+        await server.clients.db.write(
+            'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
+            [tokenUid, top],
+        );
+
+        const get = vi.spyOn(server.clients.redis, 'get');
+        try {
+            expect(await acl.check(token, deep, 'read')).toBe(true);
+            expect(await acl.check(token, deep, 'write')).toBe(false);
+            const tokenReads = get.mock.calls.filter(
+                ([key]) => key === `perms:token:${tokenUid}`,
+            );
+            expect(tokenReads).toHaveLength(2);
+        } finally {
+            get.mockRestore();
+        }
     });
 
     describe('app-under-user on shared paths', () => {

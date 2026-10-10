@@ -663,12 +663,9 @@ describe('PermissionStore', () => {
                 [tokenUid, 'driver:kv'],
             );
 
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:kv')).toBe(
-                true,
-            );
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:fs')).toBe(
-                false,
-            );
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:kv',
+            ]);
 
             // A grant added behind the cache is invisible until invalidated —
             // and visible immediately afterwards.
@@ -676,20 +673,20 @@ describe('PermissionStore', () => {
                 'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
                 [tokenUid, 'driver:fs'],
             );
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:fs')).toBe(
-                false,
-            );
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:kv',
+            ]);
 
             await store.invalidateAccessTokenPerms(tokenUid);
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:fs')).toBe(
-                true,
+            expect((await store.listAccessTokenPerms(tokenUid)).sort()).toEqual(
+                ['driver:fs', 'driver:kv'],
             );
         });
 
         it('reports no permissions for an unknown token', async () => {
-            expect(
-                await store.hasAccessTokenPerm(`tok-${uuidv4()}`, 'driver:kv'),
-            ).toBe(false);
+            expect(await store.listAccessTokenPerms(`tok-${uuidv4()}`)).toEqual(
+                [],
+            );
         });
 
         it('answers whether the token holds any of several grants', async () => {

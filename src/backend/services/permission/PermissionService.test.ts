@@ -1948,6 +1948,39 @@ describe('PermissionService — scan paths', () => {
             ).toBe(true);
         });
 
+        it('a scoped token scan reads the token grant list once for every option', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const permission = `zztest:tok-${uuidv4()}:ii:read`;
+            await permissionFor(row.id, permission);
+            const tokenUid = `tok-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`, `extra`) VALUES (?, ?, ?)',
+                [tokenUid, permission, '{}'],
+            );
+
+            const get = vi.spyOn(server.clients.redis, 'get');
+            try {
+                expect(
+                    await permService.check(
+                        scopedToken(actor, tokenUid),
+                        [
+                            `zztest:tok-${uuidv4()}:ii:read`,
+                            `zztest:tok-${uuidv4()}:ii:read`,
+                            permission,
+                        ],
+                        { noCache: true },
+                    ),
+                ).toBe(true);
+                expect(
+                    get.mock.calls.filter(
+                        ([key]) => key === `perms:token:${tokenUid}`,
+                    ),
+                ).toHaveLength(1);
+            } finally {
+                get.mockRestore();
+            }
+        });
+
         it('a scoped token cannot exceed its issuer even with a row of its own', async () => {
             const { actor } = await makeGroupedUser();
             const permission = `zztest:tok-${uuidv4()}:ii:read`;

@@ -1210,12 +1210,29 @@ export class PermissionStore extends PuterStore {
 
     // -- SQL: access token permissions -------------------------------
 
-    async hasAccessTokenPerm(
-        tokenUid: string,
-        permission: string,
-    ): Promise<boolean> {
-        const all = await this.#readAccessTokenPerms(tokenUid);
-        return all.includes(permission);
+    /** The token's whole grant list, so a check reads it once. */
+    async listAccessTokenPerms(tokenUid: string): Promise<string[]> {
+        const cacheKey = this.#tokenCacheKey(tokenUid);
+        try {
+            const raw = await this.clients.redis.get(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed;
+            }
+        } catch {
+            // Fall through to DB.
+        }
+
+        const rows = await this.clients.db.read(
+            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
+            [tokenUid],
+        );
+        const perms = rows.map((r) => String(r.permission));
+
+        this.clients.redis
+            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
+            .catch(() => {});
+        return perms;
     }
 
     /** Whether the token holds any of `permissions`, from one read. */
@@ -1223,7 +1240,7 @@ export class PermissionStore extends PuterStore {
         tokenUid: string,
         permissions: readonly string[],
     ): Promise<boolean> {
-        const all = await this.#readAccessTokenPerms(tokenUid);
+        const all = await this.listAccessTokenPerms(tokenUid);
         return permissions.some((permission) => all.includes(permission));
     }
 
@@ -1568,30 +1585,6 @@ export class PermissionStore extends PuterStore {
             .set(cacheKey, JSON.stringify(decoded), 'EX', U2A_CACHE_TTL_SECONDS)
             .catch(() => {});
         return decoded;
-    }
-
-    async #readAccessTokenPerms(tokenUid: string): Promise<string[]> {
-        const cacheKey = this.#tokenCacheKey(tokenUid);
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) return parsed;
-            }
-        } catch {
-            // Fall through to DB.
-        }
-
-        const rows = await this.clients.db.read(
-            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [tokenUid],
-        );
-        const perms = rows.map((r) => String(r.permission));
-
-        this.clients.redis
-            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
-            .catch(() => {});
-        return perms;
     }
 
     /** Parse the JSON `extra` column into an object. */
