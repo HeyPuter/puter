@@ -1391,6 +1391,26 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    it('hands back the whoami account shape, without the phone number', async () => {
+        const user = await server.stores.user.getByUsername(username, {
+            force: true,
+        });
+        await server.stores.user.update(user!.id, { phone: '+15550100' });
+        const res = makeRes();
+        await controller.handleLogin(makeReq({ username, password }), res);
+        const body = res.body as { user: Record<string, unknown> };
+        expect(body.user).not.toHaveProperty('phone');
+        expect(body.user).toMatchObject({
+            username,
+            uuid: user!.uuid,
+            oidc_only: false,
+            otp: false,
+            is_user_token: true,
+        });
+        expect(body.user.directories).toBeTypeOf('object');
+        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
+    });
+
     // A deleted row still answering from cache reaches the session INSERT.
     it('answers 401 rather than 500 when the account row is gone but still cached', async () => {
         const goneName = `lg_${Math.random().toString(36).slice(2, 10)}`;

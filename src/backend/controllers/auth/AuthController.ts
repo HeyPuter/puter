@@ -88,7 +88,7 @@ import {
     normalizeBonusCode,
 } from '../../util/signupBonus.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
-import { getTaskbarItems } from '../../util/taskbarItems.js';
+import { buildUserDetails, scrubSensitive } from '../../util/userDetails.js';
 import {
     assertValidUsername,
     generateUsername,
@@ -4767,59 +4767,26 @@ export class AuthController extends PuterController {
             auth: this.services.auth,
         });
 
-        // Resolve taskbar items up-front so the GUI doesn't need a second
-        // round-trip on first paint. Best-effort: a failure here shouldn't
-        // block login (the client can still fetch them via /whoami later).
-        let taskbar_items: unknown[] = [];
-        try {
-            taskbar_items = await getTaskbarItems(
-                user as never,
-                {
-                    clients: this.clients,
-                    stores: this.stores,
-                    services: this.services,
-                    apiBaseUrl: (this.config as { api_base_url?: string })
-                        .api_base_url,
-                    config: this.config,
-                } as never,
-            );
-        } catch (e) {
-            console.warn('[auth] taskbar_items resolution failed:', e);
-        }
-
-        // Same shape as whoami: no-reload logins store this payload as
-        // window.user verbatim, and every seat restriction keys on `team`.
-        let team: { uid: string; name: string | null } | undefined;
-        if (this.config.teams_enabled === true) {
-            try {
-                const seat = await this.stores.team.getOrgSeat(user.id);
-                if (seat) {
-                    team = { uid: seat.team_uid, name: seat.team_name ?? null };
-                }
-            } catch (e) {
-                console.warn('[auth] team lookup failed:', e);
-            }
-        }
+        // The whoami payload, so a no-reload login can store it as
+        // window.user verbatim and skip a round-trip on first paint.
+        const details = await buildUserDetails(
+            user,
+            {
+                config: this.config,
+                clients: this.clients,
+                stores: this.stores,
+                services: this.services,
+            },
+            { isUser: true },
+        );
+        scrubSensitive(details);
 
         // Response body gets the GUI token (client never sees session token)
         res.json({
             proceed: true,
             next_step: 'complete',
             token: gui_token,
-            user: {
-                username: user.username,
-                uuid: user.uuid,
-                email: user.email,
-                email_confirmed: user.email_confirmed,
-                requires_email_confirmation: user.requires_email_confirmation,
-                phone: user.phone,
-                requires_phone_verification: user.requires_phone_verification,
-                requires_card_verification: user.requires_card_verification,
-                requires_password_change: user.requires_password_change,
-                is_temp: user.password === null && user.email === null,
-                ...(team ? { team } : {}),
-                taskbar_items,
-            },
+            user: details,
         });
     }
 }
