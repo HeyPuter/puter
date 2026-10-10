@@ -633,6 +633,12 @@ export type EventMap = {
         userId: number;
         generation: number;
     };
+    /**
+     * Someone's entry was just shared, so every process must drop its cached
+     * "this owner has nothing shared" answer. `outer.pubsub.*` for the same
+     * reason as the events generation bump: a per-process cache.
+     */
+    'outer.pubsub.share.ownerShared': { ownerUserId: number };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries

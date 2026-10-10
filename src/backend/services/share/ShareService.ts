@@ -52,6 +52,7 @@ import {
 } from '../metering/enforcement.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PermissionUtil } from '../permission/permissionUtil.js';
+import { SubscriptionCache } from '../events/subscriptionCache.js';
 import { PuterService } from '../types';
 
 // -- Types ------------------------------------------------------------
@@ -391,6 +392,14 @@ export class ShareService extends PuterService {
     /** New entries awaiting the next fan-out, by parent path. */
     #pendingCreates = new Map<string, FSEntry[]>();
     #createFlush: Promise<void> | null = null;
+    /**
+     * Whether an owner has anything shared, per process: the per-user flag
+     * cache events keeps for subscriptions. Nearly no owner has, and this is
+     * what lets their writes skip looking for an audience. Sharing bumps it
+     * fleet-wide; its TTL covers a process the bump missed.
+     */
+    readonly #ownerShares = new SubscriptionCache();
+    readonly #ownerLookups = new Map<string, Promise<boolean>>();
 
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
@@ -399,6 +408,19 @@ export class ShareService extends PuterService {
      * first and cannot depend on this service.
      */
     override onServerStart(): void {
+        this.clients.event.on(
+            'outer.pubsub.share.ownerShared',
+            (_key, data, meta) => {
+                // Our own emit was applied before it went out.
+                if (!fromAnotherNode(meta)) return;
+                const { ownerUserId } = (data ?? {}) as {
+                    ownerUserId?: number;
+                };
+                if (typeof ownerUserId === 'number')
+                    this.#ownerShares.bump(ownerUserId);
+            },
+        );
+
         this.clients.event.on('fs.remove.node', (_key, data, meta) => {
             if (fromAnotherNode(meta)) return;
             const entry = (data as { node?: FSEntry })?.node;
@@ -433,6 +455,8 @@ export class ShareService extends PuterService {
             if (typeof fromUserId !== 'number' || fromUserId === node.userId) {
                 return notify;
             }
+            // The subtree's share rows were re-pointed at its new owner.
+            this.#ownerShared(node.userId);
             return Promise.all([
                 notify,
                 this.onEntryOwnerChanged(node).catch((err: unknown): void => {
@@ -838,29 +862,65 @@ export class ShareService extends PuterService {
         rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
-        const ancestorPaths: string[] = [];
-        for (
-            let cursor = pathPosix.dirname(realPath);
-            cursor !== '/' && cursor !== '.';
-            cursor = pathPosix.dirname(cursor)
-        ) {
-            ancestorPaths.push(cursor);
-        }
-        const ancestors =
-            ancestorPaths.length > 0
-                ? await this.stores.fsEntry.getEntriesByPaths(ancestorPaths)
-                : new Map<string, FSEntry>();
+        const ancestors = await this.stores.fsEntry.getAncestors(
+            pathPosix.dirname(realPath),
+        );
         const nodesById = new Map<number, FSEntry>(
-            [entry, ...ancestors.values()]
+            [entry, ...ancestors]
                 .filter((node) => typeof node.id === 'number')
                 .map((node) => [node.id, node]),
         );
+        const owners = new Set([...nodesById.values()].map((n) => n.userId));
+        const shared = await Promise.all(
+            [...owners].map((owner) => this.#ownerHasShares(owner)),
+        );
+        if (!shared.some(Boolean)) return { rows: [], nodesById };
         const ids = [...nodesById.keys()];
         const [direct, viaGroup] = await Promise.all([
             this.stores.share.listReaching(ids),
             this.stores.share.listGroupReachingMembers(ids),
         ]);
         return { rows: [...direct, ...viaGroup], nodesById };
+    }
+
+    /** Whether `ownerUserId` has anything shared, cached per process. */
+    async #ownerHasShares(ownerUserId: number): Promise<boolean> {
+        const cached = this.#ownerShares.read(ownerUserId);
+        if (cached !== null) return cached;
+        const epoch = this.#ownerShares.generationOf(ownerUserId);
+        const key = `${ownerUserId}|${epoch}`;
+        // A burst of writes misses together; one read answers all of them.
+        const inFlight = this.#ownerLookups.get(key);
+        if (inFlight) return inFlight;
+        const lookup = (async () => {
+            try {
+                const found =
+                    await this.stores.share.ownerHasShares(ownerUserId);
+                this.#ownerShares.write(ownerUserId, epoch, found);
+                return found;
+            } catch {
+                // Not knowing reads as shared, so the full lookup decides.
+                return true;
+            } finally {
+                this.#ownerLookups.delete(key);
+            }
+        })();
+        this.#ownerLookups.set(key, lookup);
+        return lookup;
+    }
+
+    /** `ownerUserId` now has a share: drop "nothing shared" everywhere. */
+    #ownerShared(ownerUserId: number): void {
+        this.#ownerShares.bump(ownerUserId);
+        try {
+            this.clients.event.emit(
+                'outer.pubsub.share.ownerShared',
+                { ownerUserId },
+                {},
+            );
+        } catch {
+            // The cache's TTL covers a process the bump misses.
+        }
     }
 
     async #emitGui(
@@ -975,6 +1035,7 @@ export class ShareService extends PuterService {
                 recipientEmail: holder.email ?? null,
                 issuerAppUid: this.#actingAppUid(actor),
             });
+            this.#ownerShared(entry.userId);
             return {
                 ...this.#resolve(row, entry, actor, holder),
                 holderId: holder.id,
@@ -2758,6 +2819,7 @@ export class ShareService extends PuterService {
                     continue;
                 }
                 if (!applied) continue;
+                this.#ownerShared(entry.userId);
 
                 try {
                     await this.services.acl.setUserUser(
@@ -2977,6 +3039,7 @@ export class ShareService extends PuterService {
                 mode,
                 issuerAppUid: this.#actingAppUid(actor),
             });
+            this.#ownerShared(entry.userId);
             return {
                 ...this.#resolve(row, entry, actor, { username: null }),
                 holderTeam: {
