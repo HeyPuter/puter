@@ -3933,6 +3933,12 @@ export class AuthController extends PuterController {
                 app_uid,
                 meta ?? undefined,
             );
+            // Withdrawing everything also retires the workers the app deployed
+            // under this user; their tokens would otherwise act as the app.
+            await this.services.auth.deleteWorkerSessionsForApp(
+                req.actor!.user!.id as number,
+                app_uid,
+            );
         } else {
             for (const entry of list) {
                 await this.services.permission.revokeUserAppPermission(

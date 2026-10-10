@@ -454,6 +454,77 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Hard-delete the worker sessions matching every given filter, plus the
+     * sessions derived from them via `parent_session_id`. A deleted worker
+     * never comes back, so there is no revoked row worth keeping.
+     *
+     * Returns each deleted row as `{ uuid, userId, accessTokenUid }` so the
+     * caller can announce the revocation and drop access-token grants.
+     *
+     * @param {{
+     *     workerName?: string;
+     *     userId?: number;
+     *     appUid?: string;
+     * }} filter
+     */
+    async deleteWorkerSessions({ workerName, userId, appUid } = {}) {
+        const where = ["`kind` = 'worker'"];
+        const params = [];
+        if (workerName) {
+            const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
+                'worker_name',
+            ]);
+            where.push(`${workerNameExpr} = ?`);
+            params.push(workerName);
+        }
+        if (userId) {
+            where.push('`user_id` = ?');
+            params.push(userId);
+        }
+        if (appUid) {
+            where.push('`app_uid` = ?');
+            params.push(appUid);
+        }
+        // No filter would mean every worker session on the server.
+        if (params.length === 0) return [];
+
+        // Primary: a session minted moments ago must not survive a replica miss.
+        const roots = await this.clients.db.pread(
+            `SELECT \`uuid\` FROM \`sessions\` WHERE ${where.join(' AND ')}`,
+            params,
+        );
+        if (roots.length === 0) return [];
+        const rootUuids = roots.map((r) => String(r.uuid));
+        const placeholders = rootUuids.map(() => '?').join(', ');
+        const scope = `\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})`;
+        const scopeParams = [...rootUuids, ...rootUuids];
+
+        const rows = await this.clients.db.pread(
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent`, `access_token_uid` ' +
+                `FROM \`sessions\` WHERE ${scope}`,
+            scopeParams,
+        );
+
+        // Double-delete: see `removeByUuid` for rationale.
+        const keys = [];
+        for (const r of rows) keys.push(...this.#allCacheKeysForRow(r));
+        await this.publishCacheKeys({ keys, broadcast: true });
+        await this.clients.db.write(
+            `DELETE FROM \`sessions\` WHERE ${scope}`,
+            scopeParams,
+        );
+        await this.publishCacheKeys({ keys, broadcast: true });
+
+        return rows.map((r) => ({
+            uuid: String(r.uuid),
+            userId: Number(r.user_id),
+            accessTokenUid: r.access_token_uid
+                ? String(r.access_token_uid)
+                : null,
+        }));
+    }
+
+    /**
      * Access-token identities among the rows `revokeCascade(rootUuid)` would
      * affect — the root itself when it is a token row, plus any token row
      * parented to it. Callers use these to drop grants that would otherwise

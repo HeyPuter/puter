@@ -17,6 +17,7 @@ import {
 import type { PoolConfig } from 'pg';
 import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
 import { FULL_API_ACCESS } from './services/permission/consts';
+import { WORKER_SUBDOMAIN_PREFIX } from './stores/subdomain/SubdomainStore.js';
 import { generateDefaultFsentries } from './util/userProvisioning';
 
 export const POSTGRES_TEST_MIGRATIONS_PATH =
@@ -278,12 +279,20 @@ export const createTestUser = async (
     );
 
     // Mint a user-scoped worker token the same way deploying an app-less
-    // worker does (WorkerDriver falls back to createWorkerSessionToken).
+    // worker does (WorkerDriver falls back to createWorkerSessionToken). The
+    // token only lives as long as its worker row, so seed one.
+    const workerName = `test-env-worker-${user.id}`;
+    const workerRow = await server.stores.subdomain.create({
+        userId: user.id,
+        subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+    });
     const { token: workerToken } =
         await server.services.auth.createWorkerSessionToken(
             makeActor({ user }),
             user,
-            'puter-test-env-worker',
+            workerName,
+            {},
+            { workerUid: workerRow.uuid },
         );
 
     return {

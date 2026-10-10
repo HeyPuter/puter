@@ -268,12 +268,15 @@ export class LocalWorkerService extends PuterService {
                 ownerActor,
                 app.uid,
                 workerName,
+                { workerUid: row.uuid ? String(row.uuid) : undefined },
             );
         } else {
             const session = await this.services.auth.createWorkerSessionToken(
                 ownerActor,
                 ownerUser,
                 workerName,
+                {},
+                { workerUid: row.uuid ? String(row.uuid) : undefined },
             );
 
             authorization = session.token;

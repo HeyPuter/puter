@@ -841,3 +841,103 @@ describe('WorkerDriver hot reload', () => {
         expect(sessionMint).not.toHaveBeenCalled();
     });
 });
+
+// -- worker sessions --------------------------------------------------
+
+describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
+    const deployedToken = () => {
+        const [, init] = putCalls().at(-1)!;
+        const form = (init as RequestInit).body as FormData;
+        const metadata = JSON.parse(form.get('metadata') as string);
+        return metadata.bindings.find(
+            (b: { name: string }) => b.name === 'puter_auth',
+        ).text as string;
+    };
+
+    const deployWorker = async (label: string) => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/${label}.js`;
+        const entry = await writeSource(actor, user.id, path, 'src');
+        const name = `${label}-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({ appId: '', workerName: name, filePath: path }),
+        );
+        return { user, actor, entry, name, token: deployedToken() };
+    };
+
+    const workerSession = (userId: number, workerName: string) =>
+        server.stores.session.getWorker(userId, { appUid: null, workerName });
+
+    it('binds the deployed token to the worker row, and a redeploy keeps it', async () => {
+        const { user, actor, name, token } = await deployWorker('bind');
+        const row = await server.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+        const decoded = server.services.token.verify('auth', token) as {
+            worker_uid?: string;
+        };
+        expect(decoded.worker_uid).toBe(row!.uuid);
+        expect(
+            (await server.services.auth.authenticate(token)).actor,
+        ).toBeTruthy();
+
+        await inCtx(actor, () =>
+            target.create({
+                appId: '',
+                workerName: name,
+                filePath: `/${user.username}/bind.js`,
+            }),
+        );
+        const redeployed = server.services.token.verify(
+            'auth',
+            deployedToken(),
+        ) as { worker_uid?: string };
+        expect(redeployed.worker_uid).toBe(row!.uuid);
+    });
+
+    it('destroy deletes the worker`s session and leaves other workers alone', async () => {
+        const kept = await deployWorker('kept');
+        const { user, actor, name, token } = await deployWorker('gone');
+
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+
+        expect(await workerSession(user.id, name)).toBeNull();
+        expect(await server.services.auth.authenticate(token)).toEqual({
+            invalid: true,
+        });
+        expect(await workerSession(kept.user.id, kept.name)).toBeTruthy();
+        expect(
+            (await server.services.auth.authenticate(kept.token)).actor,
+        ).toBeTruthy();
+    });
+
+    it('deleting the source file deletes the worker`s session', async () => {
+        const { user, actor, entry, name } = await deployWorker('srcdel');
+
+        await inCtx(actor, () => server.services.fs.remove(user.id, { entry }));
+
+        await waitFor(
+            async () => !(await workerSession(user.id, name)),
+            'worker session removal after source delete',
+        );
+    });
+
+    it('a worker row deleted elsewhere takes its session with it', async () => {
+        const { user, name } = await deployWorker('elsewhere');
+        const row = await server.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+
+        await server.stores.subdomain.deleteByUuid(String(row!.uuid));
+        server.clients.event.emit(
+            'subdomain.delete',
+            { subdomain: `workers.puter.${name}`, uid: String(row!.uuid) },
+            {},
+        );
+
+        await waitFor(
+            async () => !(await workerSession(user.id, name)),
+            'worker session removal after subdomain.delete',
+        );
+    });
+});

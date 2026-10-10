@@ -625,6 +625,123 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('deleteWorkerSessions', () => {
+        const name = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('deletes every row of a worker name across users and apps, and nothing else', async () => {
+            const alice = await makeUser();
+            const bob = await makeUser();
+            const workerName = name();
+            const userScoped = await target.getOrCreateWorker(alice.id, {
+                appUid: null,
+                workerName,
+            });
+            const appScoped = await target.getOrCreateWorker(bob.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            const otherWorker = await target.getOrCreateWorker(alice.id, {
+                appUid: null,
+                workerName: name(),
+            });
+
+            const deleted = await target.deleteWorkerSessions({ workerName });
+
+            expect(deleted.map((r: { uuid: string }) => r.uuid).sort()).toEqual(
+                [userScoped.uuid, appScoped.uuid].sort(),
+            );
+            expect(await rawRow(userScoped.uuid)).toBeNull();
+            expect(await rawRow(appScoped.uuid)).toBeNull();
+            expect(await rawRow(otherWorker.uuid)).not.toBeNull();
+        });
+
+        it('filters by user and app together', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const deployed = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: name(),
+            });
+            const otherApp = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName: name(),
+            });
+            const userScoped = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: name(),
+            });
+            const otherUser = await target.getOrCreateWorker(other.id, {
+                appUid,
+                workerName: name(),
+            });
+
+            await target.deleteWorkerSessions({ userId: user.id, appUid });
+
+            expect(await rawRow(deployed.uuid)).toBeNull();
+            expect(await rawRow(otherApp.uuid)).not.toBeNull();
+            expect(await rawRow(userScoped.uuid)).not.toBeNull();
+            expect(await rawRow(otherUser.uuid)).not.toBeNull();
+        });
+
+        it('takes derived sessions with it', async () => {
+            const user = await makeUser();
+            const worker = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName: name(),
+            });
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: worker.uuid,
+                access_token_uid: uuidv4(),
+            });
+
+            const deleted = await target.deleteWorkerSessions({
+                userId: user.id,
+                appUid: worker.app_uid,
+            });
+
+            expect(await rawRow(child.uuid)).toBeNull();
+            expect(
+                deleted.find((r: { uuid: string }) => r.uuid === child.uuid)
+                    ?.accessTokenUid,
+            ).toBe(child.access_token_uid);
+        });
+
+        it('drops the cached rows, so a lookup misses and a redeploy mints fresh', async () => {
+            const user = await makeUser();
+            const workerName = name();
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            // Warm both the uuid and the composite worker cache.
+            expect(await target.getByUuidAny(first.uuid)).toBeTruthy();
+            expect(
+                await target.getWorker(user.id, { appUid: null, workerName }),
+            ).toBeTruthy();
+
+            await target.deleteWorkerSessions({ workerName });
+
+            expect(await target.getByUuidAny(first.uuid)).toBeNull();
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+        });
+
+        it('refuses to run without a filter', async () => {
+            const user = await makeUser();
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: name(),
+            });
+            expect(await target.deleteWorkerSessions({})).toEqual([]);
+            expect(await rawRow(row.uuid)).not.toBeNull();
+        });
+    });
+
     describe('error propagation (no silent swallow)', () => {
         // INSERT-IGNORE used to mask every constraint violation, not just
         // the partial-unique-index conflict the `getOrCreate*` paths rely
