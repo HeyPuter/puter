@@ -863,6 +863,54 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         });
     });
 
+    it("does not release the next holder's lock when its own TTL lapses mid-release", async () => {
+        const issuer = await makeUser();
+        const holder = await makeUser();
+        const res = await ownedResource(issuer);
+        const key = `acl:set-user-user:${issuer.user!.id}:${holder.user!.id}:${res.uid}`;
+        const redis = server.clients.redis;
+        const real = {
+            set: redis.set.bind(redis),
+            get: redis.get.bind(redis),
+            del: redis.del.bind(redis),
+            eval: redis.eval.bind(redis),
+        };
+        // After the first command on the held lock (the release), the lock
+        // lapses and another node takes it, as if the TTL ran out in between.
+        let held = false;
+        let lapsed = false;
+        const spies = (Object.keys(real) as Array<keyof typeof real>).map(
+            (name) =>
+                vi.spyOn(redis, name).mockImplementation((async (
+                    ...args: unknown[]
+                ) => {
+                    const result = await (
+                        real[name] as (...a: unknown[]) => Promise<unknown>
+                    )(...args);
+                    const touched = name === 'eval' ? args[2] : args[0];
+                    if (touched !== key || lapsed) return result;
+                    if (!held) {
+                        held = name === 'set' && result === 'OK';
+                        return result;
+                    }
+                    lapsed = true;
+                    await real.del(key);
+                    await real.set(key, 'next-holder', 'PX', 60_000, 'NX');
+                    return result;
+                }) as never),
+        );
+        try {
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            );
+        } finally {
+            for (const spy of spies) spy.mockRestore();
+        }
+        expect(lapsed).toBe(true);
+        expect(await redis.get(key)).toBe('next-holder');
+        await redis.del(key);
+    });
+
     it('onlyIfHigher declines to downgrade an existing stronger grant', async () => {
         const issuer = await makeUser();
         const holder = await makeUser();
