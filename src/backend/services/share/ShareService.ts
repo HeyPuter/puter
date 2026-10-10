@@ -43,6 +43,7 @@ import type { AclMode } from '../acl/ACLService';
 import {
     learnShareRoots,
     maskEntryPath,
+    maskUnder,
     resolveSharePath,
 } from '../fs/sharePathMask';
 import {
@@ -310,8 +311,7 @@ const holderPayload = (
     /** Where the entry was; differs from `entry.path` once it has moved. */
     realPath: string = entry.path,
 ): Record<string, unknown> => {
-    const path =
-        maskedPathVia(root, realPath) ?? maskedSelfPath(entry, realPath);
+    const path = maskUnder(root, realPath) ?? maskedSelfPath(entry, realPath);
     return {
         uid: entry.uuid,
         uuid: entry.uuid,
@@ -345,16 +345,20 @@ type HolderGuiEvent =
     | 'outer.gui.item.renamed'
     | 'outer.gui.item.updated';
 
-/** `/<owner>/<uuid>/<name>` for a path in the owner's tree. */
 /** Inside some owner's top-level Trash, which is where Delete puts things. */
 const isTrashedPath = (path: string): boolean =>
     /^\/[^/]+\/Trash(\/|$)/u.test(path);
 
-const maskedSelfPath = (entry: FSEntry, realPath: string): string => {
-    const owner = realPath.split('/')[1];
-    const name = realPath.split('/').pop();
-    return owner && name ? `/${owner}/${entry.uuid}/${name}` : realPath;
-};
+/** `entry` masked as the root of its own share, at `realPath`. */
+const maskedSelfPath = (entry: FSEntry, realPath: string): string =>
+    maskUnder(
+        {
+            path: realPath,
+            uuid: entry.uuid,
+            name: realPath.split('/').pop() ?? '',
+        },
+        realPath,
+    ) ?? realPath;
 
 /** Where `entry` was, as this holder knew it; `root` carries the new path. */
 const maskedFormerPath = (
@@ -362,18 +366,8 @@ const maskedFormerPath = (
     entry: FSEntry,
     realPath: string,
 ): string | null =>
-    maskedPathVia(root, realPath) ??
+    maskUnder(root, realPath) ??
     (root.uuid === entry.uuid ? maskedSelfPath(entry, realPath) : null);
-
-/** `realPath` as a holder of `root` addresses it; null when outside that share. */
-const maskedPathVia = (root: FSEntry, realPath: string): string | null => {
-    const owner = root.path.split('/')[1];
-    if (!owner || !root.name) return null;
-    const base = `/${owner}/${root.uuid}/${root.name}`;
-    if (realPath === root.path) return base;
-    if (!realPath.startsWith(`${root.path}/`)) return null;
-    return base + realPath.slice(root.path.length);
-};
 
 // -- ShareService -----------------------------------------------------
 
