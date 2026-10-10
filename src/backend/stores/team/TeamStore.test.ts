@@ -435,6 +435,93 @@ describe('TeamStore', () => {
         await expect(store.isMember(team.uid, member.id)).resolves.toBe(false);
     });
 
+    describe('peer regions', () => {
+        type CacheUpdate = { cacheKey: string[] };
+
+        const captureCacheUpdates = async (
+            run: () => Promise<unknown>,
+        ): Promise<CacheUpdate[]> => {
+            const seen: CacheUpdate[] = [];
+            const listener = (_key: string, data: CacheUpdate) => {
+                seen.push(data);
+            };
+            server.clients.event.on('outer.cacheUpdate', listener);
+            try {
+                await run();
+            } finally {
+                server.clients.event.off('outer.cacheUpdate', listener);
+            }
+            return seen;
+        };
+
+        it('stop seeing a removed member once they apply the broadcast', async () => {
+            const team = await store.create({
+                ownerUserId: owner.id,
+                name: 'Regions',
+                handle: freeHandle(),
+            });
+            const member = await makeUser();
+            await store.addMember(team.uid, member.id, { orgOwned: false });
+            const cached = await store.getMembership(team.uid, member.id);
+            expect(cached).not.toBeNull();
+            const key = `team:member:${team.uid}:${member.id}`;
+
+            const updates = await captureCacheUpdates(() =>
+                store.removeMember(team.uid, member.id),
+            );
+            expect(updates.flatMap((u) => u.cacheKey)).toContain(key);
+
+            // Stand in for the peer: it still holds the membership it cached
+            // before the removal.
+            await server.clients.redis.set(
+                key,
+                JSON.stringify(cached),
+                'EX',
+                60,
+            );
+            await expect(store.isMember(team.uid, member.id)).resolves.toBe(
+                true,
+            );
+
+            for (const update of updates) {
+                await server.clients.event.emitAndWait(
+                    'outer.cacheUpdate',
+                    update,
+                    { from_outside: true },
+                );
+            }
+
+            await expect(store.isMember(team.uid, member.id)).resolves.toBe(
+                false,
+            );
+        });
+
+        it('drop every membership of a deleted team from one update', async () => {
+            const team = await store.create({
+                ownerUserId: owner.id,
+                name: 'Closing',
+                handle: freeHandle(),
+            });
+            const members = [await makeUser(), await makeUser()];
+            for (const member of members) {
+                await store.addMember(team.uid, member.id, { orgOwned: false });
+            }
+
+            const updates = await captureCacheUpdates(() =>
+                store.softDelete(team.uid),
+            );
+
+            expect(updates).toHaveLength(1);
+            expect(updates[0]!.cacheKey).toEqual(
+                expect.arrayContaining([
+                    `team:row:${team.uid}`,
+                    `team:members:${team.id}`,
+                    ...members.map((m) => `team:member:${team.uid}:${m.id}`),
+                ]),
+            );
+        });
+    });
+
     it('scopes membership to the team asked for', async () => {
         const a = await store.create({
             ownerUserId: owner.id,

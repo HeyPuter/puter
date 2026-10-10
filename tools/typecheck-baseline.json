@@ -46,7 +46,6 @@
   "src/backend/services/auth/OIDCService.ts | TS2322": 2,
   "src/backend/services/broadcast/BroadcastService.ts | TS2345": 2,
   "src/backend/services/fs/FSService.ts | TS2345": 1,
-  "src/backend/services/fs/cacheInvalidation.ts | TS2345": 1,
   "src/backend/services/homepage/PuterHomepageService.ts | TS2345": 1,
   "src/backend/services/localworker/LocalWorkerService.ts | TS7018": 3,
   "src/backend/services/notification/NotificationService.ts | TS2322": 1,

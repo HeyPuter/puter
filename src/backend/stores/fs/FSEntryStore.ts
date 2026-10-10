@@ -349,10 +349,16 @@ export class FSEntryStore extends PuterStore {
     }
 
     async #invalidateEntryCache(entry: FSEntry): Promise<void> {
-        // Broadcasts; read-path `#writeEntryToCache` stays local to avoid
-        // fanning backfills over the network.
-        const keys = this.#entryCacheKeys(entry);
-        await this.publishCacheKeys({ keys });
+        await this.#invalidateEntriesCache([entry]);
+    }
+
+    /**
+     * Drops here and in peer regions, as one event for the whole batch. The
+     * read-path `#writeEntryToCache` stays local so backfills don't fan out.
+     */
+    async #invalidateEntriesCache(entries: FSEntry[]): Promise<void> {
+        const keys = entries.flatMap((entry) => this.#entryCacheKeys(entry));
+        await this.publishCacheKeys({ keys, broadcast: true });
     }
 
     async invalidateEntryCacheByPathForUser(
@@ -376,7 +382,7 @@ export class FSEntryStore extends PuterStore {
             return;
         }
 
-        await this.publishCacheKeys({ keys: cacheKeys });
+        await this.publishCacheKeys({ keys: cacheKeys, broadcast: true });
     }
 
     async invalidateEntryCacheByUuid(uuid: string): Promise<void> {
@@ -406,6 +412,7 @@ export class FSEntryStore extends PuterStore {
 
         await this.publishCacheKeys({
             keys: [`prodfsv2:fsentry:uuid:${uuid}`],
+            broadcast: true,
         });
     }
 
@@ -436,6 +443,7 @@ export class FSEntryStore extends PuterStore {
 
         await this.publishCacheKeys({
             keys: [`prodfsv2:fsentry:id:${id}`],
+            broadcast: true,
         });
     }
 
@@ -1903,12 +1911,10 @@ export class FSEntryStore extends PuterStore {
                     },
                 );
                 if (successfulUpdateOperations.length > 0) {
-                    await Promise.all(
-                        successfulUpdateOperations.map((operation) => {
-                            return this.#invalidateEntryCache(
-                                operation.existingEntry,
-                            );
-                        }),
+                    await this.#invalidateEntriesCache(
+                        successfulUpdateOperations.map(
+                            (operation) => operation.existingEntry,
+                        ),
                     );
                     await Promise.all(
                         successfulUpdateOperations.map((operation) => {
@@ -3326,11 +3332,9 @@ export class FSEntryStore extends PuterStore {
                     `DELETE FROM fsentries WHERE id IN (${placeholders})`,
                     ids,
                 );
+                // Per chunk, which also bounds the size of each broadcast.
+                await this.#invalidateEntriesCache(chunk);
             },
-        );
-        // Invalidate caches for all removed entries (best effort).
-        await Promise.all(
-            entries.map((entry) => this.#invalidateEntryCache(entry)),
         );
     }
 
