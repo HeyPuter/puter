@@ -711,16 +711,8 @@ export class UserStore extends PuterStore {
             [...values, userId],
         );
 
-        if (guard) {
-            const affected =
-                (result as { affectedRows?: number; changes?: number })
-                    ?.affectedRows ??
-                (result as { affectedRows?: number; changes?: number })
-                    ?.changes ??
-                0;
-            // Nothing was written, so there are no cache keys to retire.
-            if (affected === 0) return false;
-        }
+        // Nothing was written, so there are no cache keys to retire.
+        if (guard && !result.anyRowsAffected) return false;
 
         const fresh = await this.getByProperty('id', userId, { force: true });
 

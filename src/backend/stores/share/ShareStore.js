@@ -814,7 +814,7 @@ export class ShareStore extends PuterStore {
                 ? [holderUserId, fsentryId, issuerUserId]
                 : [holderUserId, fsentryId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     /**
@@ -861,7 +861,7 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders})`,
             fsentryIds,
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     /**
@@ -925,7 +925,7 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`uid\` IN (${placeholders})`,
             retired.map((row) => row.uid),
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     async deleteByUid(uid) {
@@ -933,7 +933,7 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `uid` = ?',
             [uid],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     // -- Anyone with the link -----------------------------------------
@@ -1083,7 +1083,7 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
             [fsentryId],
         );
-        const removed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const removed = result.anyRowsAffected;
         if (removed) await this.#markLinkRevoked();
         return removed;
     }
