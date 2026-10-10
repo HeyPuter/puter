@@ -1279,18 +1279,23 @@ export class WorkerDriver extends PuterDriver {
         );
     }
 
+    /**
+     * The entry already names the worker rows pointing at it, so a file no
+     * worker is bound to (nearly every write) costs no query. The rows
+     * themselves come from the primary: one deleted by cascade can outlive its
+     * by-name cache entry.
+     */
     async #listWorkerRowsForEntry(entry: FSEntry): Promise<SubdomainRow[]> {
-        const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
-            entry.userId,
-            WORKER_SUBDOMAIN_PREFIX,
-        );
-        return workerSubs.filter((r) => {
-            return (
-                String(r.root_dir_id) === String(entry.id) ||
-                String(r.root_dir_id) === String(entry.uuid) ||
-                String(r.root_dir_id) === String(entry.uid)
-            );
+        const names = (entry.workers ?? []).map((worker) => worker.subdomain);
+        if (names.length === 0) return [];
+        const rowsByName = await this.stores.subdomain.getBySubdomains(names, {
+            primary: true,
         });
+        return [...rowsByName.values()].filter(
+            (row) =>
+                Number(row.root_dir_id) === entry.id &&
+                Number(row.user_id) === entry.userId,
+        );
     }
 
     async #listWorkerRowsUnderPath(

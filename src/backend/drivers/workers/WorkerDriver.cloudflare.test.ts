@@ -697,10 +697,15 @@ describe('WorkerDriver hot reload', () => {
     });
 
     it('tears the worker down when its source file is deleted', async () => {
-        const { user, actor, path, entry, name } = await deployWorker();
+        const { user, actor, path, name } = await deployWorker();
         fetchSpy.mockClear();
+        // Resolved at delete time, as every caller does: the entry names the
+        // workers bound to it.
+        const entry = await server.stores.fsEntry.getEntryByPath(path);
 
-        await inCtx(actor, () => server.services.fs.remove(user.id, { entry }));
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: entry! }),
+        );
 
         await waitFor(async () => {
             const row = await server.stores.subdomain.getBySubdomain(
@@ -783,6 +788,55 @@ describe('WorkerDriver hot reload', () => {
 
         await new Promise((r) => setTimeout(r, 120));
         expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('runs no subdomain query for a write, delete or move of a file no worker is bound to', async () => {
+        const { user, actor } = await makeUser();
+        const listSpy = vi.spyOn(
+            server.stores.subdomain,
+            'listByUserIdAndPrefix',
+        );
+        const batchSpy = vi.spyOn(server.stores.subdomain, 'getBySubdomains');
+        const path = `/${user.username}/plain.js`;
+
+        await writeSource(actor, user.id, path, 'first');
+        const entry = await writeSource(actor, user.id, path, 'second');
+        const trash = await server.stores.fsEntry.getEntryByPath(
+            `/${user.username}/Trash`,
+        );
+        await inCtx(actor, () =>
+            server.services.fs.move(user.id, {
+                source: entry,
+                destinationParent: trash!,
+            }),
+        );
+        const moved = await server.stores.fsEntry.getEntryByUuid(entry.uuid);
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: moved! }),
+        );
+
+        await new Promise((r) => setTimeout(r, 120));
+        expect(listSpy).not.toHaveBeenCalled();
+        expect(batchSpy).not.toHaveBeenCalled();
+    });
+
+    it('looks up a bound file’s worker rows with one primary batch read', async () => {
+        const { user, actor, path, name } = await deployWorker();
+        const listSpy = vi.spyOn(
+            server.stores.subdomain,
+            'listByUserIdAndPrefix',
+        );
+        const batchSpy = vi.spyOn(server.stores.subdomain, 'getBySubdomains');
+        fetchSpy.mockClear();
+
+        await writeSource(actor, user.id, path, 'v2');
+
+        await waitFor(() => putCalls().length > 0, 'hot-reload deploy');
+        expect(listSpy).not.toHaveBeenCalled();
+        expect(batchSpy).toHaveBeenCalledTimes(1);
+        expect(batchSpy).toHaveBeenCalledWith([`workers.puter.${name}`], {
+            primary: true,
+        });
     });
 
     // Deleting the app a worker is bound to deletes the worker row with it.
