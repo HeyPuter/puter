@@ -44,6 +44,7 @@ import { Agent as httpsAgent } from 'node:https';
 import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
+import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
 import {
@@ -56,10 +57,10 @@ import { attachThrottleLogging } from './throttleLog.js';
 const LOCAL_DYNAMO_MEMORY_PREFIX = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
 const MAX_BATCH_WRITE_ITEMS = 25;
-const MAX_BATCH_WRITE_RETRIES = 8;
-const BATCH_WRITE_RETRY_BASE_MS = 25;
-const MAX_BATCH_GET_RETRIES = 8;
-const BATCH_GET_RETRY_BASE_MS = 25;
+// Chunks of one batch write in flight at once.
+const BATCH_WRITE_CONCURRENCY = 4;
+const MAX_BATCH_RETRIES = 8;
+const BATCH_RETRY_BASE_MS = 25;
 
 // In-memory mode gives each DDBClient its own unique key, which keys
 // into a fresh dynalite server. This is what test parallelism needs:
@@ -118,6 +119,32 @@ const chunkValues = <T>(values: T[], size: number): T[][] => {
     }
     return chunks;
 };
+
+type BatchWriteItems = NonNullable<BatchWriteCommandInput['RequestItems']>;
+type WriteRequest = BatchWriteItems[string][number];
+
+/** Consumed capacity summed per table across the requests of one batch. */
+class ConsumedCapacityTally {
+    #byTable = new Map<string, number>();
+
+    add(entries: { TableName?: string; CapacityUnits?: number }[] = []) {
+        for (const { TableName, CapacityUnits } of entries) {
+            if (!TableName) continue;
+            this.#byTable.set(
+                TableName,
+                (this.#byTable.get(TableName) ?? 0) +
+                    Number(CapacityUnits ?? 0),
+            );
+        }
+    }
+
+    entries() {
+        return Array.from(this.#byTable, ([TableName, CapacityUnits]) => ({
+            TableName,
+            CapacityUnits,
+        }));
+    }
+}
 
 const sleep = async (ms: number) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
@@ -256,9 +283,7 @@ export class DDBClient extends PuterClient {
             {} as Record<string, Record<string, unknown>[]>,
         );
 
-        let requestItems: BatchGetCommandInput['RequestItems'] = Object.entries(
-            allRequestItemsPerTable,
-        ).reduce(
+        const requestItems = Object.entries(allRequestItemsPerTable).reduce(
             (acc, [table, keyList]) => {
                 acc[table] = {
                     Keys: keyList,
@@ -271,53 +296,30 @@ export class DDBClient extends PuterClient {
 
         const client = await this.#getDocumentClient();
         const responsesByTable = new Map<string, Record<string, unknown>[]>();
-        const consumedCapacityByTable = new Map<string, number>();
+        const capacity = new ConsumedCapacityTally();
 
-        for (let attempt = 0; attempt <= MAX_BATCH_GET_RETRIES; attempt++) {
-            if (Object.keys(requestItems).length === 0) break;
-
-            const response = await client.send(
-                new BatchGetCommand({
-                    RequestItems: requestItems,
-                    ReturnConsumedCapacity: 'TOTAL',
-                }),
-            );
-
-            for (const [table, items] of Object.entries(
-                response.Responses ?? {},
-            )) {
-                const existing = responsesByTable.get(table) ?? [];
-                existing.push(...items);
-                responsesByTable.set(table, existing);
-            }
-            for (const entry of response.ConsumedCapacity ?? []) {
-                if (!entry.TableName) continue;
-                consumedCapacityByTable.set(
-                    entry.TableName,
-                    (consumedCapacityByTable.get(entry.TableName) ?? 0) +
-                        Number(entry.CapacityUnits ?? 0),
+        const drained = await this.#sendWithUnprocessedRetry(
+            requestItems,
+            async (pending) => {
+                const response = await client.send(
+                    new BatchGetCommand({
+                        RequestItems: pending,
+                        ReturnConsumedCapacity: 'TOTAL',
+                    }),
                 );
-            }
+                for (const [table, items] of Object.entries(
+                    response.Responses ?? {},
+                )) {
+                    const existing = responsesByTable.get(table) ?? [];
+                    existing.push(...items);
+                    responsesByTable.set(table, existing);
+                }
+                capacity.add(response.ConsumedCapacity);
+                return response.UnprocessedKeys as typeof pending | undefined;
+            },
+        );
 
-            const unprocessedKeys = response.UnprocessedKeys ?? {};
-            if (Object.keys(unprocessedKeys).length === 0) {
-                requestItems = {};
-                break;
-            }
-
-            requestItems = unprocessedKeys as NonNullable<
-                BatchGetCommandInput['RequestItems']
-            >;
-            if (attempt < MAX_BATCH_GET_RETRIES) {
-                const delayMs = Math.min(
-                    1000,
-                    BATCH_GET_RETRY_BASE_MS * 2 ** attempt,
-                );
-                await sleep(delayMs);
-            }
-        }
-
-        if (Object.keys(requestItems).length > 0) {
+        if (!drained) {
             throw new HttpError(
                 400,
                 'Failed to batch get all items from DynamoDB',
@@ -327,12 +329,7 @@ export class DDBClient extends PuterClient {
 
         return {
             Responses: Object.fromEntries(responsesByTable),
-            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(
-                ([TableName, CapacityUnits]) => ({
-                    TableName,
-                    CapacityUnits,
-                }),
-            ),
+            ConsumedCapacity: capacity.entries(),
         };
     }
 
@@ -360,122 +357,89 @@ export class DDBClient extends PuterClient {
         );
     }
 
-    // Shared BatchWriteItem plumbing for batchPut/batchDel: 25-item chunks,
-    // UnprocessedItems retried with capped exponential backoff, consumed
-    // capacity accumulated per table across every request.
-    async #batchWrite(
-        params: {
-            table: string;
-            request: NonNullable<
-                BatchWriteCommandInput['RequestItems']
-            >[string][number];
-        }[],
-    ) {
-        const consumedCapacityByTable = new Map<string, number>();
+    // Shared BatchWriteItem plumbing for batchPut/batchDel and the TTL sweep:
+    // 25-item chunks a few at a time, UnprocessedItems retried, consumed
+    // capacity summed per table across every request.
+    async #batchWrite(params: { table: string; request: WriteRequest }[]) {
         if (params.length === 0) {
             return { ConsumedCapacity: [] };
         }
 
-        const accumulateConsumedCapacity = (
-            consumedCapacityEntries:
-                | Array<{ TableName?: string; CapacityUnits?: number }>
-                | undefined,
-        ) => {
-            if (!consumedCapacityEntries) {
-                return;
-            }
-
-            for (const consumedCapacityEntry of consumedCapacityEntries) {
-                const table = consumedCapacityEntry.TableName;
-                if (!table) {
-                    continue;
-                }
-
-                const existingUsage = consumedCapacityByTable.get(table) ?? 0;
-                consumedCapacityByTable.set(
-                    table,
-                    existingUsage +
-                        Number(consumedCapacityEntry.CapacityUnits ?? 0),
-                );
-            }
-        };
-
         const client = await this.#getDocumentClient();
-        const chunks = chunkValues(params, MAX_BATCH_WRITE_ITEMS);
+        const capacity = new ConsumedCapacityTally();
+        // Once a chunk fails, the rest aren't started.
+        let failed = false;
 
-        for (const chunk of chunks) {
-            let requestItems = chunk.reduce(
-                (acc, curr) => {
-                    const tableRequests = acc[curr.table] ?? [];
-                    tableRequests.push(curr.request);
-                    acc[curr.table] = tableRequests;
-                    return acc;
-                },
-                {} as NonNullable<BatchWriteCommandInput['RequestItems']>,
-            );
-
-            for (
-                let attempt = 0;
-                attempt <= MAX_BATCH_WRITE_RETRIES;
-                attempt++
-            ) {
-                if (Object.keys(requestItems).length === 0) {
-                    break;
+        await runWithConcurrencyLimit(
+            chunkValues(params, MAX_BATCH_WRITE_ITEMS),
+            BATCH_WRITE_CONCURRENCY,
+            async (chunk) => {
+                if (failed) return;
+                const requestItems: BatchWriteItems = {};
+                for (const { table, request } of chunk) {
+                    (requestItems[table] ??= []).push(request);
                 }
-
-                const response = await sendRepairingValues(
-                    requestItems,
-                    (itemsToWrite) =>
-                        client.send(
-                            new BatchWriteCommand({
-                                RequestItems: itemsToWrite,
-                                ReturnConsumedCapacity: 'TOTAL',
-                            }),
-                        ),
-                    () =>
-                        `a batch write to ${Object.keys(requestItems).join(', ')}`,
-                );
-                accumulateConsumedCapacity(
-                    response.ConsumedCapacity as
-                        | Array<{ TableName?: string; CapacityUnits?: number }>
-                        | undefined,
-                );
-
-                const unprocessedItems = response.UnprocessedItems ?? {};
-                if (Object.keys(unprocessedItems).length === 0) {
-                    requestItems = {};
-                    break;
-                }
-
-                requestItems = unprocessedItems as NonNullable<
-                    BatchWriteCommandInput['RequestItems']
-                >;
-                if (attempt < MAX_BATCH_WRITE_RETRIES) {
-                    const delayMs = Math.min(
-                        1000,
-                        BATCH_WRITE_RETRY_BASE_MS * 2 ** attempt,
+                try {
+                    const drained = await this.#sendWithUnprocessedRetry(
+                        requestItems,
+                        async (pending) => {
+                            const response = await sendRepairingValues(
+                                pending,
+                                (itemsToWrite) =>
+                                    client.send(
+                                        new BatchWriteCommand({
+                                            RequestItems: itemsToWrite,
+                                            ReturnConsumedCapacity: 'TOTAL',
+                                        }),
+                                    ),
+                                () =>
+                                    `a batch write to ${Object.keys(pending).join(', ')}`,
+                            );
+                            capacity.add(response.ConsumedCapacity);
+                            return response.UnprocessedItems as
+                                | BatchWriteItems
+                                | undefined;
+                        },
                     );
-                    await sleep(delayMs);
+                    if (!drained) {
+                        throw new HttpError(
+                            400,
+                            'Failed to batch write all items to DynamoDB',
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
+                } catch (error) {
+                    failed = true;
+                    throw error;
                 }
-            }
+            },
+        );
 
-            if (Object.keys(requestItems).length > 0) {
-                throw new HttpError(
-                    400,
-                    'Failed to batch write all items to DynamoDB',
-                    { legacyCode: 'bad_request' },
-                );
+        return { ConsumedCapacity: capacity.entries() };
+    }
+
+    /**
+     * Send a batch request and resend whatever comes back unprocessed, with
+     * capped exponential backoff. `send` returns the unprocessed remainder.
+     * Resolves false when items are still left after the last retry.
+     */
+    async #sendWithUnprocessedRetry<TItems extends object>(
+        requestItems: TItems,
+        send: (pending: TItems) => Promise<TItems | undefined>,
+    ): Promise<boolean> {
+        let pending: TItems | undefined = requestItems;
+        for (let attempt = 0; attempt <= MAX_BATCH_RETRIES; attempt++) {
+            if (!pending || Object.keys(pending).length === 0) return true;
+            pending = await send(pending);
+            if (
+                attempt < MAX_BATCH_RETRIES &&
+                pending &&
+                Object.keys(pending).length > 0
+            ) {
+                await sleep(Math.min(1000, BATCH_RETRY_BASE_MS * 2 ** attempt));
             }
         }
-
-        return {
-            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(
-                ([TableName, CapacityUnits]) => ({
-                    TableName,
-                    CapacityUnits,
-                }),
-            ),
-        };
+        return !pending || Object.keys(pending).length === 0;
     }
 
     @Span('ddb.del', (table: string) => ({ 'db.table': table }))
@@ -727,34 +691,10 @@ export class DDBClient extends PuterClient {
             );
         }
 
-        const region = this.#ddbConfig.aws?.region || 'us-west-2';
-        const ddbClient = new DynamoDBClient({
-            credentials: {
-                accessKeyId,
-                secretAccessKey,
-            },
-            maxAttempts: 3,
-            requestHandler: new NodeHttpHandler({
-                connectionTimeout: 5000,
-                requestTimeout: 5000,
-                httpsAgent: new httpsAgent({ keepAlive: true }),
-            }),
-            ...(this.#ddbConfig.endpoint
-                ? { endpoint: this.#ddbConfig.endpoint }
-                : {}),
-            region,
-        });
-        attachThrottleLogging(ddbClient, region, (table) =>
-            this.#keyNamesByTable.get(table),
-        );
-
-        this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
-            marshallOptions: {
-                removeUndefinedValues: true,
-            },
-            unmarshallOptions: {
-                wrapNumbers: clampStoredNumber,
-            },
+        this.#bindClient({
+            credentials: { accessKeyId, secretAccessKey },
+            region: this.#ddbConfig.aws?.region || 'us-west-2',
+            endpoint: this.#ddbConfig.endpoint,
         });
     }
 
@@ -762,21 +702,36 @@ export class DDBClient extends PuterClient {
         const endpoint = await getOrCreateLocalDynaliteEndpoint(
             this.#localPathKey,
         );
+        this.#bindClient({
+            credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
+            region: 'us-west-2',
+            endpoint,
+        });
+    }
 
+    #bindClient({
+        credentials,
+        region,
+        endpoint,
+    }: {
+        credentials: { accessKeyId: string; secretAccessKey: string };
+        region: string;
+        endpoint?: string;
+    }) {
         const ddbClient = new DynamoDBClient({
-            credentials: {
-                accessKeyId: 'fake',
-                secretAccessKey: 'fake',
-            },
+            credentials,
             maxAttempts: 3,
             requestHandler: new NodeHttpHandler({
                 connectionTimeout: 5000,
                 requestTimeout: 5000,
                 httpsAgent: new httpsAgent({ keepAlive: true }),
             }),
-            endpoint,
-            region: 'us-west-2',
+            ...(endpoint ? { endpoint } : {}),
+            region,
         });
+        attachThrottleLogging(ddbClient, region, (table) =>
+            this.#keyNamesByTable.get(table),
+        );
 
         this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
             marshallOptions: {
@@ -822,26 +777,23 @@ export class DDBClient extends PuterClient {
             );
 
             lastEvaluatedKey = scan.LastEvaluatedKey as
-                Record<string, unknown> | undefined;
+                | Record<string, unknown>
+                | undefined;
             const items = scan.Items;
             if (!items || items.length === 0) continue;
 
-            const chunks = chunkValues(items, MAX_BATCH_WRITE_ITEMS);
-            for (const chunk of chunks) {
-                await client.send(
-                    new BatchWriteCommand({
-                        RequestItems: {
-                            [table]: chunk.map((item) => ({
-                                DeleteRequest: {
-                                    Key: Object.fromEntries(
-                                        keyNames.map((key) => [key, item[key]]),
-                                    ),
-                                },
-                            })),
+            await this.#batchWrite(
+                items.map((item) => ({
+                    table,
+                    request: {
+                        DeleteRequest: {
+                            Key: Object.fromEntries(
+                                keyNames.map((key) => [key, item[key]]),
+                            ),
                         },
-                    }),
-                );
-            }
+                    },
+                })),
+            );
         } while (lastEvaluatedKey);
     }
 }

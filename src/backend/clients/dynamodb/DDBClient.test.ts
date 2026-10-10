@@ -774,6 +774,142 @@ describe('DDBClient — unprocessed batch keys', () => {
     });
 });
 
+// Answers by operation (X-Amz-Target) and records how many requests overlap, so
+// chunk concurrency and the TTL sweep's retries can be asserted.
+describe('DDBClient — batch write chunks and TTL sweep', () => {
+    let server: Server;
+    let endpoint: string;
+    let handlers: Record<string, (body: Record<string, unknown>) => unknown>;
+    let calls: string[];
+    let inFlight = 0;
+    let peakInFlight = 0;
+
+    beforeAll(async () => {
+        server = createServer((req, res) => {
+            let body = '';
+            req.on('data', (chunk) => {
+                body += chunk;
+            });
+            req.on('end', () => {
+                const op = String(req.headers['x-amz-target']).split('.')[1];
+                calls.push(op);
+                inFlight += 1;
+                peakInFlight = Math.max(peakInFlight, inFlight);
+                setTimeout(() => {
+                    inFlight -= 1;
+                    const reply = handlers[op]?.(JSON.parse(body)) ?? {};
+                    const { status = 200, ...payload } = reply as {
+                        status?: number;
+                    };
+                    res.writeHead(status, {
+                        'content-type': 'application/x-amz-json-1.0',
+                    });
+                    res.end(JSON.stringify(payload));
+                }, 20);
+            });
+        });
+        await new Promise<void>((resolve) =>
+            server.listen(0, '127.0.0.1', resolve),
+        );
+        endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+
+    afterAll(async () => {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    beforeEach(() => {
+        calls = [];
+        inFlight = 0;
+        peakInFlight = 0;
+    });
+
+    const stubClient = (extra: Record<string, unknown> = {}) =>
+        new DDBClient({
+            port: 0,
+            extensions: [],
+            dynamo: {
+                aws: { access_key: 'a', secret_key: 'b', region: 'us-west-2' },
+                endpoint,
+                ...extra,
+            },
+        } as unknown as IConfig);
+
+    it('writes chunks concurrently, a bounded number at a time', async () => {
+        handlers = { BatchWriteItem: () => ({ UnprocessedItems: {} }) };
+
+        await stubClient().batchPut(
+            Array.from({ length: 200 }, (_, i) => ({
+                table: TABLE,
+                item: { pk: `item-${i}` },
+            })),
+        );
+
+        expect(calls).toHaveLength(8);
+        expect(peakInFlight).toBeGreaterThan(1);
+        expect(peakInFlight).toBeLessThanOrEqual(4);
+    });
+
+    it('stops starting chunks once one fails', async () => {
+        handlers = {
+            BatchWriteItem: () => ({
+                status: 400,
+                __type: 'com.amazon.coral.validate#ValidationException',
+                message: 'bad item',
+            }),
+        };
+
+        await expect(
+            stubClient().batchPut(
+                Array.from({ length: 250 }, (_, i) => ({
+                    table: TABLE,
+                    item: { pk: `item-${i}` },
+                })),
+            ),
+        ).rejects.toThrow('bad item');
+        // The first wave fails; none of the six chunks queued behind it run.
+        expect(calls.length).toBeLessThanOrEqual(4);
+    });
+
+    it('retries the unprocessed deletes of the TTL sweep', async () => {
+        const expired = [{ pk: { S: 'old' } }];
+        let batchWrites = 0;
+        handlers = {
+            CreateTable: () => ({
+                status: 400,
+                __type: 'com.amazonaws.dynamodb.v20120810#ResourceInUseException',
+                message: 'Table already exists',
+            }),
+            Scan: () => ({ Items: expired }),
+            BatchWriteItem: (body) => {
+                batchWrites += 1;
+                return batchWrites === 1
+                    ? { UnprocessedItems: body.RequestItems }
+                    : { UnprocessedItems: {} };
+            },
+        };
+
+        await stubClient({ bootstrapTables: true }).createTableIfNotExists(
+            {
+                TableName: TABLE,
+                KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' }],
+                AttributeDefinitions: [
+                    { AttributeName: 'pk', AttributeType: 'S' },
+                ],
+                BillingMode: 'PAY_PER_REQUEST',
+            },
+            'ttl',
+        );
+
+        expect(calls).toEqual([
+            'CreateTable',
+            'Scan',
+            'BatchWriteItem',
+            'BatchWriteItem',
+        ]);
+    });
+});
+
 // Throttles are a service-side signal the emulator never produces, so these
 // drive the client against a stub answering in DynamoDB's error shape.
 describe('DDBClient — throttle logging', () => {
