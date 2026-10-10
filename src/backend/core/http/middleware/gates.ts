@@ -17,7 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Request, RequestHandler } from 'express';
+import type { NextFunction, Request, RequestHandler } from 'express';
+import {
+    assertActorHasCredits,
+    assertActorHasSubscription,
+    type CreditMetering,
+    type SubscriptionGateHook,
+    type SubscriptionMetering,
+    type SubscriptionRequirement,
+} from '../../../services/metering/enforcement.js';
+import type { IConfig } from '../../../types';
 import {
     isCardVerificationEnabled,
     type CardFallbackDeps,
@@ -29,6 +38,10 @@ import {
     isPlainUserActor,
     type Actor,
 } from '../../actor';
+import {
+    assertActorMeetsReputation,
+    type ReputationRequirement,
+} from '../../reputation.js';
 import { HttpError } from '../HttpError';
 import type { AccountGateUser, VerificationFactor } from '../types';
 import { assertVerifiedEmail } from '../verifiedEmail';
@@ -63,6 +76,43 @@ const rejectAuth = (req: Request): HttpError => {
 };
 
 /**
+ * Route middleware from an assertion: a throw or a rejection goes to
+ * `next(err)`, anything else to `next()`. A synchronous check calls `next`
+ * synchronously.
+ */
+export const gate = (
+    check: (req: Request) => void | Promise<void>,
+): RequestHandler => {
+    return (req, _res, next) => {
+        let pending: void | Promise<void>;
+        try {
+            pending = check(req);
+        } catch (err) {
+            next(err);
+            return;
+        }
+        if (!pending) {
+            next();
+            return;
+        }
+        return settleGate(pending, next);
+    };
+};
+
+const settleGate = async (
+    pending: Promise<void>,
+    next: NextFunction,
+): Promise<void> => {
+    try {
+        await pending;
+    } catch (err) {
+        next(err);
+        return;
+    }
+    next();
+};
+
+/**
  * Skip this route entirely (via `next('route')`) when the request's leftmost
  * subdomain doesn't match. This _isn't_ a rejection — it lets a different route
  * matcher handle the request.
@@ -82,31 +132,18 @@ export const subdomainGate = (allowed: string | string[]): RequestHandler => {
 };
 
 /** 401 for anonymous requests, 403 for suspended accounts. */
-export const requireAuthGate = (): RequestHandler => {
-    return (req, _res, next) => {
+export const requireAuthGate = (): RequestHandler =>
+    gate((req) => {
         if (req.appBlocked) {
-            next(
-                new HttpError(
-                    403,
-                    'This app is not allowed to access Puter resources',
-                    { legacyCode: 'app_blocked' },
-                ),
+            throw new HttpError(
+                403,
+                'This app is not allowed to access Puter resources',
+                { legacyCode: 'app_blocked' },
             );
-            return;
         }
-        if (!req.actor) {
-            next(rejectAuth(req));
-            return;
-        }
-        try {
-            assertNotSuspended(req.actor.user);
-        } catch (err) {
-            next(err);
-            return;
-        }
-        next();
-    };
-};
+        if (!req.actor) throw rejectAuth(req);
+        assertNotSuspended(req.actor.user);
+    });
 
 /**
  * Reject app-under-user and access-token actors with 403. `allowFullAccess`
@@ -116,14 +153,11 @@ export const requireAuthGate = (): RequestHandler => {
  */
 export const requireUserActorGate = (
     opts: { allowFullAccess?: boolean } = {},
-): RequestHandler => {
-    return (req, _res, next) => {
+): RequestHandler =>
+    gate((req) => {
         const actor = req.actor;
         // requireAuth runs first; this gate just narrows the actor type.
-        if (!actor) {
-            next(rejectAuth(req));
-            return;
-        }
+        if (!actor) throw rejectAuth(req);
         const appBlocked = isAppActor(actor);
         // `isAccountContext`, not the `fullAccess` flag: an app anywhere in the
         // chain, or an actor that skipped `makeActor`, answers no.
@@ -131,18 +165,13 @@ export const requireUserActorGate = (
             !!actor.accessToken &&
             !(opts.allowFullAccess && isAccountContext(actor));
         if (appBlocked || tokenBlocked) {
-            next(
-                new HttpError(
-                    403,
-                    'This endpoint is only available to user sessions',
-                    { legacyCode: 'forbidden' },
-                ),
+            throw new HttpError(
+                403,
+                'This endpoint is only available to user sessions',
+                { legacyCode: 'forbidden' },
             );
-            return;
         }
-        next();
-    };
-};
+    });
 
 /**
  * Reject bare account-session actors (no app, no access token) so a session
@@ -168,45 +197,26 @@ export const assertNotUserSession = (
 };
 
 /** Route-option form of {@link assertNotUserSession} (`noUserSession: true`). */
-export const noUserSessionGate = (): RequestHandler => {
-    return (req, _res, next) => {
-        const actor = req.actor;
-        if (!actor) {
-            next(rejectAuth(req));
-            return;
-        }
-        try {
-            assertNotUserSession(actor);
-        } catch (err) {
-            next(err);
-            return;
-        }
-        next();
-    };
-};
+export const noUserSessionGate = (): RequestHandler =>
+    gate((req) => {
+        if (!req.actor) throw rejectAuth(req);
+        assertNotUserSession(req.actor);
+    });
 
-export const requireNonAccessTokenGate = (): RequestHandler => {
-    return (req, _res, next) => {
+export const requireNonAccessTokenGate = (): RequestHandler =>
+    gate((req) => {
         const actor = req.actor;
-        if (!actor) {
-            next(rejectAuth(req));
-            return;
-        }
+        if (!actor) throw rejectAuth(req);
         // Full-access tokens pass; `requireUserActorGate` still keeps them
         // off account management.
         if (actor.accessToken && !actor.accessToken.fullAccess) {
-            next(
-                new HttpError(
-                    403,
-                    'Access tokens are not allowed to access this resource',
-                    { legacyCode: 'forbidden' },
-                ),
+            throw new HttpError(
+                403,
+                'Access tokens are not allowed to access this resource',
+                { legacyCode: 'forbidden' },
             );
-            return;
         }
-        next();
-    };
-};
+    });
 
 /** Built-in admin usernames that always pass `adminOnly`. */
 export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
@@ -228,27 +238,19 @@ export const adminOnlyGate = (
     );
     // Admin follows the name, so a name that grants it must never be claimable.
     reserveUsernames(allowList);
-    return (req, _res, next) => {
+    return gate((req) => {
         const username = req.actor?.user.username;
-        if (!username || !allowList.has(username.toLowerCase())) {
-            next(
-                new HttpError(403, 'Only admins may request this resource', {
-                    legacyCode: 'forbidden',
-                }),
-            );
-            return;
-        }
         const chainApp = req.actor?.effectiveApp ?? null;
-        if (chainApp && !(opts.appGated && isAppActor(req.actor))) {
-            next(
-                new HttpError(403, 'Only admins may request this resource', {
-                    legacyCode: 'forbidden',
-                }),
-            );
-            return;
+        if (
+            !username ||
+            !allowList.has(username.toLowerCase()) ||
+            (chainApp && !(opts.appGated && isAppActor(req.actor)))
+        ) {
+            throw new HttpError(403, 'Only admins may request this resource', {
+                legacyCode: 'forbidden',
+            });
         }
-        next();
-    };
+    });
 };
 
 /**
@@ -256,17 +258,8 @@ export const adminOnlyGate = (
  * `strict_email_verification_required` is set, so deployments without email
  * delivery are not locked out.
  */
-export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
-    return (req, _res, next) => {
-        try {
-            assertVerifiedEmail(strictFlag, req.actor?.user);
-        } catch (err) {
-            next(err);
-            return;
-        }
-        next();
-    };
-};
+export const requireVerifiedGate = (strictFlag: boolean): RequestHandler =>
+    gate((req) => assertVerifiedEmail(strictFlag, req.actor?.user));
 
 /** Just the seat read the 2FA gate needs, so gates stay store-agnostic. */
 export interface Team2faLookup {
@@ -298,28 +291,15 @@ export const assertTeam2fa = async (
 /** {@link assertTeam2fa} as route middleware. */
 export const requireTeam2fa = (
     teams: Team2faLookup | undefined,
-): RequestHandler => {
-    return (req, _res, next) => {
-        assertTeam2fa(req.actor?.user, teams).then(() => next(), next);
-    };
-};
+): RequestHandler => gate((req) => assertTeam2fa(req.actor?.user, teams));
 
 /**
  * Reject accounts still pending a signup-time verification (email, phone, card,
  * password change). Default-on for authenticated routes; the flows that clear
  * these flags opt out with `allowUnconfirmed: true`.
  */
-export const requireVerifiedAccount = (): RequestHandler => {
-    return (req, _res, next) => {
-        try {
-            assertVerifiedAccount(req.actor?.user);
-        } catch (err) {
-            next(err);
-            return;
-        }
-        next();
-    };
-};
+export const requireVerifiedAccount = (): RequestHandler =>
+    gate((req) => assertVerifiedAccount(req.actor?.user));
 
 /**
  * The check behind {@link requireVerifiedAccount}, for auth paths that build
@@ -389,17 +369,8 @@ export const assertPhoneVerified = (
 };
 
 /** Route-option form of {@link assertPhoneVerified} (`requirePhoneVerified`). */
-export const requirePhoneVerifiedGate = (): RequestHandler => {
-    return (req, _res, next) => {
-        try {
-            assertPhoneVerified(req.actor?.user);
-        } catch (err) {
-            next(err);
-            return;
-        }
-        next();
-    };
-};
+export const requirePhoneVerifiedGate = (): RequestHandler =>
+    gate((req) => assertPhoneVerified(req.actor?.user));
 
 export interface AnyVerifiedDeps extends CardFallbackDeps {
     /** A paid plan implies a card on file, so it counts as card-verified. */
@@ -419,21 +390,13 @@ const hasCardEvidence = async (
  */
 export const requireCardVerifiedGate = (
     deps: Pick<AnyVerifiedDeps, 'hasPaidPlan'>,
-): RequestHandler => {
-    return (req, _res, next) => {
-        hasCardEvidence(req.actor, deps).then((verified) => {
-            if (verified) {
-                next();
-                return;
-            }
-            next(
-                new HttpError(403, CARD_REQUIRED_MESSAGE, {
-                    legacyCode: 'card_verification_required',
-                }),
-            );
-        }, next);
-    };
-};
+): RequestHandler =>
+    gate(async (req) => {
+        if (await hasCardEvidence(req.actor, deps)) return;
+        throw new HttpError(403, CARD_REQUIRED_MESSAGE, {
+            legacyCode: 'card_verification_required',
+        });
+    });
 
 const isFactorVerified = (
     factor: VerificationFactor,
@@ -492,14 +455,7 @@ export const assertAnyVerified = async (
 export const requireAnyVerifiedGate = (
     factors: readonly VerificationFactor[],
     deps: AnyVerifiedDeps,
-): RequestHandler => {
-    return (req, _res, next) => {
-        assertAnyVerified(req.actor, factors, deps).then(
-            () => next(),
-            (err) => next(err),
-        );
-    };
-};
+): RequestHandler => gate((req) => assertAnyVerified(req.actor, factors, deps));
 
 export const assertNotSuspended = (user: AccountGateUser | undefined): void => {
     if (user?.suspended) {
@@ -519,16 +475,62 @@ export const allowedAppIdsGate = (
     allowedAppUids: readonly string[],
 ): RequestHandler => {
     const allowList = new Set(allowedAppUids);
-    return (req, _res, next) => {
+    return gate((req) => {
         const appUid = req.actor?.effectiveApp?.uid;
         if (appUid && !allowList.has(appUid)) {
-            next(
-                new HttpError(403, 'This app may not request this resource', {
-                    legacyCode: 'forbidden',
-                }),
-            );
-            return;
+            throw new HttpError(403, 'This app may not request this resource', {
+                legacyCode: 'forbidden',
+            });
         }
-        next();
-    };
+    });
 };
+
+// -- Metering and reputation gates -----------------------------------
+//
+// The decisions live in their own modules because the driver dispatch path
+// calls them directly: `/drivers/call` is one shared route, so a per-driver
+// requirement can't ride on the route chain.
+
+/**
+ * Reject a caller whose account isn't trusted enough for this surface
+ * (`requireReputation`). Inert unless the running config gives the named tier a
+ * minimum score.
+ */
+export const requireReputationGate = (
+    config: IConfig,
+    requirement: ReputationRequirement,
+): RequestHandler =>
+    gate((req) => assertActorMeetsReputation(req.actor, requirement, config));
+
+/**
+ * Reject a caller whose plan doesn't include this surface
+ * (`requireSubscription`): `true` accepts any non-free plan, an array of policy
+ * ids only those.
+ */
+export const requireSubscriptionGate = (
+    metering: SubscriptionMetering | undefined,
+    config: IConfig,
+    requirement: SubscriptionRequirement,
+    hook?: Omit<SubscriptionGateHook, 'req'>,
+): RequestHandler =>
+    gate((req) =>
+        assertActorHasSubscription(
+            metering,
+            req.actor,
+            requirement,
+            config,
+            hook && { ...hook, req },
+        ),
+    );
+
+/**
+ * Reject an authenticated caller with nothing left of their budget
+ * (`requireCredits`). Anonymous callers pass: signed-URL routes authorize on
+ * the URL, with no account to charge. Answered from the metering service's
+ * per-actor cache, so it normally costs a map lookup.
+ */
+export const requireCreditsGate = (
+    metering: CreditMetering | undefined,
+    config: IConfig,
+): RequestHandler =>
+    gate((req) => assertActorHasCredits(metering, req.actor, config));

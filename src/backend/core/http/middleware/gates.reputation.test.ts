@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { describe, expect, it } from 'vitest';
 import type { IConfig } from '../../../types';
 import { isHttpError } from '../HttpError';
-import { requireReputationGate } from './reputation';
+import { requireReputationGate } from './gates';
 
 // The decision itself is covered in `core/reputation.test.ts`; what matters
 // here is that the gate resolves it and hands the outcome to `next()` rather

@@ -22,7 +22,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EventClient } from '../../../clients/event/EventClient';
 import type { IConfig } from '../../../types';
 import { isHttpError } from '../HttpError';
-import { requireSubscriptionGate } from './subscription';
+import { requireSubscriptionGate } from './gates';
 
 // The decision itself is covered in `services/metering/enforcement.test.ts`;
 // what matters here is that the gate resolves it and hands the outcome to

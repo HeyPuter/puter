@@ -28,6 +28,7 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     assertNotUserSession,
+    gate,
     noUserSessionGate,
     requireAnyVerifiedGate,
     type AnyVerifiedDeps,
@@ -116,6 +117,59 @@ const expectHttpError = (got: NextArg, status: number, legacyCode?: string) => {
     expect(err.statusCode).toBe(status);
     if (legacyCode) expect(err.legacyCode).toBe(legacyCode);
 };
+
+// ── gate ────────────────────────────────────────────────────────────
+
+describe('gate', () => {
+    const denied = () =>
+        new HttpError(403, 'nope', { legacyCode: 'forbidden' });
+
+    it('calls next() synchronously when a sync check passes', () => {
+        expect(runGate(gate(() => {}), {})).toBeUndefined();
+    });
+
+    it('hands a sync throw to next(err) synchronously', () => {
+        const err = denied();
+        expect(
+            runGate(
+                gate(() => {
+                    throw err;
+                }),
+                {},
+            ),
+        ).toBe(err);
+    });
+
+    it('calls next() once an async check resolves', async () => {
+        const got = await runGateAsync(
+            gate(async () => {}),
+            {},
+        );
+        expect(got).toBeUndefined();
+    });
+
+    it('hands an async rejection to next(err)', async () => {
+        const err = denied();
+        const got = await runGateAsync(
+            gate(async () => {
+                throw err;
+            }),
+            {},
+        );
+        expect(got).toBe(err);
+    });
+
+    it('passes the request to the check', () => {
+        let seen: unknown;
+        runGate(
+            gate((req) => {
+                seen = req.headers;
+            }),
+            { headers: { host: 'x' } },
+        );
+        expect(seen).toEqual({ host: 'x' });
+    });
+});
 
 // ── subdomainGate ───────────────────────────────────────────────────
 
