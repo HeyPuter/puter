@@ -3254,6 +3254,24 @@ describe('FSService reads', () => {
     });
 });
 
+/**
+ * MySQL and Postgres keep `(parent_id, name)` unique; the SQLite test schema
+ * only indexes it. Adds the key for one directory so a lost name race raises
+ * the driver's real duplicate-key error. Returns the cleanup.
+ */
+const enforceUniqueNamesIn = async (directoryPath: string) => {
+    const db = server.clients.db;
+    const directory = await server.stores.fsEntry.getEntryByPath(directoryPath);
+    const index = `idx_test_unique_name_${uuidv4().replaceAll('-', '')}`;
+    // sqlite rejects bound parameters in a partial index's WHERE.
+    await db.write(
+        `CREATE UNIQUE INDEX ${index} ON fsentries (parent_id, name) WHERE parent_id = ${Number(directory!.id)}`,
+    );
+    return async () => {
+        await db.write(`DROP INDEX ${index}`);
+    };
+};
+
 describe('FSService mkdir, touch, rename and shortcuts', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -3329,18 +3347,17 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
     /**
      * Reproduce losing the mkdir race against a concurrent writer: the
      * existence probe finds nothing (it ran before the other writer's commit)
-     * and the INSERT then trips the `(parent_id, name)` unique key. Both halves
-     * are forced, because the probe otherwise sees the row and the sqlite test
-     * schema indexes that pair without a unique constraint.
+     * and the INSERT then trips the `(parent_id, name)` unique key.
      */
-    const simulateLostMkdirRace = (path: string) => {
+    const simulateLostMkdirRace = async (path: string) => {
         const store = server.stores.fsEntry;
-        const db = server.clients.db;
-        // Read the unpatched implementations off the prototypes: each spy
-        // installs an own property, so these stay the real methods.
+        // Read the unpatched implementation off the prototype: the spy
+        // installs an own property, so this stays the real method.
         const originalRead = (Object.getPrototypeOf(store) as typeof store)
             .getEntryByPath;
-        const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
+        const dropKey = await enforceUniqueNamesIn(
+            path.slice(0, path.lastIndexOf('/')),
+        );
 
         const probeSpy = vi
             .spyOn(store, 'getEntryByPath')
@@ -3349,50 +3366,37 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
                 return originalRead.call(store, candidate, options);
             });
 
-        let insertRejected = false;
-        const writeSpy = vi
-            .spyOn(db, 'write')
-            .mockImplementation(async (sql: string, params?: unknown[]) => {
-                if (!insertRejected && sql.includes('INSERT INTO fsentries')) {
-                    insertRejected = true;
-                    const violation = Object.assign(
-                        new Error(
-                            'UNIQUE constraint failed: fsentries.parent_id, fsentries.name',
-                        ),
-                        { code: 'SQLITE_CONSTRAINT' },
-                    );
-                    throw violation;
-                }
-                return originalWrite.call(db, sql, params);
-            });
-
-        return () => {
+        return async () => {
             probeSpy.mockRestore();
-            writeSpy.mockRestore();
+            await dropKey();
         };
     };
 
     it('returns the racing directory when a concurrent mkdir wins the insert', async () => {
         const path = `${user.home}/Documents/raced`;
         const winner = await fs.mkdir(user.userId, { path });
-        const restore = simulateLostMkdirRace(path);
+        const restore = await simulateLostMkdirRace(path);
 
-        const raced = await fs.mkdir(user.userId, { path });
-
-        expect(raced.uuid).toBe(winner.uuid);
-        restore();
+        try {
+            const raced = await fs.mkdir(user.userId, { path });
+            expect(raced.uuid).toBe(winner.uuid);
+        } finally {
+            await restore();
+        }
     });
 
     it('surfaces a conflict when the racing insert produced a file', async () => {
         const path = `${user.home}/Documents/racedfile`;
         await writeFile(user, path, 'x');
-        const restore = simulateLostMkdirRace(path);
+        const restore = await simulateLostMkdirRace(path);
 
-        const error = await caught(() => fs.mkdir(user.userId, { path }));
-
-        expect(error.statusCode).toBe(409);
-        expect(error.message).toContain(path);
-        restore();
+        try {
+            const error = await caught(() => fs.mkdir(user.userId, { path }));
+            expect(error.statusCode).toBe(409);
+            expect(error.message).toContain(path);
+        } finally {
+            await restore();
+        }
     });
 
     it('rethrows an insert failure that is not a unique-key violation', async () => {
@@ -4104,15 +4108,15 @@ describe('FSService move', () => {
     /**
      * Reproduce an occupant arriving after the collision probe: the probe
      * misses it (a concurrent move, or a replica that hasn't caught up) and the
-     * UPDATE trips the `(parent_id, name)` unique key. Both halves are forced,
-     * because the sqlite test schema has no unique key on that pair.
+     * UPDATE trips the `(parent_id, name)` unique key.
      */
-    const simulateLostMoveRace = (targetPath: string) => {
+    const simulateLostMoveRace = async (targetPath: string) => {
         const store = server.stores.fsEntry;
-        const db = server.clients.db;
         const originalRead = (Object.getPrototypeOf(store) as typeof store)
             .getEntryByPath;
-        const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
+        const dropKey = await enforceUniqueNamesIn(
+            targetPath.slice(0, targetPath.lastIndexOf('/')),
+        );
 
         const probeSpy = vi
             .spyOn(store, 'getEntryByPath')
@@ -4122,29 +4126,9 @@ describe('FSService move', () => {
                 return originalRead.call(store, candidate, options);
             });
 
-        let updateRejected = false;
-        const writeSpy = vi
-            .spyOn(db, 'write')
-            .mockImplementation(async (sql: string, params?: unknown[]) => {
-                if (
-                    !updateRejected &&
-                    sql.startsWith('UPDATE fsentries SET') &&
-                    params?.includes(targetPath)
-                ) {
-                    updateRejected = true;
-                    throw Object.assign(
-                        new Error(
-                            "Duplicate entry for key 'fsentries.parent_id_filename'",
-                        ),
-                        { code: 'ER_DUP_ENTRY', errno: 1062 },
-                    );
-                }
-                return originalWrite.call(db, sql, params);
-            });
-
-        return () => {
+        return async () => {
             probeSpy.mockRestore();
-            writeSpy.mockRestore();
+            await dropKey();
         };
     };
 
@@ -4157,7 +4141,7 @@ describe('FSService move', () => {
             `${user.home}/Documents/race-409.txt`,
             'incoming',
         );
-        const restore = simulateLostMoveRace(targetPath);
+        const restore = await simulateLostMoveRace(targetPath);
 
         try {
             const error = await caught(() =>
@@ -4170,7 +4154,7 @@ describe('FSService move', () => {
             expect(error.legacyCode).toBe('item_with_same_name_exists');
             expect(error.fields).toMatchObject({ entry_name: 'race-409.txt' });
         } finally {
-            restore();
+            await restore();
         }
         expect(await entryAt(user, '/Documents/race-409.txt')).not.toBeNull();
     });
@@ -4184,7 +4168,7 @@ describe('FSService move', () => {
             `${user.home}/Documents/race-overwrite.txt`,
             'incoming',
         );
-        const restore = simulateLostMoveRace(targetPath);
+        const restore = await simulateLostMoveRace(targetPath);
 
         let moved: FSEntry;
         try {
@@ -4194,7 +4178,7 @@ describe('FSService move', () => {
                 overwrite: true,
             });
         } finally {
-            restore();
+            await restore();
         }
         expect(moved.path).toBe(targetPath);
         expect(moved.uuid).toBe(source.uuid);
@@ -4213,7 +4197,7 @@ describe('FSService move', () => {
             `${user.home}/Documents/race-dedupe.txt`,
             'incoming',
         );
-        const restore = simulateLostMoveRace(targetPath);
+        const restore = await simulateLostMoveRace(targetPath);
 
         let moved: FSEntry;
         try {
@@ -4223,7 +4207,7 @@ describe('FSService move', () => {
                 dedupeName: true,
             });
         } finally {
-            restore();
+            await restore();
         }
         expect(moved.path).toBe(`${user.home}/Desktop/race-dedupe (1).txt`);
     });
