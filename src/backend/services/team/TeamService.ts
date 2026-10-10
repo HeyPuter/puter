@@ -1241,12 +1241,11 @@ export class TeamService extends PuterService {
             action: AUDIT_RESET_2FA,
         });
 
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_enabled` = ?, `otp_secret` = NULL, ' +
-                '`otp_recovery_codes` = NULL WHERE `id` = ?',
-            [this.clients.db.booleanValue(false), targetUserId],
-        );
-        await this.stores.user.invalidateById(targetUserId);
+        await this.stores.user.update(targetUserId, {
+            otp_enabled: false,
+            otp_secret: null,
+            otp_recovery_codes: null,
+        });
         await this.#dropSessions(targetUserId);
         await this.#notifyUser(user, 'team_2fa_reset', team);
     }

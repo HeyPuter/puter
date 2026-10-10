@@ -704,6 +704,18 @@ export class AppStore extends PuterStore {
     }
 
     /**
+     * Point an app's icon at `iconUrl` if it still holds an inline data URL; an
+     * icon set since is left alone.
+     */
+    async replaceDataUrlIcon(uid, iconUrl) {
+        await this.clients.db.write(
+            "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",
+            [iconUrl, uid],
+        );
+        await this.invalidateByUid(uid);
+    }
+
+    /**
      * Record `oldName` as a redirect to the app identified by `appUid`. The
      * (app_uid, name) tuple is unique in `old_app_names`, so the upsert
      * refreshes the timestamp when the same app re-records the same previous

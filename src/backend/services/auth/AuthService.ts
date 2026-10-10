@@ -2124,29 +2124,15 @@ export class AuthService extends PuterService {
                 : {},
         );
 
-        // Store each permission grant
-        const db = this.stores.permission as unknown as {
-            clients: {
-                db: { write: (q: string, p: unknown[]) => Promise<void> };
-            };
-        };
-        for (const spec of permissions) {
-            const [permission, extra] = spec;
-            // The full-access sentinel is not a real grant — it lives in the
-            // signed `full_access` claim, not `access_token_permissions`.
-            if (permission === FULL_API_ACCESS) continue;
-            await (db.clients?.db ?? this.clients.db).write(
-                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?, ?)',
-                [
-                    tokenUid,
-                    actor.user.id ?? null,
-                    issuingApp?.id ?? null,
-                    permission,
-                    extra ? JSON.stringify(extra) : '{}',
-                ],
-            );
-        }
-        await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
+        // The full-access sentinel is not a real grant — it lives in the
+        // signed `full_access` claim, not `access_token_permissions`.
+        await this.stores.permission.insertAccessTokenPerms(
+            tokenUid,
+            { userId: actor.user.id ?? null, appId: issuingApp?.id ?? null },
+            permissions
+                .filter(([permission]) => permission !== FULL_API_ACCESS)
+                .map(([permission, extra]) => ({ permission, extra })),
+        );
 
         return jwt;
     }
@@ -2208,7 +2194,9 @@ export class AuthService extends PuterService {
                 await this.stores.session.findActiveByAccessTokenUid(tokenUid);
             const ownerId =
                 sessionRow?.user_id ??
-                (await this.#accessTokenAuthorizerId(tokenUid));
+                (await this.stores.permission.getAccessTokenAuthorizerId(
+                    tokenUid,
+                ));
             if (ownerId == null || ownerId !== actor.user.id) {
                 throw new HttpError(404, 'Access token not found', {
                     legacyCode: 'not_found',
@@ -2299,20 +2287,6 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Persisted authorizer of an access token, from its grant manifest. Returns
-     * null for a token with no grants — which every full-access token is, so
-     * callers need another source of ownership before treating null as "not
-     * yours".
-     */
-    async #accessTokenAuthorizerId(tokenUid: string): Promise<number | null> {
-        const rows = (await this.clients.db.read(
-            'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
-            [tokenUid],
-        )) as Array<{ authorizer_user_id?: number | null }>;
-        return rows[0]?.authorizer_user_id ?? null;
-    }
-
-    /**
      * Drop an access token's grant manifest.
      *
      * These rows DELETE rather than soft-revoke — the "no DELETE on revoke"
@@ -2325,11 +2299,7 @@ export class AuthService extends PuterService {
      * this table, not a behavior change here.
      */
     async #dropAccessTokenGrants(tokenUid: string): Promise<void> {
-        await this.clients.db.write(
-            'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [tokenUid],
-        );
-        await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
+        await this.stores.permission.deleteAccessTokenPerms(tokenUid);
     }
 
     /**

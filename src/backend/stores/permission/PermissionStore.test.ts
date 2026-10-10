@@ -656,19 +656,18 @@ describe('PermissionStore', () => {
     // -- access token permissions --------------------------------------
 
     describe('access token permissions', () => {
-        it('reads the token grants, caches them, and re-reads after invalidation', async () => {
+        it('serves the grants cached, and every write through the store invalidates them', async () => {
             const tokenUid = `tok-${uuidv4()}`;
-            await server.clients.db.write(
-                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
-                [tokenUid, 'driver:kv'],
-            );
-
+            const authorizer = { userId: null, appId: null };
+            await store.insertAccessTokenPerms(tokenUid, authorizer, [
+                { permission: 'driver:kv' },
+            ]);
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
                 'driver:kv',
             ]);
 
-            // A grant added behind the cache is invisible until invalidated —
-            // and visible immediately afterwards.
+            // A row written behind the store is invisible until a store
+            // write lands.
             await server.clients.db.write(
                 'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
                 [tokenUid, 'driver:fs'],
@@ -677,10 +676,40 @@ describe('PermissionStore', () => {
                 'driver:kv',
             ]);
 
-            await store.invalidateAccessTokenPerms(tokenUid);
+            await store.insertAccessTokenPerms(tokenUid, authorizer, [
+                { permission: 'driver:ai', extra: { note: 1 } },
+            ]);
             expect((await store.listAccessTokenPerms(tokenUid)).sort()).toEqual(
-                ['driver:fs', 'driver:kv'],
+                ['driver:ai', 'driver:fs', 'driver:kv'],
             );
+
+            await store.deleteAccessTokenPerms(tokenUid);
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
+        });
+
+        it('inserts many grants a chunk per statement', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const grants = Array.from({ length: 150 }, (_, i) => ({
+                permission: `driver:p${i}`,
+            }));
+            const write = vi.spyOn(server.clients.db, 'write');
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    grants,
+                );
+                expect(write).toHaveBeenCalledTimes(2);
+            } finally {
+                write.mockRestore();
+            }
+            expect(await store.listAccessTokenPerms(tokenUid)).toHaveLength(
+                150,
+            );
+            expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(7);
+            expect(
+                await store.getAccessTokenAuthorizerId(`tok-${uuidv4()}`),
+            ).toBeNull();
         });
 
         it('reports no permissions for an unknown token', async () => {
