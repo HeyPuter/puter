@@ -1867,22 +1867,9 @@ export class ShareService extends PuterService {
      * invites go with them, and a restore does not bring any of it back.
      */
     async onEntryTrashed(entry: FSEntry): Promise<void> {
-        // Every kind of row, since a link share deeper in the subtree grants
-        // access on its own, without a grant or an index row above it.
-        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
-        const fsentryIds = [
-            ...new Set([
-                entry.id,
-                ...rows.map((row: { fsentry_id: number }) =>
-                    Number(row.fsentry_id),
-                ),
-            ]),
-        ].filter((id) => Number.isFinite(id));
-
-        const nodes = await this.stores.fsEntry.getEntriesByIds(fsentryIds);
-        const uuids = [...nodes.values()].map((node) => node.uuid);
-        if (uuids.length > 0) await this.onEntryDeleted(uuids);
-        await this.stores.share.deleteByFsentryIds(fsentryIds);
+        // The same sweep as a change of owner: every kind of row in the
+        // subtree, since a link share deeper down grants access on its own.
+        await this.onEntryOwnerChanged(entry);
     }
 
     // -- Reads --------------------------------------------------------
