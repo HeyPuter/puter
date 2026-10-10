@@ -25,11 +25,10 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { ProviderRegistry, readProviderKey } from '../util/providerRegistry.js';
 import {
-    DEFAULT_SPEECH_TO_TEXT_PROVIDER,
-    normalizeSpeechToTextProvider,
+    SPEECH_TO_TEXT_CATALOG,
     SPEECH_TO_TEXT_DRIVER_ALIASES,
-    SPEECH_TO_TEXT_PROVIDERS,
 } from './providerAliases.js';
 import { OpenAISpeechToTextProvider } from './providers/openai/OpenAISpeechToTextProvider.js';
 import { XAISpeechToTextProvider } from './providers/xai/XAISpeechToTextProvider.js';
@@ -47,13 +46,6 @@ import type {
  * the caller named. Each provider is an `ISpeechToTextProvider` instantiated
  * from config on boot.
  */
-
-/** Opt-in value that widens `list_models` out to every provider. */
-const ALL_PROVIDERS = 'all';
-
-const isAllProviders = (value: unknown): boolean =>
-    typeof value === 'string' && value.trim().toLowerCase() === ALL_PROVIDERS;
-
 export class SpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
     readonly driverName = 'ai-speech2txt';
@@ -68,7 +60,9 @@ export class SpeechToTextDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, ISpeechToTextProvider> = {};
+    #providers = new ProviderRegistry<ISpeechToTextProvider>(
+        SPEECH_TO_TEXT_CATALOG,
+    );
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -84,9 +78,9 @@ export class SpeechToTextDriver extends PuterDriver {
     }
 
     override getReportedCosts(): Record<string, unknown>[] {
-        return Object.values(this.#providers).flatMap((p) =>
-            p.getReportedCosts(),
-        );
+        return this.#providers
+            .names()
+            .flatMap((name) => this.#providers.get(name)!.getReportedCosts());
     }
 
     // -- Interface methods -------------------------------------------
@@ -99,28 +93,20 @@ export class SpeechToTextDriver extends PuterDriver {
         args?: Record<string, unknown>,
     ): Promise<ISpeechToTextModel[]> {
         const requested = args?.provider;
-        if (isAllProviders(requested)) {
-            const all: ISpeechToTextModel[] = [];
-            for (const p of Object.values(this.#providers)) {
-                all.push(
-                    ...(await p.listModels()).map((m) => ({
-                        ...m,
-                        provider: p.providerName,
-                    })),
-                );
-            }
-            return all;
+        if (ProviderRegistry.isAll(requested)) {
+            return this.#providers.collect(async (p, provider) =>
+                (await p.listModels()).map((m) => ({ ...m, provider })),
+            );
         }
-
-        const p =
-            this.#providers[this.#resolveProvider({ provider: requested })];
-        if (!p) return [];
-        return p.listModels();
+        const p = this.#providers.get(
+            this.#providers.resolve(requested, Context.get('driverName')),
+        );
+        return p ? p.listModels() : [];
     }
 
     /** List provider names that are currently configured. */
     async list(): Promise<string[]> {
-        return Object.keys(this.#providers);
+        return this.#providers.names();
     }
 
     async transcribe(args: ITranscribeArgs) {
@@ -133,9 +119,16 @@ export class SpeechToTextDriver extends PuterDriver {
 
     // -- Provider routing --------------------------------------------
 
+    /**
+     * The provider a call names, then the legacy driver alias the caller
+     * dispatched through, then the default.
+     */
     #provider(args: ITranscribeArgs): ISpeechToTextProvider {
-        const providerName = this.#resolveProvider(args);
-        const provider = this.#providers[providerName];
+        const providerName = this.#providers.resolve(
+            args.provider,
+            Context.get('driverName'),
+        );
+        const provider = this.#providers.get(providerName);
         if (!provider) {
             throw new HttpError(
                 500,
@@ -146,53 +139,10 @@ export class SpeechToTextDriver extends PuterDriver {
         return provider;
     }
 
-    /**
-     * Decide which provider handles a call: an explicit `provider` wins, then
-     * the legacy driver alias the caller dispatched through, then the default.
-     */
-    #resolveProvider(args: { provider?: unknown }): string {
-        if (
-            args.provider !== undefined &&
-            args.provider !== null &&
-            args.provider !== ''
-        ) {
-            const named = normalizeSpeechToTextProvider(args.provider);
-            if (!named) {
-                throw new HttpError(
-                    400,
-                    `Speech-to-text provider not found: ${String(args.provider)}. Available: ${SPEECH_TO_TEXT_PROVIDERS.join(', ')}`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            return named;
-        }
-
-        return (
-            normalizeSpeechToTextProvider(Context.get('driverName')) ??
-            this.#defaultProvider()
-        );
-    }
-
     /** Providers read their own options; `provider` is the driver's business. */
     #providerArgs(args: ITranscribeArgs): ITranscribeArgs {
         const { provider: _provider, ...rest } = args;
         return rest;
-    }
-
-    /**
-     * The documented default, falling back to whatever is configured so a
-     * deployment without OpenAI credentials still serves transcription.
-     */
-    #defaultProvider(): string {
-        for (const name of [
-            DEFAULT_SPEECH_TO_TEXT_PROVIDER,
-            ...SPEECH_TO_TEXT_PROVIDERS,
-        ]) {
-            if (this.#providers[name]) return name;
-        }
-        return (
-            Object.keys(this.#providers)[0] ?? DEFAULT_SPEECH_TO_TEXT_PROVIDER
-        );
     }
 
     // -- Provider registration ---------------------------------------
@@ -201,42 +151,28 @@ export class SpeechToTextDriver extends PuterDriver {
     // model catalogues stay listable on a deployment that only configures
     // some of them. A provider without a key rejects at call time.
     #registerProviders() {
-        const providers = (this.config.providers ?? {}) as Record<
-            string,
-            Record<string, unknown> | undefined
-        >;
+        const providers = this.config.providers ?? {};
         const deps: ISpeechToTextDeps = {
             stores: this.stores,
             fs: this.services.fs,
             metering: this.#aiMetering,
         };
 
-        this.#providers['openai'] = new OpenAISpeechToTextProvider(deps, {
-            apiKey: readKey(
-                providers['openai-speech-to-text'],
-                providers['openai-completion'],
-                providers['openai'],
-            ),
-        });
-
-        this.#providers['xai'] = new XAISpeechToTextProvider(deps, {
-            apiKey: readKey(providers['xai']),
-        });
+        this.#providers.register(
+            'openai',
+            new OpenAISpeechToTextProvider(deps, {
+                apiKey: readProviderKey(
+                    providers['openai-speech-to-text'],
+                    providers['openai-completion'],
+                    providers['openai'],
+                ),
+            }),
+        );
+        this.#providers.register(
+            'xai',
+            new XAISpeechToTextProvider(deps, {
+                apiKey: readProviderKey(providers['xai']),
+            }),
+        );
     }
-}
-
-/** First API key found across the config shapes providers are declared with. */
-function readKey(
-    ...cfgs: Array<Record<string, unknown> | undefined>
-): string | undefined {
-    for (const cfg of cfgs) {
-        if (!cfg) continue;
-        const k =
-            (cfg.apiKey as string | undefined) ??
-            (cfg.secret_key as string | undefined) ??
-            (cfg.api_key as string | undefined) ??
-            (cfg.key as string | undefined);
-        if (k) return k;
-    }
-    return undefined;
 }

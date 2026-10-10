@@ -29,6 +29,11 @@ import {
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
+import {
+    type ProviderCatalog,
+    ProviderRegistry,
+    readProviderKey,
+} from '../util/providerRegistry.js';
 import { SAMPLE_AUDIO_URL } from '../util/testMode.js';
 import { upstreamFetch } from '../util/upstreamErrors.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
@@ -45,7 +50,19 @@ const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
 // Covers the upload as well as the conversion.
 const CONVERT_TIMEOUT_MS = 10 * 60 * 1000;
 
-const PROVIDERS = ['elevenlabs'] as const;
+const VOICE_CHANGER_CATALOG: ProviderCatalog = {
+    label: 'Speech-to-speech',
+    ids: ['elevenlabs'],
+    defaultId: 'elevenlabs',
+    aliases: { elevenlabs: 'elevenlabs' },
+};
+
+interface ElevenLabsConfig {
+    apiKey: string;
+    baseUrl: string;
+    defaultVoiceId: string;
+    defaultModelId: string;
+}
 
 interface ConvertArgs {
     audio: unknown;
@@ -97,28 +114,24 @@ export class VoiceChangerDriver extends PuterDriver {
         );
     }
 
-    #apiKey: string | null = null;
-    #baseUrl = 'https://api.elevenlabs.io';
-    #defaultVoiceId = DEFAULT_VOICE_ID;
-    #defaultModelId = DEFAULT_MODEL;
+    #providers = new ProviderRegistry<ElevenLabsConfig>(VOICE_CHANGER_CATALOG);
 
     override onServerStart() {
-        const elevenlabs = this.config.providers?.elevenlabs as
-            Record<string, unknown> | undefined;
-
-        this.#apiKey =
-            (elevenlabs?.apiKey as string | undefined) ??
-            (elevenlabs?.api_key as string | undefined) ??
-            (elevenlabs?.key as string | undefined) ??
-            null;
-        this.#baseUrl =
-            (elevenlabs?.apiBaseUrl as string | undefined) ?? this.#baseUrl;
-        this.#defaultVoiceId =
-            (elevenlabs?.defaultVoiceId as string | undefined) ??
-            DEFAULT_VOICE_ID;
-        this.#defaultModelId =
-            (elevenlabs?.speechToSpeechModelId as string | undefined) ??
-            DEFAULT_MODEL;
+        const elevenlabs = this.config.providers?.elevenlabs;
+        const apiKey = readProviderKey(elevenlabs);
+        if (!apiKey) return;
+        this.#providers.register('elevenlabs', {
+            apiKey,
+            baseUrl:
+                (elevenlabs?.apiBaseUrl as string | undefined) ??
+                'https://api.elevenlabs.io',
+            defaultVoiceId:
+                (elevenlabs?.defaultVoiceId as string | undefined) ??
+                DEFAULT_VOICE_ID,
+            defaultModelId:
+                (elevenlabs?.speechToSpeechModelId as string | undefined) ??
+                DEFAULT_MODEL,
+        });
     }
 
     async convert(
@@ -126,26 +139,14 @@ export class VoiceChangerDriver extends PuterDriver {
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
         // Only one provider exists today, but naming a different one should
         // fail loudly rather than quietly convert with this one.
-        if (
-            args.provider &&
-            !PROVIDERS.includes(
-                args.provider
-                    .trim()
-                    .toLowerCase() as (typeof PROVIDERS)[number],
-            )
-        ) {
-            throw new HttpError(
-                400,
-                `Speech-to-speech provider not found: ${args.provider}. Available: ${PROVIDERS.join(', ')}`,
-                { legacyCode: 'bad_request' },
-            );
-        }
+        const providerName = this.#providers.resolve(args.provider);
 
         if (args.test_mode) {
             return { url: SAMPLE_AUDIO_URL, content_type: 'audio/mpeg' };
         }
 
-        if (!this.#apiKey) {
+        const elevenlabs = this.#providers.get(providerName);
+        if (!elevenlabs) {
             throw new HttpError(500, 'ElevenLabs API key not configured', {
                 legacyCode: 'internal_error',
             });
@@ -171,9 +172,13 @@ export class VoiceChangerDriver extends PuterDriver {
             { maxBytes: MAX_AUDIO_FILE_SIZE },
         );
 
-        const modelId = args.model_id || args.model || this.#defaultModelId;
+        const modelId =
+            args.model_id || args.model || elevenlabs.defaultModelId;
         const voiceId =
-            args.voice_id || args.voiceId || args.voice || this.#defaultVoiceId;
+            args.voice_id ||
+            args.voiceId ||
+            args.voice ||
+            elevenlabs.defaultVoiceId;
         if (!voiceId)
             throw new HttpError(400, '`voice` is required', {
                 legacyCode: 'bad_request',
@@ -266,7 +271,7 @@ export class VoiceChangerDriver extends PuterDriver {
 
             const url = new URL(
                 `/v1/speech-to-speech/${voiceId}`,
-                this.#baseUrl,
+                elevenlabs.baseUrl,
             );
             const search = searchParams.toString();
             if (search) url.search = search;
@@ -276,7 +281,7 @@ export class VoiceChangerDriver extends PuterDriver {
                 url,
                 {
                     method: 'POST',
-                    headers: { 'xi-api-key': this.#apiKey },
+                    headers: { 'xi-api-key': elevenlabs.apiKey },
                     body: formData,
                 },
                 { timeoutMs: CONVERT_TIMEOUT_MS },

@@ -32,6 +32,7 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
@@ -347,20 +348,7 @@ export class ImageGenerationDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const m = this.#aiMetering;
 
-        const readKey = (
-            ...cfgs: Array<Record<string, unknown> | undefined>
-        ): string | undefined => {
-            for (const cfg of cfgs) {
-                if (!cfg) continue;
-                const k =
-                    (cfg.apiKey as string | undefined) ??
-                    (cfg.secret_key as string | undefined);
-                if (k) return k;
-            }
-            return undefined;
-        };
-
-        const openaiKey = readKey(
+        const openaiKey = readProviderKey(
             providers['openai-image-generation'],
             providers['openai-completion'],
             providers['openai'],
@@ -370,7 +358,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 new OpenAiImageProvider({ apiKey: openaiKey }, m);
         }
 
-        const geminiKey = readKey(
+        const geminiKey = readProviderKey(
             providers['gemini-image-generation'],
             providers['gemini'],
         );
@@ -379,7 +367,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 new GeminiImageProvider({ apiKey: geminiKey }, m);
         }
 
-        const togetherKey = readKey(
+        const togetherKey = readProviderKey(
             providers['together-image-generation'],
             providers['together-ai'],
         );
@@ -394,8 +382,7 @@ export class ImageGenerationDriver extends PuterDriver {
             Record<string, unknown> | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
-            (cloudflare?.apiKey as string | undefined) ??
-            (cloudflare?.secret_key as string | undefined);
+            readProviderKey(cloudflare);
         const cfAccount =
             (cloudflare?.accountId as string | undefined) ??
             (cloudflare?.account_id as string | undefined);
@@ -412,7 +399,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 );
         }
 
-        const xaiKey = readKey(
+        const xaiKey = readProviderKey(
             providers['xai-image-generation'],
             providers['xai'],
         );
@@ -423,7 +410,9 @@ export class ImageGenerationDriver extends PuterDriver {
             );
         }
 
-        const replicateKey = readKey(providers['replicate-image-generation']);
+        const replicateKey = readProviderKey(
+            providers['replicate-image-generation'],
+        );
         if (replicateKey) {
             this.#providers['replicate-image-generation'] =
                 new ReplicateImageGenerationProvider(
@@ -441,7 +430,10 @@ export class ImageGenerationDriver extends PuterDriver {
             Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
             Record<string, unknown> | undefined;
-        const byteplusKey = readKey(byteplusImageCfg, byteplusSharedCfg);
+        const byteplusKey = readProviderKey(
+            byteplusImageCfg,
+            byteplusSharedCfg,
+        );
         if (byteplusKey) {
             this.#providers['byteplus-image-generation'] =
                 new BytePlusImageProvider(

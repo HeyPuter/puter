@@ -127,7 +127,9 @@ beforeAll(async () => {
                 },
             },
             gemini: { apiKey: 'gem-key' },
-            xai: { apiKey: 'xai-key' },
+            // The field the image and speech-to-text drivers read xAI's key
+            // from; TTS reads the same ones.
+            xai: { secret_key: 'xai-key' },
             speechify: { apiKey: 'speechify-key' },
         },
     } as never);

@@ -30,6 +30,7 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
 import type {
@@ -316,23 +317,9 @@ export class VideoGenerationDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const m = this.#aiMetering;
 
-        // Same lenient reader as ImageGenerationDriver — accept
-        // `apiKey || secret_key`, and fall back from the video-specific
-        // provider key to the shared chat key when unset.
-        const readKey = (
-            ...cfgs: Array<Record<string, unknown> | undefined>
-        ): string | undefined => {
-            for (const cfg of cfgs) {
-                if (!cfg) continue;
-                const k =
-                    (cfg.apiKey as string | undefined) ??
-                    (cfg.secret_key as string | undefined);
-                if (k) return k;
-            }
-            return undefined;
-        };
-
-        const togetherKey = readKey(
+        // Falls back from the video-specific provider key to the shared chat
+        // key when unset.
+        const togetherKey = readProviderKey(
             providers['together-video-generation'],
             providers['together-ai'],
         );
@@ -350,7 +337,10 @@ export class VideoGenerationDriver extends PuterDriver {
             Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
             Record<string, unknown> | undefined;
-        const byteplusKey = readKey(byteplusVideoCfg, byteplusSharedCfg);
+        const byteplusKey = readProviderKey(
+            byteplusVideoCfg,
+            byteplusSharedCfg,
+        );
         if (byteplusKey) {
             this.#providers['byteplus-video-generation'] =
                 new BytePlusVideoProvider(

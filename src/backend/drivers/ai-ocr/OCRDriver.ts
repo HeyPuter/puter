@@ -40,6 +40,11 @@ import {
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
+import {
+    type ProviderCatalog,
+    ProviderRegistry,
+    readProviderKey,
+} from '../util/providerRegistry.js';
 import { OCR_COSTS } from './costs.js';
 import {
     DEFAULT_OCR_MODEL,
@@ -110,22 +115,33 @@ interface MistralOcrClient {
     };
 }
 
-const OCR_PROVIDERS = ['aws-textract', 'mistral'] as const;
-
 // Aliases callers may use in place of a canonical provider id. Resolved here
 // rather than in the SDK so a new alias reaches every caller at once.
-const PROVIDER_BY_ALIAS: Record<string, OcrProviderId> = {
-    aws: 'aws-textract',
-    'aws-textract': 'aws-textract',
-    textract: 'aws-textract',
-    mistral: 'mistral',
-    'mistral-ocr': 'mistral',
+const OCR_CATALOG: ProviderCatalog = {
+    label: 'OCR',
+    ids: ['aws-textract', 'mistral'],
+    defaultId: 'aws-textract',
+    aliases: {
+        aws: 'aws-textract',
+        'aws-textract': 'aws-textract',
+        textract: 'aws-textract',
+        mistral: 'mistral',
+        'mistral-ocr': 'mistral',
+    },
 };
 
-const normalizeOcrProvider = (value: unknown): OcrProviderId | undefined =>
-    typeof value === 'string'
-        ? PROVIDER_BY_ALIAS[value.trim().toLowerCase()]
-        : undefined;
+/** Recognizes one input with one provider's model. */
+type OcrRecognizer = (
+    loaded: LoadedFile,
+    args: RecognizeArgs,
+    model: OcrModel,
+    actor: Actor,
+) => Promise<unknown>;
+
+const NOT_CONFIGURED: Record<OcrProviderId, string> = {
+    'aws-textract': 'AWS credentials not configured',
+    mistral: 'Mistral OCR not configured',
+};
 
 const TABLE_FORMATS = new Set(['markdown', 'html']);
 
@@ -251,7 +267,7 @@ export class OCRDriver extends PuterDriver {
     // Older SDK bundles name the provider in the driver slot instead of
     // passing `{ provider }`; `#resolveModel` reads the requested alias
     // back off the Context.
-    readonly driverAliases = [...OCR_PROVIDERS];
+    readonly driverAliases = [...OCR_CATALOG.ids];
     readonly isDefault = true;
 
     // Textract state — one client per region.
@@ -264,6 +280,9 @@ export class OCRDriver extends PuterDriver {
 
     // Mistral state.
     #mistral: MistralOcrClient | null = null;
+
+    /** Configured providers, each a recognizer bound to its state above. */
+    #providers = new ProviderRegistry<OcrRecognizer>(OCR_CATALOG);
 
     override onServerStart() {
         const providers = this.config.providers ?? {};
@@ -284,16 +303,24 @@ export class OCRDriver extends PuterDriver {
                 secretAccessKey: textractSecretKey,
                 region: textractRegion,
             };
+            this.#providers.register(
+                'aws-textract',
+                (loaded, _args, model, actor) =>
+                    this.#textractRecognize(loaded, model, actor),
+            );
         }
 
-        const mistral = providers['mistral-ocr'];
-        if (mistral?.apiKey) {
+        const mistralKey = readProviderKey(providers['mistral-ocr']);
+        if (mistralKey) {
             try {
-                // Lazy import so we don't pay the cost when Mistral is unused.
-
                 this.#mistral = new Mistral({
-                    apiKey: mistral.apiKey,
+                    apiKey: mistralKey,
                 }) as unknown as MistralOcrClient;
+                this.#providers.register(
+                    'mistral',
+                    (loaded, args, model, actor) =>
+                        this.#mistralRecognize(loaded, args, model, actor),
+                );
             } catch (e) {
                 console.warn(
                     '[OCRDriver] Failed to init Mistral:',
@@ -317,12 +344,9 @@ export class OCRDriver extends PuterDriver {
         const input = args.source ?? args.file;
         if (!input) throw badRequest('`source` is required');
 
-        if (model.provider === 'aws-textract' && !this.#awsConfig)
-            throw new HttpError(500, 'AWS credentials not configured', {
-                legacyCode: 'internal_error',
-            });
-        if (model.provider === 'mistral' && !this.#mistral)
-            throw new HttpError(500, 'Mistral OCR not configured', {
+        const recognize = this.#providers.get(model.provider);
+        if (!recognize)
+            throw new HttpError(500, NOT_CONFIGURED[model.provider], {
                 legacyCode: 'internal_error',
             });
 
@@ -342,9 +366,7 @@ export class OCRDriver extends PuterDriver {
             },
         );
 
-        return model.provider === 'aws-textract'
-            ? this.#textractRecognize(loaded, model, actor)
-            : this.#mistralRecognize(loaded, args, model, actor);
+        return recognize(loaded, args, model, actor);
     }
 
     /**
@@ -354,15 +376,9 @@ export class OCRDriver extends PuterDriver {
      * default model.
      */
     #resolveModel(args: RecognizeArgs): OcrModel {
-        let provider: OcrProviderId | undefined;
-        if (args.provider) {
-            provider = normalizeOcrProvider(args.provider);
-            if (!provider) {
-                throw badRequest(
-                    `Unknown OCR provider: ${args.provider}. Available: ${OCR_PROVIDERS.join(', ')}`,
-                );
-            }
-        }
+        const provider = args.provider
+            ? (this.#providers.resolve(args.provider) as OcrProviderId)
+            : undefined;
 
         if (args.model !== undefined) {
             if (typeof args.model !== 'string' || !args.model.trim())
@@ -381,20 +397,14 @@ export class OCRDriver extends PuterDriver {
             return model;
         }
 
-        provider ??=
-            normalizeOcrProvider(Context.get('driverName')) ??
-            this.#defaultProvider();
-        if (!provider)
+        const hinted =
+            provider ?? this.#providers.normalize(Context.get('driverName'));
+        if (!hinted && this.#providers.names().length === 0)
             throw new HttpError(500, 'No OCR provider configured', {
                 legacyCode: 'internal_error',
             });
-        return findOcrModel(DEFAULT_OCR_MODEL[provider])!;
-    }
-
-    #defaultProvider(): OcrProviderId | null {
-        if (this.#awsConfig) return 'aws-textract';
-        if (this.#mistral) return 'mistral';
-        return null;
+        const chosen = (hinted ?? this.#providers.defaultId()) as OcrProviderId;
+        return findOcrModel(DEFAULT_OCR_MODEL[chosen])!;
     }
 
     /**

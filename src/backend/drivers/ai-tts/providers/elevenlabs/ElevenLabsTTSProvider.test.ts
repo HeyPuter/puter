@@ -139,6 +139,43 @@ describe('ElevenLabsTTSProvider catalog', () => {
         });
     });
 
+    it('listVoices calls ElevenLabs once per cache window', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockImplementation(async () =>
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+
+        const [first, second] = await Promise.all([
+            provider.listVoices(),
+            provider.listVoices(),
+        ]);
+        const third = await provider.listVoices();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+    });
+
+    it('listVoices does not cache a failed fetch', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }));
+        await expect(provider.listVoices()).rejects.toMatchObject({
+            status: 503,
+        });
+
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+        expect(await provider.listVoices()).toHaveLength(1);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
     it('listVoices uses a custom apiBaseUrl when configured', async () => {
         const provider = makeProvider({ apiBaseUrl: 'https://custom.example' });
         fetchSpy.mockResolvedValueOnce(

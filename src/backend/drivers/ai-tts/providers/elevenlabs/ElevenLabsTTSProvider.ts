@@ -40,6 +40,7 @@ import { ELEVENLABS_TTS_COSTS } from './costs.js';
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" sample voice
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
+const VOICES_TTL_MS = 10 * 60 * 1000;
 
 const ELEVENLABS_TTS_MODELS = [
     { id: DEFAULT_MODEL, name: 'Eleven Multilingual v2' },
@@ -61,6 +62,10 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
     private apiKey: string;
     private baseUrl: string;
     private defaultVoiceId: string;
+    private voicesCache: {
+        voices: Promise<ITTSVoice[]>;
+        expires: number;
+    } | null = null;
 
     constructor(
         private readonly meteringService: AiMeteringService,
@@ -100,7 +105,24 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
         );
     }
 
+    /**
+     * The account's voices, cached for {@link VOICES_TTL_MS} so voice listings
+     * don't call ElevenLabs on every request. A failed fetch isn't cached.
+     */
     async listVoices(): Promise<ITTSVoice[]> {
+        const cached = this.voicesCache;
+        if (cached && Date.now() < cached.expires) return cached.voices;
+        const voices = this.fetchVoices();
+        this.voicesCache = { voices, expires: Date.now() + VOICES_TTL_MS };
+        try {
+            return await voices;
+        } catch (e) {
+            if (this.voicesCache?.voices === voices) this.voicesCache = null;
+            throw e;
+        }
+    }
+
+    private async fetchVoices(): Promise<ITTSVoice[]> {
         const res = await this.request('/v1/voices');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = await res.json();

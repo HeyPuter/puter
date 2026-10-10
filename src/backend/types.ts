@@ -285,8 +285,8 @@ export interface IThumbnailStoreConfig {
  */
 export interface IAIProviderConfig {
     /**
-     * API key. Sole canonical name — drivers no longer accept
-     * `secret_key`/`api_key`/`key` aliases.
+     * API key, the canonical name. `readProviderKey` also takes `secret_key`,
+     * `api_key` or `key` from older configs, the same way in every AI driver.
      */
     apiKey?: string;
     /**

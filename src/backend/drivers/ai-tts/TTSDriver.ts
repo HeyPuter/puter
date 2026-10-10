@@ -26,12 +26,8 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
-import {
-    DEFAULT_TTS_PROVIDER,
-    normalizeTTSProvider,
-    TTS_DRIVER_ALIASES,
-    TTS_PROVIDERS,
-} from './providerAliases.js';
+import { ProviderRegistry, readProviderKey } from '../util/providerRegistry.js';
+import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
@@ -55,13 +51,6 @@ import type {
  * Provider selection, alias resolution and per-provider option naming all live
  * here, so a caller only has to name the provider it wants.
  */
-
-/** Opt-in value that widens the list methods out to every provider. */
-const ALL_PROVIDERS = 'all';
-
-const isAllProviders = (value: unknown): boolean =>
-    typeof value === 'string' && value.trim().toLowerCase() === ALL_PROVIDERS;
-
 export class TTSDriver extends PuterDriver {
     readonly driverInterface = 'puter-tts';
     readonly driverName = 'ai-tts';
@@ -75,7 +64,7 @@ export class TTSDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, ITTSProvider> = {};
+    #providers = new ProviderRegistry<ITTSProvider>(TTS_CATALOG);
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -98,18 +87,13 @@ export class TTSDriver extends PuterDriver {
      */
     async list_voices(args?: Record<string, unknown>): Promise<ITTSVoice[]> {
         const { provider: requested, ...rest } = args ?? {};
-        if (isAllProviders(requested)) {
-            const allVoices: ITTSVoice[] = [];
-            for (const p of Object.values(this.#providers)) {
-                allVoices.push(...(await p.listVoices(rest)));
-            }
-            return allVoices;
+        if (ProviderRegistry.isAll(requested)) {
+            return this.#providers.collect((p) => p.listVoices(rest));
         }
-
-        const p =
-            this.#providers[this.#resolveProvider({ provider: requested })];
-        if (!p) return [];
-        return p.listVoices(rest);
+        const p = this.#providers.get(
+            this.#resolveProvider({ provider: requested }),
+        );
+        return p ? p.listVoices(rest) : [];
     }
 
     /**
@@ -118,29 +102,24 @@ export class TTSDriver extends PuterDriver {
      */
     async list_engines(args?: Record<string, unknown>): Promise<ITTSEngine[]> {
         const requested = args?.provider;
-        if (isAllProviders(requested)) {
-            const allEngines: ITTSEngine[] = [];
-            for (const p of Object.values(this.#providers)) {
-                allEngines.push(...(await p.listEngines()));
-            }
-            return allEngines;
+        if (ProviderRegistry.isAll(requested)) {
+            return this.#providers.collect((p) => p.listEngines());
         }
-
-        const p =
-            this.#providers[this.#resolveProvider({ provider: requested })];
-        if (!p) return [];
-        return p.listEngines();
+        const p = this.#providers.get(
+            this.#resolveProvider({ provider: requested }),
+        );
+        return p ? p.listEngines() : [];
     }
 
     /** List provider names that are currently configured. */
     async list(): Promise<string[]> {
-        return Object.keys(this.#providers);
+        return this.#providers.names();
     }
 
     override getReportedCosts(): Record<string, unknown>[] {
-        return Object.values(this.#providers).flatMap((p) =>
-            p.getReportedCosts(),
-        );
+        return this.#providers
+            .names()
+            .flatMap((name) => this.#providers.get(name)!.getReportedCosts());
     }
 
     /**
@@ -157,11 +136,11 @@ export class TTSDriver extends PuterDriver {
             });
 
         const providerName = this.#resolveProvider(args);
-        const provider = this.#providers[providerName];
+        const provider = this.#providers.get(providerName);
         if (!provider) {
             throw new HttpError(
                 400,
-                `TTS provider not configured: ${providerName}. Available: ${Object.keys(this.#providers).join(', ')}`,
+                `TTS provider not configured: ${providerName}. Available: ${this.#providers.names().join(', ')}`,
                 { legacyCode: 'bad_request' },
             );
         }
@@ -181,26 +160,10 @@ export class TTSDriver extends PuterDriver {
      * legacy driver alias the caller dispatched through, then the default.
      */
     #resolveProvider(args: { provider?: unknown; engine?: unknown }): string {
-        if (
-            args.provider !== undefined &&
-            args.provider !== null &&
-            args.provider !== ''
-        ) {
-            const named = normalizeTTSProvider(args.provider);
-            if (!named) {
-                throw new HttpError(
-                    400,
-                    `TTS provider not found: ${String(args.provider)}. Available: ${TTS_PROVIDERS.join(', ')}`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            return named;
-        }
-
-        return (
-            normalizeTTSProvider(args.engine) ??
-            normalizeTTSProvider(Context.get('driverName')) ??
-            this.#defaultProvider()
+        return this.#providers.resolve(
+            args.provider,
+            args.engine,
+            Context.get('driverName'),
         );
     }
 
@@ -221,22 +184,11 @@ export class TTSDriver extends PuterDriver {
             typeof engine === 'string' &&
             // An engine that named the provider selected it above; it is not
             // also a model id.
-            !normalizeTTSProvider(engine)
+            !this.#providers.normalize(engine)
         ) {
             rest.model = engine;
         }
         return { ...rest, provider: providerName };
-    }
-
-    /**
-     * The documented default, falling back to whatever is configured so a
-     * deployment without AWS Polly still serves TTS.
-     */
-    #defaultProvider(): string {
-        for (const name of [DEFAULT_TTS_PROVIDER, ...TTS_PROVIDERS]) {
-            if (this.#providers[name]) return name;
-        }
-        return Object.keys(this.#providers)[0] ?? DEFAULT_TTS_PROVIDER;
     }
 
     // -- Provider registration ---------------------------------------
@@ -244,140 +196,86 @@ export class TTSDriver extends PuterDriver {
     #registerProviders() {
         const providers = this.config.providers ?? {};
         const m = this.#aiMetering;
-
-        const openaiConfig =
-            (providers['openai-tts'] as Record<string, unknown> | undefined) ??
-            (providers['openai'] as Record<string, unknown> | undefined);
-        const openaiKey =
-            (openaiConfig?.apiKey as string | undefined) ??
-            (openaiConfig?.secret_key as string | undefined);
-        if (openaiKey) {
+        const register = (id: string, make: () => ITTSProvider | undefined) => {
             try {
-                this.#providers['openai'] = new OpenAITTSProvider(m, {
-                    apiKey: openaiKey,
-                });
+                const provider = make();
+                if (provider) this.#providers.register(id, provider);
             } catch (e) {
                 console.warn(
-                    '[TTSDriver] Failed to init OpenAI TTS provider:',
+                    `[TTSDriver] Failed to init ${id} TTS provider:`,
                     (e as Error).message,
                 );
             }
-        }
+        };
+        const keyed = (
+            make: (apiKey: string) => ITTSProvider,
+            ...cfgs: Array<Record<string, unknown> | undefined>
+        ) => {
+            const apiKey = readProviderKey(...cfgs);
+            return apiKey ? make(apiKey) : undefined;
+        };
 
-        const elevenlabs = providers['elevenlabs'] as
-            Record<string, unknown> | undefined;
-        const elevenKey =
-            (elevenlabs?.apiKey as string | undefined) ??
-            (elevenlabs?.api_key as string | undefined) ??
-            (elevenlabs?.key as string | undefined);
-        if (elevenKey) {
-            try {
-                this.#providers['elevenlabs'] = new ElevenLabsTTSProvider(m, {
-                    apiKey: elevenKey,
-                    apiBaseUrl: elevenlabs?.apiBaseUrl as string | undefined,
-                    defaultVoiceId: elevenlabs?.defaultVoiceId as
-                        string | undefined,
-                });
-            } catch (e) {
-                console.warn(
-                    '[TTSDriver] Failed to init ElevenLabs TTS provider:',
-                    (e as Error).message,
-                );
-            }
-        }
+        register('openai', () =>
+            keyed(
+                (apiKey) => new OpenAITTSProvider(m, { apiKey }),
+                providers['openai-tts'],
+                providers['openai'],
+            ),
+        );
 
-        const polly = providers['aws-polly'] as
-            Record<string, unknown> | undefined;
+        const elevenlabs = providers['elevenlabs'];
+        register('elevenlabs', () =>
+            keyed(
+                (apiKey) =>
+                    new ElevenLabsTTSProvider(m, {
+                        apiKey,
+                        apiBaseUrl: elevenlabs?.apiBaseUrl,
+                        defaultVoiceId: elevenlabs?.defaultVoiceId,
+                    }),
+                elevenlabs,
+            ),
+        );
+
+        const polly = providers['aws-polly'];
         const pollyAws = (polly?.aws ?? polly) as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const pollyAccessKey = pollyAws?.access_key as string | undefined;
         const pollySecretKey = pollyAws?.secret_key as string | undefined;
-        const pollyRegion =
-            (pollyAws?.region as string | undefined) ??
-            (polly?.region as string | undefined);
         if (pollyAccessKey && pollySecretKey) {
-            try {
-                this.#providers['aws-polly'] = new AWSPollyTTSProvider(m, {
-                    access_key: pollyAccessKey,
-                    secret_key: pollySecretKey,
-                    region: pollyRegion,
-                });
-            } catch (e) {
-                console.warn(
-                    '[TTSDriver] Failed to init AWS Polly TTS provider:',
-                    (e as Error).message,
-                );
-            }
+            register(
+                'aws-polly',
+                () =>
+                    new AWSPollyTTSProvider(m, {
+                        access_key: pollyAccessKey,
+                        secret_key: pollySecretKey,
+                        region: (pollyAws?.region ?? polly?.region) as
+                            | string
+                            | undefined,
+                    }),
+            );
         }
 
-        this.#registerGeminiProvider(providers);
-        this.#registerXAIProvider(providers);
-        this.#registerSpeechifyProvider(providers);
-    }
-
-    #registerGeminiProvider(providers: Record<string, unknown>) {
-        const m = this.#aiMetering;
-        const gemini = (providers['gemini'] ?? providers['gemini-tts']) as
-            Record<string, unknown> | undefined;
-        const geminiKey =
-            (gemini?.apiKey as string | undefined) ??
-            (gemini?.api_key as string | undefined) ??
-            (gemini?.key as string | undefined);
-        if (geminiKey) {
-            try {
-                this.#providers['gemini'] = new GeminiTTSProvider(m, {
-                    apiKey: geminiKey,
-                });
-            } catch (e) {
-                console.warn(
-                    '[TTSDriver] Failed to init Gemini TTS provider:',
-                    (e as Error).message,
-                );
-            }
-        }
-    }
-
-    #registerXAIProvider(providers: Record<string, unknown>) {
-        const m = this.#aiMetering;
-        const xai = (providers['xai'] ?? providers['xai-tts']) as
-            Record<string, unknown> | undefined;
-        const xaiKey =
-            (xai?.apiKey as string | undefined) ??
-            (xai?.api_key as string | undefined) ??
-            (xai?.key as string | undefined);
-        if (xaiKey) {
-            try {
-                this.#providers['xai'] = new XAITTSProvider(m, {
-                    apiKey: xaiKey,
-                });
-            } catch (e) {
-                console.warn(
-                    '[TTSDriver] Failed to init xAI TTS provider:',
-                    (e as Error).message,
-                );
-            }
-        }
-    }
-
-    #registerSpeechifyProvider(providers: Record<string, unknown>) {
-        const m = this.#aiMetering;
-        const speechify = (providers['speechify'] ??
-            providers['speechify-tts']) as Record<string, unknown> | undefined;
-        const speechifyKey =
-            (speechify?.apiKey as string | undefined) ??
-            (speechify?.api_key as string | undefined) ??
-            (speechify?.key as string | undefined);
-        if (speechifyKey) {
-            try {
-                this.#providers['speechify'] = new SpeechifyTTSProvider(m, {
-                    apiKey: speechifyKey,
-                });
-            } catch (e) {
-                console.warn(
-                    '[TTSDriver] Failed to init Speechify TTS provider:',
-                    (e as Error).message,
-                );
-            }
-        }
+        register('gemini', () =>
+            keyed(
+                (apiKey) => new GeminiTTSProvider(m, { apiKey }),
+                providers['gemini'],
+                providers['gemini-tts'],
+            ),
+        );
+        register('xai', () =>
+            keyed(
+                (apiKey) => new XAITTSProvider(m, { apiKey }),
+                providers['xai'],
+                providers['xai-tts'],
+            ),
+        );
+        register('speechify', () =>
+            keyed(
+                (apiKey) => new SpeechifyTTSProvider(m, { apiKey }),
+                providers['speechify'],
+                providers['speechify-tts'],
+            ),
+        );
     }
 }
