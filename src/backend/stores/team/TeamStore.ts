@@ -19,9 +19,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import {
+    keysetPage,
     normalizeLimit,
-    openCursor,
-    sealCursor,
+    openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types';
@@ -440,12 +440,9 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
-        const page = openCursor(
-            opts.cursor,
-            this.config.jwt_secret_v2,
-            'team member cursor',
-        );
-        const after = typeof page?.id === 'number' ? page.id : null;
+        const after = openIdCursor(opts.cursor, this.config.jwt_secret_v2, {
+            label: 'team member cursor',
+        });
 
         // One row past the limit is how we know a further page exists.
         const rows = (await this.clients.db.read(
@@ -462,15 +459,8 @@ export class TeamStore extends PuterStore {
                 : [teamUid, TEAM_KIND, after, limit + 1],
         )) as unknown as TeamMemberRow[];
 
-        const items = rows.slice(0, limit);
-        const cursor =
-            rows.length > limit
-                ? sealCursor(
-                      { id: items[items.length - 1].id },
-                      this.config.jwt_secret_v2,
-                  )
-                : undefined;
-        return { items, cursor };
+        const page = keysetPage(rows, limit, this.config.jwt_secret_v2);
+        return { items: page.rows, cursor: page.cursor };
     }
 
     /**
@@ -485,12 +475,9 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
-        const page = openCursor(
-            opts.cursor,
-            this.config.jwt_secret_v2,
-            'team directory cursor',
-        );
-        const after = typeof page?.id === 'number' ? page.id : null;
+        const after = openIdCursor(opts.cursor, this.config.jwt_secret_v2, {
+            label: 'team directory cursor',
+        });
 
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
@@ -505,15 +492,8 @@ export class TeamStore extends PuterStore {
                 : [teamUid, TEAM_KIND, after, limit + 1],
         )) as unknown as { id: number; username: string; uuid: string }[];
 
-        const items = rows.slice(0, limit);
-        const cursor =
-            rows.length > limit
-                ? sealCursor(
-                      { id: items[items.length - 1].id },
-                      this.config.jwt_secret_v2,
-                  )
-                : undefined;
-        return { items, cursor };
+        const page = keysetPage(rows, limit, this.config.jwt_secret_v2);
+        return { items: page.rows, cursor: page.cursor };
     }
 
     /** Internal ids of this user's live teams, for the share listing. */
@@ -633,12 +613,9 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
             MEMBER_PAGE_SIZE;
-        const page = openCursor(
-            opts.cursor,
-            this.config.jwt_secret_v2,
-            'team cursor',
-        );
-        const after = typeof page?.id === 'number' ? page.id : null;
+        const after = openIdCursor(opts.cursor, this.config.jwt_secret_v2, {
+            label: 'team cursor',
+        });
         const open = opts.openOnly ? ' AND g.`directory_enabled` = 1' : '';
 
         const rows = (await this.clients.db.read(
@@ -653,14 +630,11 @@ export class TeamStore extends PuterStore {
                 : [userId, TEAM_KIND, after, limit + 1],
         )) as unknown as TeamRow[];
 
-        const items = rows.slice(0, limit);
-        const cursor =
-            rows.length > limit
-                ? sealCursor(
-                      { id: items[items.length - 1].id },
-                      this.config.jwt_secret_v2,
-                  )
-                : undefined;
+        const { rows: items, cursor } = keysetPage(
+            rows,
+            limit,
+            this.config.jwt_secret_v2,
+        );
 
         let total: number | undefined;
         if (opts.includeTotal) {
@@ -903,12 +877,9 @@ export class TeamStore extends PuterStore {
         const limit =
             normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
             AUDIT_PAGE_SIZE;
-        const page = openCursor(
-            opts.cursor,
-            this.config.jwt_secret_v2,
-            'team audit cursor',
-        );
-        const before = typeof page?.id === 'number' ? page.id : null;
+        const before = openIdCursor(opts.cursor, this.config.jwt_secret_v2, {
+            label: 'team audit cursor',
+        });
 
         // Unix seconds in SQL: the mysql driver reads a stored UTC datetime
         // as local, which shifts every row away from the sign-ins.
@@ -928,15 +899,8 @@ export class TeamStore extends PuterStore {
                 : [...params, before, limit + 1],
         )) as unknown as TeamAuditRow[];
 
-        const items = rows.slice(0, limit);
-        const cursor =
-            rows.length > limit
-                ? sealCursor(
-                      { id: items[items.length - 1].id },
-                      this.config.jwt_secret_v2,
-                  )
-                : undefined;
-        return { items, cursor };
+        const page = keysetPage(rows, limit, this.config.jwt_secret_v2);
+        return { items: page.rows, cursor: page.cursor };
     }
 
     /** Removes a member, returning whether a row was there to remove. */

@@ -26,8 +26,8 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
 import type { FsOp } from '../../services/events/subjects.js';
 import {
-    openCursor,
-    sealCursor,
+    keysetPage,
+    openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types.js';
@@ -587,9 +587,7 @@ export class DurableSubscriptionStore extends PuterStore {
             ),
             DURABLE_LIST_LIMIT_CAP,
         );
-        const after = asNumber(
-            openCursor(options.cursor, this.config.jwt_secret_v2)?.id,
-        );
+        const after = openIdCursor(options.cursor, this.config.jwt_secret_v2);
 
         // The scope half of the predicate is what the total counts over; the
         // cursor half only positions one page inside it.
@@ -613,15 +611,11 @@ export class DurableSubscriptionStore extends PuterStore {
             [...params, limit + 1],
         );
 
-        const page = rows.slice(0, limit);
+        const page = keysetPage(rows, limit, this.config.jwt_secret_v2);
         const result: PageResult<DurableSubscription> = {
-            items: page.map(toRow),
+            items: page.rows.map(toRow),
         };
-        if (rows.length > limit)
-            result.cursor = sealCursor(
-                { id: Number(page[page.length - 1].id) },
-                this.config.jwt_secret_v2,
-            );
+        if (page.cursor) result.cursor = page.cursor;
 
         if (options.includeTotal) {
             const [count] = await this.clients.db.read(

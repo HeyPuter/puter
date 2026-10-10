@@ -28,7 +28,7 @@ import {
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
-import { openCursor, sealCursor } from '../../util/pagination';
+import { keysetPage, openIdCursor } from '../../util/pagination';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -667,12 +667,10 @@ export class PermissionStore extends PuterStore {
             Math.max(1, Math.floor(Number(opts.limit) || AUDIT_PAGE_SIZE)),
             MAX_AUDIT_PAGE_SIZE,
         );
-        const decoded = openCursor(
-            opts.cursor,
-            this.config.jwt_secret_v2,
-            'audit cursor',
-        );
-        const beforeId = Number(decoded?.id ?? 0) || null;
+        const beforeId =
+            openIdCursor(opts.cursor, this.config.jwt_secret_v2, {
+                label: 'audit cursor',
+            }) || null;
         const { sql, params } = this.#auditWhere(filter);
 
         const rows = await this.clients.db.read(
@@ -683,15 +681,10 @@ export class PermissionStore extends PuterStore {
             [...params, ...(beforeId === null ? [] : [beforeId]), size + 1],
         );
 
-        const hasMore = rows.length > size;
-        const items = rows.slice(0, size).map((row) => this.#auditRow(row));
-        const last = items[items.length - 1];
+        const page = keysetPage(rows, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((row) => this.#auditRow(row)),
+            cursor: page.cursor,
         };
     }
 

@@ -25,9 +25,9 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import {
+    keysetPage,
     normalizeLimit,
     openCursor,
-    sealCursor,
 } from '../../util/pagination.js';
 import type { puterStores } from '../index.js';
 import { PuterStore } from '../types.js';
@@ -2679,33 +2679,31 @@ export class FSEntryStore extends PuterStore {
             params,
         )) as unknown as FSEntryRow[];
 
-        const hasMore = rows.length > limit;
-        const pageRows = hasMore ? rows.slice(0, limit) : rows;
-        const entries = await this.#finalizeChildEntries(pageRows);
-
-        let cursor: string | undefined;
-        if (hasMore) {
-            const last = pageRows[pageRows.length - 1]!;
-            const v = (() => {
-                switch (sortBy) {
-                    case 'modified':
-                        return last.modified ?? 0;
-                    case 'size':
-                        return last.size ?? -1;
-                    case 'type':
-                        return last.is_dir;
-                    case 'name':
-                    default:
-                        return last.name;
-                }
-            })();
-            cursor = sealCursor(
-                { v, id: Number(last.id), s: sortBy, o: sortOrder },
-                this.config.jwt_secret_v2,
-            );
-        }
-
-        return { entries, ...(cursor ? { cursor } : {}) };
+        const page = keysetPage(
+            rows,
+            limit,
+            this.config.jwt_secret_v2,
+            (last) => ({
+                v: (() => {
+                    switch (sortBy) {
+                        case 'modified':
+                            return last.modified ?? 0;
+                        case 'size':
+                            return last.size ?? -1;
+                        case 'type':
+                            return last.is_dir;
+                        case 'name':
+                        default:
+                            return last.name;
+                    }
+                })(),
+                id: Number(last.id),
+                s: sortBy,
+                o: sortOrder,
+            }),
+        );
+        const entries = await this.#finalizeChildEntries(page.rows);
+        return { entries, ...(page.cursor ? { cursor: page.cursor } : {}) };
     }
 
     async countChildren(parentUid: string): Promise<number> {
@@ -2882,25 +2880,19 @@ export class FSEntryStore extends PuterStore {
             params,
         )) as unknown as FSEntryRow[];
 
-        const hasMore = rows.length > limit;
-        const pageRows = hasMore ? rows.slice(0, limit) : rows;
-        const entries = await this.#finalizeChildEntries(pageRows);
-
-        let cursor: string | undefined;
-        if (hasMore) {
-            const last = pageRows[pageRows.length - 1]!;
-            cursor = sealCursor(
-                {
-                    v: descendantSortValue(last, sortBy),
-                    ...(tiebreak ? { id: Number(last.id) } : {}),
-                    s: sortBy,
-                    o: sortOrder,
-                },
-                this.config.jwt_secret_v2,
-            );
-        }
-
-        return { entries, ...(cursor ? { cursor } : {}) };
+        const page = keysetPage(
+            rows,
+            limit,
+            this.config.jwt_secret_v2,
+            (last) => ({
+                v: descendantSortValue(last, sortBy),
+                ...(tiebreak ? { id: Number(last.id) } : {}),
+                s: sortBy,
+                o: sortOrder,
+            }),
+        );
+        const entries = await this.#finalizeChildEntries(page.rows);
+        return { entries, ...(page.cursor ? { cursor: page.cursor } : {}) };
     }
 
     async countDescendantsToDepth(

@@ -19,12 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    decodeCursor,
-    encodeCursor,
-    openCursor,
-    sealCursor,
-} from '../../util/pagination';
+import { decodeCursor, keysetPage, openIdCursor } from '../../util/pagination';
 import { PuterStore } from '../types';
 
 /** Default page size for the keyset listings. */
@@ -110,17 +105,10 @@ export class ShareStore extends PuterStore {
             [...holderParams, afterId, size + 1],
         );
 
-        const hasMore = rows.length > size;
-        const items = (hasMore ? rows.slice(0, size) : rows).map((r) =>
-            this.#normalizeRow(r),
-        );
-        const last = items[items.length - 1];
+        const page = keysetPage(rows, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((r) => this.#normalizeRow(r)),
+            cursor: page.cursor,
         };
     }
 
@@ -184,15 +172,10 @@ export class ShareStore extends PuterStore {
         const merged = [...issued, ...delegated, ...unrecorded].sort(
             (a, b) => Number(a.id) - Number(b.id),
         );
-        const hasMore = merged.length > size;
-        const items = merged.slice(0, size).map((r) => this.#normalizeRow(r));
-        const last = items[items.length - 1];
+        const page = keysetPage(merged, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((r) => this.#normalizeRow(r)),
+            cursor: page.cursor,
         };
     }
 
@@ -277,18 +260,16 @@ export class ShareStore extends PuterStore {
             ],
         );
 
-        const hasMore = rows.length > size;
-        const items = rows.slice(0, size).map((row) => ({
-            appUid: row.app_uid === '' ? null : String(row.app_uid),
-            count: Number(row.count),
+        // An app uid rather than a sequence position, so it needn't be sealed.
+        const page = keysetPage(rows, size, undefined, (last) => ({
+            appUid: String(last.app_uid),
         }));
-        const last = items[items.length - 1];
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? encodeCursor({ appUid: last.appUid ?? '' })
-                    : undefined,
+            items: page.rows.map((row) => ({
+                appUid: row.app_uid === '' ? null : String(row.app_uid),
+                count: Number(row.count),
+            })),
+            cursor: page.cursor,
         };
     }
 
@@ -1252,25 +1233,17 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * The id a keyset page resumes after; 0 for the first page. A cursor that
-     * decodes but names no usable id — another endpoint's cursor, say — is
-     * refused rather than read as page one, which would silently restart a
-     * client's iteration from the top.
+     * The id a keyset page resumes after; 0 for the first page. A cursor
+     * without a usable id is refused rather than read as page one, which would
+     * silently restart a client's iteration from the top.
      */
     #afterId(cursor) {
-        const decoded = openCursor(
-            cursor,
-            this.config.jwt_secret_v2,
-            'share cursor',
+        return (
+            openIdCursor(cursor, this.config.jwt_secret_v2, {
+                label: 'share cursor',
+                strict: true,
+            }) ?? 0
         );
-        if (decoded === undefined) return 0;
-        const id = Number(decoded.id);
-        if (!Number.isInteger(id) || id < 0) {
-            throw new HttpError(400, 'invalid share cursor', {
-                legacyCode: 'bad_request',
-            });
-        }
-        return id;
     }
 
     /**
