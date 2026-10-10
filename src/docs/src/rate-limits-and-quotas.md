@@ -178,6 +178,7 @@ Per minute unless stated:
 | Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
 | Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |
+| Paths in one `delete()` | 500 | Per request |
 | Entries in one `/sign` request | 500 | Per request |
 | Part numbers in one `signMultipartParts` | 10,000 | Per request |
 | Legacy `/batch` request | 256 multipart parts (fields and files combined) or 256 JSON operations, 64 files, 100 MiB per file, 1 MiB per field, 256 MiB in total | Per request |

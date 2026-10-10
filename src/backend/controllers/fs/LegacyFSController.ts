@@ -69,6 +69,7 @@ import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
     FS_BATCH_LIMIT,
+    FS_BATCH_WRITE_MAX_ITEMS,
     FS_DF_LIMIT,
     FS_HELPER_LIMIT,
     FS_MUTATE_LIMIT,
@@ -992,6 +993,13 @@ export class LegacyFSController extends PuterController {
         const descendantsOnly = getBoolean(body, 'descendants_only') ?? false;
         const pathsArray = Array.isArray(body.paths) ? body.paths : null;
         if (pathsArray) {
+            if (pathsArray.length > FS_BATCH_WRITE_MAX_ITEMS) {
+                throw new HttpError(
+                    400,
+                    `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
             const removedEntries: unknown[] = [];
             for (const raw of pathsArray) {
                 const entry = await resolveV1Selector(this.stores.fsEntry, raw);

@@ -34,7 +34,11 @@ import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
-import { FS_MUTATE_LIMIT, FS_SIGN_MAX_ITEMS } from './limits.js';
+import {
+    FS_BATCH_WRITE_MAX_ITEMS,
+    FS_MUTATE_LIMIT,
+    FS_SIGN_MAX_ITEMS,
+} from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -692,6 +696,36 @@ describe('LegacyFSController.delete', () => {
         expect(responseBody[1]?.path).toBe(b);
         expect(await server.stores.fsEntry.getEntryByPath(a)).toBeNull();
         expect(await server.stores.fsEntry.getEntryByPath(b)).toBeNull();
+    });
+
+    it('refuses more `paths` than one batch may hold, before deleting any', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const keep = `/${username}/Documents/keep`;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: keep }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                controller.delete(
+                    makeReq({
+                        body: {
+                            paths: [
+                                keep,
+                                ...Array(FS_BATCH_WRITE_MAX_ITEMS).fill(keep),
+                            ],
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await server.stores.fsEntry.getEntryByPath(keep)).not.toBeNull();
     });
 });
 
