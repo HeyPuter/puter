@@ -1461,11 +1461,7 @@ export class LegacyFSController extends PuterController {
                     // publishes the descriptor, so there is nothing to hide.
                     const writeOk = await this.services.acl.check(
                         actor,
-                        {
-                            path: entry.path,
-                            resolveAncestors: () =>
-                                this.services.fs.getAncestorChain(entry.path),
-                        },
+                        this.services.acl.fsDescriptor(entry.path),
                         'write',
                     );
                     finalAction = writeOk ? 'write' : 'read';
@@ -1886,11 +1882,7 @@ export class LegacyFSController extends PuterController {
         // Real path — see the note on the other `acl.check` above.
         const writeOk = await this.services.acl.check(
             actor,
-            {
-                path: entry.path,
-                resolveAncestors: () =>
-                    this.services.fs.getAncestorChain(entry.path),
-            },
+            this.services.acl.fsDescriptor(entry.path),
             'write',
         );
 
@@ -2015,14 +2007,8 @@ export class LegacyFSController extends PuterController {
             if (!(err instanceof HttpError && err.statusCode === 404))
                 throw err;
         }
-        let ancestors: Promise<Array<{ uid: string; path: string }>> | null =
-            null;
-        const descriptor = subject && {
-            path: subject.path,
-            resolveAncestors: () =>
-                (ancestors ??= this.services.fs.getAncestorChain(subject.path)),
-        };
         const acl = this.services.acl as ACLService;
+        const descriptor = subject && acl.fsDescriptor(subject.path);
         if (!descriptor || !(await acl.check(actor, descriptor, 'see')))
             throw new HttpError(404, 'Subject does not exist', {
                 legacyCode: 'subject_does_not_exist',

@@ -6230,7 +6230,8 @@ export class EventsService extends PuterService {
     #anchorDeps(): FsAnchorDeps {
         return {
             resolveNode: (ref) => resolveNode(this.stores.fsEntry, ref),
-            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getAncestorChain: (path) =>
+                this.stores.fsEntry.getAncestorChain(path),
         };
     }
 
@@ -6254,7 +6255,8 @@ export class EventsService extends PuterService {
     #aclDeps(): EventAclDeps {
         return {
             acl: this.services.acl,
-            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getAncestorChain: (path) =>
+                this.stores.fsEntry.getAncestorChain(path),
             getUser: (userId) => this.stores.user.getById(userId),
             getApp: (uid) => this.stores.app.getByUid(uid),
             getCacheGeneration: (uid) =>

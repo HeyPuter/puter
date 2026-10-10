@@ -966,7 +966,7 @@ export class ShareService extends PuterService {
             await this.services.acl.setUserUser(
                 userRelatedActor(actor),
                 this.#actorFor(holder),
-                this.#descriptorFor(entry),
+                this.services.acl.fsDescriptor(entry.path),
                 mode,
             );
 
@@ -1438,7 +1438,7 @@ export class ShareService extends PuterService {
         // anything withdrawn on this node. Asked about the parent rather than
         // the node itself, or the grants just ruled out would answer it.
         const [parent] = (
-            await this.services.fs.getAncestorChain(entry.path)
+            await this.stores.fsEntry.getAncestorChain(entry.path)
         ).slice(1);
         if (!parent) return false;
         const holder = await this.stores.user.getById(holderId);
@@ -2319,22 +2319,16 @@ export class ShareService extends PuterService {
         // Access is inherited down the tree, so a node's own rows are only
         // half the answer — without the ancestors' the caller is told nobody
         // can reach a file that several people can.
-        const ancestors = (
-            await this.services.fs.getAncestorChain(entry.path)
+        const ancestorNodes = (
+            await this.stores.fsEntry.getAncestors(entry.path)
         ).slice(1);
-        const ancestorNodes = await this.stores.fsEntry.getEntriesByPaths(
-            ancestors.map((ancestor) => ancestor.path),
-        );
         // The ancestor a share was granted on is published masked too: to a
         // delegate, the folder above their share is still the owner's business.
         const viaById = new Map(
-            [...ancestorNodes.values()].map((node) => [
-                node.id,
-                maskEntryPath(node),
-            ]),
+            ancestorNodes.map((node) => [node.id, maskEntryPath(node)]),
         );
         const nodeById = new Map(
-            [entry, ...ancestorNodes.values()].map((node) => [node.id, node]),
+            [entry, ...ancestorNodes].map((node) => [node.id, node]),
         );
         // An app credential sees only what it issued itself, the bound
         // `listSharedByMe` already puts on the flat listing: whoever else
@@ -2772,7 +2766,7 @@ export class ShareService extends PuterService {
                     await this.services.acl.setUserUser(
                         issuerActor,
                         this.#actorFor(holder),
-                        this.#descriptorFor(entry),
+                        this.services.acl.fsDescriptor(entry.path),
                         row.mode as AclMode,
                     );
                 } catch (err) {
@@ -2975,7 +2969,7 @@ export class ShareService extends PuterService {
             await this.services.acl.setUserGroup(
                 userActor,
                 team.uid,
-                this.#descriptorFor(entry),
+                this.services.acl.fsDescriptor(entry.path),
                 mode,
             );
 
@@ -3585,14 +3579,8 @@ export class ShareService extends PuterService {
      * nothing.
      */
     async #manageRefusal(actor: Actor, entry: FSEntry): Promise<HttpError> {
-        const safe = await this.services.acl.getSafeAclError(
-            actor,
-            this.#descriptorFor(entry),
-            'manage',
-        );
-        return new HttpError(safe.status, safe.message, {
-            legacyCode: safe.fields.code,
-        });
+        const acl = this.services.acl;
+        return acl.refusal(actor, acl.fsDescriptor(entry.path), 'manage');
     }
 
     /** An invite's address is the owner's and the issuer's, and no app's. */
@@ -3636,7 +3624,8 @@ export class ShareService extends PuterService {
         mode: AclMode,
     ): Promise<boolean> {
         if (isPlainUserActor(actor)) return true;
-        return this.services.acl.check(actor, this.#descriptorFor(entry), mode);
+        const acl = this.services.acl;
+        return acl.check(actor, acl.fsDescriptor(entry.path), mode);
     }
 
     /** Re-issuing an existing share: its own budget, not the share one. */
@@ -3706,30 +3695,7 @@ export class ShareService extends PuterService {
     }
 
     async #assertCanSee(actor: Actor, entry: FSEntry): Promise<void> {
-        const descriptor = this.#descriptorFor(entry);
-        if (await this.services.acl.check(actor, descriptor, 'see')) return;
-        const safe = await this.services.acl.getSafeAclError(
-            actor,
-            descriptor,
-            'see',
-        );
-        throw new HttpError(safe.status, safe.message, {
-            legacyCode: safe.fields.code,
-        });
-    }
-
-    #descriptorFor(entry: FSEntry) {
-        const fsService = this.services.fs;
-        let cache: Promise<
-            ReadonlyArray<{ uid: string; path: string }>
-        > | null = null;
-        return {
-            path: entry.path,
-            resolveAncestors: () => {
-                if (!cache) cache = fsService.getAncestorChain(entry.path);
-                return cache;
-            },
-        };
+        await this.services.acl.assertFsAccess(actor, entry.path, 'see');
     }
 
     #isTrashed(entry: FSEntry): boolean {

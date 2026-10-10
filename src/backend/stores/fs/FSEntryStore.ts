@@ -32,6 +32,7 @@ import {
 import type { puterStores } from '../index.js';
 import { PuterStore } from '../types.js';
 import {
+    AncestorChain,
     FSEntry,
     FSEntryCreateInput,
     FSEntrySubdomain,
@@ -1272,6 +1273,34 @@ export class FSEntryStore extends PuterStore {
         }
 
         return entriesByPath;
+    }
+
+    /**
+     * The entry at `path` and every directory above it that exists, deepest
+     * first, in one batched read off the per-path cache.
+     */
+    async getAncestors(path: string): Promise<FSEntry[]> {
+        const paths: string[] = [];
+        for (
+            let cursor = this.#normalizePath(path);
+            cursor !== '/';
+            cursor = pathPosix.dirname(cursor)
+        ) {
+            paths.push(cursor);
+        }
+        const byPath = await this.getEntriesByPaths(paths);
+        return paths.flatMap((p): FSEntry[] => {
+            const entry = byPath.get(p);
+            return entry ? [entry] : [];
+        });
+    }
+
+    /** `getAncestors` as the `{ uid, path }` chain ACL descriptors walk. */
+    async getAncestorChain(path: string): Promise<AncestorChain> {
+        return (await this.getAncestors(path)).map((entry) => ({
+            uid: entry.uid,
+            path: entry.path,
+        }));
     }
 
     /**

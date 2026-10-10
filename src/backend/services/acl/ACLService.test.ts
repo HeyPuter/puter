@@ -25,7 +25,12 @@ import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
-import { ACLService, type ResourceDescriptor } from './ACLService.js';
+import {
+    ACLService,
+    aclRefusal,
+    FS_ROUTE_REFUSAL,
+    type ResourceDescriptor,
+} from './ACLService.js';
 
 // -- Test scaffolding -------------------------------------------------
 
@@ -1187,5 +1192,180 @@ describe('ACLService.check — anyone with the link', () => {
         const made = makeService();
         await made.service.check(issuerActor, resource('/issuer/mine'), 'read');
         expect(made.stores.share.listAnyoneReaching).not.toHaveBeenCalled();
+    });
+});
+
+// -- Filesystem descriptors and refusals --------------------------------
+
+describe('ACLService filesystem descriptors and refusals', () => {
+    /** The chain `resource()` builds, served the way `FSEntryStore` would. */
+    const withChains = () => {
+        const made = makeService();
+        const getAncestorChain = vi.fn(async (path: string) =>
+            resource(path).resolveAncestors(),
+        );
+        (made.stores as Record<string, unknown>).fsEntry = { getAncestorChain };
+        return { ...made, getAncestorChain };
+    };
+
+    /** Let the scan answer `mode` (and nothing else) on `path`. */
+    const grant = (
+        services: ReturnType<typeof makeService>['services'],
+        grants: Array<[path: string, mode: string]>,
+    ) =>
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) =>
+                grants.some(([path, mode]) =>
+                    permissions.includes(`fs:uid\\C${path}:${mode}`),
+                )
+                    ? [{ $: 'option', key: 'k' }]
+                    : [],
+        );
+
+    const refusedWith = async (run: () => Promise<unknown>) => {
+        try {
+            await run();
+        } catch (err) {
+            const e = err as {
+                statusCode: number;
+                message: string;
+                legacyCode?: string;
+            };
+            return {
+                status: e.statusCode,
+                message: e.message,
+                legacyCode: e.legacyCode,
+            };
+        }
+        throw new Error('expected a refusal');
+    };
+
+    it('reads a descriptor chain once however many checks share it', async () => {
+        const { service, getAncestorChain } = withChains();
+        const descriptor = service.fsDescriptor('/victim/secret');
+
+        await service.check(issuerActor, descriptor, 'read');
+        await service.check(issuerActor, descriptor, 'write');
+
+        expect(getAncestorChain).toHaveBeenCalledTimes(1);
+        expect(getAncestorChain).toHaveBeenCalledWith('/victim/secret');
+    });
+
+    it('passes what the actor may do', async () => {
+        const { service } = withChains();
+        await expect(
+            service.assertFsAccess(issuerActor, '/issuer/notes', 'write'),
+        ).resolves.toBeUndefined();
+    });
+
+    it('answers a node the actor cannot see as absent', async () => {
+        const { service } = withChains();
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, '/victim/secret', 'write'),
+            ),
+        ).resolves.toEqual({
+            status: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, '/victim/secret', 'list', {
+                    notFoundMessage: 'No such entry: x',
+                }),
+            ),
+        ).resolves.toMatchObject({ status: 404, message: 'No such entry: x' });
+    });
+
+    it('answers a visible node as forbidden, in the code the route uses', async () => {
+        const { service, services } = withChains();
+        grant(services, [['/victim/secret', 'see']]);
+
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, '/victim/secret', 'write'),
+            ),
+        ).resolves.toEqual({
+            status: 403,
+            message: 'Forbidden',
+            legacyCode: 'forbidden',
+        });
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(
+                    issuerActor,
+                    '/victim/secret',
+                    'write',
+                    FS_ROUTE_REFUSAL,
+                ),
+            ),
+        ).resolves.toMatchObject({ status: 403, legacyCode: 'access_denied' });
+    });
+
+    it('hides even a visible node from an app when asked to', async () => {
+        const { service, services } = withChains();
+        grant(services, [['/victim/secret', 'see']]);
+        const app = makeActor({
+            user: ISSUER_USER as never,
+            app: { uid: 'app-x', id: 7 },
+        });
+
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(app, '/victim/secret', 'write', {
+                    hideFromApps: true,
+                }),
+            ),
+        ).resolves.toEqual({
+            status: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+    });
+
+    it('lets a create through on write to the parent or to the target', async () => {
+        const { service, services } = withChains();
+        grant(services, [['/victim/shared', 'write']]);
+        await expect(
+            service.assertFsCreate(issuerActor, '/victim/shared/new.txt'),
+        ).resolves.toBeUndefined();
+
+        grant(services, [['/victim/inbox/mine', 'write']]);
+        await expect(
+            service.assertFsCreate(issuerActor, '/victim/inbox/mine'),
+        ).resolves.toBeUndefined();
+
+        grant(services, [['/victim/inbox', 'see']]);
+        await expect(
+            refusedWith(() =>
+                service.assertFsCreate(
+                    issuerActor,
+                    '/victim/inbox/x',
+                    FS_ROUTE_REFUSAL,
+                ),
+            ),
+        ).resolves.toMatchObject({ status: 403, legacyCode: 'access_denied' });
+    });
+
+    it('maps a described refusal without asking anything else', () => {
+        const notFound = aclRefusal({
+            status: 404,
+            message: 'Subject does not exist',
+            fields: { code: 'subject_does_not_exist' },
+        });
+        expect(notFound.statusCode).toBe(404);
+        expect(notFound.legacyCode).toBe('subject_does_not_exist');
+
+        const forbidden = aclRefusal(
+            {
+                status: 403,
+                message: 'Forbidden',
+                fields: { code: 'forbidden' },
+            },
+            { forbiddenCode: 'access_denied' },
+        );
+        expect(forbidden.statusCode).toBe(403);
+        expect(forbidden.legacyCode).toBe('access_denied');
     });
 });

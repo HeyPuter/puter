@@ -4048,11 +4048,7 @@ export class AuthController extends PuterController {
             if (!entry) return false;
             return await this.services.acl.check(
                 actor,
-                {
-                    path: entry.path,
-                    resolveAncestors: () =>
-                        this.services.fs.getAncestorChain(entry.path),
-                },
+                this.services.acl.fsDescriptor(entry.path),
                 target.mode as AclMode,
             );
         } catch {

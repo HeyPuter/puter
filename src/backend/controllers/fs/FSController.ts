@@ -25,6 +25,7 @@ import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { FS_ROUTE_REFUSAL } from '../../services/acl/ACLService.js';
 import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     expandTildePath,
@@ -1523,7 +1524,7 @@ export class FSController extends PuterController {
 
         const dedupeName =
             this.#toBoolean(body.dedupe_name ?? body.dedupeName) ?? false;
-        await this.#assertCanCreate(actor, path);
+        await this.services.acl.assertFsCreate(actor, path, FS_ROUTE_REFUSAL);
         if (dedupeName) await this.#assertCanDedupeCreate(actor, path);
 
         const entry = await this.services.fs.mkdir(userId, {
@@ -1780,52 +1781,6 @@ export class FSController extends PuterController {
         return entry;
     }
 
-    /**
-     * Authorize creation of a new entry at `targetPath`. The standard rule is
-     * write on the parent, but we also accept write on the target itself — this
-     * lets an app create its own `/<user>/AppData/<app_uid>` folder (parent
-     * `AppData` is off-limits, but the target is the app's own subtree per
-     * ACLService's short-circuit) and lets recipients of a direct share on a
-     * not-yet-existent path materialize it.
-     */
-    async #assertCanCreate(actor: Actor, targetPath: string) {
-        const parent = pathPosix.dirname(targetPath);
-        const parentForCheck = parent === '/' ? targetPath : parent;
-        const fsService = this.services.fs;
-
-        const makeDescriptor = (path: string) => {
-            let cache: Promise<Array<{ uid: string; path: string }>> | null =
-                null;
-            return {
-                path,
-                resolveAncestors() {
-                    if (!cache) cache = fsService.getAncestorChain(path);
-                    return cache;
-                },
-            };
-        };
-
-        if (
-            await this.services.acl.check(
-                actor,
-                makeDescriptor(parentForCheck),
-                'write',
-            )
-        ) {
-            return;
-        }
-        if (
-            await this.services.acl.check(
-                actor,
-                makeDescriptor(targetPath),
-                'write',
-            )
-        ) {
-            return;
-        }
-        await this.#assertAccess(actor, parentForCheck, 'write');
-    }
-
     async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
         const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (!existing) return;
@@ -1837,29 +1792,14 @@ export class FSController extends PuterController {
         );
     }
 
-    #aclDescriptor(path: string) {
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        return {
-            path,
-            resolveAncestors() {
-                if (!ancestorsCache) {
-                    ancestorsCache = fsService.getAncestorChain(path);
-                }
-                return ancestorsCache;
-            },
-        };
-    }
-
     /** As `#assertAccess`, but for what to include rather than what to serve. */
     async #canAccess(
         actor: Actor,
         path: string,
         mode: 'see' | 'list' | 'read' | 'write',
     ): Promise<boolean> {
-        return this.services.acl.check(actor, this.#aclDescriptor(path), mode);
+        const acl = this.services.acl;
+        return acl.check(actor, acl.fsDescriptor(path), mode);
     }
 
     async #assertAccess(
@@ -1867,36 +1807,12 @@ export class FSController extends PuterController {
         path: string,
         mode: 'see' | 'list' | 'read' | 'write',
     ) {
-        const descriptor = this.#aclDescriptor(path);
-        const allowed = await this.services.acl.check(actor, descriptor, mode);
-        if (allowed) return;
-        const safe = (await this.services.acl.getSafeAclError(
+        await this.services.acl.assertFsAccess(
             actor,
-            descriptor,
+            path,
             mode,
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: { code?: unknown };
-        };
-        const status = Number(safe?.status);
-        const message =
-            typeof safe?.message === 'string' && safe.message.length > 0
-                ? safe.message
-                : 'Access denied';
-        const code =
-            typeof safe?.fields?.code === 'string'
-                ? safe.fields.code
-                : undefined;
-        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-        if (status === 404) {
-            throw new HttpError(404, message, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-        throw new HttpError(403, message, {
-            legacyCode: legacyCode ?? 'access_denied',
-        });
+            FS_ROUTE_REFUSAL,
+        );
     }
 
     #toNumberOrUndefined(value: unknown): number | undefined {
@@ -2523,70 +2439,19 @@ export class FSController extends PuterController {
         }
 
         let pathToCheck = parentPath;
-        if (Boolean(normalizedFileMetadata.overwrite)) {
-            const destinationExists =
-                await this.services.fs.entryExistsByPath(targetPath);
-            if (destinationExists) {
-                pathToCheck = targetPath;
-            }
+        if (
+            Boolean(normalizedFileMetadata.overwrite) &&
+            (await this.stores.fsEntry.getEntryByPath(targetPath))
+        ) {
+            pathToCheck = targetPath;
         }
 
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const resourceDescriptor = {
-            path: pathToCheck,
-            resolveAncestors() {
-                if (!ancestorsCache) {
-                    ancestorsCache = fsService.getAncestorChain(pathToCheck);
-                }
-                return ancestorsCache;
-            },
-        };
-
-        const canWrite = await this.services.acl.check(
+        await this.services.acl.assertFsAccess(
             actor,
-            resourceDescriptor,
+            pathToCheck,
             'write',
+            FS_ROUTE_REFUSAL,
         );
-        if (canWrite) {
-            return;
-        }
-
-        const safeAclError = (await this.services.acl.getSafeAclError(
-            actor,
-            resourceDescriptor,
-            'write',
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: {
-                code?: unknown;
-            };
-        };
-        const safeAclStatus = Number(safeAclError?.status);
-        const safeAclMessage =
-            typeof safeAclError?.message === 'string' &&
-            safeAclError.message.length > 0
-                ? safeAclError.message
-                : 'Write access denied for destination';
-        const safeAclCode =
-            typeof safeAclError?.fields?.code === 'string'
-                ? safeAclError.fields.code
-                : undefined;
-        const legacyCode =
-            safeAclCode === 'forbidden' ? 'access_denied' : safeAclCode;
-
-        if (safeAclStatus === 404) {
-            throw new HttpError(404, safeAclMessage, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-
-        throw new HttpError(403, safeAclMessage, {
-            legacyCode: legacyCode ?? 'access_denied',
-        });
     }
 
     async #assertBatchWriteAccess(
