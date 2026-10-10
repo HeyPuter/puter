@@ -63,6 +63,7 @@ import {
     createSecret as otpCreateSecret,
     verify as verifyOtp,
 } from '../../services/auth/OTPUtil.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import type { CardFallbackDeps } from '../../util/cardFallback.js';
 import {
@@ -120,6 +121,7 @@ import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
+import { startWebSession } from './webSession.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
@@ -4810,34 +4812,11 @@ export class AuthController extends PuterController {
     async #completeLogin(
         req: Request,
         res: Response,
-        user: {
-            id: number;
-            uuid: string;
-            username: string;
-            email?: string | null;
-            password?: string | null;
-            email_confirmed?: number | boolean;
-            requires_email_confirmation?: number | boolean;
-            phone?: string | null;
-            requires_phone_verification?: number | boolean;
-            requires_card_verification?: number | boolean;
-            requires_password_change?: number | boolean;
-        },
+        user: UserRow,
     ): Promise<void> {
-        const meta = {
-            ip: req.ip || req.socket?.remoteAddress,
-            user_agent: req.headers?.['user-agent'],
-            origin: req.headers?.origin,
-            host: req.headers?.host,
-        };
-
-        const { token: sessionToken, gui_token } =
-            await this.services.auth.createSessionToken(user as never, meta);
-
-        // HTTP-only cookie gets the session token
-        res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
-            ...sessionCookieFlags(this.config),
-            httpOnly: true,
+        const gui_token = await startWebSession(req, res, user, {
+            config: this.config,
+            auth: this.services.auth,
         });
 
         // Resolve taskbar items up-front so the GUI doesn't need a second

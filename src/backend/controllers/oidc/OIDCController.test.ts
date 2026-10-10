@@ -632,6 +632,40 @@ describe('OIDCController login callback', () => {
         expect(linkedUser?.email).toBe(email);
     });
 
+    it('records where the sign-in came from on its session, as password login does', async () => {
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: 'http://test.local/',
+        });
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email: `${sub}@test.local`,
+            email_verified: true,
+        } as never);
+
+        const req = makeReq({
+            query: { code: 'authcode', state },
+            headers: { 'user-agent': 'oidc-agent', host: 'test.local' },
+        });
+        Object.assign(req, { ip: '192.0.2.44' });
+        const { res } = makeRes();
+        await callRoute('get', '/auth/oidc/callback/login', req, res);
+
+        const user = await oidc().findUserByProviderSub('custom', sub);
+        const sessions = (await server.stores.session.getByUserId(
+            user!.id,
+        )) as Array<Record<string, unknown>>;
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({
+            last_ip: '192.0.2.44',
+            last_user_agent: 'oidc-agent',
+        });
+    });
+
     it('clamps redirect_uri to the configured origin (rejects external)', async () => {
         const state = oidc().signState({
             provider: 'custom',
