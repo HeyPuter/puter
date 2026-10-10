@@ -38,10 +38,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
 import { GeminiImageProvider } from './GeminiImageProvider.js';
 
@@ -94,8 +96,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new GeminiImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new GeminiImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateContentMock.mockReset();
@@ -124,11 +134,7 @@ describe('GeminiImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new GeminiImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new GeminiImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -432,6 +438,40 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(generateContentMock).not.toHaveBeenCalled();
+    });
+
+    it('holds the estimate while Gemini runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: {
+                id: 71,
+                uuid: `gemini-hold-${Date.now()}`,
+                username: 'hold',
+            },
+        });
+        let heldDuringCall = -1;
+        generateContentMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return inlineImageResponse;
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gemini-3.1-flash-lite-image',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        expect(estimate).toBeGreaterThan(0);
+        expect(heldDuringCall).toBe(Math.ceil(estimate));
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 
     it('meters input + output:text + output:image as three batched line items at the model rates', async () => {

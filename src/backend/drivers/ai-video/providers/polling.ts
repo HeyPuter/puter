@@ -28,6 +28,9 @@ import {
 /** How long a provider's job may run before we stop waiting for it. */
 export const VIDEO_POLL_WINDOW_MS = 10 * 60 * 1000;
 
+/** A job's credit hold covers the poll window plus the create call. */
+export const VIDEO_HOLD_TTL_MS = VIDEO_POLL_WINDOW_MS + 5 * 60 * 1000;
+
 // Provider wording for input the model does not accept, including Together's
 // camelCase codes (`invalidDuration`, `missingFrameImagesForImageToVideoModel`).
 const INVALID_INPUT_PATTERN =

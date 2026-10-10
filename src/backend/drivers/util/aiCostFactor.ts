@@ -53,6 +53,7 @@ export type AiMeteringService = MeteringService & {
         actor: Actor,
         usageType: string,
         amount: number,
+        opts?: { ttlMs?: number },
     ): Promise<CreditHold | null>;
 };
 
@@ -250,13 +251,14 @@ export function withAiCostFactor(
         actor: Actor,
         usageType: string,
         amount: number,
+        opts?: { ttlMs?: number },
     ): Promise<CreditHold | null> => {
         const factor = Number.isFinite(amount)
             ? await costFactor(actor, aiModelKey(usageType))
             : 1;
         const cost = factor === 1 ? amount : scaleCost(amount, factor);
         if (!(await metering.hasEnoughCredits(actor, cost))) return null;
-        return metering.reserveCredits(actor, cost);
+        return metering.reserveCredits(actor, cost, opts);
     };
 
     const overrides: Record<string, unknown> = {

@@ -22,7 +22,7 @@ import { imageDataUri } from '../../imageOutput.js';
 import { OpenAI } from 'openai';
 import { formatAspectRatio } from '../../imageDimensions.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { IGenerateParams, IImageProvider } from '../../types.js';
 import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
@@ -40,9 +40,12 @@ interface XaiImageResponse {
 
 export class XAIImageProvider implements IImageProvider {
     #client: OpenAI;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         if (!config.apiKey) {
             throw new Error('xAI image generation requires an API key');
         }
@@ -129,65 +132,72 @@ export class XAIImageProvider implements IImageProvider {
         const estimatedCostInCents =
             outputPriceInCents +
             (hasInputImages ? mediaInputPriceInCents * inputImageCount : 0);
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            `xai:${selectedModel.id}:${outputCostKey}`,
             estimatedCostInCents * 1_000_000,
         );
 
-        if (!usageAllowed) {
+        if (!hold) {
             throw insufficientCreditsError();
         }
 
-        const response = hasInputImages
-            ? await this.#edit({
-                  modelId: selectedModel.id,
-                  prompt,
-                  inputImages: input_images!,
-                  mimeHint: input_image_mime_type,
-                  resolution,
-                  aspectRatio,
-                  imageQuality,
-                  userIdentifier,
-              })
-            : ((await this.#client.images.generate({
-                  model: selectedModel.id,
-                  prompt,
-                  user: userIdentifier,
-                  // xAI-specific params not in the OpenAI type; passed through.
-                  ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
-                  resolution,
-                  ...(imageQuality ? { quality: imageQuality } : {}),
-              } as Parameters<
-                  OpenAI['images']['generate']
-              >[0])) as XaiImageResponse);
+        try {
+            const response = hasInputImages
+                ? await this.#edit({
+                      modelId: selectedModel.id,
+                      prompt,
+                      inputImages: input_images!,
+                      mimeHint: input_image_mime_type,
+                      resolution,
+                      aspectRatio,
+                      imageQuality,
+                      userIdentifier,
+                  })
+                : ((await this.#client.images.generate({
+                      model: selectedModel.id,
+                      prompt,
+                      user: userIdentifier,
+                      // xAI-specific params not in the OpenAI type; passed through.
+                      ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+                      resolution,
+                      ...(imageQuality ? { quality: imageQuality } : {}),
+                  } as Parameters<
+                      OpenAI['images']['generate']
+                  >[0])) as XaiImageResponse);
 
-        const first = response.data?.[0];
-        const url =
-            first?.url ||
-            (first?.b64_json ? imageDataUri(first.b64_json) : undefined);
+            const first = response.data?.[0];
+            const url =
+                first?.url ||
+                (first?.b64_json ? imageDataUri(first.b64_json) : undefined);
 
-        if (!url) {
-            throw new Error('Failed to extract image URL from xAI response');
+            if (!url) {
+                throw new Error(
+                    'Failed to extract image URL from xAI response',
+                );
+            }
+
+            const usageEntries = [
+                {
+                    usageType: `xai:${selectedModel.id}:${outputCostKey}`,
+                    usageAmount: 1,
+                    costOverride: outputPriceInCents * 1_000_000,
+                },
+            ];
+            if (hasInputImages && mediaInputPriceInCents > 0) {
+                usageEntries.push({
+                    usageType: `xai:${selectedModel.id}:media_input`,
+                    usageAmount: inputImageCount,
+                    costOverride:
+                        mediaInputPriceInCents * inputImageCount * 1_000_000,
+                });
+            }
+            this.#meteringService.batchIncrementUsages(actor, usageEntries);
+
+            return url;
+        } finally {
+            await hold.release();
         }
-
-        const usageEntries = [
-            {
-                usageType: `xai:${selectedModel.id}:${outputCostKey}`,
-                usageAmount: 1,
-                costOverride: outputPriceInCents * 1_000_000,
-            },
-        ];
-        if (hasInputImages && mediaInputPriceInCents > 0) {
-            usageEntries.push({
-                usageType: `xai:${selectedModel.id}:media_input`,
-                usageAmount: inputImageCount,
-                costOverride:
-                    mediaInputPriceInCents * inputImageCount * 1_000_000,
-            });
-        }
-        this.#meteringService.batchIncrementUsages(actor, usageEntries);
-
-        return url;
     }
 
     // Edits go to POST /v1/images/edits as application/json (the OpenAI SDK's
