@@ -3703,6 +3703,71 @@ describe('FSService remove', () => {
         ).rejects.toMatchObject({ name: 'NoSuchKey' });
     });
 
+    describe('fs.remove.node emission', () => {
+        /** Count `fs.remove.node` emissions per uuid while `fn` runs. */
+        const countRemoveEvents = async (fn: () => Promise<void>) => {
+            const counts = new Map<string, number>();
+            const listener = (_key: string, data: unknown) => {
+                const uuid = (data as { node?: FSEntry })?.node?.uuid;
+                if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
+            };
+            server.clients.event.on('fs.remove.node', listener);
+            try {
+                await fn();
+            } finally {
+                server.clients.event.off('fs.remove.node', listener);
+            }
+            return counts;
+        };
+
+        const makeTree = async (name: string) => {
+            const root = await fs.mkdir(user.userId, {
+                path: `${user.home}/Documents/${name}`,
+            });
+            const sub = await fs.mkdir(user.userId, {
+                path: `${root.path}/sub`,
+            });
+            const empty = await fs.mkdir(user.userId, {
+                path: `${root.path}/empty`,
+            });
+            const files = [
+                await writeFile(user, `${root.path}/a.txt`, 'a'),
+                await writeFile(user, `${root.path}/b.txt`, 'b'),
+                await writeFile(user, `${root.path}/c.txt`, 'c'),
+                await writeFile(user, `${sub.path}/d.txt`, 'd'),
+            ];
+            return { root, descendants: [sub, empty, ...files] };
+        };
+
+        it('emits once per entry on a recursive delete', async () => {
+            const { root, descendants } = await makeTree('emit-once');
+
+            const counts = await countRemoveEvents(() =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            );
+
+            const expected = [root, ...descendants].map((e) => e.uuid);
+            expect([...counts.keys()].sort()).toEqual([...expected].sort());
+            for (const uuid of expected) expect(counts.get(uuid)).toBe(1);
+        });
+
+        it('emits once per descendant and not for the kept directory', async () => {
+            const { root, descendants } = await makeTree('emit-once-keep');
+
+            const counts = await countRemoveEvents(() =>
+                fs.remove(user.userId, {
+                    entry: root,
+                    recursive: true,
+                    descendantsOnly: true,
+                }),
+            );
+
+            const expected = descendants.map((e) => e.uuid);
+            expect([...counts.keys()].sort()).toEqual([...expected].sort());
+            for (const uuid of expected) expect(counts.get(uuid)).toBe(1);
+        });
+    });
+
     it('empties a directory but keeps it when descendantsOnly is set', async () => {
         const dir = await fs.mkdir(user.userId, {
             path: `${user.home}/Documents/emptyme`,
