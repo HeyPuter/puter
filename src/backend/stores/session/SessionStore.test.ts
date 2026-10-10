@@ -237,6 +237,48 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('purgeEndedInRange', () => {
+        it('deletes rows ended before their kind cutoff within the id range', async () => {
+            const user = await makeUser();
+            const now = Math.floor(Date.now() / 1000);
+            const cutoffs = { cutoff: now - 100, webCutoff: now - 1000 };
+            const end = async (column: string, at: number, kind = 'asset') => {
+                const { uuid } = await target.create(user.id, { kind });
+                await server.clients.db.write(
+                    `UPDATE \`sessions\` SET \`${column}\` = ? WHERE \`uuid\` = ?`,
+                    [at, uuid],
+                );
+                return uuid;
+            };
+            const revoked = await end('revoked_at', now - 101);
+            const expired = await end('expires_at', now - 101);
+            const webRecent = await end('revoked_at', now - 101, 'web');
+            const webOld = await end('expires_at', now - 1001, 'web');
+            const live = (await target.create(user.id, {})).uuid;
+            const firstId = Number((await rawRow(revoked)).id);
+
+            // A range ending at `revoked` leaves the later rows alone.
+            expect(
+                await target.purgeEndedInRange(firstId - 1, 1, cutoffs),
+            ).toBe(1);
+            expect(await rawRow(revoked)).toBeNull();
+            expect(await rawRow(expired)).not.toBeNull();
+
+            const maxId = await target.maxId();
+            expect(
+                await target.purgeEndedInRange(
+                    firstId,
+                    maxId - firstId,
+                    cutoffs,
+                ),
+            ).toBe(2);
+            expect(await rawRow(expired)).toBeNull();
+            expect(await rawRow(webOld)).toBeNull();
+            expect(await rawRow(webRecent)).not.toBeNull();
+            expect(await rawRow(live)).not.toBeNull();
+        });
+    });
+
     describe('revokeCascade', () => {
         it('revokes the root session and all child sessions', async () => {
             const user = await makeUser();

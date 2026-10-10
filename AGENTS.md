@@ -49,6 +49,20 @@ When in doubt, return less. Auth-, permission-, or data-export-related changes d
 
 Commit messages and PR descriptions never credit anyone or mention a bug report. For security fixes, state what the change does mechanically ("scoped tokens do xyz now"), not the vulnerability or how it could be abused.
 
+### Reuse and abstraction
+
+- **Search before you build.** Before writing a cache/TTL map, retry, lock, pagination, validator, serializer, error mapper, host/email normalizer, or provider adapter, grep `src/backend/util/`, the owning layer, and `extensions/` for one that exists. Extend it instead of adding a parallel copy. If you find two copies, consolidate them or flag it.
+- **One path per operation.** Single-item variants call the batch version. Legacy and v2 endpoints share one service method. A second entry point (OIDC, WebDAV, admin, cron) calls the same service as the first instead of re-implementing it.
+- **No abstraction without a second caller.** No base class, interface, factory, registry, decorator, or option bag with one implementation. No wrappers that only forward, no interface methods nobody calls, no methods only tests call.
+- **Variants are data.** Providers or models that differ only in constants (base URL, prices, key names) are entries in a table read by one implementation, not one file each.
+
+### Hot paths
+
+- No per-row queries or awaits in loops: use the store's batch method (add one if missing) or `util/concurrency.ts`.
+- Bound everything: queries get `LIMIT`/pagination, in-memory maps get eviction, outbound calls get a timeout and a size cap.
+- Build clients, catalogs, and config-derived lookups once, not per request.
+- Listeners on fleet-wide events (`fs.write.file`, route lifecycle) return before any I/O for requests they don't concern.
+
 ### Working rules of thumb
 
 - **Run it, don't just compile it.** "It type-checks" is not "it works." Exercise the code path end-to-end at least once.
@@ -109,6 +123,8 @@ Cross-layer rules:
 
 - **Don't reach across layers.** Controllers don't poke clients; services don't register routes. If you want to, the abstraction is wrong — fix the abstraction.
 - **Don't call sideways within a layer for code reuse.** Two services needing the same logic means a util/helper, not a service-to-service dependency.
+- **A table's store owns every query against it.** Services, controllers, and extensions don't run raw SQL/redis against a table that has a store; add the store method so cache invalidation stays with the write.
+- **Drivers and controllers stay thin.** Domain rules a second entry point needs (signup, app CRUD, worker deploy, AI routing/billing) live in a service, not in the first driver or controller that needed them. Lower layers never import from controllers.
 - **Prefer explicit arguments over `Context` (ALS).** Reach for [Context](src/backend/core/context.ts) only for genuinely request-scoped values that would otherwise thread through many layers — today mostly `actor` and `req`.
 
 ### Extensions
