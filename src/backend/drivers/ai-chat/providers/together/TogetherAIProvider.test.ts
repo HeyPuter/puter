@@ -170,7 +170,8 @@ describe('TogetherAIProvider construction', () => {
         expect(togetherCtor).toHaveBeenCalledTimes(1);
         expect(togetherCtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
-            timeout: 600_000,
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

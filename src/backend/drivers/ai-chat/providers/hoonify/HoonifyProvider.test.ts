@@ -158,6 +158,8 @@ describe('HoonifyProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'hooni_test-key',
             baseURL: 'https://api.hoonify.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -166,6 +168,8 @@ describe('HoonifyProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'hooni_test-key',
             baseURL: 'https://staging.hoonify.test/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

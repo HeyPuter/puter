@@ -28,6 +28,7 @@ import { openAICompatParams } from '../../utils/openaiParams.js';
 import { ZAI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 // Z.AI documents `user_id` as 6-128 characters.
 const USER_ID_MAX_LENGTH = 128;
@@ -65,6 +66,7 @@ export class ZAIProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.apiBaseUrl ?? 'https://api.z.ai/api/paas/v4',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

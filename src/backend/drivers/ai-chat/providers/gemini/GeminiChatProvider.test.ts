@@ -150,6 +150,8 @@ describe('GeminiChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

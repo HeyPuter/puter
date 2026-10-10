@@ -138,6 +138,8 @@ describe('DeepSeekProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.deepseek.com',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

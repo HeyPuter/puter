@@ -25,6 +25,7 @@ import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 /**
  * OllamaService class - Provides integration with Ollama's API for chat
  * completions Extends BaseService to implement the puter-chat-completion
@@ -51,6 +52,7 @@ export class OllamaChatProvider implements IChatProvider {
         this.#openai = new openai.OpenAI({
             apiKey: 'ollama', // Ollama doesn't use an API key, it uses the "ollama" string
             baseURL: `${this.#apiBaseUrl}/v1`,
+            ...sdkClientOptions(),
         });
 
         this.#meteringService = meteringService;

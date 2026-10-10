@@ -44,6 +44,7 @@ import { OPEN_AI_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
     type === 'web_search_20250305' ||
@@ -104,7 +105,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         this.#meteringService = meteringService;
         this.#stores = stores;
         this.#fsService = fsService;
-        this.#openAi = new OpenAI({ apiKey: config.apiKey });
+        this.#openAi = new OpenAI({
+            apiKey: config.apiKey,
+            ...sdkClientOptions(),
+        });
     }
 
     /**

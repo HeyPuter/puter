@@ -27,6 +27,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { openAICompatParams } from '../../utils/openaiParams.js';
 import { MINIMAX_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 type MiniMaxConfig = {
     apiKey: string;
@@ -44,6 +45,7 @@ export class MiniMaxProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.apiBaseUrl ?? 'https://api.minimax.io/v1',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

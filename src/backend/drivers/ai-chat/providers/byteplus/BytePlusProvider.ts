@@ -27,6 +27,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { openAICompatParams } from '../../utils/openaiParams.js';
 import { BYTEPLUS_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 type BytePlusConfig = {
     apiKey: string;
@@ -66,6 +67,7 @@ export class BytePlusProvider implements IChatProvider {
             baseURL:
                 config.apiBaseUrl ??
                 'https://ark.ap-southeast.bytepluses.com/api/v3',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

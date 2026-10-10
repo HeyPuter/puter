@@ -22,6 +22,7 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import {
     contextLengthRetryParams,
@@ -40,11 +41,11 @@ export class TogetherAIProvider implements IChatProvider {
     #meteringService: MeteringService;
 
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
-        // The SDK default is one minute, which long non-streaming
+        // The SDK default timeout is one minute, which long non-streaming
         // completions exceed; match the ten minutes the other providers get.
         this.#together = new Together({
             apiKey: config.apiKey,
-            timeout: 10 * 60 * 1000,
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

@@ -239,7 +239,12 @@ describe('MistralAIProvider.complete request shape', () => {
                 messages: [{ role: 'user', content: 'hi' }],
             });
         });
-        expect(completeMock.mock.calls[0][1]?.signal).toBe(abort.signal);
+        // Bounded by the SDK timeout as well, and still cancelled with the
+        // request.
+        const signal: AbortSignal = completeMock.mock.calls[0][1]?.signal;
+        expect(signal.aborted).toBe(false);
+        abort.abort();
+        expect(signal.aborted).toBe(true);
     });
 
     it('forwards model + messages and threads max_tokens/temperature into camelCase fields', async () => {

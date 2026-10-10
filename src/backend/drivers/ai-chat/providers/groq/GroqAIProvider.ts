@@ -26,6 +26,7 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { GROQ_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 export class GroqAIProvider implements IChatProvider {
     #client: Groq;
@@ -35,6 +36,8 @@ export class GroqAIProvider implements IChatProvider {
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#client = new Groq({
             apiKey: config.apiKey,
+            // groq-sdk's own default timeout.
+            ...sdkClientOptions(60_000),
         });
         this.#meteringService = meteringService;
     }

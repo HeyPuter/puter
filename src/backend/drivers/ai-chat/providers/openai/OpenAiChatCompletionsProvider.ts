@@ -46,6 +46,7 @@ import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
     tool.type === 'web_search' ||
@@ -84,7 +85,10 @@ export class OpenAiChatProvider implements IChatProvider {
         this.#meteringService = meteringService;
         this.#stores = stores;
         this.#fsService = fsService;
-        this.#openAi = new OpenAI({ apiKey: config.apiKey });
+        this.#openAi = new OpenAI({
+            apiKey: config.apiKey,
+            ...sdkClientOptions(),
+        });
     }
 
     // Wired up by the driver after both OpenAI providers are built, so the

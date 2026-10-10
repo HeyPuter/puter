@@ -26,6 +26,7 @@ import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { openAICompatParams } from '../../utils/openaiParams.js';
 import { HOONIFY_MODELS } from './models.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 type HoonifyConfig = {
     apiBaseUrl?: string;
@@ -56,6 +57,7 @@ export class HoonifyProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.apiBaseUrl ?? 'https://api.hoonify.ai/v1',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

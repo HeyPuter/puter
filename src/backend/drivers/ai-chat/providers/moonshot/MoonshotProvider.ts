@@ -30,6 +30,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 export class MoonshotProvider implements IChatProvider {
     #openai: OpenAI;
@@ -40,6 +41,7 @@ export class MoonshotProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: 'https://api.moonshot.ai/v1',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

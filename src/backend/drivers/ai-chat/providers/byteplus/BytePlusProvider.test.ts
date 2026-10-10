@@ -157,6 +157,8 @@ describe('BytePlusProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://ark.ap-southeast.bytepluses.com/api/v3',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -167,6 +169,8 @@ describe('BytePlusProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://ark.eu-west.bytepluses.com/api/v3',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

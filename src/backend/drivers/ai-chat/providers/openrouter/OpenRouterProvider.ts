@@ -38,6 +38,7 @@ import type {
     ICompleteArguments,
 } from '../../types.js';
 import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
@@ -70,6 +71,7 @@ export class OpenRouterProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: this.#apiBaseUrl,
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

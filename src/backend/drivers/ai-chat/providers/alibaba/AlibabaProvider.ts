@@ -25,6 +25,7 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { ALIBABA_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 type AlibabaConfig = {
     apiKey: string;
@@ -42,6 +43,7 @@ export class AlibabaProvider implements IChatProvider {
             baseURL:
                 config.apiBaseUrl ??
                 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

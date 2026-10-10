@@ -242,6 +242,8 @@ describe('ClaudeProvider construction', () => {
         expect(opts.apiKey).toBe('test-key');
         // ~10 minutes — long enough for slow Opus 4.7 thinking responses.
         expect(opts.timeout).toBeGreaterThan(60_000);
+        // The driver's fallback chain retries, not the SDK.
+        expect(opts.maxRetries).toBe(0);
     });
 });
 

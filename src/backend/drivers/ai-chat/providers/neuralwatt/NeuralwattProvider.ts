@@ -47,6 +47,7 @@ import {
     type NeuralwattCost,
     type NeuralwattEnergy,
 } from './models.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.neuralwatt.com/v1';
 
@@ -75,6 +76,7 @@ export class NeuralwattProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: this.#apiBaseUrl,
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

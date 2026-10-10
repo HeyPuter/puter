@@ -136,7 +136,15 @@ describe('GroqAIProvider construction', () => {
     it('constructs the Groq SDK with the configured API key', () => {
         makeProvider();
         expect(groqCtor).toHaveBeenCalledTimes(1);
-        expect(groqCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(groqCtor).toHaveBeenCalledWith({
+
+            apiKey: 'test-key',
+
+            maxRetries: 0,
+
+            timeout: 60_000,
+
+        });
     });
 });
 

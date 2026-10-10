@@ -145,6 +145,8 @@ describe('OllamaChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'ollama',
             baseURL: 'http://localhost:11434/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -153,6 +155,8 @@ describe('OllamaChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'ollama',
             baseURL: 'http://ollama.internal:9999/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 

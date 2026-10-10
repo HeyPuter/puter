@@ -219,6 +219,8 @@ describe('OpenRouterProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://openrouter.ai/api/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -233,6 +235,8 @@ describe('OpenRouterProvider construction', () => {
         expect(openAICtor).toHaveBeenLastCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.openrouter.example/api/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

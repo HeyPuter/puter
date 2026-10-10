@@ -289,6 +289,8 @@ describe('InfronProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://llm.onerouter.pro/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -303,6 +305,8 @@ describe('InfronProvider construction', () => {
         expect(openAICtor).toHaveBeenLastCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.infron.example/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

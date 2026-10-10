@@ -139,6 +139,8 @@ describe('AlibabaProvider construction', () => {
             apiKey: 'test-key',
             baseURL:
                 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -147,6 +149,8 @@ describe('AlibabaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.endpoint/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

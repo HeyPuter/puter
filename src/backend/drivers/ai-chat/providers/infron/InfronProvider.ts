@@ -30,6 +30,7 @@ import type {
     IChatCompleteResult,
     ICompleteArguments,
 } from '../../types.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 /**
  * One upstream offering of a model in Infron's catalog. The same model is often
@@ -198,6 +199,7 @@ export class InfronProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: this.#apiBaseUrl,
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

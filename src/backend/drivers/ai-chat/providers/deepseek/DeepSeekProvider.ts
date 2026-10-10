@@ -26,6 +26,7 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { DEEPSEEK_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 export class DeepSeekProvider implements IChatProvider {
     #openai: OpenAI;
@@ -36,6 +37,7 @@ export class DeepSeekProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: 'https://api.deepseek.com',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

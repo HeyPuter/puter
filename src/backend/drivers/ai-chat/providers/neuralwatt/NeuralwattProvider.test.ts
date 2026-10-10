@@ -297,6 +297,8 @@ describe('NeuralwattProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.neuralwatt.com/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -305,6 +307,8 @@ describe('NeuralwattProvider construction', () => {
         expect(openAICtor).toHaveBeenLastCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.neuralwatt.example/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

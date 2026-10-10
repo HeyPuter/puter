@@ -38,6 +38,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { shouldPresentAsOpenAI } from '../../utils/normalizeToOpenAI.js';
+import { withSdkTimeout } from '../../utils/sdkClient.js';
 
 /**
  * Mistral's reasoning-capable models return `content` as a chunk array rather
@@ -242,7 +243,13 @@ export class MistralAIProvider implements IChatProvider {
                     maxTokens: max_tokens,
                     temperature,
                 },
-                { signal: Context.get('abortSignal') },
+                // The SDK retries nothing by default and has no timeout once a
+                // signal is passed; a stream is bounded by its caller instead.
+                {
+                    signal: stream
+                        ? Context.get('abortSignal')
+                        : withSdkTimeout(Context.get('abortSignal')),
+                },
             );
         } catch (e) {
             // The SDK validates input client-side and throws without a status,

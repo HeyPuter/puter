@@ -34,6 +34,7 @@ import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
 
@@ -83,6 +84,7 @@ export class MetaProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.apiBaseUrl ?? DEFAULT_API_BASE_URL,
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
         this.#stores = stores;

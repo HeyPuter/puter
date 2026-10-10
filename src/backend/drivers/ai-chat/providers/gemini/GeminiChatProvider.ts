@@ -32,6 +32,7 @@ import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { GEMINI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 export class GeminiChatProvider implements IChatProvider {
     meteringService: MeteringService;
@@ -44,6 +45,7 @@ export class GeminiChatProvider implements IChatProvider {
         this.openai = new openai.OpenAI({
             apiKey: config.apiKey,
             baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+            ...sdkClientOptions(),
         });
     }
 

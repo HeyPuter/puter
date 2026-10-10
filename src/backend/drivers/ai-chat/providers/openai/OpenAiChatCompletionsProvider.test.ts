@@ -148,7 +148,15 @@ describe('OpenAiChatProvider construction', () => {
     it('constructs the OpenAI SDK with the configured API key', () => {
         makeProvider();
         expect(openAICtor).toHaveBeenCalledTimes(1);
-        expect(openAICtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(openAICtor).toHaveBeenCalledWith({
+
+            apiKey: 'test-key',
+
+            maxRetries: 0,
+
+            timeout: 10 * 60 * 1000,
+
+        });
     });
 });
 
