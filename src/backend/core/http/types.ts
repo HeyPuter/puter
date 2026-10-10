@@ -19,6 +19,7 @@
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { UserRow } from '../../stores/user/UserStore';
+import type { IConfig } from '../../types';
 import type { Actor } from '../actor';
 
 /**
@@ -115,7 +116,7 @@ export interface RouteRateLimit {
  *     subdomain → requireAuth → emailConfirmed → requireUserActor → adminOnly →
  *     allowedAppIds → phoneVerified → cardVerified → anyVerified →
  *     requireReputation → requireSubscription → rateLimit → requireCredits →
- *     concurrent → userProtected → `middleware` → handler
+ *     concurrent → internalAuth → userProtected → `middleware` → handler
  *
  * Options that imply `requireAuth` are deduped to a single auth gate.
  */
@@ -228,6 +229,13 @@ export interface RouteOptions {
      * user.
      */
     antiCsrf?: boolean;
+
+    /**
+     * Service-to-service routes: 403 unless `x-puter-internal-auth` matches the
+     * secret this picks from config (read per request; unset refuses). Runs
+     * after the rate limit, which then only bounds guessing.
+     */
+    internalAuth?: (config: IConfig) => string | undefined;
 
     /**
      * Security-critical account routes: session cookie only, a fresh

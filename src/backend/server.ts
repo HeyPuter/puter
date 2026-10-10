@@ -63,6 +63,7 @@ import {
 } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createUserProtectedGate } from './core/http/middleware/userProtected';
+import { internalAuthGate } from './core/http/middleware/internalAuth';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
@@ -1322,7 +1323,13 @@ export class PuterServer {
             );
         }
 
-        // 3b. Password (or OIDC revalidation) re-check on account routes.
+        // 3b. Shared-secret check on service-to-service routes.
+        if (opts.internalAuth) {
+            const { internalAuth } = opts;
+            mwChain.push(internalAuthGate(() => internalAuth(this.#config)));
+        }
+
+        // 3c. Password (or OIDC revalidation) re-check on account routes.
         if (opts.userProtected) {
             mwChain.push(
                 ...createUserProtectedGate(
