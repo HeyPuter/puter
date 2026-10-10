@@ -1137,13 +1137,38 @@ export class PermissionStore extends PuterStore {
         groupId: number,
         prefix: string,
     ): Promise<string[]> {
-        const subtree = subtreeClause([subtreeRoot(prefix)]);
-        const rows = await this.clients.db.read(
-            'SELECT permission FROM `user_to_group_permissions` ' +
-                `WHERE \`user_id\` = ? AND \`group_id\` = ? AND (${subtree.where})`,
-            [issuerUserId, groupId, ...subtree.params],
+        const rows = await this.queryIssuerGroupPermsByPrefixes(
+            [{ issuerUserId, groupId }],
+            [prefix],
         );
-        return rows.map((r) => String(r.permission));
+        return rows.map((row) => row.permission);
+    }
+
+    /** The grants under any of `prefixes` that any issuer/group pair made. */
+    async queryIssuerGroupPermsByPrefixes(
+        pairs: Array<{ issuerUserId: number; groupId: number }>,
+        prefixes: string[],
+    ): Promise<
+        Array<{ issuerUserId: number; groupId: number; permission: string }>
+    > {
+        if (pairs.length === 0 || prefixes.length === 0) return [];
+        const subtree = subtreeClause([...new Set(prefixes)].map(subtreeRoot));
+        const who = pairs
+            .map(() => '(`user_id` = ? AND `group_id` = ?)')
+            .join(' OR ');
+        const rows = await this.clients.db.read(
+            'SELECT `user_id`, `group_id`, `permission` FROM ' +
+                `\`user_to_group_permissions\` WHERE (${who}) AND (${subtree.where})`,
+            [
+                ...pairs.flatMap((pair) => [pair.issuerUserId, pair.groupId]),
+                ...subtree.params,
+            ],
+        );
+        return rows.map((row) => ({
+            issuerUserId: Number(row.user_id),
+            groupId: Number(row.group_id),
+            permission: String(row.permission),
+        }));
     }
 
     /** `user_id` is the issuer; `group_id` is who receives it. */

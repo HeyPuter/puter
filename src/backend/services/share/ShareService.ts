@@ -1683,27 +1683,36 @@ export class ShareService extends PuterService {
         );
         if (rows.length === 0) return 0;
 
-        const nodes = await this.stores.fsEntry.getEntriesByIds(
-            rows.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
-        );
+        const [nodes, teams] = await Promise.all([
+            this.stores.fsEntry.getEntriesByIds(
+                rows.map((row: { fsentry_id: number }) =>
+                    Number(row.fsentry_id),
+                ),
+            ),
+            // Deleted teams included: their grants are still revocable.
+            this.stores.team.getByIdsIncludingDeleted(
+                rows.map((row: { holder_group_id: number }) =>
+                    Number(row.holder_group_id),
+                ),
+            ),
+        ]);
         let revoked = 0;
         for (const row of rows) {
             const node = nodes.get(Number(row.fsentry_id));
-            // Deleted teams included: their grants are still revocable.
-            const team = await this.stores.team.getByIdIncludingDeleted(
-                Number(row.holder_group_id),
-            );
+            const team = teams.get(Number(row.holder_group_id));
             if (!node || !team) continue;
-            let authorized = false;
-            for (const permission of entryPermissions(node.uuid)) {
-                if (
-                    !(await this.services.permission.canManagePermission(
+            const permissions = entryPermissions(node.uuid);
+            const manageable = await Promise.all(
+                permissions.map((permission) =>
+                    this.services.permission.canManagePermission(
                         actor,
                         permission,
-                    ))
-                ) {
-                    continue;
-                }
+                    ),
+                ),
+            );
+            let authorized = false;
+            for (const [i, permission] of permissions.entries()) {
+                if (!manageable[i]) continue;
                 authorized = true;
                 if (
                     await this.services.permission.revokeUserGroupPermission(
@@ -2011,20 +2020,10 @@ export class ShareService extends PuterService {
             [...entries.values()].map((entry) => [entry.id, entry]),
         );
         // Named so the listing can say which team, not just that it is one.
-        const teamsById = new Map<number, TeamRow>(
-            (
-                await Promise.all(
-                    [
-                        ...new Set(
-                            rows
-                                .filter((row) => row.holder_group_id)
-                                .map((row) => Number(row.holder_group_id)),
-                        ),
-                    ].map((id) => this.stores.team.getByIdIncludingDeleted(id)),
-                )
-            )
-                .filter((team): team is TeamRow => team !== null)
-                .map((team) => [team.id, team]),
+        const teamsById = await this.stores.team.getByIdsIncludingDeleted(
+            rows
+                .filter((row) => row.holder_group_id)
+                .map((row) => Number(row.holder_group_id)),
         );
         // Three bounds. A claimed row needs the grant *this issuer* made to
         // still be there — on the pair alone, a grant withdrawn outside
@@ -2422,14 +2421,14 @@ export class ShareService extends PuterService {
             await this.stores.share.listPendingOnFsentry(entry.id),
         );
         // Ancestors too: a team can reach this through a folder above it.
+        // Listed node first, then upward, as the dialog shows them.
+        const nodeOrder = [entry.id, ...viaById.keys()];
         const groupRows = issuedHere(
-            (
-                await Promise.all(
-                    [entry.id, ...viaById.keys()].map((id) =>
-                        this.stores.share.listGroupOnFsentry(id),
-                    ),
-                )
-            ).flat(),
+            await this.stores.share.listGroupOnFsentries(nodeOrder),
+        ).sort(
+            (a: OutboundShareRow, b: OutboundShareRow) =>
+                nodeOrder.indexOf(Number(a.fsentry_id)) -
+                nodeOrder.indexOf(Number(b.fsentry_id)),
         );
         // And so can anyone with the link to a folder above it — while the
         // owner's plan covers it. A link the ACL turns away is not a share the
@@ -2505,18 +2504,8 @@ export class ShareService extends PuterService {
         // The team itself, so whoever manages the node can see it is shared
         // with one and take it back from here.
         const liveGroup = await this.#liveGroupGrants(groupRows, nodeById);
-        const teamsById = new Map(
-            (
-                await Promise.all(
-                    [
-                        ...new Set(
-                            groupRows.map((row) => Number(row.holder_group_id)),
-                        ),
-                    ].map((id) => this.stores.team.getByIdIncludingDeleted(id)),
-                )
-            )
-                .filter((team): team is TeamRow => team !== null)
-                .map((team) => [team.id, team]),
+        const teamsById = await this.stores.team.getByIdsIncludingDeleted(
+            groupRows.map((row) => Number(row.holder_group_id)),
         );
         const groups: ResolvedShare[] = groupRows
             .filter((row) => liveGroup.has(String(row.uid)))
@@ -3374,31 +3363,42 @@ export class ShareService extends PuterService {
         nodeById: Map<number, FSEntry>,
     ): Promise<Set<string>> {
         const live = new Set<string>();
-        const groupRows = rows.filter((row) => row.holder_group_id);
+        const groupRows = rows.filter(
+            (row) =>
+                row.holder_group_id && nodeById.has(Number(row.fsentry_id)),
+        );
         if (groupRows.length === 0) return live;
 
-        await Promise.all(
-            groupRows.map(async (row) => {
-                const entry = nodeById.get(Number(row.fsentry_id));
-                if (!entry) return;
-                const prefixes = [
-                    PermissionUtil.join('fs', entry.uuid),
-                    PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', entry.uuid),
-                ];
-                for (const prefix of prefixes) {
-                    const found =
-                        await this.stores.permission.queryIssuerGroupPermsByPrefix(
-                            Number(row.issuer_user_id),
-                            Number(row.holder_group_id),
-                            prefix,
-                        );
-                    if (found.length > 0) {
-                        live.add(row.uid);
-                        return;
-                    }
-                }
-            }),
-        );
+        const prefixesOf = (row: OutboundShareRow) => {
+            const uuid = (nodeById.get(Number(row.fsentry_id)) as FSEntry).uuid;
+            return [
+                PermissionUtil.join('fs', uuid),
+                PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uuid),
+            ];
+        };
+        // One read for every row; each row then picks out its own grants.
+        const grants =
+            await this.stores.permission.queryIssuerGroupPermsByPrefixes(
+                groupRows.map((row) => ({
+                    issuerUserId: Number(row.issuer_user_id),
+                    groupId: Number(row.holder_group_id),
+                })),
+                groupRows.flatMap(prefixesOf),
+            );
+        for (const row of groupRows) {
+            const prefixes = prefixesOf(row);
+            const held = grants.some(
+                (grant) =>
+                    grant.issuerUserId === Number(row.issuer_user_id) &&
+                    grant.groupId === Number(row.holder_group_id) &&
+                    prefixes.some(
+                        (prefix) =>
+                            grant.permission === prefix ||
+                            grant.permission.startsWith(`${prefix}:`),
+                    ),
+            );
+            if (held) live.add(row.uid);
+        }
         return live;
     }
 

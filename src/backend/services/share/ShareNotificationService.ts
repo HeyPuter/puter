@@ -20,6 +20,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Actor } from '../../core/actor';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { PuterService } from '../types';
 import {
     digestItemPaths,
@@ -92,6 +93,8 @@ const DIGEST_SWEEP_GRACE_MS = 5 * 60_000;
  * either way — a silent truncation here reads as "nothing left to send".
  */
 const DIGEST_LIST_LIMIT = 200;
+/** Digest entries one flush claims at once. */
+const DIGEST_TAKE_CONCURRENCY = 8;
 
 /** Names carried per sender; the wording counts the rest. */
 const DIGEST_NAMES_PER_SENDER = 5;
@@ -407,22 +410,21 @@ export class ShareNotificationService extends PuterService {
 
     /** Members who have not refused shares from this issuer. */
     async #unblocked(members: number[], issuerId: number): Promise<number[]> {
-        const kept = await Promise.all(
-            members.map(async (id) => {
-                try {
-                    const user = await this.stores.user.getById(id);
-                    if (blocksAllShares(user)) return null;
-                    return (await this.stores.userBlock.isBlocked(id, issuerId))
-                        ? null
-                        : id;
-                } catch (err) {
-                    // Failing open would announce to someone who refused it.
-                    console.warn('[share-notify] block check failed', id, err);
-                    return null;
-                }
-            }),
-        );
-        return kept.filter((id): id is number => id !== null);
+        try {
+            const [users, blockers] = await Promise.all([
+                this.stores.user.getByIds(members),
+                this.stores.userBlock.blockersAmong(members, issuerId),
+            ]);
+            return members.filter(
+                (id) =>
+                    !blockers.has(id) &&
+                    !blocksAllShares(users.get(id) ?? null),
+            );
+        } catch (err) {
+            // Failing open would announce to someone who refused it.
+            console.warn('[share-notify] block check failed', members, err);
+            return [];
+        }
     }
 
     /**
@@ -916,16 +918,25 @@ export class ShareNotificationService extends PuterService {
                 });
             }
 
+            const takes = await runWithConcurrencyLimitSettled(
+                keys,
+                DIGEST_TAKE_CONCURRENCY,
+                (entryKey) => this.stores.kv.take({ key: entryKey }),
+            );
+            const failedTake = takes.find((t) => t.status === 'rejected');
+            if (failedTake) throw (failedTake as PromiseRejectedResult).reason;
             const claimed: Array<{ key: string; record: DigestEntryRecord }> =
                 [];
-            for (const entryKey of keys) {
-                const taken = await this.stores.kv.take({ key: entryKey });
-                if (taken.res == null) continue; // another flush won this one
+            keys.forEach((entryKey, i) => {
+                const taken = takes[i];
+                // Null: another flush won this one.
+                if (taken?.status !== 'fulfilled' || taken.value.res == null)
+                    return;
                 claimed.push({
                     key: entryKey,
-                    record: taken.res as DigestEntryRecord,
+                    record: taken.value.res as DigestEntryRecord,
                 });
-            }
+            });
             if (claimed.length === 0) {
                 // Listed nothing, or every entry went to another flusher.
                 console.log('[share-notify] nothing to send:', {

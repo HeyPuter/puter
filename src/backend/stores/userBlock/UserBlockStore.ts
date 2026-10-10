@@ -49,6 +49,21 @@ export class UserBlockStore extends PuterStore {
         return rows.length > 0;
     }
 
+    /** Which of `blockerUserIds` refuse shares from `blockedUserId`. */
+    async blockersAmong(
+        blockerUserIds: number[],
+        blockedUserId: number,
+    ): Promise<Set<number>> {
+        const ids = [...new Set(blockerUserIds)];
+        if (ids.length === 0) return new Set();
+        const rows = await this.clients.db.read(
+            'SELECT `blocker_user_id` FROM `user_block` WHERE `blocked_user_id` = ? ' +
+                `AND \`blocker_user_id\` IN (${ids.map(() => '?').join(', ')})`,
+            [blockedUserId, ...ids],
+        );
+        return new Set(rows.map((row) => Number(row.blocker_user_id)));
+    }
+
     /** Everyone `blockerUserId` has blocked, most recent first. */
     async listByBlocker(blockerUserId: number): Promise<UserBlockRow[]> {
         const rows = await this.clients.db.read(
