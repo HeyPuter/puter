@@ -62,6 +62,14 @@ export interface LoadedFile {
     } | null;
 }
 
+/** A file input resolved and access-checked, its bytes read on demand. */
+export interface ResolvedFileInput {
+    filename: string;
+    fsEntry: LoadedFile['fsEntry'];
+    /** Reads the bytes; later calls share the first read. */
+    load(): Promise<LoadedFile>;
+}
+
 /**
  * A Puter FS reference as drivers receive it: a path string or `{ path?, uid?,
  * uuid? }`.
@@ -87,6 +95,28 @@ export async function loadFileInput(
     input: unknown,
     options: { maxBytes?: number; acceptWebInput?: true } = {},
 ): Promise<LoadedFile> {
+    const resolved = await resolveFileInput(
+        stores,
+        fsService,
+        actor,
+        input,
+        options,
+    );
+    return resolved.load();
+}
+
+/**
+ * {@link loadFileInput} without the read: a Puter FS reference is resolved and
+ * access-checked, and its bytes are read only when `load()` is called. Data and
+ * web URLs carry their bytes, so those are read up front.
+ */
+export async function resolveFileInput(
+    stores: FileInputStores,
+    fsService: FSService,
+    actor: Actor,
+    input: unknown,
+    options: { maxBytes?: number; acceptWebInput?: true } = {},
+): Promise<ResolvedFileInput> {
     if (!input) {
         throw new HttpError(400, 'Missing file input', {
             legacyCode: 'bad_request',
@@ -103,12 +133,12 @@ export async function loadFileInput(
             });
         const buffer = dataUriBytes(uri);
         assertMax(buffer, options.maxBytes);
-        return {
+        return alreadyLoaded({
             buffer,
             filename: filenameFromMime(uri.mimeType),
             mimeType: uri.mimeType,
             fsEntry: null,
-        };
+        });
     }
 
     // Web URL — fetch via SSRF-guarded secureFetch.
@@ -131,30 +161,50 @@ export async function loadFileInput(
             contentType?.split(';')[0]?.trim() ||
             mimeFromName(input) ||
             'application/octet-stream';
-        return {
+        return alreadyLoaded({
             buffer,
             filename: inferFilenameFromUrlOrPath(input),
             mimeType: mime,
             fsEntry: null,
-        };
+        });
     }
 
-    // Path string or object reference → resolve into FSEntry, then S3 read.
-    const opened = await openFileInputStream(
+    // Path string or object reference → resolve into FSEntry; S3 read on load.
+    const entry = await resolveFileInputEntry(
         stores,
         fsService,
         actor,
         input as FileInputRef,
-        options,
     );
-    const buffer = await collectStream(opened.body, options.maxBytes);
+    if (options.maxBytes && (entry.size ?? 0) > options.maxBytes) {
+        throw tooLarge(options.maxBytes);
+    }
+    let loading: Promise<LoadedFile> | undefined;
     return {
-        buffer,
-        filename: opened.filename,
-        mimeType: opened.mimeType,
-        fsEntry: opened.fsEntry,
+        filename: entry.name,
+        fsEntry: fsEntryInfo(entry),
+        load: () =>
+            (loading ??= (async () => {
+                const opened = await openEntryStream(stores, entry, options);
+                const buffer = await collectStream(
+                    opened.body,
+                    options.maxBytes,
+                );
+                return {
+                    buffer,
+                    filename: opened.filename,
+                    mimeType: opened.mimeType,
+                    fsEntry: opened.fsEntry,
+                };
+            })()),
     };
 }
+
+const alreadyLoaded = (loaded: LoadedFile): ResolvedFileInput => ({
+    filename: loaded.filename,
+    fsEntry: loaded.fsEntry,
+    load: () => Promise.resolve(loaded),
+});
 
 /**
  * Resolve a Puter FS reference to its entry, with the checks every driver read
@@ -218,14 +268,25 @@ export async function openFileInputStream(
     options: { maxBytes?: number } = {},
 ): Promise<OpenedFileInput> {
     const entry = await resolveFileInputEntry(stores, fsService, actor, input);
-    const fsEntry = {
-        uuid: entry.uuid,
-        path: entry.path,
-        bucket: entry.bucket,
-        bucketRegion: entry.bucketRegion,
-        size: entry.size,
-        sqlId: entry.id,
-    };
+    return openEntryStream(stores, entry, options);
+}
+
+const fsEntryInfo = (entry: FSEntry): NonNullable<LoadedFile['fsEntry']> => ({
+    uuid: entry.uuid,
+    path: entry.path,
+    bucket: entry.bucket,
+    bucketRegion: entry.bucketRegion,
+    size: entry.size,
+    sqlId: entry.id,
+});
+
+/** {@link openFileInputStream} for an entry that is already resolved. */
+async function openEntryStream(
+    stores: FileInputStores,
+    entry: FSEntry,
+    options: { maxBytes?: number },
+): Promise<OpenedFileInput> {
+    const fsEntry = fsEntryInfo(entry);
     // Empty files (created via `touch`) have no backing S3 object —
     // getObjectStream would throw NoSuchKey, so return empty content.
     if (hasNoBackingS3Object(entry)) {

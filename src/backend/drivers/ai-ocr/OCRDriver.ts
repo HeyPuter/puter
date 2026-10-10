@@ -39,7 +39,11 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
-import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
+import {
+    type LoadedFile,
+    type ResolvedFileInput,
+    resolveFileInput,
+} from '../util/fileInput.js';
 import {
     type ProviderCatalog,
     ProviderRegistry,
@@ -132,7 +136,7 @@ const OCR_CATALOG: ProviderCatalog = {
 
 /** Recognizes one input with one provider's model. */
 type OcrRecognizer = (
-    loaded: LoadedFile,
+    input: ResolvedFileInput,
     args: RecognizeArgs,
     model: OcrModel,
     actor: Actor,
@@ -211,20 +215,23 @@ const isDocumentInput = (loaded: LoadedFile): boolean => {
 /**
  * The most pages a call can bill, known before the provider runs: a PDF's page
  * count, or a size-based guess for other documents, capped by a `pages`
- * selection and by what the provider reads in one call.
+ * selection and by what the provider reads in one call. Reads the input only
+ * for a provider that takes more than one page.
  */
-const estimateOcrPages = (
-    loaded: LoadedFile,
+const estimateOcrPages = async (
+    input: ResolvedFileInput,
     provider: OcrProviderId,
     selection?: unknown,
-): number => {
+): Promise<number> => {
     const maxPages = OCR_MAX_PAGES[provider];
-    if (maxPages <= 1 || !isDocumentInput(loaded)) return 1;
+    if (maxPages <= 1) return 1;
+    const loaded = await input.load();
+    if (!isDocumentInput(loaded)) return 1;
     // A document we can't count is billed in proportion to its size, reaching
     // the provider's page limit at its size limit (20 pages per MB for
     // Mistral). Small files stay cheap; a large one can't pass as one page.
     const documentPages =
-        countPdfPages(loaded.buffer, maxPages) ??
+        (await countPdfPages(loaded.buffer, maxPages)) ??
         Math.ceil(
             (loaded.buffer.length * maxPages) / OCR_MAX_INPUT_BYTES[provider],
         );
@@ -305,8 +312,8 @@ export class OCRDriver extends PuterDriver {
             };
             this.#providers.register(
                 'aws-textract',
-                (loaded, _args, model, actor) =>
-                    this.#textractRecognize(loaded, model, actor),
+                (input, _args, model, actor) =>
+                    this.#textractRecognize(input, model, actor),
             );
         }
 
@@ -318,8 +325,8 @@ export class OCRDriver extends PuterDriver {
                 }) as unknown as MistralOcrClient;
                 this.#providers.register(
                     'mistral',
-                    (loaded, args, model, actor) =>
-                        this.#mistralRecognize(loaded, args, model, actor),
+                    (input, args, model, actor) =>
+                        this.#mistralRecognize(input, args, model, actor),
                 );
             } catch (e) {
                 console.warn(
@@ -355,7 +362,9 @@ export class OCRDriver extends PuterDriver {
         // reject anyway once it runs.
         await assertActorHasCredits(this.services.metering, actor, this.config);
 
-        const loaded = await loadFileInput(
+        // A Puter file is resolved and access-checked here but read only if
+        // the provider needs its bytes; Textract reads it straight from S3.
+        const resolved = await resolveFileInput(
             this.stores,
             this.services.fs,
             actor,
@@ -366,7 +375,7 @@ export class OCRDriver extends PuterDriver {
             },
         );
 
-        return recognize(loaded, args, model, actor);
+        return recognize(resolved, args, model, actor);
     }
 
     /**
@@ -444,19 +453,18 @@ export class OCRDriver extends PuterDriver {
     }
 
     async #textractRecognize(
-        loaded: LoadedFile,
+        input: ResolvedFileInput,
         model: OcrModel,
         actor: Actor,
     ) {
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
+        const { fsEntry } = input;
         const s3Info =
-            loaded.fsEntry &&
-            loaded.fsEntry.bucket &&
-            loaded.fsEntry.bucketRegion
+            fsEntry && fsEntry.bucket && fsEntry.bucketRegion
                 ? {
-                      bucket: loaded.fsEntry.bucket,
-                      bucketRegion: loaded.fsEntry.bucketRegion,
-                      key: loaded.fsEntry.uuid,
+                      bucket: fsEntry.bucket,
+                      bucketRegion: fsEntry.bucketRegion,
+                      key: fsEntry.uuid,
                   }
                 : null;
 
@@ -469,7 +477,7 @@ export class OCRDriver extends PuterDriver {
             const document =
                 s3Info && useS3
                     ? { S3Object: { Bucket: s3Info.bucket, Name: s3Info.key } }
-                    : { Bytes: loaded.buffer };
+                    : { Bytes: (await input.load()).buffer };
             return client.send(
                 new DetectDocumentTextCommand({ Document: document }),
             );
@@ -479,7 +487,7 @@ export class OCRDriver extends PuterDriver {
         const hold = await this.#holdCredits(
             actor,
             model.pageUsageType,
-            costPerPage * estimateOcrPages(loaded, model.provider),
+            costPerPage * (await estimateOcrPages(input, model.provider)),
         );
         try {
             let response;
@@ -535,11 +543,12 @@ export class OCRDriver extends PuterDriver {
     // -- Mistral OCR --------------------------------------------------
 
     async #mistralRecognize(
-        loaded: LoadedFile,
+        input: ResolvedFileInput,
         args: RecognizeArgs,
         model: OcrModel,
         actor: Actor,
     ) {
+        const loaded = await input.load();
         const payload: Record<string, unknown> = {
             model: model.id,
             document: this.#mistralBuildChunk(loaded),
@@ -584,7 +593,8 @@ export class OCRDriver extends PuterDriver {
         const hold = await this.#holdCredits(
             actor,
             model.pageUsageType,
-            costPerPage * estimateOcrPages(loaded, model.provider, args.pages),
+            costPerPage *
+                (await estimateOcrPages(input, model.provider, args.pages)),
         );
 
         try {
