@@ -17,18 +17,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
-import { TTSProvider } from '../TTSProvider.js';
+import {
+    upstreamBodyStream,
+    upstreamFetch,
+} from '../../../util/upstreamErrors.js';
+import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import type {
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+    ITTSProvider,
+} from '../../types.js';
+import {
+    characterCostReport,
+    meterPerCharacter,
+    TTS_UPSTREAM_TIMEOUT_MS,
+} from '../common.js';
 import { XAI_TTS_COSTS } from './costs.js';
 
 const API_BASE = 'https://api.x.ai/v1';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const XAI_TTS_VOICES = [
     { id: 'eve', name: 'Eve', description: 'Energetic, upbeat' },
@@ -52,16 +63,15 @@ const CODEC_CONTENT_TYPES: Record<string, string> = {
  * XAI (Grok) TTS provider. Calls the xAI /v1/tts REST endpoint. Returns audio
  * as a DriverStreamResult.
  */
-export class XAITTSProvider extends TTSProvider {
+export class XAITTSProvider implements ITTSProvider {
     readonly providerName = 'xai';
 
     #apiKey: string;
 
     constructor(
-        meteringService: AiMeteringService,
+        private readonly meteringService: AiMeteringService,
         config: { apiKey: string },
     ) {
-        super(meteringService, config);
         if (!config.apiKey) {
             throw new Error('xAI TTS requires an API key');
         }
@@ -88,13 +98,8 @@ export class XAITTSProvider extends TTSProvider {
         ];
     }
 
-    override getReportedCosts(): Record<string, unknown>[] {
-        return Object.entries(XAI_TTS_COSTS).map(([model, ucentsPerUnit]) => ({
-            usageType: `xai:${model}:character`,
-            ucentsPerUnit,
-            unit: 'character',
-            source: 'driver:aiTts/xai',
-        }));
+    getReportedCosts(): Record<string, unknown>[] {
+        return characterCostReport('xai', XAI_TTS_COSTS);
     }
 
     async synthesize(
@@ -128,110 +133,45 @@ export class XAITTSProvider extends TTSProvider {
             );
         }
 
-        const voice = voiceArg || DEFAULT_VOICE;
+        const body: Record<string, unknown> = {
+            text,
+            voice_id: voiceArg || DEFAULT_VOICE,
+            language: language || 'en',
+        };
+        const formatStr = output_format || response_format;
+        const codec = typeof formatStr === 'string' ? formatStr : 'mp3';
+        if (formatStr) body.output_format = { codec };
 
-        const actor = Context.get('actor')!;
-        const ucentsPerChar = XAI_TTS_COSTS['xai-tts'] ?? 0;
-        const totalCost = ucentsPerChar * text.length;
-
-        const hold = await this.meteringService.reserveAiCredits(
-            actor,
+        return meterPerCharacter(
+            this.meteringService,
+            Context.get('actor')!,
             'xai:xai-tts:character',
-            totalCost,
-        );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            // Build request body
-            const body: Record<string, unknown> = {
-                text,
-                voice_id: voice,
-                language: language || 'en',
-            };
-
-            // Handle output format
-            const formatStr = output_format || response_format;
-            if (formatStr) {
-                const codec = typeof formatStr === 'string' ? formatStr : 'mp3';
-                body.output_format = { codec };
-            }
-
-            const response = await fetch(`${API_BASE}/tts`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.#apiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(body),
-            });
-
-            if (!response.ok) {
-                const errText = await response.text().catch(() => '');
-                console.error(
-                    `[XAITTSProvider] API returned ${response.status}: ${errText}`,
-                );
-                // Map upstream status to an `upstream_*` HttpError so the
-                // alarm gate skips it. Mirrors ElevenLabs' translator —
-                // 4xx and 5xx both surface as 400 to the client (with the
-                // appropriate legacyCode), 429 stays 429, auth stays 500.
-                const legacyCode =
-                    response.status >= 500
-                        ? 'upstream_provider_unavailable'
-                        : response.status === 401 || response.status === 403
-                          ? 'upstream_auth_failed'
-                          : response.status === 429
-                            ? 'upstream_rate_limited'
-                            : 'upstream_bad_request';
-                const exposedStatus =
-                    legacyCode === 'upstream_rate_limited'
-                        ? 429
-                        : legacyCode === 'upstream_auth_failed'
-                          ? 500
-                          : 400;
-                throw new HttpError(
-                    exposedStatus,
-                    errText ||
-                        `xAI TTS request failed (status ${response.status})`,
+            XAI_TTS_COSTS['xai-tts'] ?? 0,
+            text,
+            async () => {
+                const response = await upstreamFetch(
+                    'xAI TTS',
+                    `${API_BASE}/tts`,
                     {
-                        legacyCode,
-                        fields: {
-                            provider: 'xai',
-                            upstreamStatus: response.status,
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${this.#apiKey}`,
+                            'Content-Type': 'application/json',
                         },
+                        body: JSON.stringify(body),
                     },
+                    { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
                 );
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            const stream = Readable.from(buffer);
-
-            // Determine content type from response or codec
-            const respContentType =
-                response.headers.get('content-type') || 'audio/mpeg';
-            const codec =
-                (body.output_format as { codec?: string } | undefined)?.codec ??
-                'mp3';
-            const contentType = CODEC_CONTENT_TYPES[codec] || respContentType;
-
-            // Meter usage
-            this.meteringService.incrementUsage(
-                actor,
-                'xai:xai-tts:character',
-                text.length,
-                totalCost,
-            );
-
-            return {
-                dataType: 'stream',
-                content_type: contentType,
-                chunked: true,
-                stream,
-            };
-        } finally {
-            await hold.release();
-        }
+                return {
+                    dataType: 'stream',
+                    content_type:
+                        CODEC_CONTENT_TYPES[codec] ||
+                        response.headers.get('content-type') ||
+                        'audio/mpeg',
+                    chunked: true,
+                    stream: upstreamBodyStream(response),
+                };
+            },
+        );
     }
 }

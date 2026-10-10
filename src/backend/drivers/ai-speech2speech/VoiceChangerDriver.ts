@@ -17,18 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
+    withAiCreditHold,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
+import {
+    type ProviderCatalog,
+    ProviderRegistry,
+    readProviderKey,
+} from '../util/providerRegistry.js';
+import { SAMPLE_AUDIO_URL } from '../util/testMode.js';
+import { upstreamBodyStream, upstreamFetch } from '../util/upstreamErrors.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 /**
@@ -39,10 +45,23 @@ import { VOICE_CHANGER_COSTS } from './costs.js';
 const DEFAULT_MODEL = 'eleven_multilingual_sts_v2';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
+// Covers the upload as well as the conversion.
+const CONVERT_TIMEOUT_MS = 10 * 60 * 1000;
 
-const PROVIDERS = ['elevenlabs'] as const;
+const VOICE_CHANGER_CATALOG: ProviderCatalog = {
+    label: 'Speech-to-speech',
+    ids: ['elevenlabs'],
+    defaultId: 'elevenlabs',
+    aliases: { elevenlabs: 'elevenlabs' },
+};
+
+interface ElevenLabsConfig {
+    apiKey: string;
+    baseUrl: string;
+    defaultVoiceId: string;
+    defaultModelId: string;
+}
 
 interface ConvertArgs {
     audio: unknown;
@@ -94,28 +113,24 @@ export class VoiceChangerDriver extends PuterDriver {
         );
     }
 
-    #apiKey: string | null = null;
-    #baseUrl = 'https://api.elevenlabs.io';
-    #defaultVoiceId = DEFAULT_VOICE_ID;
-    #defaultModelId = DEFAULT_MODEL;
+    #providers = new ProviderRegistry<ElevenLabsConfig>(VOICE_CHANGER_CATALOG);
 
     override onServerStart() {
-        const elevenlabs = this.config.providers?.elevenlabs as
-            Record<string, unknown> | undefined;
-
-        this.#apiKey =
-            (elevenlabs?.apiKey as string | undefined) ??
-            (elevenlabs?.api_key as string | undefined) ??
-            (elevenlabs?.key as string | undefined) ??
-            null;
-        this.#baseUrl =
-            (elevenlabs?.apiBaseUrl as string | undefined) ?? this.#baseUrl;
-        this.#defaultVoiceId =
-            (elevenlabs?.defaultVoiceId as string | undefined) ??
-            DEFAULT_VOICE_ID;
-        this.#defaultModelId =
-            (elevenlabs?.speechToSpeechModelId as string | undefined) ??
-            DEFAULT_MODEL;
+        const elevenlabs = this.config.providers?.elevenlabs;
+        const apiKey = readProviderKey(elevenlabs);
+        if (!apiKey) return;
+        this.#providers.register('elevenlabs', {
+            apiKey,
+            baseUrl:
+                (elevenlabs?.apiBaseUrl as string | undefined) ??
+                'https://api.elevenlabs.io',
+            defaultVoiceId:
+                (elevenlabs?.defaultVoiceId as string | undefined) ??
+                DEFAULT_VOICE_ID,
+            defaultModelId:
+                (elevenlabs?.speechToSpeechModelId as string | undefined) ??
+                DEFAULT_MODEL,
+        });
     }
 
     async convert(
@@ -123,26 +138,14 @@ export class VoiceChangerDriver extends PuterDriver {
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
         // Only one provider exists today, but naming a different one should
         // fail loudly rather than quietly convert with this one.
-        if (
-            args.provider &&
-            !PROVIDERS.includes(
-                args.provider
-                    .trim()
-                    .toLowerCase() as (typeof PROVIDERS)[number],
-            )
-        ) {
-            throw new HttpError(
-                400,
-                `Speech-to-speech provider not found: ${args.provider}. Available: ${PROVIDERS.join(', ')}`,
-                { legacyCode: 'bad_request' },
-            );
-        }
+        const providerName = this.#providers.resolve(args.provider);
 
         if (args.test_mode) {
             return { url: SAMPLE_AUDIO_URL, content_type: 'audio/mpeg' };
         }
 
-        if (!this.#apiKey) {
+        const elevenlabs = this.#providers.get(providerName);
+        if (!elevenlabs) {
             throw new HttpError(500, 'ElevenLabs API key not configured', {
                 legacyCode: 'internal_error',
             });
@@ -168,9 +171,13 @@ export class VoiceChangerDriver extends PuterDriver {
             { maxBytes: MAX_AUDIO_FILE_SIZE },
         );
 
-        const modelId = args.model_id || args.model || this.#defaultModelId;
+        const modelId =
+            args.model_id || args.model || elevenlabs.defaultModelId;
         const voiceId =
-            args.voice_id || args.voiceId || args.voice || this.#defaultVoiceId;
+            args.voice_id ||
+            args.voiceId ||
+            args.voice ||
+            elevenlabs.defaultVoiceId;
         if (!voiceId)
             throw new HttpError(400, '`voice` is required', {
                 legacyCode: 'bad_request',
@@ -203,134 +210,88 @@ export class VoiceChangerDriver extends PuterDriver {
         const ucentsPerSecond = VOICE_CHANGER_COSTS[usageKey] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
 
-        const hold = await this.#aiMetering.reserveAiCredits(
+        const formData = new FormData();
+        const blob = new Blob([loaded.buffer as BlobPart], {
+            type: loaded.mimeType ?? 'application/octet-stream',
+        });
+        formData.append('audio', blob, loaded.filename);
+        formData.append('model_id', modelId);
+
+        const settings = args.voice_settings ?? args.voiceSettings;
+        if (settings !== undefined && settings !== null) {
+            formData.append(
+                'voice_settings',
+                typeof settings === 'string'
+                    ? settings
+                    : JSON.stringify(settings),
+            );
+        }
+        if (args.seed !== undefined && args.seed !== null) {
+            formData.append('seed', String(args.seed));
+        }
+        if (typeof args.remove_background_noise === 'boolean') {
+            formData.append(
+                'remove_background_noise',
+                String(args.remove_background_noise),
+            );
+        }
+        if (args.file_format) {
+            formData.append('file_format', args.file_format);
+        }
+
+        const searchParams = new URLSearchParams();
+        const outputFormat = args.output_format || DEFAULT_OUTPUT_FORMAT;
+        if (outputFormat) searchParams.set('output_format', outputFormat);
+        if (
+            args.optimize_streaming_latency !== undefined &&
+            args.optimize_streaming_latency !== null
+        ) {
+            searchParams.set(
+                'optimize_streaming_latency',
+                String(args.optimize_streaming_latency),
+            );
+        }
+        if (args.enable_logging !== undefined && args.enable_logging !== null) {
+            searchParams.set('enable_logging', String(args.enable_logging));
+        }
+
+        const url = new URL(
+            `/v1/speech-to-speech/${voiceId}`,
+            elevenlabs.baseUrl,
+        );
+        const search = searchParams.toString();
+        if (search) url.search = search;
+
+        const metering = this.#aiMetering;
+        return withAiCreditHold(
+            metering,
             actor,
             usageKey,
             estimatedCost,
-        );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            const formData = new FormData();
-            const blob = new Blob([loaded.buffer as BlobPart], {
-                type: loaded.mimeType ?? 'application/octet-stream',
-            });
-            formData.append('audio', blob, loaded.filename);
-            formData.append('model_id', modelId);
-
-            const settings = args.voice_settings ?? args.voiceSettings;
-            if (settings !== undefined && settings !== null) {
-                formData.append(
-                    'voice_settings',
-                    typeof settings === 'string'
-                        ? settings
-                        : JSON.stringify(settings),
-                );
-            }
-            if (args.seed !== undefined && args.seed !== null) {
-                formData.append('seed', String(args.seed));
-            }
-            if (typeof args.remove_background_noise === 'boolean') {
-                formData.append(
-                    'remove_background_noise',
-                    String(args.remove_background_noise),
-                );
-            }
-            if (args.file_format) {
-                formData.append('file_format', args.file_format);
-            }
-
-            const searchParams = new URLSearchParams();
-            const outputFormat = args.output_format || DEFAULT_OUTPUT_FORMAT;
-            if (outputFormat) searchParams.set('output_format', outputFormat);
-            if (
-                args.optimize_streaming_latency !== undefined &&
-                args.optimize_streaming_latency !== null
-            ) {
-                searchParams.set(
-                    'optimize_streaming_latency',
-                    String(args.optimize_streaming_latency),
-                );
-            }
-            if (
-                args.enable_logging !== undefined &&
-                args.enable_logging !== null
-            ) {
-                searchParams.set('enable_logging', String(args.enable_logging));
-            }
-
-            const url = new URL(
-                `/v1/speech-to-speech/${voiceId}`,
-                this.#baseUrl,
-            );
-            const search = searchParams.toString();
-            if (search) url.search = search;
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'xi-api-key': this.#apiKey },
-                body: formData,
-            });
-
-            if (!response.ok) {
-                let detail: unknown = null;
-                try {
-                    detail = await response.json();
-                } catch {
-                    // Non-JSON body — ignore.
-                }
-                const message =
-                    detail && typeof detail === 'object' && 'detail' in detail
-                        ? String((detail as { detail: unknown }).detail)
-                        : `ElevenLabs returned ${response.status}`;
-                // Tag upstream status as `upstream_*` so the alarm gate
-                // skips paging on ElevenLabs 5xx outages (we expose them
-                // as 400 like the TTS provider does — user can't act on
-                // them, but it's not our bug either).
-                const legacyCode =
-                    response.status >= 500
-                        ? 'upstream_provider_unavailable'
-                        : response.status === 401 || response.status === 403
-                          ? 'upstream_auth_failed'
-                          : response.status === 429
-                            ? 'upstream_rate_limited'
-                            : 'upstream_bad_request';
-                const exposedStatus =
-                    legacyCode === 'upstream_rate_limited'
-                        ? 429
-                        : legacyCode === 'upstream_auth_failed'
-                          ? 500
-                          : legacyCode === 'upstream_provider_unavailable'
-                            ? 400
-                            : response.status;
-                throw new HttpError(exposedStatus, message, {
-                    legacyCode,
-                    fields: {
-                        provider: 'elevenlabs',
-                        upstreamStatus: response.status,
+            async (): Promise<DriverStreamResult> => {
+                const response = await upstreamFetch(
+                    'ElevenLabs',
+                    url,
+                    {
+                        method: 'POST',
+                        headers: { 'xi-api-key': elevenlabs.apiKey },
+                        body: formData,
                     },
-                });
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            const stream = Readable.from(Buffer.from(arrayBuffer));
-            this.#aiMetering.incrementUsage(
-                actor,
-                usageKey,
-                estimatedSeconds,
-                ucentsPerSecond * estimatedSeconds,
-            );
-
-            return {
-                dataType: 'stream',
-                content_type:
-                    response.headers.get('content-type') ?? 'audio/mpeg',
-                stream,
-            };
-        } finally {
-            await hold.release();
-        }
+                    { timeoutMs: CONVERT_TIMEOUT_MS },
+                );
+                metering.incrementUsage(
+                    actor,
+                    usageKey,
+                    estimatedSeconds,
+                    estimatedCost,
+                );
+                return {
+                    dataType: 'stream',
+                    content_type:
+                        response.headers.get('content-type') ?? 'audio/mpeg',
+                    stream: upstreamBodyStream(response),
+                };
+            },
+        );
     }
 }

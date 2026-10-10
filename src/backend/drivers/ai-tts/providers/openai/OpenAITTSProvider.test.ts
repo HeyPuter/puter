@@ -99,10 +99,8 @@ const aiMetering = () =>
 const makeProvider = () =>
     new OpenAITTSProvider(aiMetering(), { apiKey: 'test-key' });
 
-const mockAudioResponse = (bytes = 'opus-audio') => ({
-    arrayBuffer: async () =>
-        new Uint8Array(Buffer.from(bytes)).buffer as ArrayBuffer,
-});
+// The SDK resolves `audio.speech.create` with the raw fetch Response.
+const mockAudioResponse = (bytes = 'opus-audio') => new Response(bytes);
 
 beforeEach(() => {
     speechCreateMock.mockReset();

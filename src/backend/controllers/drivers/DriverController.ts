@@ -46,6 +46,7 @@ import {
     resolveDriverMethodRequireReputation,
     resolveDriverMethodRequireSubscription,
 } from '../../drivers/meta.js';
+import { pipeStreamResult } from '../../drivers/util/pipeStreamResult.js';
 import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import { PermissionUtil } from '../../services/permission/permissionUtil.js';
@@ -111,7 +112,8 @@ const extractUpstreamStatus = (e: {
     return undefined;
 };
 
-const translateProviderError = (err: unknown): unknown => {
+/** Maps a provider failure onto the error the `/drivers/call` caller sees. */
+export const translateProviderError = (err: unknown): unknown => {
     if (isHttpError(err)) return err;
     if (!err || typeof err !== 'object') return err;
     const e = err as {
@@ -584,7 +586,7 @@ export class DriverController extends PuterController {
             if (result.chunked) {
                 res.setHeader('Transfer-Encoding', 'chunked');
             }
-            result.stream.pipe(res);
+            pipeStreamResult(result.stream, res, `${ifaceName}.${method}`);
             return;
         }
 

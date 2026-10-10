@@ -43,7 +43,10 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
-import { UnsupportedDocumentException } from '@aws-sdk/client-textract';
+import {
+    InvalidS3ObjectException,
+    UnsupportedDocumentException,
+} from '@aws-sdk/client-textract';
 import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../core/actor.js';
@@ -349,13 +352,63 @@ describe('OCRDriver.recognize (aws-textract)', () => {
         expect(textractSendMock).not.toHaveBeenCalled();
     });
 
-    // Note: the S3Object-source branch (driver picks `Document.S3Object`
-    // over inline Bytes when fsEntry has a bucket, and constructs a
-    // TextractClient for that bucket's region) is best exercised by an
-    // *.integration.test.ts against real S3 + Textract — the in-memory
-    // S3 store doesn't deterministically produce a bucket-bearing
-    // fsEntry, and the driver's per-region TextractClient cache leaks
-    // across tests.
+    const writePuterImage = async (): Promise<{
+        actor: Actor;
+        path: string;
+        bytes: Buffer;
+    }> => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user.username}/scan.png`;
+        const bytes = Buffer.from('png-bytes');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: bytes.byteLength,
+                contentType: 'image/png',
+            },
+            fileContent: bytes,
+        });
+        return { actor, path, bytes };
+    };
+
+    it('reads a Puter file straight from S3, never downloading it', async () => {
+        const { actor, path } = await writePuterImage();
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
+
+        await withActor(actor, () =>
+            driver.recognize({ source: { path }, provider: 'aws-textract' }),
+        );
+
+        const sentCmd = textractSendMock.mock.calls[0]![0];
+        expect(sentCmd.input.Document.S3Object).toMatchObject({
+            Name: expect.any(String),
+        });
+        expect(sentCmd.input.Document.Bytes).toBeUndefined();
+        expect(s3Read).not.toHaveBeenCalled();
+    });
+
+    it('downloads the bytes only when Textract cannot read the S3 object', async () => {
+        const { actor, path, bytes } = await writePuterImage();
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        textractSendMock
+            .mockRejectedValueOnce(
+                new InvalidS3ObjectException({
+                    message: 'unreachable bucket',
+                    $metadata: {},
+                }),
+            )
+            .mockResolvedValueOnce(sampleTextractResponse);
+
+        await withActor(actor, () =>
+            driver.recognize({ source: { path }, provider: 'aws-textract' }),
+        );
+
+        expect(s3Read).toHaveBeenCalledTimes(1);
+        expect(
+            textractSendMock.mock.calls[1]![0].input.Document.Bytes,
+        ).toEqual(bytes);
+    });
 
     it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
         const { actor } = await makeUser();

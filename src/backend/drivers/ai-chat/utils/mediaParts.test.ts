@@ -26,36 +26,12 @@ import {
     modelSupportsVision,
     normalizeMediaPart,
     normalizeMediaParts,
-    parseDataUri,
     requiredInputModalities,
     unsupportedMediaTextPart,
 } from './mediaParts.js';
 
 const PNG_URL = 'https://cdn.test/a.png';
 const DATA_URL = 'data:image/png;base64,iVBORw0KGgo=';
-
-describe('parseDataUri', () => {
-    it('splits mime type, base64 flag and payload', () => {
-        expect(parseDataUri(DATA_URL)).toEqual({
-            mimeType: 'image/png',
-            base64: true,
-            data: 'iVBORw0KGgo=',
-        });
-    });
-
-    it('treats a missing mime type as text/plain and no base64 flag as false', () => {
-        expect(parseDataUri('data:,hello')).toEqual({
-            mimeType: 'text/plain',
-            base64: false,
-            data: 'hello',
-        });
-    });
-
-    it('returns null for anything that is not a data URI', () => {
-        expect(parseDataUri(PNG_URL)).toBeNull();
-        expect(parseDataUri('')).toBeNull();
-    });
-});
 
 describe('normalizeMediaPart', () => {
     it('types the puter.js shorthand `{ image_url: { url } }`', () => {

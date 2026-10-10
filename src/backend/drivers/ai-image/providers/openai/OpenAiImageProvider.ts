@@ -34,7 +34,11 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
-import { fetchImageAsBase64, isHttpUrl } from '../../inputImage.js';
+import {
+    fetchImageAsBase64,
+    isHttpUrl,
+    parseDataUri,
+} from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
@@ -676,10 +680,10 @@ export class OpenAiImageProvider implements IImageProvider {
             mime = fetched.mime;
             base64 = fetched.base64;
         } else {
-            const dataUri = /^data:([^;]+);base64,(.*)$/s.exec(img);
+            const dataUri = parseDataUri(img);
             if (dataUri) {
-                mime = dataUri[1];
-                base64 = dataUri[2];
+                mime = dataUri.mime;
+                base64 = dataUri.base64;
             }
         }
 

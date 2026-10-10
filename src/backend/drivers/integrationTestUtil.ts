@@ -30,6 +30,7 @@
  * a test file.
  */
 
+import { translateProviderError } from '../controllers/drivers/DriverController.js';
 import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
@@ -88,6 +89,22 @@ export const withTestActor = <T>(
     Promise.resolve(
         runWithContext({ actor, requestId: 'integration-test' }, fn),
     );
+
+/**
+ * Runs `fn` as {@link withTestActor} and returns its failure the way
+ * `/drivers/call` hands it to the caller.
+ */
+export const callerError = async (
+    fn: () => Promise<unknown>,
+    actor: Actor = SYSTEM_ACTOR,
+): Promise<unknown> => {
+    try {
+        await withTestActor(fn, actor);
+    } catch (e) {
+        return translateProviderError(e);
+    }
+    throw new Error('expected the call to reject');
+};
 
 /**
  * The four actor shapes provider tests exercise: a direct user session, the

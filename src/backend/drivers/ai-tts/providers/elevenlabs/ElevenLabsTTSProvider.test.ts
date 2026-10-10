@@ -45,7 +45,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { callerError, withTestActor } from '../../../integrationTestUtil.js';
 import { ElevenLabsTTSProvider } from './ElevenLabsTTSProvider.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
@@ -137,6 +137,43 @@ describe('ElevenLabsTTSProvider catalog', () => {
         expect((init as RequestInit).headers).toMatchObject({
             'xi-api-key': 'test-key',
         });
+    });
+
+    it('listVoices calls ElevenLabs once per cache window', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockImplementation(async () =>
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+
+        const [first, second] = await Promise.all([
+            provider.listVoices(),
+            provider.listVoices(),
+        ]);
+        const third = await provider.listVoices();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+    });
+
+    it('listVoices does not cache a failed fetch', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }));
+        await expect(provider.listVoices()).rejects.toMatchObject({
+            status: 503,
+        });
+
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+        expect(await provider.listVoices()).toHaveLength(1);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
     it('listVoices uses a custom apiBaseUrl when configured', async () => {
@@ -316,6 +353,7 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         );
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>)['xi-api-key']).toBe(
             'test-key',
         );
@@ -437,6 +475,30 @@ describe('ElevenLabsTTSProvider.synthesize streaming output', () => {
         expect(Buffer.concat(chunks).toString()).toBe('AAA-BBB');
     });
 
+    it('answers before the upstream body has finished arriving', async () => {
+        const provider = makeProvider();
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(body, { headers: { 'content-type': 'audio/mpeg' } }),
+        );
+
+        // Resolves with the upstream still open: nothing is buffered first.
+        const result = (await withTestActor(() =>
+            provider.synthesize({ text: 'hi' }),
+        )) as { stream: Readable };
+        controller.enqueue(Buffer.from('AAA'));
+        controller.close();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.stream) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toBe('AAA');
+    });
+
     it('uses the response content-type header when present', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse('x', 'audio/wav'));
@@ -496,9 +558,9 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
             }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });

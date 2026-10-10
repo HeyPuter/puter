@@ -16,6 +16,7 @@ import {
     type AiMeteringService,
     aiModelKey,
     withAiCostFactor,
+    withAiCreditHold,
 } from './aiCostFactor.ts';
 
 type Listener = (
@@ -314,5 +315,70 @@ describe('AI cost factor', () => {
 
         expect(boom).toHaveBeenCalled();
         expect(result.total).toBe(1000);
+    });
+
+    describe('withAiCreditHold', () => {
+        const usageType = 'openai:tts-1:character';
+
+        it('holds the factored cost while run executes, then releases it', async () => {
+            listen(1.3);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                let heldDuringRun = 0;
+                const result = await withAiCreditHold(
+                    scoped,
+                    actor,
+                    usageType,
+                    1000,
+                    async () => {
+                        heldDuringRun =
+                            await metering.getOutstandingHolds(actor);
+                        return 'done';
+                    },
+                );
+                expect(result).toBe('done');
+                expect(heldDuringRun).toBe(1300);
+                expect(await metering.getOutstandingHolds(actor)).toBe(0);
+            } finally {
+                check.mockRestore();
+            }
+        });
+
+        it('releases the hold when run throws', async () => {
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            const boom = new Error('upstream down');
+            try {
+                await expect(
+                    withAiCreditHold(scoped, actor, usageType, 1000, () =>
+                        Promise.reject(boom),
+                    ),
+                ).rejects.toBe(boom);
+                expect(await metering.getOutstandingHolds(actor)).toBe(0);
+            } finally {
+                check.mockRestore();
+            }
+        });
+
+        it('refuses with a 402 and never runs when the cost is unaffordable', async () => {
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(false);
+            const run = vi.fn();
+            try {
+                await expect(
+                    withAiCreditHold(scoped, actor, usageType, 1000, run),
+                ).rejects.toMatchObject({
+                    statusCode: 402,
+                    legacyCode: 'insufficient_funds',
+                });
+                expect(run).not.toHaveBeenCalled();
+            } finally {
+                check.mockRestore();
+            }
+        });
     });
 });

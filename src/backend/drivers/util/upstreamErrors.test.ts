@@ -17,8 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { APIConnectionError, APIConnectionTimeoutError } from 'openai';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { translateProviderError } from '../../controllers/drivers/DriverController.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     CONTENT_FILTER_PATTERN,
@@ -27,6 +30,9 @@ import {
     isTransientUpstreamError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
+    upstreamBodyStream,
+    upstreamFetch,
+    UpstreamResponseError,
 } from './upstreamErrors.js';
 
 const withStatus = (status: number) =>
@@ -192,5 +198,201 @@ describe('sanitizeUpstreamMessage', () => {
                 'Add credits at https://vendor.test/billing (request id: req-parenthesized) request_id: req_standalone',
             ),
         ).toBe('Add credits at');
+    });
+});
+
+describe('upstreamFetch', () => {
+    // A provider stand-in: `/status/<n>` answers with that status and the
+    // request body echoed back as the response body; `/hang` never answers.
+    let server: Server;
+    let base: string;
+    beforeAll(async () => {
+        server = createServer((req, res) => {
+            if (req.url === '/hang') return;
+            const status = Number(req.url?.split('/')[2] ?? 200);
+            const chunks: Buffer[] = [];
+            req.on('data', (c: Buffer) => chunks.push(c));
+            req.on('end', () => {
+                res.writeHead(status, { 'content-type': 'application/json' });
+                res.end(Buffer.concat(chunks));
+            });
+        });
+        await new Promise<void>((resolve) => server.listen(0, resolve));
+        base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+    afterAll(async () => {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    const fail = async (status: number, body: unknown): Promise<unknown> => {
+        try {
+            await upstreamFetch(
+                'Vendor',
+                `${base}/status/${status}`,
+                {
+                    method: 'POST',
+                    body:
+                        typeof body === 'string' ? body : JSON.stringify(body),
+                },
+                { timeoutMs: 5000 },
+            );
+        } catch (e) {
+            return e;
+        }
+        throw new Error('expected upstreamFetch to reject');
+    };
+
+    it('returns a 2xx response untouched', async () => {
+        const res = await upstreamFetch(
+            'Vendor',
+            `${base}/status/200`,
+            { method: 'POST', body: '{"ok":true}' },
+            { timeoutMs: 5000 },
+        );
+        expect(await res.json()).toEqual({ ok: true });
+    });
+
+    it.each([
+        [
+            { error: { message: 'openai-style', code: 'bad_voice' } },
+            'openai-style',
+            'bad_voice',
+        ],
+        [{ error: 'flat error', code: 'flat_code' }, 'flat error', 'flat_code'],
+        [
+            { detail: { message: 'nested detail', code: 'voice_not_found' } },
+            'nested detail',
+            'voice_not_found',
+        ],
+        [{ detail: 'string detail' }, 'string detail', undefined],
+        [{ message: 'top-level message' }, 'top-level message', undefined],
+        ['plain text body', 'plain text body', undefined],
+        ['', 'Vendor request failed (status 422)', undefined],
+    ])('reads the message and code out of %j', async (body, message, code) => {
+        const err = await fail(422, body);
+        expect(err).toBeInstanceOf(UpstreamResponseError);
+        expect(err).toMatchObject({ status: 422, message, code });
+    });
+
+    it.each([
+        [429, 429, 'upstream_rate_limited'],
+        [401, 500, 'upstream_auth_failed'],
+        [403, 500, 'upstream_auth_failed'],
+        [402, 503, 'upstream_credits_exhausted'],
+        [500, 400, 'upstream_provider_unavailable'],
+        [422, 400, 'upstream_bad_request'],
+    ])(
+        'maps an upstream %i to %i %s at the driver boundary',
+        async (upstreamStatus, statusCode, legacyCode) => {
+            const err = await fail(upstreamStatus, {
+                error: { message: 'nope', code: 'vendor_code' },
+            });
+            expect(translateProviderError(err)).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { upstreamStatus },
+            });
+        },
+    );
+
+    it('keeps raw provider text out of what the caller sees', async () => {
+        const err = await fail(400, {
+            detail: {
+                message:
+                    '<b>Invalid</b> voice, see https://vendor.test/docs (request id: abc)',
+            },
+        });
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 400,
+            message: 'Invalid voice, see',
+        });
+    });
+
+    it('gives up after timeoutMs and surfaces as a 504 upstream_timeout', async () => {
+        let err: unknown;
+        try {
+            await upstreamFetch(
+                'Vendor',
+                `${base}/hang`,
+                {},
+                { timeoutMs: 50 },
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+    });
+
+    it('still honours a caller abort signal', async () => {
+        const controller = new AbortController();
+        const pending = upstreamFetch(
+            'Vendor',
+            `${base}/hang`,
+            { signal: controller.signal },
+            { timeoutMs: 5000 },
+        );
+        controller.abort();
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    });
+});
+
+describe('upstreamBodyStream', () => {
+    const controlled = () => {
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        return { response: new Response(body), controller };
+    };
+
+    it('hands bytes on as they arrive instead of waiting for the whole body', async () => {
+        const { response, controller } = controlled();
+        const stream = upstreamBodyStream(response);
+        const reader = stream[Symbol.asyncIterator]();
+
+        controller.enqueue(Buffer.from('first'));
+        const first = await reader.next();
+        expect(Buffer.from(first.value as Uint8Array).toString()).toBe('first');
+
+        controller.enqueue(Buffer.from('second'));
+        controller.close();
+        const rest: Buffer[] = [];
+        for (;;) {
+            const next = await reader.next();
+            if (next.done) break;
+            rest.push(Buffer.from(next.value as Uint8Array));
+        }
+        expect(Buffer.concat(rest).toString()).toBe('second');
+    });
+
+    it('errors, rather than ending cleanly, when the body fails mid-stream', async () => {
+        const { response, controller } = controlled();
+        const stream = upstreamBodyStream(response);
+        const reader = stream[Symbol.asyncIterator]();
+
+        controller.enqueue(Buffer.from('partial'));
+        const first = await reader.next();
+        expect(Buffer.from(first.value as Uint8Array).toString()).toBe(
+            'partial',
+        );
+
+        controller.error(new Error('connection reset'));
+        await expect(reader.next()).rejects.toThrow('connection reset');
+    });
+
+    it('is an empty stream for a body-less response', async () => {
+        const chunks: unknown[] = [];
+        for await (const chunk of upstreamBodyStream(
+            new Response(null, { status: 204 }),
+        ))
+            chunks.push(chunk);
+        expect(chunks).toEqual([]);
     });
 });
