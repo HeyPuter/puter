@@ -4387,8 +4387,8 @@ export class FSService extends PuterService {
 
     /**
      * Remove an entry. For directories, descendants are walked and removed
-     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
-     * thumbnail extension (and any other listener) can clean up side state.
+     * (both DB rows and S3 objects). Emits `fs.remove.node` once per removed
+     * entry, after its row is deleted, so listeners can clean up side state.
      *
      * The caller checks `write` on the entry; the parent check that governs
      * restructuring is enforced here.
@@ -4550,8 +4550,6 @@ export class FSService extends PuterService {
             };
             group.keys.push(child.uuid);
             grouped.set(groupKey, group);
-            // Fire individual removal events so thumbnail extension can clean up.
-            this.#emitRemoveEvent(child);
         }
         await Promise.allSettled(
             Array.from(grouped.values()).map((group) =>
