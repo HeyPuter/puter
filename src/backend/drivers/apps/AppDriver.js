@@ -862,14 +862,12 @@ export class AppDriver extends PuterDriver {
      * keeps resolving to the joined row. Mirrors v1 AppES's `#read` alias
      * plumbing.
      *
-     * The alias query is fired in parallel with the direct lookup so the common
-     * (no-alias) case pays only one round-trip.
+     * The alias is an uncached system KV read, so it waits for a direct miss.
      */
     async #getByUidWithAlias(uid) {
-        const aliasPromise = this.#readCanonicalAppUidAlias(uid);
         const direct = await this.appStore.getByUid(uid);
         if (direct) return direct;
-        const canonicalUid = await aliasPromise;
+        const canonicalUid = await this.#readCanonicalAppUidAlias(uid);
         if (
             typeof canonicalUid === 'string' &&
             canonicalUid &&
