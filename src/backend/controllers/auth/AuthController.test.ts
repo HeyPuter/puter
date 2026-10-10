@@ -2239,6 +2239,62 @@ describe('AuthController grant flows', () => {
         ).not.toContain(permission);
     });
 
+    it('revoke-user-app `*`: deletes the worker sessions that app deployed for the user, and only those', async () => {
+        const app = await server.stores.app.create(
+            {
+                name: `tr-worker-${uuidv4()}`,
+                title: 'TestRevokeWorkerApp',
+                index_url: `https://tr-worker-${uuidv4()}.example.test/`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const workerName = () => `wk-${uuidv4().slice(0, 8)}`;
+        const appWorker = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: app.uid, workerName: workerName() },
+        );
+        const otherApp = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: `app-${uuidv4()}`, workerName: workerName() },
+        );
+        const userScoped = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: null, workerName: workerName() },
+        );
+        const exists = async (uuid: string) =>
+            (
+                await server.clients.db.read(
+                    'SELECT 1 FROM `sessions` WHERE `uuid` = ?',
+                    [uuid],
+                )
+            ).length > 0;
+
+        // A single permission leaves the app's workers running as before.
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: 'service:x:ii:read' },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await exists(appWorker.uuid)).toBe(true);
+
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: '*' },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await exists(appWorker.uuid)).toBe(false);
+        expect(await exists(otherApp.uuid)).toBe(true);
+        expect(await exists(userScoped.uuid)).toBe(true);
+    });
+
     it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
         const cases = [
             { origin: { host: 'evil' }, permission: 'service:x:ii:read' },

@@ -22,8 +22,10 @@ import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
 import { AuthService } from './AuthService.js';
 
@@ -1571,10 +1573,16 @@ describe('AuthService (integration)', () => {
             // revoke so the re-create produces a fresh row.
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const { uuid: workerUid } = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
             const first = await authService.createWorkerSessionToken(
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const firstUuid = (first.session as { uuid: string }).uuid;
             await authService.revokeSession(firstUuid);
@@ -1583,6 +1591,8 @@ describe('AuthService (integration)', () => {
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const secondUuid = (second.session as { uuid: string }).uuid;
             expect(secondUuid).not.toBe(firstUuid);
@@ -1652,6 +1662,178 @@ describe('AuthService (integration)', () => {
                 [sessionUuid],
             )) as Array<{ revoked_at: number | null }>;
             expect(rows[0]?.revoked_at).not.toBeNull();
+        });
+    });
+
+    describe('a worker token lives only as long as its worker', () => {
+        const deployRow = async (
+            userId: number,
+            workerName: string,
+            appOwner?: number,
+        ) =>
+            await server.stores.subdomain.create({
+                userId,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+                appOwner: appOwner ?? null,
+            });
+        const newName = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('resolves while the worker row exists and is invalid once it is deleted', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName);
+            const { token, gui_token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            // Straight through the store: no hook revokes the session.
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            expect(await authService.authenticate(gui_token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('does not come back when the same name is deployed again', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const first = await deployRow(user.id, workerName);
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+                {},
+                { workerUid: first.uuid },
+            );
+            await server.stores.subdomain.deleteByUuid(first.uuid);
+            await deployRow(user.id, workerName);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('applies to app-scoped worker tokens', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `wk-app-${uuidv4()}`,
+                    title: 'Worker app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName, app.id);
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                workerName,
+                { workerUid: row.uuid },
+            );
+            expect(
+                (await authService.authenticate(token)).actor?.app?.uid,
+            ).toBe(app.uid);
+
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('holds a token minted without a worker uid to the name and owner', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const workerName = newName();
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+            );
+            // No row at all.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+
+            // Someone else's worker under that name.
+            const foreign = await deployRow(other.id, workerName);
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            await server.stores.subdomain.deleteByUuid(foreign.uuid);
+
+            await deployRow(user.id, workerName);
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        it('leaves events handler sessions alone; they have no worker row', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ev-app-${uuidv4()}`,
+                    title: 'Events app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                EVENTS_WORKER_SESSION_NAME,
+            );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+    });
+
+    describe('deleting worker sessions', () => {
+        it('deleteWorkerSessionsByName ends the token and drops a derived token`s grants', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
+            const { session, token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const childUid = uuidv4();
+            await server.stores.session.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: sessionUuid,
+                access_token_uid: childUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `permission`) VALUES (?, ?, ?)',
+                [childUid, user.id, 'fs:x:read'],
+            );
+
+            await authService.deleteWorkerSessionsByName(workerName);
+
+            // The worker row is still there: only the session went.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            const grants = await server.clients.db.read(
+                'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ?',
+                [childUid],
+            );
+            expect(grants).toHaveLength(0);
         });
     });
 

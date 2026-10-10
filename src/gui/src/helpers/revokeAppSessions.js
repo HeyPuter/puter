@@ -22,9 +22,10 @@
  * response.
  *
  * `app` rows, plus the `access_token` row a godmode app runs on (the only
- * access tokens that carry an `app_uid`). `worker` rows also carry one but are
- * deployment credentials rather than this user's grant to the app, and access
- * tokens the app issued follow on their own through the server-side cascade.
+ * access tokens that carry an `app_uid`). `worker` rows also carry one, but the
+ * server deletes them itself when the app's grants are revoked with `*`, and
+ * access tokens the app issued follow on their own through the server-side
+ * cascade.
  *
  * @param {{ uuid?: string; kind?: string; app_uid?: string | null }[]} sessions
  * @param {string} appUid

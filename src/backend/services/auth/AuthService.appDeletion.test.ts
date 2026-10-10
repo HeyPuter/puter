@@ -26,6 +26,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor } from '../../core/actor.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import {
     createTestUser,
     setupPuterTestEnv,
@@ -327,10 +328,16 @@ describe('an app uid that returns after its app was deleted', () => {
     it('replaces a worker session older than its app', async () => {
         const { app, actor } = await createApp();
         const workerName = `w-${uuidv4().slice(0, 8)}`;
+        const { uuid: workerUid } = await env.server.stores.subdomain.create({
+            userId: actor.user.id as number,
+            subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            appOwner: app.id,
+        });
         const old = await env.server.services.auth.createWorkerAppToken(
             actor,
             app.uid,
             workerName,
+            { workerUid },
         );
         await backdateSession(sessionUid(old), 3600);
         expect((await authenticate(old)).reauth?.reason).toBe(
@@ -341,6 +348,7 @@ describe('an app uid that returns after its app was deleted', () => {
             actor,
             app.uid,
             workerName,
+            { workerUid },
         );
         expect(sessionUid(fresh)).not.toBe(sessionUid(old));
         expect(await isRevoked(sessionUid(old))).toBe(true);

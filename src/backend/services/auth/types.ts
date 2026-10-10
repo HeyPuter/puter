@@ -53,6 +53,9 @@ export interface SessionTokenPayload extends TokenPayloadBase {
     user_uid: string;
     /** Set on a worker credential riding this token type; not a browser session. */
     worker?: boolean;
+    worker_name?: string;
+    /** Uuid of the worker's subdomain row; the token dies with that row. */
+    worker_uid?: string;
 }
 
 /**
@@ -67,6 +70,10 @@ export interface AppUnderUserTokenPayload extends TokenPayloadBase {
     session?: string;
     /** Events handler runs behind this token's writes; see `Actor.handlerDepth`. */
     handler_depth?: number;
+    worker?: boolean;
+    worker_name?: string;
+    /** Uuid of the worker's subdomain row; the token dies with that row. */
+    worker_uid?: string;
 }
 
 /**
@@ -94,7 +101,9 @@ export interface AccessTokenPayload extends TokenPayloadBase {
 }
 
 export type AnyTokenPayload =
-    SessionTokenPayload | AppUnderUserTokenPayload | AccessTokenPayload;
+    | SessionTokenPayload
+    | AppUnderUserTokenPayload
+    | AccessTokenPayload;
 
 // -- Session row (from `sessions` table) ----------------------------
 
