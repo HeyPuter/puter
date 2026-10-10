@@ -743,6 +743,32 @@ export class SessionStore extends PuterStore {
         }));
     }
 
+    /** Highest row id, the bound for a primary-key walk. */
+    async maxId() {
+        const rows = await this.clients.db.read(
+            'SELECT MAX(`id`) AS `max_id` FROM `sessions`',
+        );
+        return Number(rows[0]?.max_id) || 0;
+    }
+
+    /**
+     * Hard-delete rows with ids in `(afterId, afterId + span]` that were
+     * revoked or expired before `webCutoff` (web rows, which `listSignIns`
+     * reads) or `cutoff` (every other kind), both unix seconds. Bounded by
+     * primary key instead of an index on either column, since `touch` rewrites
+     * `expires_at` constantly. Cached copies need no invalidation: they still
+     * read as revoked or expired.
+     */
+    async purgeEndedInRange(afterId, span, { cutoff, webCutoff }) {
+        const result = await this.clients.db.write(
+            'DELETE FROM `sessions` WHERE `id` > ? AND `id` <= ? AND (' +
+                "(`kind` = 'web' AND (`revoked_at` < ? OR `expires_at` < ?)) OR " +
+                "(`kind` <> 'web' AND (`revoked_at` < ? OR `expires_at` < ?)))",
+            [afterId, afterId + span, webCutoff, webCutoff, cutoff, cutoff],
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
+    }
+
     /**
      * Bump `last_activity` and slide `expires_at` per the row's kind in a
      * single UPDATE. Sliding kinds (web/app/asset) get their `expires_at`
