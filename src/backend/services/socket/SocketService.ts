@@ -304,17 +304,16 @@ export class SocketService extends PuterService {
         return new Set([domain, `api.${domain}`]);
     }
 
-    override onServerPrepareShutdown(): Promise<void> {
+    override async onServerPrepareShutdown(): Promise<void> {
         if (this.#reauthTimer) {
             clearInterval(this.#reauthTimer);
             this.#reauthTimer = null;
         }
-        // Close the io server so existing sockets disconnect cleanly
-        // before http's close() starts waiting for connections.
-        return new Promise<void>((resolve) => {
-            if (!this.#io) return resolve();
-            this.#io.close(() => resolve());
-        });
+        // Disconnects sockets and closes the engine so upgraded connections
+        // don't hold the http server open. Not awaited: close() also closes the
+        // http server and resolves only once every HTTP connection has ended,
+        // and PuterServer.shutdown severs those after the prepare hooks.
+        void this.#io?.close();
     }
 
     // -- Public API (used by other services / controllers) ----------
