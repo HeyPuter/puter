@@ -123,6 +123,7 @@ export const puterServices = {
     userAccount: UserAccountService,
     // Leaf: team + user stores only.
     team: TeamService,
+    // Reaches `team` and `socket` at call time only.
     signup: SignupService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
