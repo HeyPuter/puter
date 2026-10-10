@@ -22,7 +22,7 @@ import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { kv } from '../../../../util/kvSingleton.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import type {
     IChatModel,
@@ -180,8 +180,6 @@ type InfronUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
 };
 
-const KV_MODELS_KEY = 'infronChat:models';
-
 export class InfronProvider implements IChatProvider {
     #meteringService: MeteringService;
 
@@ -251,7 +249,7 @@ export class InfronProvider implements IChatProvider {
         // Infron routes freely (and reports the tier back) when unset.
         const { wireModelId, tier } = resolveTier(
             catalogId,
-            await this.#rawModels(),
+            (await this.#catalog()).raw,
         );
 
         const actor = Context.get('actor');
@@ -360,31 +358,28 @@ export class InfronProvider implements IChatProvider {
         });
     }
 
-    /** The catalog as Infron returns it, kv-cached and shared by callers. */
-    async #rawModels(): Promise<InfronApiModel[]> {
-        let models = kv.get(KV_MODELS_KEY) as InfronApiModel[] | undefined;
-        if (!models) {
-            try {
-                const resp = await axios.request({
-                    method: 'GET',
-                    url: `${this.#apiBaseUrl}/models`,
-                    // Infron requires authentication on the catalog endpoint.
-                    headers: {
-                        Authorization: `Bearer ${this.#apiKey}`,
-                    },
-                });
-
-                models = resp.data.data;
-                kv.set(KV_MODELS_KEY, models, { EX: 15 * 60 }); // cache for 15 minutes
-            } catch (e) {
-                console.log(e);
-            }
-        }
-        return models ?? [];
+    async models(): Promise<IChatModel[]> {
+        return (await this.#catalog()).models;
     }
 
-    async models() {
-        const models = await this.#rawModels();
+    /** Infron's raw catalog alongside the models listed from it. */
+    #catalog = cachedRemoteCatalog({
+        name: 'Infron catalog',
+        fallback: { raw: [] as InfronApiModel[], models: [] as IChatModel[] },
+        fetch: (signal) => this.#fetchModels(signal),
+    });
+
+    async #fetchModels(signal: AbortSignal) {
+        const resp = await axios.request({
+            method: 'GET',
+            url: `${this.#apiBaseUrl}/models`,
+            // Infron requires authentication on the catalog endpoint.
+            headers: {
+                Authorization: `Bearer ${this.#apiKey}`,
+            },
+            signal,
+        });
+        const models: InfronApiModel[] = resp.data.data ?? [];
         const coerced_models: IChatModel[] = [];
         for (const model of models) {
             // The catalog mixes chat with image/video/embedding/search
@@ -409,7 +404,7 @@ export class InfronProvider implements IChatProvider {
                 coerced_models.push(coerceModel(model, prices, tier));
             }
         }
-        return coerced_models;
+        return { raw: models, models: coerced_models };
     }
 
     checkModeration(

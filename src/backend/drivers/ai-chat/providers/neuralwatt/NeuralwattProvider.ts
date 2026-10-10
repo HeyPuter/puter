@@ -23,7 +23,6 @@ import { ChatCompletionCreateParams } from 'openai/resources';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import type {
     IChatModel,
@@ -31,6 +30,7 @@ import type {
     IChatCompleteResult,
     ICompleteArguments,
 } from '../../types.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import {
     messagesHaveImageContent,
@@ -49,9 +49,6 @@ import {
 } from './models.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.neuralwatt.com/v1';
-const KV_MODELS_KEY = 'neuralwattChat:models';
-const KV_QUOTA_KEY = 'neuralwattChat:quota';
-const CACHE_TTL_SEC = 15 * 60;
 
 type NeuralwattUsage = OpenAI.Completions.CompletionUsage & {
     request_cost_usd?: number;
@@ -91,71 +88,53 @@ export class NeuralwattProvider implements IChatProvider {
     }
 
     async models(): Promise<IChatModel[]> {
-        let apiModels = kv.get(KV_MODELS_KEY) as
-            NeuralwattApiModel[] | undefined;
-        if (!apiModels) {
-            try {
-                const resp = await axios.request({
-                    method: 'GET',
-                    url: `${this.#apiBaseUrl}/models`,
-                    headers: {
-                        Authorization: `Bearer ${this.#apiKey}`,
-                    },
-                });
-                apiModels = resp.data.data ?? [];
-                kv.set(KV_MODELS_KEY, apiModels, { EX: CACHE_TTL_SEC });
-            } catch (e) {
-                console.error(
-                    'Failed to fetch Neuralwatt models:',
-                    (e as Error).message,
-                );
-            }
-        }
-        if (!apiModels) return [];
-
-        const coerced: IChatModel[] = [];
-        for (const model of apiModels) {
-            if (model.metadata?.deprecated) continue;
-            const mapped = mapNeuralwattApiModel(model);
-            if (mapped) coerced.push(mapped);
-        }
-        return coerced;
+        return this.#catalog();
     }
 
+    #catalog = cachedRemoteCatalog({
+        name: 'Neuralwatt catalog',
+        fallback: [] as IChatModel[],
+        fetch: async (signal) => {
+            const resp = await axios.request({
+                method: 'GET',
+                url: `${this.#apiBaseUrl}/models`,
+                headers: {
+                    Authorization: `Bearer ${this.#apiKey}`,
+                },
+                signal,
+            });
+            const coerced: IChatModel[] = [];
+            for (const model of (resp.data.data ??
+                []) as NeuralwattApiModel[]) {
+                if (model.metadata?.deprecated) continue;
+                const mapped = mapNeuralwattApiModel(model);
+                if (mapped) coerced.push(mapped);
+            }
+            return coerced;
+        },
+    });
+
     /**
-     * Cached account accounting method (`energy` | `token`) from `GET
+     * The account's accounting method (`energy` | `token`) from `GET
      * /v1/quota`. Used only to annotate returned usage — billing always prefers
      * `cost.request_cost_usd` on the completion.
      */
-    async getAccountingMethod(): Promise<
-        NeuralwattAccountingMethod | undefined
-    > {
-        let method = kv.get(KV_QUOTA_KEY) as
-            NeuralwattAccountingMethod | undefined;
-        if (method === 'energy' || method === 'token') return method;
-
-        try {
+    readonly getAccountingMethod = cachedRemoteCatalog({
+        name: 'Neuralwatt quota',
+        fallback: undefined as NeuralwattAccountingMethod | undefined,
+        fetch: async (signal) => {
             const resp = await axios.request({
                 method: 'GET',
                 url: `${this.#apiBaseUrl}/quota`,
                 headers: {
                     Authorization: `Bearer ${this.#apiKey}`,
                 },
+                signal,
             });
             const raw = resp.data?.balance?.accounting_method;
-            if (raw === 'energy' || raw === 'token') {
-                method = raw;
-                kv.set(KV_QUOTA_KEY, method, { EX: CACHE_TTL_SEC });
-                return method;
-            }
-        } catch (e) {
-            console.error(
-                'Failed to fetch Neuralwatt quota:',
-                (e as Error).message,
-            );
-        }
-        return undefined;
-    }
+            return raw === 'energy' || raw === 'token' ? raw : undefined;
+        },
+    });
 
     /** The model key this provider records usage under. */
     meteringModelKey(modelId: string): string {

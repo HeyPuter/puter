@@ -26,7 +26,7 @@
  * end. Infron is OpenAI-compatible, so the OpenAI SDK is mocked at
  * the module boundary; the model catalog is fetched via `axios`
  * which is mocked at its module boundary too. Both are the real
- * network egress points. Each test clears the kv-cached model list.
+ * network egress points.
  * The companion integration test (InfronProvider.integration.test.ts)
  * exercises the real Infron endpoint.
  */
@@ -47,7 +47,6 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { InfronProvider } from './InfronProvider.js';
@@ -85,8 +84,6 @@ vi.mock('axios', () => ({
 
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
-
-const KV_KEY = 'infronChat:models';
 
 // Prices are USD per million tokens (Infron catalog convention).
 const SAMPLE_API_MODELS = [
@@ -276,13 +273,11 @@ beforeEach(() => {
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
     seedModelsCache();
-    kv.del(KV_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    kv.del(KV_KEY);
 });
 
 // ── Construction ────────────────────────────────────────────────────
@@ -341,7 +336,7 @@ describe('InfronProvider model catalog', () => {
         expect(ids).not.toContain('infron:example/deprecated-model');
     });
 
-    it('caches the model list in kv after the first axios round-trip', async () => {
+    it('caches the model list after the first axios round-trip', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();

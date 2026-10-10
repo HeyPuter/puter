@@ -20,8 +20,8 @@
 import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import {
     contextLengthRetryParams,
@@ -39,8 +39,6 @@ export class TogetherAIProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    #kvKey = 'togetherai:models';
-
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
         // The SDK default is one minute, which long non-streaming
         // completions exceed; match the ten minutes the other providers get.
@@ -55,14 +53,22 @@ export class TogetherAIProvider implements IChatProvider {
         return 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo';
     }
 
-    async models() {
-        let models: IChatModel[] | undefined = kv.get(this.#kvKey);
-        if (models) return models;
+    async models(): Promise<IChatModel[]> {
+        return this.#catalog();
+    }
 
+    #catalog = cachedRemoteCatalog({
+        name: 'Together catalog',
+        fallback: [] as IChatModel[],
+        fetch: (signal) => this.#fetchModels(signal),
+    });
+
+    async #fetchModels(signal: AbortSignal): Promise<IChatModel[]> {
         const apiModels = await this.#together.models.list({
             query: { serverless: 'true' },
+            signal,
         });
-        models = [];
+        const models: IChatModel[] = [];
         for (const model of apiModels) {
             if (
                 model.type === 'chat' ||
@@ -103,7 +109,6 @@ export class TogetherAIProvider implements IChatProvider {
             }
         }
 
-        kv.set(this.#kvKey, models, { EX: 15 * 60 });
         return models;
     }
 

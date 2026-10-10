@@ -41,7 +41,6 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import {
@@ -84,9 +83,6 @@ vi.mock('axios', () => ({
 
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
-
-const KV_MODELS_KEY = 'neuralwattChat:models';
-const KV_QUOTA_KEY = 'neuralwattChat:quota';
 
 const SAMPLE_API_MODELS = [
     {
@@ -227,15 +223,11 @@ beforeEach(() => {
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
     mockCatalogAndQuota('energy');
-    kv.del(KV_MODELS_KEY);
-    kv.del(KV_QUOTA_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    kv.del(KV_MODELS_KEY);
-    kv.del(KV_QUOTA_KEY);
 });
 
 // ── Mapping helpers ─────────────────────────────────────────────────
@@ -348,7 +340,7 @@ describe('NeuralwattProvider model catalog', () => {
         expect(ids).not.toContain('neuralwatt:deprecated-model');
     });
 
-    it('caches the model list in kv after the first axios round-trip', async () => {
+    it('caches the model list after the first axios round-trip', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();

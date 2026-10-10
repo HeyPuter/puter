@@ -23,7 +23,7 @@ import { ChatCompletionCreateParams } from 'openai/resources';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { kv } from '../../../../util/kvSingleton.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import {
@@ -260,22 +260,23 @@ export class OpenRouterProvider implements IChatProvider {
         });
     }
 
-    async models() {
-        let models = kv.get('openrouterChat:models');
-        if (!models) {
-            try {
-                const resp = await axios.request({
-                    method: 'GET',
-                    url: `${this.#apiBaseUrl}/models`,
-                });
+    async models(): Promise<IChatModel[]> {
+        return this.#catalog();
+    }
 
-                models = resp.data.data;
-                kv.set('openrouterChat:models', models, { EX: 15 * 60 }); // cache for 15 minutes
-            } catch (e) {
-                console.log(e);
-            }
-        }
-        if (!models) return [];
+    #catalog = cachedRemoteCatalog({
+        name: 'OpenRouter catalog',
+        fallback: [] as IChatModel[],
+        fetch: (signal) => this.#fetchModels(signal),
+    });
+
+    async #fetchModels(signal: AbortSignal): Promise<IChatModel[]> {
+        const resp = await axios.request({
+            method: 'GET',
+            url: `${this.#apiBaseUrl}/models`,
+            signal,
+        });
+        const models = resp.data.data ?? [];
         const coerced_models: IChatModel[] = [];
         for (const model of models) {
             if ((model.id as string).includes('openrouter/auto')) {

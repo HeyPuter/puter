@@ -43,7 +43,6 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OllamaChatProvider } from './OllamaProvider.js';
@@ -73,8 +72,6 @@ vi.mock('axios', () => ({
     default: { request: axiosRequestMock },
     request: axiosRequestMock,
 }));
-
-const MODELS_CACHE_KEY = 'ollamaChat:models';
 
 // -- Test harness ----------------------------------------------------
 
@@ -133,14 +130,10 @@ beforeEach(() => {
     createMock.mockReset();
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
-    // The catalog cache is a process-wide singleton — clear it so each test
-    // controls whether discovery hits the Ollama server.
-    kv.del(MODELS_CACHE_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
-    kv.del(MODELS_CACHE_KEY);
     vi.restoreAllMocks();
 });
 
@@ -190,6 +183,7 @@ describe('OllamaChatProvider model discovery', () => {
         expect(axiosRequestMock).toHaveBeenCalledWith({
             method: 'GET',
             url: 'http://ollama.internal:11434/api/tags',
+            signal: expect.any(AbortSignal),
         });
         expect(models).toEqual([
             {
@@ -221,16 +215,14 @@ describe('OllamaChatProvider model discovery', () => {
     });
 
     it('returns an empty catalog when the Ollama server is unreachable', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
         axiosRequestMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
         expect(await makeProvider().models()).toEqual([]);
-        // A failed probe must not be cached as a valid catalog.
-        expect(kv.get(MODELS_CACHE_KEY)).toBeFalsy();
     });
 
-    it('returns an empty catalog — and caches nothing — when Ollama has no models', async () => {
+    it('returns an empty catalog when Ollama has no models', async () => {
         axiosRequestMock.mockResolvedValueOnce({ data: {} });
         expect(await makeProvider().models()).toEqual([]);
-        expect(kv.get(MODELS_CACHE_KEY)).toBeFalsy();
     });
 
     it('list() returns just the namespaced model ids', async () => {

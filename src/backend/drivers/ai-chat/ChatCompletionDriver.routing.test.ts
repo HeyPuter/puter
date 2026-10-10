@@ -42,7 +42,6 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
-import { kv } from '../../util/kvSingleton.js';
 import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import {
@@ -79,9 +78,6 @@ vi.mock('axios', () => ({
 
 let server: PuterServer;
 let driver: ChatCompletionDriver;
-
-const INFRON_KV_KEY = 'infronChat:models';
-const OPENROUTER_KV_KEY = 'openrouterChat:models';
 
 // Google lists gemini-2.5-flash input at $0.30/MTok. The gateway quotes a
 // floor price across its upstream routes, so it undercuts — which is exactly
@@ -144,8 +140,6 @@ const OPENROUTER_CATALOG = [
 
 beforeAll(async () => {
     server = await setupTestServer();
-    kv.del?.(INFRON_KV_KEY);
-    kv.del?.(OPENROUTER_KV_KEY);
     axiosRequestMock.mockImplementation(({ url }: { url: string }) => ({
         data: {
             data: url.includes('openrouter')

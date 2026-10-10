@@ -21,7 +21,7 @@ import axios from 'axios';
 import { default as openai, default as OpenAI } from 'openai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { kv } from '../../../../util/kvSingleton.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
@@ -56,31 +56,23 @@ export class OllamaChatProvider implements IChatProvider {
         this.#meteringService = meteringService;
     }
 
-    async models() {
-        let models = kv.get('ollamaChat:models');
-        if (!models) {
-            try {
-                const resp = await axios.request({
-                    method: 'GET',
-                    url: `${this.#apiBaseUrl}/api/tags`,
-                });
-                models = resp.data.models || [];
-                if (models.length > 0) {
-                    kv.set('ollamaChat:models', models);
-                }
-            } catch (error) {
-                console.error(
-                    'Failed to fetch models from Ollama:',
-                    (error as Error).message,
-                );
-                // Return empty array if Ollama is not available
-                return [];
-            }
-        }
+    async models(): Promise<IChatModel[]> {
+        return this.#catalog();
+    }
 
-        if (!models || models.length === 0) {
-            return [];
-        }
+    #catalog = cachedRemoteCatalog({
+        name: 'Ollama catalog',
+        fallback: [] as IChatModel[],
+        fetch: (signal) => this.#fetchModels(signal),
+    });
+
+    async #fetchModels(signal: AbortSignal): Promise<IChatModel[]> {
+        const resp = await axios.request({
+            method: 'GET',
+            url: `${this.#apiBaseUrl}/api/tags`,
+            signal,
+        });
+        const models = resp.data.models || [];
 
         const coerced_models: IChatModel[] = [];
         for (const model of models) {

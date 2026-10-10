@@ -26,8 +26,7 @@
  * end. The Together SDK is mocked at the module boundary (the real
  * network egress point) so the provider never reaches the network.
  * Models are sourced through the SDK (`together.models.list()`) and
- * cached in the shared `kv` singleton — each test seeds/clears the
- * cache up front. The companion integration test
+ * cached per provider instance. The companion integration test
  * (TogetherAIProvider.integration.test.ts) exercises the real Together
  * endpoint.
  */
@@ -49,7 +48,6 @@ import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { TogetherAIProvider } from './TogetherAIProvider.js';
@@ -80,7 +78,6 @@ vi.mock('together-ai', () => {
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
-const KV_KEY = 'togetherai:models';
 // Together's `models.list()` returns API-shaped rows; the provider
 // coerces them to IChatModel. Costs (per million):
 // Llama-3.3-70B: input=18, output=18; Qwen-7B: input=20, output=20.
@@ -157,16 +154,12 @@ beforeEach(() => {
     createMock.mockReset();
     modelsListMock.mockReset();
     togetherCtor.mockReset();
-    // Clear the cached model list from prior tests so each test
-    // re-resolves through the mocked SDK (or the seeded value below).
-    kv.del(KV_KEY);
     modelsListMock.mockResolvedValue(SAMPLE_API_MODELS);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    kv.del(KV_KEY);
 });
 
 // ── Construction ────────────────────────────────────────────────────
@@ -221,7 +214,7 @@ describe('TogetherAIProvider model catalog', () => {
         expect(model.max_tokens).toBe(Math.floor(32768 * 0.95));
     });
 
-    it('caches the coerced model list in kv after the first call', async () => {
+    it('caches the coerced model list after the first call', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();
