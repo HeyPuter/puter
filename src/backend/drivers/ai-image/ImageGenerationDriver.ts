@@ -19,19 +19,20 @@
 
 import { assertImagePrompt } from './imageValidation.js';
 import crypto from 'node:crypto';
-import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
-import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
-import { secureFetch } from '../../util/secureHttp.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import {
+    resolveOutputPath,
+    saveGeneratedMediaToFS,
+} from '../util/generatedMedia.js';
+import { ModelCatalog } from '../util/modelCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
@@ -84,6 +85,7 @@ export class ImageGenerationDriver extends PuterDriver {
         string,
         { provider: string; reason?: string }
     >();
+    #catalog = new ModelCatalog<IImageModel>([], [], 'aiImage');
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -97,9 +99,22 @@ export class ImageGenerationDriver extends PuterDriver {
     override async onServerStart() {
         this.#registerProviders();
         await this.#buildModelMap();
+        this.#catalog = new ModelCatalog(
+            this.#listModels(),
+            Object.values(this.#modelIdMap).flat(),
+            'aiImage',
+        );
     }
 
-    async models() {
+    async models(): Promise<IImageModel[]> {
+        return this.#catalog.models;
+    }
+
+    async list(): Promise<string[]> {
+        return this.#catalog.names;
+    }
+
+    #listModels(): IImageModel[] {
         const seen = new Set<string>();
         return Object.values(this.#modelIdMap)
             .flat()
@@ -131,32 +146,8 @@ export class ImageGenerationDriver extends PuterDriver {
             });
     }
 
-    async list() {
-        return (await this.models()).map((m) => m.puterId || m.id).sort();
-    }
-
     override getReportedCosts(): Record<string, unknown>[] {
-        const out: Record<string, unknown>[] = [];
-        const seen = new Set<string>();
-        for (const bucket of Object.values(this.#modelIdMap)) {
-            for (const model of bucket) {
-                const key = `${model.provider}:${model.id}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                for (const [costKey, raw] of Object.entries(
-                    (model as { costs?: Record<string, number> }).costs ?? {},
-                )) {
-                    if (typeof raw !== 'number' || !Number.isFinite(raw))
-                        continue;
-                    out.push({
-                        usageType: `${model.provider}:${model.id}:${costKey}`,
-                        costValue: raw,
-                        source: `driver:aiImage/${model.provider}`,
-                    });
-                }
-            }
-        }
-        return out;
+        return this.#catalog.reportedCosts;
     }
 
     async generate(args: IGenerateParams): Promise<string> {
@@ -185,23 +176,9 @@ export class ImageGenerationDriver extends PuterDriver {
         const { puter_output_path: puterOutputPath, ...request } = args;
 
         // Validate the output path early — before spending credits.
-        let resolvedOutputPath: string | undefined;
-        if (puterOutputPath) {
-            const username = actor.user?.username;
-            const userId = actor.user?.id;
-            if (!userId || !username) {
-                throw new HttpError(
-                    400,
-                    'User ID required for puter_output_path',
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            resolvedOutputPath = this.#resolveOutputPath(
-                puterOutputPath,
-                username,
-            );
-            await this.#assertWriteAccess(actor, resolvedOutputPath);
-        }
+        const resolvedOutputPath = puterOutputPath
+            ? await resolveOutputPath(this.services, actor, puterOutputPath)
+            : undefined;
 
         let modelId =
             typeof args.model === 'string'
@@ -338,7 +315,13 @@ export class ImageGenerationDriver extends PuterDriver {
         const result = await provider.generate(request);
 
         if (resolvedOutputPath) {
-            await this.#saveToFS(actor, result, resolvedOutputPath);
+            await saveGeneratedMediaToFS(
+                this.services.fs,
+                actor,
+                result,
+                resolvedOutputPath,
+                { noun: 'image', defaultType: 'application/octet-stream' },
+            );
         }
 
         return result;
@@ -510,110 +493,6 @@ export class ImageGenerationDriver extends PuterDriver {
                     continue;
                 register(alias, model);
             }
-        }
-    }
-
-    async #saveToFS(
-        actor: Actor,
-        result: string,
-        resolvedPath: string,
-    ): Promise<void> {
-        const userId = actor.user!.id!;
-
-        let buffer: Buffer;
-        let contentType: string;
-
-        if (result.startsWith('data:')) {
-            const commaIdx = result.indexOf(',');
-            const header = result.substring(0, commaIdx);
-            contentType =
-                header.match(/data:(.*?);/)?.[1] ?? 'application/octet-stream';
-            buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
-        } else {
-            // Provider-minted URL, but fetched with the same SSRF guards as
-            // the input paths: it reaches an unauthenticated GET whose body
-            // lands in the user's filesystem. skipProxy because generated
-            // media is ours to download directly, not user input to screen.
-            const response = await secureFetch(result, { skipProxy: true });
-            if (!response.ok) {
-                throw new HttpError(
-                    502,
-                    `Failed to fetch generated image for FS write: ${response.status}`,
-                    { legacyCode: 'internal_error' },
-                );
-            }
-            contentType =
-                response.headers.get('content-type') ??
-                'application/octet-stream';
-            buffer = Buffer.from(await response.arrayBuffer());
-        }
-
-        await this.services.fs.write(userId, {
-            fileMetadata: {
-                path: resolvedPath,
-                size: buffer.length,
-                contentType,
-                overwrite: true,
-                createMissingParents: true,
-            },
-            fileContent: Readable.from(buffer),
-        });
-    }
-
-    #resolveOutputPath(outputPath: string, username: string): string {
-        let resolved = outputPath.trim();
-        if (resolved === '~' || resolved.startsWith('~/')) {
-            resolved = `/${username}${resolved.slice(1)}`;
-        }
-        assertNormalized(resolved);
-        if (!resolved.startsWith('/')) {
-            resolved = `/${resolved}`;
-        }
-        if (resolved.length > 1 && resolved.endsWith('/')) {
-            resolved = resolved.slice(0, -1);
-        }
-        return resolved;
-    }
-
-    async #assertWriteAccess(
-        actor: Actor,
-        resolvedPath: string,
-    ): Promise<void> {
-        if (resolvedPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path', {
-                legacyCode: 'cannot_write_to_root',
-            });
-        }
-        const parentPath = pathPosix.dirname(resolvedPath);
-        if (parentPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path', {
-                legacyCode: 'cannot_write_to_root',
-            });
-        }
-
-        const pathToCheck = parentPath;
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const canWrite = await this.services.acl.check(
-            actor,
-            {
-                path: pathToCheck,
-                resolveAncestors() {
-                    if (!ancestorsCache) {
-                        ancestorsCache =
-                            fsService.getAncestorChain(pathToCheck);
-                    }
-                    return ancestorsCache;
-                },
-            },
-            'write',
-        );
-        if (!canWrite) {
-            throw new HttpError(403, 'Write access denied for destination', {
-                legacyCode: 'access_denied',
-            });
         }
     }
 

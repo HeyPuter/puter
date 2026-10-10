@@ -17,19 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
-import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
-import { secureFetch } from '../../util/secureHttp.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import {
+    resolveOutputPath,
+    saveGeneratedMediaToFS,
+} from '../util/generatedMedia.js';
+import { ModelCatalog } from '../util/modelCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
@@ -96,6 +97,7 @@ export class VideoGenerationDriver extends PuterDriver {
 
     #providers: Record<string, IVideoProvider> = Object.create(null);
     #modelIdMap: Record<string, IVideoModel[]> = Object.create(null);
+    #catalog = new ModelCatalog<IVideoModel>([], [], 'aiVideo');
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -106,14 +108,31 @@ export class VideoGenerationDriver extends PuterDriver {
         );
     }
 
-    override onServerStart() {
+    override async onServerStart() {
         this.#registerProviders();
-        this.#buildModelMap();
+        await this.#buildModelMap();
+        this.#catalog = new ModelCatalog(
+            this.#listModels(),
+            Object.values(this.#modelIdMap).flat(),
+            'aiVideo',
+        );
     }
 
     // -- Interface methods ---------------------------------------------------
 
-    async models() {
+    async models(): Promise<IVideoModel[]> {
+        return this.#catalog.models;
+    }
+
+    async list(): Promise<string[]> {
+        return this.#catalog.names;
+    }
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return this.#catalog.reportedCosts;
+    }
+
+    #listModels(): IVideoModel[] {
         const seen = new Set<string>();
         return Object.values(this.#modelIdMap)
             .flat()
@@ -129,34 +148,6 @@ export class VideoGenerationDriver extends PuterDriver {
             });
     }
 
-    async list() {
-        return (await this.models()).map((m) => m.puterId || m.id).sort();
-    }
-
-    override getReportedCosts(): Record<string, unknown>[] {
-        const out: Record<string, unknown>[] = [];
-        const seen = new Set<string>();
-        for (const bucket of Object.values(this.#modelIdMap)) {
-            for (const model of bucket) {
-                const key = `${model.provider}:${model.id}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                for (const [costKey, raw] of Object.entries(
-                    (model as { costs?: Record<string, number> }).costs ?? {},
-                )) {
-                    if (typeof raw !== 'number' || !Number.isFinite(raw))
-                        continue;
-                    out.push({
-                        usageType: `${model.provider}:${model.id}:${costKey}`,
-                        costValue: raw,
-                        source: `driver:aiVideo/${model.provider}`,
-                    });
-                }
-            }
-        }
-        return out;
-    }
-
     async generate(args: IGenerateVideoParams) {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor)
@@ -164,30 +155,17 @@ export class VideoGenerationDriver extends PuterDriver {
                 legacyCode: 'unauthorized',
             });
 
-        const puterOutputPath = args.puter_output_path;
-        delete args.puter_output_path;
+        // Normalized on a copy: lifecycle listeners get the caller's `args`
+        // by reference in their `.after`/`.error` payloads.
+        const { puter_output_path: puterOutputPath, ...request } = args;
 
         // Validate the output path early — before spending credits.
-        let resolvedOutputPath: string | undefined;
-        if (puterOutputPath) {
-            const username = actor.user?.username;
-            const userId = actor.user?.id;
-            if (!userId || !username) {
-                throw new HttpError(
-                    400,
-                    'User ID required for puter_output_path',
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            resolvedOutputPath = this.#resolveOutputPath(
-                puterOutputPath,
-                username,
-            );
-            await this.#assertWriteAccess(actor, resolvedOutputPath);
-        }
+        const resolvedOutputPath = puterOutputPath
+            ? await resolveOutputPath(this.services, actor, puterOutputPath)
+            : undefined;
 
-        if (args.model) {
-            args.model = args.model.trim().toLowerCase();
+        if (request.model) {
+            request.model = request.model.trim().toLowerCase();
         }
 
         const configuredProviders = Object.keys(this.#providers);
@@ -203,11 +181,11 @@ export class VideoGenerationDriver extends PuterDriver {
             : configuredProviders[0];
 
         let intendedProvider =
-            args.provider ??
+            request.provider ??
             (Context.get('driverName') as string | undefined) ??
             '';
 
-        if (!args.model && !intendedProvider) {
+        if (!request.model && !intendedProvider) {
             intendedProvider = fallbackProvider;
         }
 
@@ -215,16 +193,16 @@ export class VideoGenerationDriver extends PuterDriver {
             intendedProvider = fallbackProvider;
         }
 
-        if (!args.model && intendedProvider) {
-            args.model = this.#providers[intendedProvider].getDefaultModel();
+        if (!request.model && intendedProvider) {
+            request.model = this.#providers[intendedProvider].getDefaultModel();
         }
 
-        const model = args.model
-            ? this.#resolveModel(args.model, intendedProvider)
+        const model = request.model
+            ? this.#resolveModel(request.model, intendedProvider)
             : undefined;
 
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`, {
+            throw new HttpError(400, `Model not found: ${request.model}`, {
                 legacyCode: 'bad_request',
             });
         }
@@ -240,7 +218,7 @@ export class VideoGenerationDriver extends PuterDriver {
 
         // Validate / normalise duration
         if (model.durationSeconds?.length) {
-            const requestedSeconds = args.seconds ?? args.duration;
+            const requestedSeconds = request.seconds ?? request.duration;
             const normalizedSeconds =
                 typeof requestedSeconds === 'string'
                     ? Number.parseInt(requestedSeconds, 10)
@@ -250,18 +228,18 @@ export class VideoGenerationDriver extends PuterDriver {
             )
                 ? normalizedSeconds
                 : model.durationSeconds[0];
-            args.seconds = validSeconds;
-            args.duration = validSeconds;
+            request.seconds = validSeconds;
+            request.duration = validSeconds;
         }
 
         // Validate / normalise dimensions
         if (model.dimensions?.length) {
             const requestedResolution =
-                typeof args.size === 'string' && args.size.trim()
-                    ? args.size.trim()
-                    : typeof args.resolution === 'string' &&
-                        args.resolution.trim()
-                      ? args.resolution.trim()
+                typeof request.size === 'string' && request.size.trim()
+                    ? request.size.trim()
+                    : typeof request.resolution === 'string' &&
+                        request.resolution.trim()
+                      ? request.resolution.trim()
                       : undefined;
             const requestedPixels = parsePixelSize(requestedResolution);
 
@@ -284,28 +262,38 @@ export class VideoGenerationDriver extends PuterDriver {
                         (d) => d.toLowerCase() === wanted.toLowerCase(),
                     )) ||
                 model.dimensions[0];
-            args.size = normalizedResolution;
-            args.resolution = normalizedResolution;
+            request.size = normalizedResolution;
+            request.resolution = normalizedResolution;
 
-            if (requestedPixels && args.width == null && args.height == null) {
+            if (
+                requestedPixels &&
+                request.width == null &&
+                request.height == null
+            ) {
                 const pixels = catalogIsTiers
                     ? requestedPixels
                     : parsePixelSize(normalizedResolution);
                 if (pixels) {
-                    args.width = pixels.width;
-                    args.height = pixels.height;
+                    request.width = pixels.width;
+                    request.height = pixels.height;
                 }
             }
         }
 
         const result = await provider.generate({
-            ...args,
+            ...request,
             model: model.id,
             provider: model.provider,
         });
 
         if (resolvedOutputPath) {
-            return await this.#saveToFS(actor, result, resolvedOutputPath);
+            await saveGeneratedMediaToFS(
+                this.services.fs,
+                actor,
+                result,
+                resolvedOutputPath,
+                { noun: 'video', defaultType: 'video/mp4' },
+            );
         }
 
         return result;
@@ -448,142 +436,6 @@ export class VideoGenerationDriver extends PuterDriver {
                     return aCost - bCost;
                 });
             }
-        }
-    }
-
-    async #saveToFS(
-        actor: Actor,
-        result: unknown,
-        resolvedPath: string,
-    ): Promise<unknown> {
-        const userId = actor.user!.id!;
-
-        let buffer: Buffer;
-        let contentType: string;
-
-        if (typeof result === 'string') {
-            if (result.startsWith('data:')) {
-                const commaIdx = result.indexOf(',');
-                const header = result.substring(0, commaIdx);
-                contentType = header.match(/data:(.*?);/)?.[1] ?? 'video/mp4';
-                buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
-            } else {
-                // Provider-minted URL, but fetched with the same SSRF guards
-                // as the input paths: it reaches an unauthenticated GET whose
-                // body lands in the user's filesystem. skipProxy because
-                // generated media is ours to download directly, not user
-                // input to screen.
-                const response = await secureFetch(result, {
-                    skipProxy: true,
-                });
-                if (!response.ok) {
-                    throw new HttpError(
-                        502,
-                        `Failed to fetch generated video for FS write: ${response.status}`,
-                        { legacyCode: 'internal_error' },
-                    );
-                }
-                contentType =
-                    response.headers.get('content-type') ?? 'video/mp4';
-                buffer = Buffer.from(await response.arrayBuffer());
-            }
-        } else if (result && typeof result === 'object' && 'stream' in result) {
-            const streamResult = result as {
-                stream: Readable;
-                content_type: string;
-            };
-            contentType = streamResult.content_type || 'video/mp4';
-            const chunks: Buffer[] = [];
-            for await (const chunk of streamResult.stream) {
-                chunks.push(
-                    Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
-                );
-            }
-            buffer = Buffer.concat(chunks);
-        } else {
-            throw new HttpError(
-                500,
-                'Unsupported video result format for puter_output_path',
-                { legacyCode: 'internal_error' },
-            );
-        }
-
-        await this.services.fs.write(userId, {
-            fileMetadata: {
-                path: resolvedPath,
-                size: buffer.length,
-                contentType,
-                overwrite: true,
-                createMissingParents: true,
-            },
-            fileContent: Readable.from(buffer),
-        });
-
-        // For stream results, reconstruct a new stream from the buffered data
-        if (typeof result !== 'string') {
-            return {
-                stream: Readable.from(buffer),
-                content_type: contentType,
-            };
-        }
-
-        return result;
-    }
-
-    #resolveOutputPath(outputPath: string, username: string): string {
-        let resolved = outputPath.trim();
-        if (resolved === '~' || resolved.startsWith('~/')) {
-            resolved = `/${username}${resolved.slice(1)}`;
-        }
-        assertNormalized(resolved);
-        if (!resolved.startsWith('/')) {
-            resolved = `/${resolved}`;
-        }
-        if (resolved.length > 1 && resolved.endsWith('/')) {
-            resolved = resolved.slice(0, -1);
-        }
-        return resolved;
-    }
-
-    async #assertWriteAccess(
-        actor: Actor,
-        resolvedPath: string,
-    ): Promise<void> {
-        if (resolvedPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path', {
-                legacyCode: 'cannot_write_to_root',
-            });
-        }
-        const parentPath = pathPosix.dirname(resolvedPath);
-        if (parentPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path', {
-                legacyCode: 'cannot_write_to_root',
-            });
-        }
-
-        const pathToCheck = parentPath;
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const canWrite = await this.services.acl.check(
-            actor,
-            {
-                path: pathToCheck,
-                resolveAncestors() {
-                    if (!ancestorsCache) {
-                        ancestorsCache =
-                            fsService.getAncestorChain(pathToCheck);
-                    }
-                    return ancestorsCache;
-                },
-            },
-            'write',
-        );
-        if (!canWrite) {
-            throw new HttpError(403, 'Write access denied for destination', {
-                legacyCode: 'access_denied',
-            });
         }
     }
 

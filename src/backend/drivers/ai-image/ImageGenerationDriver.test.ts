@@ -267,6 +267,11 @@ describe('ImageGenerationDriver model catalog', () => {
         expect(ids).toEqual(sorted);
     });
 
+    it('builds the catalog once at boot, not on every listing', async () => {
+        expect(await driver.models()).toBe(await driver.models());
+        expect(await driver.list()).toBe(await driver.list());
+    });
+
     it('getReportedCosts emits per-cost-key line items namespaced by provider:model:costKey', () => {
         const reported = driver.getReportedCosts() as Array<{
             usageType: string;
