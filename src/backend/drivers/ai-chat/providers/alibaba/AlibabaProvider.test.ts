@@ -303,7 +303,7 @@ describe('AlibabaProvider.complete request shape', () => {
         expect('tools' in args).toBe(false);
     });
 
-    it('passes tool definitions through unchanged when supplied', async () => {
+    it('sends function tools in the OpenAI shape', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -324,7 +324,7 @@ describe('AlibabaProvider.complete request shape', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[0]![0].tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

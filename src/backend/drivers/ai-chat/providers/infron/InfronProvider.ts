@@ -19,19 +19,15 @@
 
 import axios from 'axios';
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { IChatModel } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type {
-    IChatModel,
-    IChatProvider,
-    IChatCompleteResult,
-    ICompleteArguments,
-} from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+    type UsageSource,
+} from '../OpenAICompatProvider.js';
 
 /**
  * One upstream offering of a model in Infron's catalog. The same model is often
@@ -182,177 +178,49 @@ type InfronUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
 };
 
-export class InfronProvider implements IChatProvider {
-    #meteringService: MeteringService;
-
-    #openai: OpenAI;
-
+export class InfronProvider extends OpenAICompatProvider {
     #apiKey: string;
 
-    #apiBaseUrl: string = 'https://llm.onerouter.pro/v1';
+    #apiBaseUrl: string;
 
-    constructor(
-        config: { apiBaseUrl?: string; apiKey: string },
-        meteringService: MeteringService,
-    ) {
-        this.#apiBaseUrl = config.apiBaseUrl || 'https://llm.onerouter.pro/v1';
+    /** The catalog as Infron returns it, for service-tier lookups. */
+    #raw: InfronApiModel[] = [];
+
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        const apiBaseUrl = config.apiBaseUrl || 'https://llm.onerouter.pro/v1';
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: apiBaseUrl,
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'infron:qwen/qwen3.5-flash',
+            passthrough: ['temperature'],
+            // Infron reports `cost` at the top level of the response; a
+            // stream's final chunk carries it beside `usage`.
+            usageFromStreamChunk: (chunk: {
+                usage?: InfronUsage;
+                cost?: number;
+            }) =>
+                chunk.usage
+                    ? { ...chunk.usage, cost: chunk.cost }
+                    : chunk.usage,
+        });
         this.#apiKey = config.apiKey;
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: this.#apiBaseUrl,
-            ...sdkClientOptions(),
-        });
-        this.#meteringService = meteringService;
+        this.#apiBaseUrl = apiBaseUrl;
     }
 
-    getDefaultModel() {
-        return 'infron:qwen/qwen3.5-flash';
+    override async models(): Promise<IChatModel[]> {
+        return this.#catalog();
     }
 
-    /**
-     * Returns a list of available model names
-     *
-     * @returns {Promise<string[]>} Array of model identifiers
-     */
-    async list() {
-        const models = await this.models();
-        const model_names: string[] = [];
-        for (const model of models) {
-            model_names.push(model.id);
-        }
-        return model_names;
-    }
-
-    /** AI Chat completion method. See AIChatService for more details. */
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return modelId;
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
-        const availableModels = await this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        const catalogId = modelUsed.id.startsWith('infron:')
-            ? modelUsed.id.slice('infron:'.length)
-            : modelUsed.id;
-
-        // A `…:<tier>` id carries the tier to pin; a plain id means the
-        // default tier. Only tiers the model actually sells are pinned —
-        // Infron routes freely (and reports the tier back) when unset.
-        const { wireModelId, tier } = resolveTier(
-            catalogId,
-            (await this.#catalog()).raw,
-        );
-
-        const actor = Context.get('actor');
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const completionParams = {
-            messages,
-            model: wireModelId,
-            ...(tools ? { tools } : {}),
-            max_tokens,
-            temperature,
-            stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-            // Without this Infron load-balances across service tiers, so a
-            // request could be billed at a tier other than the one whose
-            // price we quote in the catalog.
-            ...(tier ? { provider: { service_tier: tier } } : {}),
-            // Surfaces the authoritative `cost` field (USD) on the
-            // response so metering doesn't depend on catalog prices.
-            usage: { include: true },
-        } as ChatCompletionCreateParams;
-
-        const completion = await this.#openai.chat.completions.create(
-            completionParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        const usage_calculator = ({
-            usage,
-            cost,
-            setUsageCosts,
-        }: {
-            usage: InfronUsage;
-            cost?: number;
-            setUsageCosts: (costs: Record<string, number>) => void;
-        }) => {
-            // Infron reports `cost` at the top level of the response, not
-            // inside `usage`. Non-streaming calls get it via the spread
-            // completion below; streaming injects it into `usage` via the
-            // `index_usage_from_stream_chunk` deviation.
-            const authoritativeCost =
-                typeof cost === 'number' ? cost : usage.cost;
-            const trackedUsage = {
-                prompt:
-                    (usage.prompt_tokens ?? 0) -
-                    (usage.prompt_tokens_details?.cached_tokens ?? 0),
-                completion: usage.completion_tokens ?? 0,
-                input_cache_read:
-                    usage.prompt_tokens_details?.cached_tokens ?? 0,
-                request: 1,
-            };
-            // The gateway-reported cost when there is one; the catalog's
-            // per-token prices otherwise.
-            const metered = meterChatUsage(
-                this.#meteringService,
-                actor,
-                this.meteringModelKey(modelUsed.id),
-                modelUsed,
-                trackedUsage,
-                typeof authoritativeCost === 'number'
-                    ? { authoritativeUsd: authoritativeCost }
-                    : {},
-            );
-            setUsageCosts(metered.costs);
-            return metered.usage;
-        };
-
-        return OpenAIUtil.handle_completion_output({
-            deviations: {
-                index_usage_from_stream_chunk: (chunk: {
-                    usage?: InfronUsage;
-                    cost?: number;
-                }) =>
-                    chunk.usage
-                        ? { ...chunk.usage, cost: chunk.cost }
-                        : chunk.usage,
-            },
-            usage_calculator,
-            stream,
-            completion,
-        });
-    }
-
-    async models(): Promise<IChatModel[]> {
-        return (await this.#catalog()).models;
-    }
-
-    /** Infron's raw catalog alongside the models listed from it. */
     #catalog = cachedRemoteCatalog({
         name: 'Infron catalog',
-        fallback: { raw: [] as InfronApiModel[], models: [] as IChatModel[] },
+        fallback: [] as IChatModel[],
         fetch: (signal) => this.#fetchModels(signal),
     });
 
-    async #fetchModels(signal: AbortSignal) {
+    async #fetchModels(signal: AbortSignal): Promise<IChatModel[]> {
         const resp = await axios.request({
             method: 'GET',
             url: `${this.#apiBaseUrl}/models`,
@@ -387,12 +255,56 @@ export class InfronProvider implements IChatProvider {
                 coerced_models.push(coerceModel(model, prices, tier));
             }
         }
-        return { raw: models, models: coerced_models };
+        this.#raw = models;
+        return coerced_models;
     }
 
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        _args: unknown,
+        model: IChatModel,
+    ) {
+        // A `…:<tier>` id carries the tier to pin; a plain id means the
+        // default tier. Only tiers the model actually sells are pinned —
+        // Infron routes freely (and reports the tier back) when unset.
+        const { wireModelId, tier } = resolveTier(
+            model.id.startsWith('infron:')
+                ? model.id.slice('infron:'.length)
+                : model.id,
+            this.#raw,
+        );
+        return {
+            ...params,
+            model: wireModelId,
+            // Without this Infron load-balances across service tiers, so a
+            // request could be billed at a tier other than the one whose
+            // price we quote in the catalog.
+            ...(tier ? { provider: { service_tier: tier } } : {}),
+            // Surfaces the authoritative `cost` field (USD) on the
+            // response so metering doesn't depend on catalog prices.
+            usage: { include: true },
+        };
+    }
+
+    protected override meteredUsage(source: UsageSource) {
+        const usage = source.usage as InfronUsage;
+        // Non-streaming spreads the completion's top-level `cost` into the
+        // source; a stream carries it on `usage`.
+        const cost = typeof source.cost === 'number' ? source.cost : usage.cost;
+        return {
+            usage: {
+                prompt:
+                    (usage.prompt_tokens ?? 0) -
+                    (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                completion: usage.completion_tokens ?? 0,
+                input_cache_read:
+                    usage.prompt_tokens_details?.cached_tokens ?? 0,
+                request: 1,
+            },
+            // The gateway-reported cost when there is one; the catalog's
+            // per-token prices otherwise.
+            meterOptions:
+                typeof cost === 'number' ? { authoritativeUsd: cost } : {},
+        };
     }
 }

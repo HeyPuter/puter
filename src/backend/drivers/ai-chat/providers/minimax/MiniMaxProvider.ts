@@ -18,116 +18,42 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import { make_openai_tools } from '../../utils/FunctionCalling.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
-import { MINIMAX_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
+import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
+import { MINIMAX_MODELS } from './models.js';
 
-type MiniMaxConfig = {
-    apiKey: string;
-    apiBaseUrl?: string;
-};
-
-export class MiniMaxProvider implements IChatProvider {
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
-
-    #defaultModel = 'minimax-m2.7';
-
-    constructor(config: MiniMaxConfig, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: config.apiBaseUrl ?? 'https://api.minimax.io/v1',
-            ...sdkClientOptions(),
+export class MiniMaxProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: config.apiBaseUrl ?? 'https://api.minimax.io/v1',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'minimax-m2.7',
+            models: () => MINIMAX_MODELS,
+            meteringPrefix: 'minimax',
+            passthrough: ['temperature', 'top_p'],
+            stripAnthropicShape: true,
+            compatParams: { only: ['tool_choice'] },
         });
-        this.#meteringService = meteringService;
     }
 
-    getDefaultModel() {
-        return this.#defaultModel;
-    }
-
-    models() {
-        return MINIMAX_MODELS;
-    }
-
-    list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `minimax:${modelId}`;
-    }
-
-    async complete(
+    protected override vendorParams(
+        params: Record<string, unknown>,
         args: ICompleteArguments,
-    ): ReturnType<IChatProvider['complete']> {
-        const { stream, model, tools, max_tokens, temperature, top_p } = args;
-        let { messages } = args;
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        messages = OpenAIUtil.toOpenAIChatMessages(messages);
-        messages = await OpenAIUtil.process_input_messages(messages);
-        const requestedMaxTokens = max_tokens ?? 1000;
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'chat' })
-            : undefined;
-
-        const completion = await this.#openai.chat.completions.create(
-            {
-                messages,
-                model: modelUsed.apiModel,
-                ...(mappedTools?.length ? { tools: mappedTools } : {}),
-                max_tokens: Math.min(requestedMaxTokens, modelUsed.max_tokens),
-                ...(temperature !== undefined ? { temperature } : {}),
-                ...(top_p !== undefined ? { top_p } : {}),
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-                ...openAICompatParams({ ...args, tools: mappedTools }, 'chat', {
-                    only: ['tool_choice'],
-                }),
-            } as unknown as ChatCompletionCreateParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    OpenAIUtil.splitCachedPrompt(usage),
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
-            },
-            stream,
-            completion,
-        });
-    }
-
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+        model: IChatModel,
+    ) {
+        return {
+            ...params,
+            // MiniMax names its models in mixed case on the wire.
+            model: model.apiModel,
+            max_tokens: Math.min(args.max_tokens ?? 1000, model.max_tokens),
+        };
     }
 }

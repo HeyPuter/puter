@@ -286,7 +286,7 @@ describe('TogetherAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0);
     });
 
-    it('passes tools through unchanged when supplied; omits the key when not', async () => {
+    it('sends function tools in the OpenAI shape; omits the key when not', async () => {
         const { provider } = makeProvider();
 
         // No tools.
@@ -317,7 +317,7 @@ describe('TogetherAIProvider.complete request shape', () => {
                 tools,
             }),
         );
-        expect(createMock.mock.calls[1]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[1]![0].tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

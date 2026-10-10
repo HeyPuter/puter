@@ -18,39 +18,38 @@
  */
 
 import { Together } from 'together-ai';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
+import type { IChatModel } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import {
-    contextLengthRetryParams,
-    isContextLengthError,
-} from '../../utils/contextLimit.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
 
-export class TogetherAIProvider implements IChatProvider {
+export class TogetherAIProvider extends OpenAICompatProvider {
     #together: Together;
 
-    #meteringService: MeteringService;
-
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
         // The SDK default timeout is one minute, which long non-streaming
         // completions exceed; match the ten minutes the other providers get.
-        this.#together = new Together({
+        const together = new Together({
             apiKey: config.apiKey,
+            ...(config.apiBaseUrl ? { baseURL: config.apiBaseUrl } : {}),
             ...sdkClientOptions(),
         });
-        this.#meteringService = meteringService;
+        super(meteringService, {
+            client: together,
+            defaultModel: 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
+            idPrefix: 'togetherai:',
+            passthrough: ['temperature'],
+            // Together rejects an overlarge max_tokens rather than truncating.
+            retryOnContextLength: true,
+        });
+        this.#together = together;
     }
 
-    getDefaultModel() {
-        return 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo';
-    }
-
-    async models(): Promise<IChatModel[]> {
+    override async models(): Promise<IChatModel[]> {
         return this.#catalog();
     }
 
@@ -107,90 +106,5 @@ export class TogetherAIProvider implements IChatProvider {
         }
 
         return models;
-    }
-
-    async list() {
-        return modelLookupNames(await this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `togetherai:${modelId.replace(/^togetherai:/, '')}`;
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        const actor = Context.get('actor');
-        const models = await this.models();
-        const modelLower = model.toLowerCase();
-        const modelUsed =
-            models.find((m) =>
-                [m.id, ...(m.aliases || [])].some(
-                    (id) => id.toLowerCase() === modelLower,
-                ),
-            ) || models.find((m) => m.id === this.getDefaultModel())!;
-        const modelIdForParams = modelUsed.id.startsWith('togetherai:')
-            ? modelUsed.id.slice('togetherai:'.length)
-            : modelUsed.id;
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const completionParams = {
-            model: modelIdForParams,
-            messages,
-            stream,
-            ...(tools ? { tools } : {}),
-            ...(max_tokens !== undefined ? { max_tokens } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(stream ? { stream_options: { include_usage: true } } : {}),
-        } as Together.Chat.Completions.CompletionCreateParamsNonStreaming;
-
-        let completion;
-        try {
-            completion = await this.#together.chat.completions.create(
-                completionParams,
-                { signal: Context.get('abortSignal') },
-            );
-        } catch (e: unknown) {
-            // Together rejects an overlarge max_tokens outright rather than
-            // truncating. Retry under the room the window leaves, still
-            // bounded by the cap the credit gate set.
-            if (!isContextLengthError(e)) throw e;
-            const retryParams = contextLengthRetryParams(completionParams, {
-                error: e,
-                contextWindow: modelUsed.context,
-            });
-            if (!retryParams) throw e;
-            completion = await this.#together.chat.completions.create(
-                retryParams,
-                { signal: Context.get('abortSignal') },
-            );
-        }
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    OpenAIUtil.splitCachedPrompt(usage),
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
-            },
-            stream,
-            completion,
-        });
-    }
-
-    checkModeration(_text: string) {
-        throw new Error('Method not implemented.');
     }
 }

@@ -18,48 +18,40 @@
  */
 
 import axios from 'axios';
-import { default as openai, default as OpenAI } from 'openai';
-import { Context } from '../../../../core/context.js';
+import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { IChatModel } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
-/**
- * OllamaService class - Provides integration with Ollama's API for chat
- * completions Extends BaseService to implement the puter-chat-completion
- * interface. Handles model management, message adaptation, streaming responses,
- * and usage tracking for Ollama's language models.
- *
- * @extends BaseService
- */
-export class OllamaChatProvider implements IChatProvider {
+import {
+    OpenAICompatProvider,
+    type UsageSource,
+} from '../OpenAICompatProvider.js';
+
+/** A local Ollama server's models, through its OpenAI-compatible API. */
+export class OllamaChatProvider extends OpenAICompatProvider {
     #apiBaseUrl: string;
-
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
 
     constructor(
         config: { apiBaseUrl?: string } | undefined,
         meteringService: MeteringService,
     ) {
         // Ollama typically runs on HTTP, not HTTPS
-        this.#apiBaseUrl = config?.apiBaseUrl || 'http://localhost:11434';
-
-        // OpenAI SDK is used to interact with the Ollama API
-        this.#openai = new openai.OpenAI({
-            apiKey: 'ollama', // Ollama doesn't use an API key, it uses the "ollama" string
-            baseURL: `${this.#apiBaseUrl}/v1`,
-            ...sdkClientOptions(),
+        const apiBaseUrl = config?.apiBaseUrl || 'http://localhost:11434';
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: 'ollama', // Ollama doesn't use an API key, it uses the "ollama" string
+                baseURL: `${apiBaseUrl}/v1`,
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'gpt-oss:20b',
+            idPrefix: 'ollama:',
+            passthrough: ['temperature'],
         });
-
-        this.#meteringService = meteringService;
+        this.#apiBaseUrl = apiBaseUrl;
     }
 
-    async models(): Promise<IChatModel[]> {
+    override async models(): Promise<IChatModel[]> {
         return this.#catalog();
     }
 
@@ -95,105 +87,26 @@ export class OllamaChatProvider implements IChatProvider {
         }
         return coerced_models;
     }
-    async list() {
-        const models = await this.models();
-        const model_names: string[] = [];
-        for (const model of models) {
-            model_names.push(model.id);
-        }
-        return model_names;
-    }
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return modelId;
-    }
 
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        if (model.startsWith('ollama:')) {
-            model = model.slice('ollama:'.length);
-        }
-
-        const actor = Context.get('actor');
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const completion = await this.#openai.chat.completions.create(
-            {
-                messages,
-                model: model ?? this.getDefaultModel(),
-                ...(tools ? { tools } : {}),
-                max_tokens,
-                temperature: temperature, // default to 1.0
-                stream: !!stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        const modelDetails = (await this.models()).find(
-            (m) => m.id === `ollama:${model}`,
-        );
-        const modelIdForMetering =
-            modelDetails?.id ??
-            (model
-                ? model.startsWith('ollama/')
-                    ? `ollama:${model}`
-                    : `ollama:ollama/${model}`
-                : undefined);
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const trackedUsage = {
-                    prompt:
-                        (usage.prompt_tokens ?? 1) -
-                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
-                    completion: usage.completion_tokens ?? 1,
-                    input_cache_read:
-                        usage.prompt_tokens_details?.cached_tokens ?? 0,
-                };
-                if (!modelIdForMetering) return trackedUsage;
-                // Local inference is free.
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    modelIdForMetering,
-                    modelDetails ?? ({ costs: {} } as unknown as IChatModel),
-                    trackedUsage,
-                    {
-                        costOverrides: {
-                            prompt: 0,
-                            completion: 0,
-                            input_cache_read: 0,
-                        },
-                    },
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
+    // Local inference is free.
+    protected override meteredUsage(source: UsageSource) {
+        const { usage } = source;
+        return {
+            usage: {
+                prompt:
+                    (usage.prompt_tokens ?? 1) -
+                    (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                completion: usage.completion_tokens ?? 1,
+                input_cache_read:
+                    usage.prompt_tokens_details?.cached_tokens ?? 0,
             },
-            stream,
-            completion,
-        });
-    }
-    checkModeration(_text: string) {
-        throw new Error('Method not implemented.');
-    }
-
-    /**
-     * Returns the default model identifier for the Ollama service
-     *
-     * @returns {string} The default model ID 'gpt-oss:20b'
-     */
-    getDefaultModel() {
-        return 'gpt-oss:20b';
+            meterOptions: {
+                costOverrides: {
+                    prompt: 0,
+                    completion: 0,
+                    input_cache_read: 0,
+                },
+            },
+        };
     }
 }

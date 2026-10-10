@@ -18,22 +18,14 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import { make_openai_tools } from '../../utils/FunctionCalling.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
-import { BYTEPLUS_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
+import type { ICompleteArguments } from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
-
-type BytePlusConfig = {
-    apiKey: string;
-    apiBaseUrl?: string;
-};
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
+import { BYTEPLUS_MODELS } from './models.js';
 
 type BytePlusCustomParams = {
     response_format?: unknown;
@@ -55,69 +47,32 @@ const asRecord = (value: unknown): Record<string, unknown> =>
  * ByteDance's Seed models plus hosted third-party models (GLM, DeepSeek,
  * GPT-OSS). https://docs.byteplus.com/en/docs/ModelArk/1330626
  */
-export class BytePlusProvider implements IChatProvider {
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
-
-    #defaultModel = 'seed-2-0-lite-260428';
-
-    constructor(config: BytePlusConfig, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL:
-                config.apiBaseUrl ??
-                'https://ark.ap-southeast.bytepluses.com/api/v3',
-            ...sdkClientOptions(),
+export class BytePlusProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL:
+                    config.apiBaseUrl ??
+                    'https://ark.ap-southeast.bytepluses.com/api/v3',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'seed-2-0-lite-260428',
+            models: () => BYTEPLUS_MODELS,
+            meteringPrefix: 'byteplus',
+            passthrough: ['temperature', 'top_p'],
+            stripAnthropicShape: true,
+            compatParams: {},
         });
-        this.#meteringService = meteringService;
     }
 
-    getDefaultModel() {
-        return this.#defaultModel;
-    }
-
-    models() {
-        return BYTEPLUS_MODELS;
-    }
-
-    list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `byteplus:${modelId}`;
-    }
-
-    async complete(
-        params: ICompleteArguments,
-    ): ReturnType<IChatProvider['complete']> {
-        const { custom, max_tokens, stream, temperature, tools, top_p } =
-            params;
-        let { messages, model } = params;
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        messages = OpenAIUtil.toOpenAIChatMessages(messages);
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'chat' })
-            : undefined;
-        const customParams = asRecord(custom) as BytePlusCustomParams;
-
-        const completionParams: ChatCompletionCreateParams = {
-            messages,
-            model: modelUsed.id,
-            ...(mappedTools?.length ? { tools: mappedTools } : {}),
-            ...(max_tokens !== undefined ? { max_tokens } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(top_p !== undefined ? { top_p } : {}),
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        args: ICompleteArguments,
+    ) {
+        const customParams = asRecord(args.custom) as BytePlusCustomParams;
+        // A normalized `stopSequences`/`outputFormat` wins over `custom`.
+        return {
             ...(customParams.response_format
                 ? { response_format: customParams.response_format }
                 : {}),
@@ -125,42 +80,7 @@ export class BytePlusProvider implements IChatProvider {
             ...(customParams.thinking
                 ? { thinking: customParams.thinking }
                 : {}),
-            stream: !!stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-            ...openAICompatParams({ ...params, tools: mappedTools }, 'chat'),
-        } as unknown as ChatCompletionCreateParams;
-
-        const completion = await this.#openai.chat.completions.create(
-            completionParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        const result = await OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    OpenAIUtil.splitCachedPrompt(usage),
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
-            },
-            stream,
-            completion,
-        });
-
-        return result;
-    }
-
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+            ...params,
+        };
     }
 }

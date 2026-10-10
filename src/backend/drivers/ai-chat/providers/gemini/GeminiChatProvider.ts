@@ -19,169 +19,78 @@
 
 // Preamble: Before this we used Gemini's SDK directly and as we found out
 // its actually kind of terrible. So we use the openai sdk now
-import openai, { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
+import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import {
-    handle_completion_output,
-    process_input_messages,
-} from '../../utils/OpenAIUtil.js';
-import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
-import { GEMINI_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
+import type { PuterMessage } from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+    type UsageSource,
+} from '../OpenAICompatProvider.js';
+import { GEMINI_MODELS } from './models.js';
 
-export class GeminiChatProvider implements IChatProvider {
-    meteringService: MeteringService;
-    openai: OpenAI;
+type GroundingContent = { grounding_metadata?: unknown };
 
-    defaultModel = 'gemini-2.5-flash';
-
-    constructor(meteringService: MeteringService, config: { apiKey: string }) {
-        this.meteringService = meteringService;
-        this.openai = new openai.OpenAI({
-            apiKey: config.apiKey,
-            baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-            ...sdkClientOptions(),
+export class GeminiChatProvider extends OpenAICompatProvider {
+    constructor(meteringService: MeteringService, config: ChatProviderConfig) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL:
+                    config.apiBaseUrl ??
+                    'https://generativelanguage.googleapis.com/v1beta/openai/',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'gemini-2.5-flash',
+            models: () => GEMINI_MODELS,
+            meteringPrefix: 'gemini',
+            maxTokensParam: 'max_completion_tokens',
+            passthrough: ['temperature'],
+            // Gemini 3.1+ rejects http(s) image URLs on Google's
+            // OpenAI-compatible endpoint (bodiless 400) but accepts data URLs;
+            // inline for every model rather than maintain a version list.
+            inlineImages: 'always',
         });
     }
 
-    getDefaultModel() {
-        return this.defaultModel;
+    protected override prepareMessages(messages: PuterMessage[]) {
+        for (const message of messages) delete message.cache_control;
+        return messages;
     }
 
-    async models() {
-        return GEMINI_MODELS;
-    }
-    async list() {
-        return modelLookupNames(await this.models());
-    }
+    protected override meteredUsage(source: UsageSource) {
+        // Non-stream grounding metadata lives in choices[0].message; a stream
+        // hands over what its handler accumulated as `extra_content`.
+        const { usage } = source;
+        const choices = source.choices as
+            | Array<{ message?: { extra_content?: GroundingContent } }>
+            | undefined;
+        const extraContent = source.extra_content as
+            | GroundingContent
+            | undefined;
 
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string | undefined): string {
-        return `gemini:${modelId}`;
-    }
+        const cached_tokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+        // Thinking tokens are a subset of completion_tokens billed at a different rate
+        const thinking_tokens =
+            usage?.completion_tokens_details?.reasoning_tokens ?? 0;
 
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        const actor = Context.get('actor');
-
-        // Gemini 3.1+ rejects http(s) image URLs on Google's OpenAI-compatible
-        // endpoint (bodiless 400) but accepts data URLs; inline for every
-        // model rather than maintain a version list.
-        await inlineHttpImageUrls(messages);
-
-        messages = await process_input_messages(messages);
-
-        // delete cache_control
-        messages = messages.map((m) => {
-            delete m.cache_control;
-            return m;
-        });
-
-        const modelUsed =
-            (await this.models()).find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) ||
-            (await this.models()).find((m) => m.id === this.getDefaultModel())!;
-        const sdk_params: ChatCompletionCreateParams = {
-            messages: messages,
-            model: modelUsed.id,
-            ...(tools ? { tools } : {}),
-            ...(max_tokens !== undefined
-                ? { max_completion_tokens: max_tokens }
-                : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-        } as ChatCompletionCreateParams;
-
-        let completion;
-        try {
-            completion = await this.openai.chat.completions.create(sdk_params, {
-                signal: Context.get('abortSignal'),
-            });
-        } catch (e) {
-            if (!Context.get('abortSignal')?.aborted) {
-                console.error('Gemini completion error: ', e);
-            }
-            throw e;
-        }
-
-        return handle_completion_output({
-            usage_calculator: (args) => {
-                // Cast to access Gemini-specific extras passed alongside usage:
-                // - choices: non-stream grounding metadata lives in choices[0].message.extra_content
-                // - extra_content: streaming grounding metadata accumulated by the stream handler
-                const { usage, choices, extra_content, setUsageCosts } =
-                    args as {
-                        usage: typeof args.usage;
-                        setUsageCosts: typeof args.setUsageCosts;
-                        choices?: Array<{
-                            message?: {
-                                extra_content?: {
-                                    grounding_metadata?: unknown;
-                                };
-                            };
-                        }>;
-                        extra_content?: { grounding_metadata?: unknown };
-                    };
-
-                const cached_tokens =
-                    usage?.prompt_tokens_details?.cached_tokens ?? 0;
-
-                // Thinking tokens are a subset of completion_tokens billed at a different rate
-                const thinking_tokens =
-                    usage?.completion_tokens_details?.reasoning_tokens ?? 0;
-
-                const trackedUsage = {
-                    prompt_tokens: (usage?.prompt_tokens ?? 0) - cached_tokens,
-                    completion_tokens: Math.max(
-                        0,
-                        (usage?.completion_tokens ?? 0) - thinking_tokens,
-                    ),
-                    cached_tokens,
-                    thinking_tokens,
-                    // Grounding search is a per-request fee not reflected in token counts
-                    grounding_requests:
-                        (choices?.[0]?.message?.extra_content
-                            ?.grounding_metadata ??
-                        extra_content?.grounding_metadata)
-                            ? 1
-                            : 0,
-                };
-
-                const metered = meterChatUsage(
-                    this.meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    trackedUsage,
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
+        return {
+            usage: {
+                prompt_tokens: (usage?.prompt_tokens ?? 0) - cached_tokens,
+                completion_tokens: Math.max(
+                    0,
+                    (usage?.completion_tokens ?? 0) - thinking_tokens,
+                ),
+                cached_tokens,
+                thinking_tokens,
+                // Grounding search is a per-request fee not reflected in token counts
+                grounding_requests:
+                    (choices?.[0]?.message?.extra_content?.grounding_metadata ??
+                    extraContent?.grounding_metadata)
+                        ? 1
+                        : 0,
             },
-            stream,
-            completion,
-        });
-    }
-
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('No moderation logic.');
+        };
     }
 }

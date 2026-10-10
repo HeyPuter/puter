@@ -18,30 +18,24 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import { make_openai_tools } from '../../utils/FunctionCalling.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import type { IChatModel, ICompleteArguments } from '../../types.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
-import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
-import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
-
-type MetaConfig = {
-    apiBaseUrl?: string;
-    apiKey: string;
-};
 
 /**
  * Chat Completions params Muse Spark accepts that Puter has no first-class
@@ -66,11 +60,7 @@ const asRecord = (value: unknown): Record<string, unknown> =>
  * Only the Chat Completions protocol is used here; Meta also fronts the same
  * models behind Responses- and Anthropic-Messages-shaped endpoints.
  */
-export class MetaProvider implements IChatProvider {
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
-
+export class MetaProvider extends OpenAICompatProvider {
     #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
     #fsService: FSService;
@@ -79,87 +69,59 @@ export class MetaProvider implements IChatProvider {
         meteringService: MeteringService,
         stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
         fsService: FSService,
-        config: MetaConfig,
+        config: ChatProviderConfig,
     ) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: config.apiBaseUrl ?? DEFAULT_API_BASE_URL,
-            ...sdkClientOptions(),
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: config.apiBaseUrl ?? DEFAULT_API_BASE_URL,
+                ...sdkClientOptions(),
+            }),
+            defaultModel: MUSE_SPARK_DEFAULT_MODEL,
+            models: () => META_MODELS,
+            meteringPrefix: 'meta',
+            // Reasoning tokens come out of this same budget, so a tight cap
+            // returns `content: null` with `finish_reason: 'length'`.
+            maxTokensParam: 'max_completion_tokens',
+            passthrough: ['temperature', 'top_p'],
+            // Anthropic-shaped cache hints don't belong on this wire; Meta
+            // caches via `prompt_cache_key` / `prompt_cache_retention`.
+            stripAnthropicShape: true,
+            compatParams: { toolChoiceAutoOnly: true },
         });
-        this.#meteringService = meteringService;
         this.#stores = stores;
         this.#fsService = fsService;
     }
 
-    getDefaultModel() {
-        return MUSE_SPARK_DEFAULT_MODEL;
-    }
-
-    models() {
-        return META_MODELS;
-    }
-
-    list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `meta:${modelId}`;
-    }
-
-    async complete(
-        params: ICompleteArguments,
-    ): ReturnType<IChatProvider['complete']> {
-        const {
-            custom,
-            max_tokens,
-            prompt_cache_key,
-            prompt_cache_retention,
-            reasoning,
-            reasoning_effort,
-            stream,
-            temperature,
-            tools,
-            top_p,
-        } = params;
-        let { messages, model } = params;
-        if (!Array.isArray(messages)) {
+    override async complete(args: ICompleteArguments) {
+        if (!Array.isArray(args.messages)) {
             throw new HttpError(400, '`messages` must be an array', {
                 legacyCode: 'bad_request',
             });
         }
-
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
         // Muse Spark reads images, video, PDFs and audio, but Chat Completions
         // takes them inline only — resolve `puter_path` parts to data URLs.
         await processPuterPathUploads(
-            messages,
+            args.messages,
             this.#stores,
             this.#fsService,
-            actor,
+            Context.get('actor'),
         );
+        return super.complete(args);
+    }
 
-        // Anthropic-shaped cache hints don't belong on this wire; Meta caches
-        // via `prompt_cache_key` / `prompt_cache_retention`.
-        messages = OpenAIUtil.toOpenAIChatMessages(messages);
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'chat' })
-            : undefined;
-        const customParams = asRecord(custom) as MetaCustomParams;
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        args: ICompleteArguments,
+        _model: IChatModel,
+        actor: Actor | undefined,
+    ) {
+        const customParams = asRecord(args.custom) as MetaCustomParams;
 
         // Reasoning is always on for Muse Spark — `reasoning_effort: 'none'`
         // is a 400 — so a request to switch it off is dropped, not forwarded.
-        const requestedEffort = (reasoning_effort ?? reasoning?.effort) as
-            string | undefined;
+        const requestedEffort = (args.reasoning_effort ??
+            args.reasoning?.effort) as string | undefined;
         const effort =
             requestedEffort && requestedEffort !== 'none'
                 ? requestedEffort
@@ -168,31 +130,18 @@ export class MetaProvider implements IChatProvider {
         // Puter spells the in-memory retention with a hyphen; Meta's enum
         // uses an underscore.
         const cacheRetention =
-            prompt_cache_retention === 'in-memory'
+            args.prompt_cache_retention === 'in-memory'
                 ? 'in_memory'
-                : prompt_cache_retention;
+                : args.prompt_cache_retention;
 
         // The identifier is Puter's abuse attribution, so `custom` can't
         // override it. Cache key defaults to it; see upstreamUserIdentifier.
         const userIdentifier = upstreamUserIdentifier(actor);
-        const cacheKey = prompt_cache_key ?? userIdentifier;
+        const cacheKey = args.prompt_cache_key ?? userIdentifier;
 
-        const completionParams = {
-            messages,
-            model: modelUsed.id,
-            ...(mappedTools?.length ? { tools: mappedTools } : {}),
-            ...openAICompatParams(
-                { ...params, tools: mappedTools, reasoning_effort: undefined },
-                'chat',
-                { toolChoiceAutoOnly: true },
-            ),
-            // Reasoning tokens come out of this same budget, so a tight cap
-            // returns `content: null` with `finish_reason: 'length'`.
-            ...(max_tokens !== undefined
-                ? { max_completion_tokens: max_tokens }
-                : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(top_p !== undefined ? { top_p } : {}),
+        const { reasoning_effort: _mapped, ...shared } = params;
+        return {
+            ...shared,
             ...(effort ? { reasoning_effort: effort } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             ...(cacheRetention !== undefined
@@ -211,47 +160,6 @@ export class MetaProvider implements IChatProvider {
             ...(customParams.seed !== undefined
                 ? { seed: customParams.seed }
                 : {}),
-            stream: !!stream,
-            ...(stream ? { stream_options: { include_usage: true } } : {}),
-        } as unknown as ChatCompletionCreateParams;
-
-        const completion = await this.#openai.chat.completions.create(
-            completionParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const cachedTokens =
-                    usage?.prompt_tokens_details?.cached_tokens ?? 0;
-                // Meta reports cache reads as a subset of `prompt_tokens`, so
-                // the remainder is what the input rate applies to. Reasoning
-                // tokens (`completion_tokens_details.reasoning_tokens`) are
-                // likewise already inside `completion_tokens` — metering them
-                // again would bill the same tokens twice.
-                const trackedUsage = {
-                    prompt_tokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
-                    completion_tokens: usage?.completion_tokens ?? 0,
-                    cached_tokens: cachedTokens,
-                };
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    trackedUsage,
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
-            },
-            stream,
-            completion,
-        });
-    }
-
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+        };
     }
 }

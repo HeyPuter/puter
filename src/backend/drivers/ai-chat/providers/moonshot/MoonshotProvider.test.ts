@@ -261,7 +261,7 @@ describe('MoonshotProvider.complete request shape', () => {
         expect('tools' in args).toBe(false);
     });
 
-    it('passes tool definitions through unchanged when supplied', async () => {
+    it('sends function tools in the OpenAI shape', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -288,7 +288,7 @@ describe('MoonshotProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -759,11 +759,10 @@ describe('MoonshotProvider.complete streaming', () => {
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('MoonshotProvider.complete error mapping', () => {
-    it('logs and rethrows errors raised by the OpenAI client unchanged', async () => {
+    it('rethrows errors raised by the OpenAI client unchanged', async () => {
         const { provider } = makeProvider();
         const apiError = new Error('Moonshot exploded');
         createMock.mockRejectedValueOnce(apiError);
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -775,7 +774,6 @@ describe('MoonshotProvider.complete error mapping', () => {
         ).rejects.toBe(apiError);
 
         expect(recordSpy).not.toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
     });
 });
 

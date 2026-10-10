@@ -578,8 +578,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         const { provider } = makeProvider();
         const apiError = { error: { message: 'Some other failure' } };
         createMock.mockRejectedValueOnce(apiError);
-        // Provider logs before rethrowing — silence the noise.
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -594,7 +592,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         // Only one attempt was made.
         expect(createMock).toHaveBeenCalledTimes(1);
         expect(recordSpy).not.toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
     });
 
     it('rethrows a transport error as itself rather than masking it', async () => {
@@ -602,7 +599,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         // No `.error` on the object: the shape a socket failure arrives in.
         const transportError = new Error('socket hang up');
         createMock.mockRejectedValueOnce(transportError);
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -615,7 +611,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         ).rejects.toBe(transportError);
 
         expect(createMock).toHaveBeenCalledTimes(1);
-        expect(logSpy).toHaveBeenCalled();
     });
 });
 

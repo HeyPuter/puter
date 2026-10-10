@@ -248,7 +248,7 @@ describe('GroqAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
-    it('passes tools through (including undefined when omitted, not deleted from the wire)', async () => {
+    it('sends function tools in the OpenAI shape', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -269,7 +269,7 @@ describe('GroqAIProvider.complete request shape', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[0]![0].tools).toEqual(tools);
     });
 
     it('routes via stream=true verbatim (Groq SDK accepts the boolean)', async () => {

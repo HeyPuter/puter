@@ -18,26 +18,19 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
+import type { Actor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import { make_openai_tools } from '../../utils/FunctionCalling.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
-import { ZAI_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
+import { ZAI_MODELS } from './models.js';
 
 // Z.AI documents `user_id` as 6-128 characters.
 const USER_ID_MAX_LENGTH = 128;
-
-type ZAIConfig = {
-    apiBaseUrl?: string;
-    apiKey: string;
-};
 
 type ZAICustomParams = {
     do_sample?: boolean;
@@ -56,73 +49,34 @@ const asRecord = (value: unknown): Record<string, unknown> =>
         ? (value as Record<string, unknown>)
         : {};
 
-export class ZAIProvider implements IChatProvider {
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
-
-    #defaultModel = 'glm-5.1';
-
-    constructor(config: ZAIConfig, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: config.apiBaseUrl ?? 'https://api.z.ai/api/paas/v4',
-            ...sdkClientOptions(),
+export class ZAIProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: config.apiBaseUrl ?? 'https://api.z.ai/api/paas/v4',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'glm-5.1',
+            models: () => ZAI_MODELS,
+            meteringPrefix: 'zai',
+            passthrough: ['temperature', 'top_p'],
+            stripAnthropicShape: true,
+            compatParams: { only: ['tool_choice'], toolChoiceAutoOnly: true },
         });
-        this.#meteringService = meteringService;
     }
 
-    getDefaultModel() {
-        return this.#defaultModel;
-    }
-
-    models() {
-        return ZAI_MODELS;
-    }
-
-    list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `zai:${modelId}`;
-    }
-
-    async complete(
-        params: ICompleteArguments,
-    ): ReturnType<IChatProvider['complete']> {
-        const { custom, max_tokens, stream, temperature, tools, top_p } =
-            params;
-        let { messages, model } = params;
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        messages = OpenAIUtil.toOpenAIChatMessages(messages);
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'chat' })
-            : undefined;
-        const customParams = asRecord(custom) as ZAICustomParams;
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        args: ICompleteArguments,
+        _model: IChatModel,
+        actor: Actor | undefined,
+    ) {
+        const customParams = asRecord(args.custom) as ZAICustomParams;
         // Puter's abuse attribution; `custom` can't override it.
         const userId = upstreamUserIdentifier(actor, USER_ID_MAX_LENGTH);
-
-        const completionParams: ChatCompletionCreateParams = {
-            messages,
-            model: modelUsed.id,
-            ...(mappedTools?.length ? { tools: mappedTools } : {}),
-            ...(max_tokens !== undefined ? { max_tokens } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(top_p !== undefined ? { top_p } : {}),
-            ...openAICompatParams({ ...params, tools: mappedTools }, 'chat', {
-                only: ['tool_choice'],
-                toolChoiceAutoOnly: true,
-            }),
+        return {
+            ...params,
             ...(customParams.do_sample !== undefined
                 ? { do_sample: customParams.do_sample }
                 : {}),
@@ -140,41 +94,6 @@ export class ZAIProvider implements IChatProvider {
                 ? { tool_stream: customParams.tool_stream }
                 : {}),
             ...(userId ? { user_id: userId } : {}),
-            stream: !!stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-        } as unknown as ChatCompletionCreateParams;
-
-        const completion = await this.#openai.chat.completions.create(
-            completionParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        const result = await OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    OpenAIUtil.splitCachedPrompt(usage),
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
-            },
-            stream,
-            completion,
-        });
-
-        return result;
-    }
-
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+        };
     }
 }

@@ -19,36 +19,30 @@
 
 import axios from 'axios';
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources';
-import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import type {
-    IChatModel,
-    IChatProvider,
-    IChatCompleteResult,
-    ICompleteArguments,
-} from '../../types.js';
+import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
-import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import {
     messagesHaveImageContent,
     modelSupportsVision,
 } from '../../utils/mediaParts.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
+import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+    type UsageSource,
+} from '../OpenAICompatProvider.js';
 import {
     mapNeuralwattApiModel,
     NEURALWATT_DEFAULT_MODEL,
     NEURALWATT_ID_PREFIX,
-    stripNeuralwattPrefix,
     type NeuralwattAccountingMethod,
     type NeuralwattApiModel,
     type NeuralwattCost,
     type NeuralwattEnergy,
 } from './models.js';
-import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.neuralwatt.com/v1';
 
@@ -59,38 +53,59 @@ type NeuralwattUsage = OpenAI.Completions.CompletionUsage & {
     measurement_available?: boolean;
 };
 
-export class NeuralwattProvider implements IChatProvider {
-    #meteringService: MeteringService;
+const positive = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0;
 
-    #openai: OpenAI;
-
+export class NeuralwattProvider extends OpenAICompatProvider {
     #apiKey: string;
 
-    #apiBaseUrl: string = DEFAULT_API_BASE_URL;
+    #apiBaseUrl: string;
 
-    constructor(
-        config: { apiBaseUrl?: string; apiKey: string },
-        meteringService: MeteringService,
-    ) {
-        this.#apiBaseUrl = config.apiBaseUrl || DEFAULT_API_BASE_URL;
-        this.#apiKey = config.apiKey;
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: this.#apiBaseUrl,
-            ...sdkClientOptions(),
+    /** The account's accounting method as last fetched. */
+    #accountingMethod: NeuralwattAccountingMethod | undefined;
+
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        const apiBaseUrl = config.apiBaseUrl || DEFAULT_API_BASE_URL;
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: apiBaseUrl,
+                ...sdkClientOptions(),
+            }),
+            defaultModel: NEURALWATT_DEFAULT_MODEL,
+            idPrefix: NEURALWATT_ID_PREFIX,
+            passthrough: ['temperature'],
+            // Vision models expect inline data URLs rather than remote
+            // http(s) fetches for image_url parts.
+            inlineImages: 'vision',
+            // A stream's final chunk carries cost and energy beside `usage`.
+            usageFromStreamChunk: (chunk: {
+                usage?: NeuralwattUsage;
+                cost?: NeuralwattCost;
+                energy?: NeuralwattEnergy;
+            }) => {
+                if (!chunk.usage) return chunk.usage;
+                return {
+                    ...chunk.usage,
+                    ...(typeof chunk.cost?.request_cost_usd === 'number'
+                        ? { request_cost_usd: chunk.cost.request_cost_usd }
+                        : {}),
+                    ...(chunk.energy
+                        ? {
+                              energy_kwh: chunk.energy.energy_kwh,
+                              energy_joules: chunk.energy.energy_joules,
+                              measurement_available:
+                                  chunk.energy.measurement_available,
+                          }
+                        : {}),
+                };
+            },
         });
-        this.#meteringService = meteringService;
+        this.#apiKey = config.apiKey;
+        this.#apiBaseUrl = apiBaseUrl;
     }
 
-    getDefaultModel() {
-        return NEURALWATT_DEFAULT_MODEL;
-    }
-
-    async list() {
-        return modelLookupNames(await this.models());
-    }
-
-    async models(): Promise<IChatModel[]> {
+    override async models(): Promise<IChatModel[]> {
         return this.#catalog();
     }
 
@@ -139,201 +154,74 @@ export class NeuralwattProvider implements IChatProvider {
         },
     });
 
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return modelId;
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-        reasoning_effort,
-        reasoning,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
-        // Catalog carries per-model vision / reasoning_effort flags from
-        // Neuralwatt `GET /models` — resolve against it before shaping the
-        // upstream request so image-bearing prompts land on a vision model.
-        const availableModels = await this.models();
-        const hasImages = messagesHaveImageContent(messages ?? []);
-        const modelLower = (model ?? '').toLowerCase();
-        let modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].some(
-                    (id) => id.toLowerCase() === modelLower,
-                ),
-            ) ?? undefined;
-
-        if (!modelUsed) {
-            if (hasImages) {
-                modelUsed = availableModels.find((m) => modelSupportsVision(m));
-            }
-            modelUsed =
-                modelUsed ||
-                availableModels.find((m) => m.id === this.getDefaultModel()) ||
-                availableModels[0];
-        }
-
-        if (!modelUsed) {
-            throw new Error('No Neuralwatt models available');
-        }
-
-        if (hasImages && !modelSupportsVision(modelUsed)) {
+    override async complete(args: ICompleteArguments) {
+        const model = await this.resolveModel(args.model);
+        if (
+            messagesHaveImageContent(args.messages ?? []) &&
+            !modelSupportsVision(model)
+        ) {
             throw new HttpError(
                 400,
-                `Model ${modelUsed.id} does not support image input`,
+                `Model ${model.id} does not support image input`,
                 { legacyCode: 'bad_request' },
             );
         }
-
-        const modelIdForParams = stripNeuralwattPrefix(modelUsed.id);
-        const actor = Context.get('actor');
-        const accountingMethod = await this.getAccountingMethod();
-
-        // Vision models: Neuralwatt (like Moonshot) expects inline data URLs
-        // rather than remote http(s) fetches for image_url parts.
-        if (modelSupportsVision(modelUsed)) {
-            await inlineHttpImageUrls(messages);
-        }
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
-        const supportsReasoningEffort = modelUsed.reasoning_effort === true;
-
-        const completionParams = {
-            messages,
-            model: modelIdForParams,
-            ...(tools ? { tools } : {}),
-            ...(max_tokens !== undefined ? { max_tokens } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
-            ...(supportsReasoningEffort && requestedReasoningEffort
-                ? { reasoning_effort: requestedReasoningEffort }
-                : {}),
-            stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-        } as ChatCompletionCreateParams;
-
-        const completion = await this.#openai.chat.completions.create(
-            completionParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        const usage_calculator = ({
-            usage,
-            cost,
-            energy,
-            setUsageCosts,
-        }: {
-            usage: NeuralwattUsage;
-            cost?: NeuralwattCost;
-            energy?: NeuralwattEnergy;
-            setUsageCosts: (costs: Record<string, number>) => void;
-        }) => {
-            // Non-streaming spreads the full completion into this call;
-            // streaming merges top-level cost/energy onto `usage` via the
-            // index_usage_from_stream_chunk deviation below.
-            const requestCostUsd =
-                typeof cost?.request_cost_usd === 'number'
-                    ? cost.request_cost_usd
-                    : typeof usage.request_cost_usd === 'number'
-                      ? usage.request_cost_usd
-                      : undefined;
-
-            const energyBlock = energy ?? {
-                energy_kwh: usage.energy_kwh,
-                energy_joules: usage.energy_joules,
-                measurement_available: usage.measurement_available,
-            };
-
-            const trackedTokens = OpenAIUtil.splitCachedPrompt(usage);
-            const energyUnits: Record<string, number> = {};
-            if (
-                energyBlock.measurement_available !== false &&
-                typeof energyBlock.energy_kwh === 'number' &&
-                Number.isFinite(energyBlock.energy_kwh) &&
-                energyBlock.energy_kwh > 0
-            ) {
-                energyUnits.energy_kwh = energyBlock.energy_kwh;
-            }
-            if (
-                energyBlock.measurement_available !== false &&
-                typeof energyBlock.energy_joules === 'number' &&
-                Number.isFinite(energyBlock.energy_joules) &&
-                energyBlock.energy_joules > 0
-            ) {
-                energyUnits.energy_joules = energyBlock.energy_joules;
-            }
-
-            const annotate = (tracked: Record<string, number>) => {
-                const out: Record<string, number | string> = { ...tracked };
-                if (accountingMethod) {
-                    out.accounting_method = accountingMethod;
-                }
-                return out;
-            };
-
-            // Billed at `request_cost_usd` when Neuralwatt reports it, at
-            // the catalog's token rates otherwise. Energy is recorded, never
-            // priced.
-            const metered = meterChatUsage(
-                this.#meteringService,
-                actor,
-                this.meteringModelKey(modelUsed.id),
-                modelUsed,
-                { ...trackedTokens, ...energyUnits },
-                typeof requestCostUsd === 'number' &&
-                    Number.isFinite(requestCostUsd)
-                    ? { authoritativeUsd: requestCostUsd }
-                    : { costOverrides: { energy_kwh: 0, energy_joules: 0 } },
-            );
-            setUsageCosts(metered.costs);
-            return annotate(metered.usage);
-        };
-
-        return OpenAIUtil.handle_completion_output({
-            deviations: {
-                index_usage_from_stream_chunk: (chunk: {
-                    usage?: NeuralwattUsage;
-                    cost?: NeuralwattCost;
-                    energy?: NeuralwattEnergy;
-                }) => {
-                    if (!chunk.usage) return chunk.usage;
-                    return {
-                        ...chunk.usage,
-                        ...(typeof chunk.cost?.request_cost_usd === 'number'
-                            ? {
-                                  request_cost_usd: chunk.cost.request_cost_usd,
-                              }
-                            : {}),
-                        ...(chunk.energy
-                            ? {
-                                  energy_kwh: chunk.energy.energy_kwh,
-                                  energy_joules: chunk.energy.energy_joules,
-                                  measurement_available:
-                                      chunk.energy.measurement_available,
-                              }
-                            : {}),
-                    };
-                },
-            },
-            usage_calculator,
-            stream,
-            completion,
-        });
+        this.#accountingMethod = await this.getAccountingMethod();
+        return super.complete(args);
     }
 
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        args: ICompleteArguments,
+        model: IChatModel,
+    ) {
+        // The catalog says which models take `reasoning_effort`.
+        const effort = args.reasoning_effort ?? args.reasoning?.effort;
+        return model.reasoning_effort === true && effort
+            ? { ...params, reasoning_effort: effort }
+            : params;
+    }
+
+    protected override meteredUsage(source: UsageSource) {
+        // Non-streaming spreads the full completion into the source;
+        // streaming merges top-level cost/energy onto `usage`.
+        const usage = source.usage as NeuralwattUsage;
+        const cost = source.cost as NeuralwattCost | undefined;
+        const requestCostUsd =
+            typeof cost?.request_cost_usd === 'number'
+                ? cost.request_cost_usd
+                : usage.request_cost_usd;
+        const energy = (source.energy as NeuralwattEnergy | undefined) ?? {
+            energy_kwh: usage.energy_kwh,
+            energy_joules: usage.energy_joules,
+            measurement_available: usage.measurement_available,
+        };
+        const measured = energy.measurement_available !== false;
+        return {
+            usage: {
+                ...OpenAIUtil.splitCachedPrompt(usage),
+                ...(measured && positive(energy.energy_kwh)
+                    ? { energy_kwh: energy.energy_kwh }
+                    : {}),
+                ...(measured && positive(energy.energy_joules)
+                    ? { energy_joules: energy.energy_joules }
+                    : {}),
+            },
+            // Billed at `request_cost_usd` when Neuralwatt reports it, at the
+            // catalog's token rates otherwise. Energy is recorded, never
+            // priced.
+            meterOptions:
+                typeof requestCostUsd === 'number' &&
+                Number.isFinite(requestCostUsd)
+                    ? { authoritativeUsd: requestCostUsd }
+                    : { costOverrides: { energy_kwh: 0, energy_joules: 0 } },
+        };
+    }
+
+    protected override reportedUsage(usage: Record<string, number>) {
+        return this.#accountingMethod
+            ? { ...usage, accounting_method: this.#accountingMethod }
+            : usage;
     }
 }
 

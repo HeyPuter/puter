@@ -309,36 +309,10 @@ describe('OllamaChatProvider.complete', () => {
         });
     });
 
-    it('namespaces an undiscovered bare model name for metering', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
-        createMock.mockResolvedValueOnce(okCompletion);
-
-        await withTestActor(() =>
-            makeProvider().complete({
-                model: 'phi4',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(recordSpy.mock.calls[0]![2]).toBe('ollama:ollama/phi4');
-    });
-
-    it('keeps an already-namespaced `ollama/` model id intact for metering', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
-        createMock.mockResolvedValueOnce(okCompletion);
-
-        await withTestActor(() =>
-            makeProvider().complete({
-                model: 'ollama/phi4',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(recordSpy.mock.calls[0]![2]).toBe('ollama:ollama/phi4');
-    });
-
     it('forwards tools and requests usage frames when streaming', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
+        axiosRequestMock.mockResolvedValue({
+            data: { models: [{ name: 'llama3.2' }] },
+        });
         createMock.mockReturnValueOnce(
             asAsyncIterable([
                 { choices: [{ delta: { content: 'ha' } }] },
@@ -355,7 +329,7 @@ describe('OllamaChatProvider.complete', () => {
 
         const result = await withTestActor(() =>
             makeProvider().complete({
-                model: 'ollama:llama3.2',
+                model: 'ollama:ollama/llama3.2',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
                 tools: tools as never,
@@ -385,14 +359,16 @@ describe('OllamaChatProvider.complete', () => {
     });
 
     it('rethrows a failure from the local Ollama server without metering it', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
+        axiosRequestMock.mockResolvedValue({
+            data: { models: [{ name: 'llama3.2' }] },
+        });
         const boom = new Error('ollama refused the connection');
         createMock.mockRejectedValueOnce(boom);
 
         await expect(
             withTestActor(() =>
                 makeProvider().complete({
-                    model: 'ollama:llama3.2',
+                    model: 'ollama:ollama/llama3.2',
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
             ),

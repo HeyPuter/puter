@@ -19,27 +19,17 @@
 
 import axios from 'axios';
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
-import { make_openai_tools } from '../../utils/FunctionCalling.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import {
-    contextLengthRetryParams,
-    isContextLengthError,
-} from '../../utils/contextLimit.js';
-import { openAICompatParams } from '../../utils/openaiParams.js';
-import type {
-    IChatModel,
-    IChatProvider,
-    IChatCompleteResult,
-    ICompleteArguments,
-} from '../../types.js';
-import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
-import { meterChatUsage } from '../../utils/meterChatUsage.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+    type UsageSource,
+} from '../OpenAICompatProvider.js';
+import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 
 type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
@@ -57,73 +47,33 @@ const openRouterReleaseDate = (created: unknown): string | undefined => {
     return `${year}-${month}-${day}`;
 };
 
-export class OpenRouterProvider implements IChatProvider {
-    #meteringService: MeteringService;
+export class OpenRouterProvider extends OpenAICompatProvider {
+    #apiBaseUrl: string;
 
-    #openai: OpenAI;
-
-    #apiBaseUrl: string = 'https://openrouter.ai/api/v1';
-
-    constructor(
-        config: { apiBaseUrl?: string; apiKey: string },
-        meteringService: MeteringService,
-    ) {
-        this.#apiBaseUrl = config.apiBaseUrl || 'https://openrouter.ai/api/v1';
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: this.#apiBaseUrl,
-            ...sdkClientOptions(),
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        const apiBaseUrl = config.apiBaseUrl || 'https://openrouter.ai/api/v1';
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: apiBaseUrl,
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'openrouter:openai/gpt-6-luna',
+            idPrefix: 'openrouter:',
+            passthrough: ['temperature'],
+            // OpenRouter is the one OpenAI-family dialect that forwards
+            // Anthropic caching through, so it keeps `cache_control`.
+            stripAnthropicShape: 'keepCacheControl',
+            compatParams: { dialect: 'openrouter' },
+            // OpenRouter rejects an overlarge max_tokens rather than
+            // truncating.
+            retryOnContextLength: true,
         });
-        this.#meteringService = meteringService;
+        this.#apiBaseUrl = apiBaseUrl;
     }
 
-    getDefaultModel() {
-        return 'openrouter:openai/gpt-6-luna';
-    }
-    /**
-     * Returns a list of available model names including their aliases
-     *
-     * Retrieves all available model IDs and their aliases, flattening them into
-     * a single array of strings that can be used for model selection
-     *
-     * @returns {Promise<string[]>} Array of model identifiers and their aliases
-     */
-    async list() {
-        const models = await this.models();
-        const model_names: string[] = [];
-        for (const model of models) {
-            model_names.push(model.id);
-        }
-        return model_names;
-    }
-
-    /** AI Chat completion method. See AIChatService for more details. */
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return modelId;
-    }
-
-    async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
-        const {
-            messages: rawMessages,
-            stream,
-            model,
-            tools,
-            max_tokens,
-            temperature,
-        } = args;
-        let messages = rawMessages;
-        const modelUsed =
-            (await this.models()).find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) ||
-            (await this.models()).find((m) => m.id === this.getDefaultModel())!;
-
-        const modelIdForParams = modelUsed.id.startsWith('openrouter:')
-            ? modelUsed.id.slice('openrouter:'.length)
-            : modelUsed.id;
-
-        if (model === 'openrouter/auto') {
+    override async complete(args: ICompleteArguments) {
+        if (args.model === 'openrouter/auto') {
             throw new HttpError(
                 400,
                 "The model 'openrouter/auto' is not allowed",
@@ -137,109 +87,10 @@ export class OpenRouterProvider implements IChatProvider {
                 },
             );
         }
-
-        const actor = Context.get('actor');
-
-        // OpenRouter is the one OpenAI-family dialect that forwards Anthropic
-        // caching through, so it keeps `cache_control` rather than stripping it.
-        messages = OpenAIUtil.toOpenAIChatMessages(messages, {
-            keepCacheControl: true,
-        });
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'chat' })
-            : undefined;
-
-        const completionParams = {
-            messages,
-            model: modelIdForParams,
-            ...(mappedTools?.length ? { tools: mappedTools } : {}),
-            max_tokens,
-            temperature: temperature, // default to 1.0
-            stream,
-            ...(stream
-                ? {
-                      stream_options: { include_usage: true },
-                  }
-                : {}),
-            usage: { include: true },
-            ...openAICompatParams(
-                { ...args, tools: mappedTools },
-                'openrouter',
-            ),
-        } as ChatCompletionCreateParams;
-
-        let completion;
-        try {
-            completion = await this.#openai.chat.completions.create(
-                completionParams,
-                { signal: Context.get('abortSignal') },
-            );
-        } catch (e: unknown) {
-            if (!isContextLengthError(e)) {
-                if (!Context.get('abortSignal')?.aborted) {
-                    console.log(
-                        'Openrouter error: ',
-                        (e as { error?: { message?: string } })?.error?.message,
-                    );
-                }
-                throw e;
-            }
-            // OpenRouter rejects an overlarge max_tokens rather than
-            // truncating. Retry under the room the window leaves, still
-            // bounded by the cap the credit gate set.
-            const retryParams = contextLengthRetryParams(completionParams, {
-                error: e,
-                contextWindow: modelUsed.context,
-            });
-            if (!retryParams) throw e;
-            completion = await this.#openai.chat.completions.create(
-                retryParams,
-                { signal: Context.get('abortSignal') },
-            );
-        }
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({
-                usage,
-                setUsageCosts,
-            }: {
-                usage: OpenrouterUsage;
-                setUsageCosts: (costs: Record<string, number>) => void;
-            }) => {
-                const trackedUsage = {
-                    prompt:
-                        (usage.prompt_tokens ?? 0) -
-                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
-                    completion: usage.completion_tokens ?? 0,
-                    input_cache_read:
-                        usage.prompt_tokens_details?.cached_tokens ?? 0,
-                    request:
-                        (usage as unknown as Record<string, number>).request ||
-                        1,
-                };
-                // OpenRouter reports what it billed (`usage.cost`, USD);
-                // the catalog's prices are the fallback.
-                const metered = meterChatUsage(
-                    this.#meteringService,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    modelUsed,
-                    trackedUsage,
-                    typeof usage.cost === 'number'
-                        ? { authoritativeUsd: usage.cost }
-                        : {},
-                );
-                setUsageCosts(metered.costs);
-                return metered.usage;
-            },
-            stream,
-            completion,
-        });
+        return super.complete(args);
     }
 
-    async models(): Promise<IChatModel[]> {
+    override async models(): Promise<IChatModel[]> {
         return this.#catalog();
     }
 
@@ -316,9 +167,31 @@ export class OpenRouterProvider implements IChatProvider {
         }
         return coerced_models;
     }
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+
+    protected override vendorParams(params: Record<string, unknown>) {
+        // Puts OpenRouter's own `cost` on the usage it reports.
+        return { ...params, usage: { include: true } };
+    }
+
+    protected override meteredUsage(source: UsageSource) {
+        const usage = source.usage as OpenrouterUsage;
+        return {
+            usage: {
+                prompt:
+                    (usage.prompt_tokens ?? 0) -
+                    (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                completion: usage.completion_tokens ?? 0,
+                input_cache_read:
+                    usage.prompt_tokens_details?.cached_tokens ?? 0,
+                request:
+                    (usage as unknown as Record<string, number>).request || 1,
+            },
+            // What OpenRouter billed, when it says; the catalog's prices
+            // otherwise.
+            meterOptions:
+                typeof usage.cost === 'number'
+                    ? { authoritativeUsd: usage.cost }
+                    : {},
+        };
     }
 }

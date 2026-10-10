@@ -868,11 +868,10 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('GeminiChatProvider.complete error mapping', () => {
-    it('logs and rethrows errors raised by the OpenAI client unchanged', async () => {
+    it('rethrows errors raised by the OpenAI client unchanged', async () => {
         const { provider } = makeProvider();
         const apiError = new Error('Gemini exploded');
         createMock.mockRejectedValueOnce(apiError);
-        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -883,7 +882,6 @@ describe('GeminiChatProvider.complete error mapping', () => {
             ),
         ).rejects.toBe(apiError);
 
-        expect(errSpy).toHaveBeenCalled();
         expect(recordSpy).not.toHaveBeenCalled();
     });
 });
@@ -894,7 +892,7 @@ describe('GeminiChatProvider.checkModeration', () => {
     it('throws — Gemini provider does not implement moderation', () => {
         const { provider } = makeProvider();
         expect(() => provider.checkModeration('anything')).toThrow(
-            /no moderation/i,
+            /not implemented/i,
         );
     });
 });
