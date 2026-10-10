@@ -134,10 +134,12 @@ const HOLD_RENEW_INTERVAL_MS = 5 * 60 * 1000;
 /**
  * A moderation refusal is a completion that was produced and charged, then
  * withheld — not a route failure. Retrying it on a fallback provider would bill
- * the account again for another completion the user will never see.
+ * the account again for another completion the user will never see. A check
+ * that couldn't run withholds the completion the same way.
  */
 const isModerationRefusal = (e: unknown): boolean =>
-    isHttpError(e) && e.code === 'moderation_flagged';
+    isHttpError(e) &&
+    (e.code === 'moderation_flagged' || e.code === 'moderation_unavailable');
 
 /**
  * The refusal for a request its funds can't cover. When what's missing is only
@@ -1685,6 +1687,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const azureOpenai = providers['azure-openai'];
         const azureOpenaiKey = readKey(azureOpenai);
         const azureOpenaiURL = azureOpenai?.apiURL as string | undefined;
+        let azureResponses: AzureResponsesProvider | undefined;
         if (azureOpenaiKey && azureOpenaiURL) {
             const azureStores = {
                 fsEntry: this.stores.fsEntry,
@@ -1704,7 +1707,7 @@ export class ChatCompletionDriver extends PuterDriver {
             // they route through a sibling Responses provider pointed at the
             // same Azure endpoint. web_search (also Responses-only) delegates
             // here too.
-            const azureResponses = new AzureResponsesProvider(
+            azureResponses = new AzureResponsesProvider(
                 metering,
                 azureStores,
                 this.services.fs,
@@ -1738,6 +1741,8 @@ export class ChatCompletionDriver extends PuterDriver {
             // web_search is Responses-only; let the Completions path delegate
             // to its sibling when users request it.
             openaiCompletions.setResponsesProvider(openaiResponses);
+            // Azure serves no moderation endpoint; its routes check here.
+            azureResponses?.setModerationProvider(openaiCompletions);
             this.#providers['openai-completion'] = openaiCompletions;
             this.#providers['openai-responses'] = openaiResponses;
         }

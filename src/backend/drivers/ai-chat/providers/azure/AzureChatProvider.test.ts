@@ -367,10 +367,56 @@ describe('AzureChatProvider.complete argument validation', () => {
         expect(sibling.requestPricing).toHaveBeenCalledWith(args, model, est);
     });
 
-    it('checkModeration is not implemented on the Azure deployment', () => {
-        expect(() => makeProvider().checkModeration('anything')).toThrow(
-            'Method not implemented.',
+    it('checkModeration delegates to the Responses sibling, and throws without one', async () => {
+        const provider = makeProvider();
+        expect(() => provider.checkModeration('anything')).toThrow();
+
+        const sibling = {
+            checkModeration: vi.fn().mockResolvedValue({ flagged: false }),
+        };
+        provider.setResponsesProvider(sibling as never);
+        await expect(provider.checkModeration('anything')).resolves.toEqual({
+            flagged: false,
+        });
+        expect(sibling.checkModeration).toHaveBeenCalledWith('anything');
+    });
+});
+
+// -- Moderation ------------------------------------------------------
+
+describe('AzureChatProvider.complete moderation', () => {
+    const completeModerated = (flagged: boolean) => {
+        const provider = makeProvider();
+        const sibling = {
+            checkModeration: vi.fn().mockResolvedValue({ flagged }),
+        };
+        provider.setResponsesProvider(sibling as never);
+        createMock.mockResolvedValueOnce(okCompletion);
+        const result = withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: 'hi' }],
+                moderation: true,
+            }),
         );
+        return { result, sibling };
+    };
+
+    it('returns a completion the moderation check passes', async () => {
+        const { result, sibling } = completeModerated(false);
+        await expect(result).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(sibling.checkModeration).toHaveBeenCalledWith('hi');
+    });
+
+    it('refuses a flagged completion with moderation_flagged, after metering it', async () => {
+        const { result } = completeModerated(true);
+        await expect(result).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_flagged',
+        });
+        expect(recordSpy).toHaveBeenCalledTimes(1);
     });
 });
 

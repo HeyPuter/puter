@@ -870,6 +870,34 @@ export const create_chat_stream_handler_responses_api =
         chatStream.end(usage);
     };
 
+/**
+ * Withholds a completion that moderation flags, or that it couldn't check. The
+ * `code` tells the driver this is a refusal of a completion that was produced
+ * and charged, not a route failure — retrying it on a fallback provider would
+ * bill the account again for a completion the user never sees.
+ *
+ * @param {(text: string) => Promise<{ flagged: boolean }>} moderate
+ * @param {string} text
+ */
+const applyModeration = async (moderate, text) => {
+    let moderationResult;
+    try {
+        moderationResult = await moderate(text);
+    } catch (e) {
+        console.warn('[ai-chat] moderation check failed:', e?.message ?? e);
+        throw new HttpError(400, 'message could not be moderated', {
+            legacyCode: 'upstream_provider_unavailable',
+            code: 'moderation_unavailable',
+        });
+    }
+    if (moderationResult.flagged) {
+        throw new HttpError(400, 'message is not allowed', {
+            legacyCode: 'bad_request',
+            code: 'moderation_flagged',
+        });
+    }
+};
+
 export const handle_completion_output = async (
     /**
      * @type {Record<string, unknown> & {
@@ -945,17 +973,7 @@ export const handle_completion_output = async (
 
     const mod_text = completion.choices[0].message.content;
     if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            // `code` tells the driver this is a refusal of a completion that
-            // was produced and charged, not a route failure — retrying it on
-            // a fallback provider would bill the account again for another
-            // completion the user will never see.
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-                code: 'moderation_flagged',
-            });
-        }
+        await applyModeration(moderate, mod_text);
     }
 
     return ret;
@@ -1135,13 +1153,7 @@ export const handle_completion_output_responses_api = async ({
 
     const mod_text = completion.output_text;
     if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-                code: 'moderation_flagged',
-            });
-        }
+        await applyModeration(moderate, mod_text);
     }
 
     return ret;
