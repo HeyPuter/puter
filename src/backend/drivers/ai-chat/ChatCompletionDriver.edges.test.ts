@@ -54,6 +54,7 @@ import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
+import { handle_completion_output } from './utils/OpenAIUtil.js';
 import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 
 let server: PuterServer;
@@ -551,6 +552,27 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         expect(err.statusCode).toBe(400);
         expect(err).toMatchObject({ legacyCode: 'upstream_bad_request' });
         expect(err.message).toBe('unsupported parameter: top_k');
+    });
+
+    it('maps a completion with no choices to a 400, not an internal 500', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementation(
+            () =>
+                handle_completion_output({
+                    deviations: undefined,
+                    stream: false,
+                    completion: {},
+                }) as never,
+        );
+        let err: HttpError | undefined;
+        try {
+            await completeFake({});
+        } catch (e) {
+            err = e as HttpError;
+        }
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
     });
 
     it('rethrows our own HttpError below 500 verbatim — no attempt recorded, no fallback', async () => {

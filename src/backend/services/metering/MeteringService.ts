@@ -2841,7 +2841,7 @@ export class MeteringService extends PuterService {
 
         this.clients.alarm.create(
             `metering usage exceeded by user: ${actorLabel(actor)}`,
-            `${actorLabel(actor)} (${userId}) has exceeded their usage allowance significantly`,
+            `${actorLabel(actor)} (${userId}) has exceeded their credits significantly (${currentMultiple}x their monthly credits)`,
             {
                 userId: actor.user?.uuid,
                 username: actor.user?.username,
@@ -2856,9 +2856,8 @@ export class MeteringService extends PuterService {
                 purchasedCredits,
                 consumedPurchaseCredits,
             },
-            // One account outspending its allowance is a thing to look at, not
-            // an incident — a record in the alerts channel is enough.
-            'info',
+            // Not an outage, but a chat-only record of it gets lost.
+            'warning',
         );
     }
 
