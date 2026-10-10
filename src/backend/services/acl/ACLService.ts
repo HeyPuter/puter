@@ -31,6 +31,7 @@ import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { HttpError } from '../../core/http/HttpError.js';
 import { actorHasSubscription } from '../metering/enforcement';
+import { withRedisLock } from '../../util/redisLock.js';
 
 // -- Types ------------------------------------------------------------
 
@@ -618,52 +619,25 @@ export class ACLService extends PuterService {
      * Serialize writes to one (issuer, holder, node) triple. Fails open on a
      * Redis error — a narrow race beats taking sharing down with the cache.
      */
-    async #withNodeLock<T>(suffix: string, fn: () => Promise<T>): Promise<T> {
-        const key = `acl:set-user-user:${suffix}`;
-        const token = `${process.pid}:${Date.now()}:${Math.random()}`;
-        let held = false;
-
-        try {
-            for (let attempt = 0; attempt < SET_USER_LOCK_ATTEMPTS; attempt++) {
-                const claimed = await this.clients.redis.set(
-                    key,
-                    token,
-                    'EX',
-                    SET_USER_LOCK_TTL_SECONDS,
-                    'NX',
-                );
-                if (claimed === 'OK') {
-                    held = true;
-                    break;
-                }
-                await new Promise((resolve) =>
-                    setTimeout(resolve, SET_USER_LOCK_RETRY_MS),
-                );
-            }
-            if (!held) {
-                throw new HttpError(
-                    409,
-                    'another change to this share is in progress',
-                    { legacyCode: 'conflict' },
-                );
-            }
-        } catch (err) {
-            if (err instanceof HttpError) throw err;
-            // Redis unavailable — proceed unserialized rather than fail.
-            return fn();
-        }
-
-        try {
-            return await fn();
-        } finally {
-            try {
-                // Only clear our own claim — a lapsed TTL may have reassigned it.
-                const current = await this.clients.redis.get(key);
-                if (current === token) await this.clients.redis.del(key);
-            } catch {
-                // The TTL cleans up regardless.
-            }
-        }
+    #withNodeLock<T>(suffix: string, fn: () => Promise<T>): Promise<T> {
+        return withRedisLock(
+            this.clients.redis,
+            `acl:set-user-user:${suffix}`,
+            fn,
+            {
+                ttlMs: SET_USER_LOCK_TTL_SECONDS * 1000,
+                attempts: SET_USER_LOCK_ATTEMPTS,
+                retryMs: SET_USER_LOCK_RETRY_MS,
+                onUnavailable: 'run',
+                onBusy: () => {
+                    throw new HttpError(
+                        409,
+                        'another change to this share is in progress',
+                        { legacyCode: 'conflict' },
+                    );
+                },
+            },
+        );
     }
 
     /**

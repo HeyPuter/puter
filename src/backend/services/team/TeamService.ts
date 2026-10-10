@@ -31,6 +31,7 @@ import {
     ORG_SEAT_RESOLVER_PRIORITY,
 } from '../metering/consts.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { withRedisLock } from '../../util/redisLock.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 3;
@@ -397,55 +398,25 @@ export class TeamService extends PuterService {
     }
 
     /**
-     * Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`.
-     * Refuses rather than running unserialized, or the cap is unenforced under
-     * concurrency. A lone create never contends.
+     * Serializes a count-then-insert. Refuses rather than running unserialized,
+     * or the cap is unenforced under concurrency. A lone create never
+     * contends.
      */
-    async #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
-        const key = `team:cap:${suffix}`;
-        const token = `${process.pid}:${Date.now()}:${Math.random()}`;
-        let held = false;
-
-        try {
-            for (let attempt = 0; attempt < CAP_LOCK_ATTEMPTS; attempt++) {
-                const claimed = await this.clients.redis.set(
-                    key,
-                    token,
-                    'EX',
-                    CAP_LOCK_TTL_SECONDS,
-                    'NX',
-                );
-                if (claimed === 'OK') {
-                    held = true;
-                    break;
-                }
-                await new Promise((resolve) =>
-                    setTimeout(resolve, CAP_LOCK_RETRY_MS),
-                );
-            }
-        } catch (e) {
-            // Same answer as contention below — the caller retries either way.
-            // Logged, because unlike contention the cause is ours.
-            console.warn('[team] cap lock unavailable:', e);
-            held = false;
-        }
-        if (!held) {
-            throw new HttpError(409, 'Busy — try that again in a moment', {
-                legacyCode: 'conflict',
-            });
-        }
-
-        try {
-            return await run();
-        } finally {
-            try {
-                // Only clear our own claim — a lapsed TTL may have reassigned it.
-                const current = await this.clients.redis.get(key);
-                if (current === token) await this.clients.redis.del(key);
-            } catch {
-                /* the TTL clears it */
-            }
-        }
+    #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
+        return withRedisLock(this.clients.redis, `team:cap:${suffix}`, run, {
+            ttlMs: CAP_LOCK_TTL_SECONDS * 1000,
+            attempts: CAP_LOCK_ATTEMPTS,
+            retryMs: CAP_LOCK_RETRY_MS,
+            onUnavailable: 'busy',
+            onBusy: (err) => {
+                // Same answer as contention — the caller retries either way.
+                // Logged, because unlike contention the cause is ours.
+                if (err) console.warn('[team] cap lock unavailable:', err);
+                throw new HttpError(409, 'Busy — try that again in a moment', {
+                    legacyCode: 'conflict',
+                });
+            },
+        });
     }
 
     /** Renames or re-handles a team, refusing an unusable handle. */

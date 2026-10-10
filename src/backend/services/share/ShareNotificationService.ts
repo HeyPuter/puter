@@ -42,6 +42,7 @@ import {
 } from './shareDeepLink';
 import { NOTIFY_FANOUT_CAP } from '../../stores/team/TeamStore';
 import { blocksAllShares, type ResolvedShare } from './ShareService';
+import { withRedisLock } from '../../util/redisLock.js';
 
 /**
  * How long one sharer stays quiet after reaching a recipient, and how long a
@@ -874,25 +875,27 @@ export class ShareNotificationService extends PuterService {
      * handing each entry to exactly one flusher.
      */
     async #flushDigest(key: string): Promise<void> {
-        const lockKey = `share:digest:lock:${key}`;
-        try {
-            const locked = await this.clients.redis.set(
-                lockKey,
-                '1',
-                'EX',
-                DIGEST_LOCK_SECONDS,
-                'NX',
-            );
-            if (locked !== 'OK') {
-                console.log('[share-notify] another flush holds the lock:', {
-                    key,
-                });
-                return;
-            }
-        } catch {
-            // No lock beats no mail; `take` still prevents double sends.
-        }
+        await withRedisLock(
+            this.clients.redis,
+            `share:digest:lock:${key}`,
+            () => this.#flushDigestLocked(key),
+            {
+                ttlMs: DIGEST_LOCK_SECONDS * 1000,
+                // No lock beats no mail; `take` still prevents double sends.
+                onUnavailable: 'run',
+                onBusy: () => {
+                    console.log(
+                        '[share-notify] another flush holds the lock:',
+                        {
+                            key,
+                        },
+                    );
+                },
+            },
+        );
+    }
 
+    async #flushDigestLocked(key: string): Promise<void> {
         try {
             const prefix = `share:digest:${key}:`;
             const { res } = await this.stores.kv.list({
@@ -1027,12 +1030,6 @@ export class ShareNotificationService extends PuterService {
             }
         } catch (err) {
             console.warn('[share-notify] digest flush failed:', err);
-        } finally {
-            try {
-                await this.clients.redis.del(lockKey);
-            } catch {
-                // The lock self-expires.
-            }
         }
     }
 
