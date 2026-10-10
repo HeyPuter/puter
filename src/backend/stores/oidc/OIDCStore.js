@@ -38,14 +38,17 @@ const isUniqueConstraintError = (e) => {
 export class OIDCStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByProviderSub(provider, providerSub) {
+    /** Pass `primary` when the row may be newer than the replica. */
+    async getByProviderSub(provider, providerSub, { primary = false } = {}) {
         // Ordered so a sub that predates the UNIQUE index (two callbacks for the
         // same new identity used to be able to both insert) always resolves to
         // the same link, instead of bouncing the user between two accounts.
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1',
-            [provider, providerSub],
-        );
+        const sql =
+            'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1';
+        const params = [provider, providerSub];
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
         return rows[0] ?? null;
     }
 
@@ -73,7 +76,10 @@ export class OIDCStore extends PuterStore {
         // the same (user, provider, sub) triple (idempotent no-op), or the
         // sub already belongs to a DIFFERENT user. The latter must fail loudly
         // so callers don't assume success and act on an unrelated account.
-        const existing = await this.getByProviderSub(provider, providerSub);
+        // The primary: it rejected the insert, so it has the row.
+        const existing = await this.getByProviderSub(provider, providerSub, {
+            primary: true,
+        });
         if (!existing) return;
         if (existing.user_id !== userId) {
             // The caller is told there is a conflict, not whose.

@@ -123,6 +123,37 @@ describe('SubdomainStore cache coherency', () => {
         expect(after?.root_dir_id).toBe(2);
     });
 
+    it('update returns and caches the new row before the replica has it', async () => {
+        const userId = await makeUser();
+        const subdomain = `sds-lag-${Math.random().toString(36).slice(2, 8)}`;
+        const row = await store.create({ userId, subdomain, rootDirId: 1 });
+
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of `subdomains` come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `subdomains`/u.test(q) ? [] : realRead(q, p),
+            );
+        let updated;
+        try {
+            updated = await store.update(
+                row.uuid,
+                { root_dir_id: 2 },
+                { userId },
+            );
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(updated?.root_dir_id).toBe(2);
+        expect((await store.getBySubdomain(subdomain))?.root_dir_id).toBe(2);
+    });
+
     it('delete leaves a negative marker rather than a stale row', async () => {
         const userId = await makeUser();
         const subdomain = `sds-delete-${Math.random().toString(36).slice(2, 8)}`;

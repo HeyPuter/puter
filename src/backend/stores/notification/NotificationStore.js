@@ -20,19 +20,36 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
+/**
+ * @typedef {{
+ *     userId: number;
+ *     value: unknown;
+ *     uid?: string;
+ *     type?: string;
+ *     audience?: string;
+ *     appUid?: string | null;
+ * }} NotificationInsert
+ */
+
 export class NotificationStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUid(uid, { userId } = {}) {
+    /**
+     * Pass `primary` to read back a row just written; a replica may lag.
+     *
+     * @param {string} uid
+     * @param {{ userId?: number; primary?: boolean }} [opts]
+     */
+    async getByUid(uid, { userId, primary = false } = {}) {
         const where =
             userId !== undefined
                 ? 'WHERE `uid` = ? AND `user_id` = ?'
                 : 'WHERE `uid` = ?';
         const params = userId !== undefined ? [uid, userId] : [uid];
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`notification\` ${where} LIMIT 1`,
-            params,
-        );
+        const sql = `SELECT * FROM \`notification\` ${where} LIMIT 1`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -150,24 +167,30 @@ export class NotificationStore extends PuterStore {
     // -- Writes -------------------------------------------------------
 
     /**
+     * Write a notification and return the stored row, read from the primary.
+     *
+     * @param {NotificationInsert} args
+     */
+    async create(args) {
+        const uid = await this.insert(args);
+        return this.getByUid(uid, { userId: args.userId, primary: true });
+    }
+
+    /**
+     * `create` without the read-back; returns the uid only.
+     *
      * `uid` lets the caller name the row up front — NotificationService pushes
-     * the uid to the socket before this insert lands, and the ack / mark-shown
+     * the uid to the socket after this insert lands, and the ack / mark-shown
      * round trip comes back keyed on it.
      *
      * `type`, `audience` and `appUid` are the scope tuple; the registry in the
      * notification service is what decides which combinations are legal, and
      * the empty `type` written by a caller that names none reads as legacy.
      *
-     * @param {{
-     *     userId: number;
-     *     value: unknown;
-     *     uid?: string;
-     *     type?: string;
-     *     audience?: string;
-     *     appUid?: string | null;
-     * }} args
+     * @param {NotificationInsert} args
+     * @returns {Promise<string>}
      */
-    async create({
+    async insert({
         userId,
         value,
         uid = uuidv4(),
@@ -175,14 +198,14 @@ export class NotificationStore extends PuterStore {
         audience = 'account',
         appUid = null,
     }) {
-        if (!userId) throw new Error('create: userId is required');
+        if (!userId) throw new Error('insert: userId is required');
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
         await this.clients.db.write(
             'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, `audience`, `app_uid`) VALUES (?, ?, ?, ?, ?, ?)',
             [uid, userId, serialized, type, audience, appUid],
         );
-        return this.getByUid(uid, { userId });
+        return uid;
     }
 
     /**
