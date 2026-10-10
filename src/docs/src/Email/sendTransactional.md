@@ -42,8 +42,8 @@ A plain-text body. Shorthand for `text`; use the options form for anything else.
 - `attachments` (Array) - Up to **10** attachments, **25 MB** in total. Each is an object:
   - `filename` (String) - Required with `content`; defaults to the file's name for a `path`/`uid` attachment.
   - `content` (String) - The file body as base64. Mutually exclusive with `path`/`uid`.
-  - `path` (String) - A Puter path (`~/` allowed). The file is read on the server with the caller's file permissions, falling back to the worker owner's, and streamed rather than uploaded — prefer this over `content` for anything larger than a few hundred kilobytes.
-  - `uid` (String) - A Puter file uid, as an alternative to `path`.
+  - `path` (String) - A Puter path (`~/` allowed, meaning the caller's home). The file is read on the server with the caller's file permissions only, and streamed rather than uploaded — prefer this over `content` for anything larger than a few hundred kilobytes.
+  - `uid` (String) - A Puter file uid, as an alternative to `path`. Read with the caller's file permissions, falling back to the worker owner's — use a uid to attach a file from the worker owner's storage.
   - `contentType` (String) - MIME type. Detected from the file for `path`/`uid` attachments.
   - `cid` (String) - Content-ID that makes the attachment an inline part of the `html` body: with `cid: 'logo'`, `<img src="cid:logo">` shows it. Printable ASCII with no whitespace or angle brackets. Inline parts are billed like any other attachment.
 
@@ -52,7 +52,7 @@ A plain-text body. Shorthand for `text`; use the options form for anything else.
 A `Promise` that resolves to an object:
 
 - `messageId` (String | null) - The `Message-ID` of the first delivery: the transport's for a relayed copy, the stored message's for a Puter mailbox.
-- `cost` (Number) - What the send was charged, in microcents.
+- `cost` (Number) - What the send was charged, in microcents: one delivery's price for each recipient in neither `failed` nor `suppressed`.
 - `suppressed` (Array) - Recipients (lowercased) dropped because they unsubscribed from your app's mail. The message went to the others.
 - `failed` (Array) - Recipients (lowercased) whose delivery failed. Everyone else got their copy — retry with just these addresses.
 
@@ -65,7 +65,7 @@ In case of an error, the `Promise` rejects with `{ message, code }`. Codes you m
 - `subscription_required` (402) - The calling account is not on a paid plan.
 - `insufficient_funds` (402) - The calling account has no usage credit left for this send.
 - `bad_request` (400) - Invalid arguments: a bad address, a missing body, too many recipients, an invalid attachment.
-- `not_found` (404) - Every recipient was a Puter address with no mailbox to receive in.
+- `not_found` (404) - An attachment's `path`/`uid` could not be read; or every recipient was a Puter address with no mailbox to receive in.
 - `too_many_requests` (429) - Over the rate limit; see [Rate Limits and Quotas](/rate-limits-and-quotas/#email).
 
 ## Recipients on Puter
@@ -84,7 +84,7 @@ Every message carries an unsubscribe link and a report-abuse link. Opting out is
 
 ## Limits and cost
 
-Sends are rate-limited per calling account; the numbers are on [Rate Limits and Quotas](/rate-limits-and-quotas/#email). A send costs a flat charge per message plus a per-byte charge for attachments, and is charged to the calling account. A send that reaches nobody is not charged.
+Sends are rate-limited per calling account; the numbers are on [Rate Limits and Quotas](/rate-limits-and-quotas/#email). Each recipient's delivery costs a flat charge plus a per-byte charge for the attachments it carries, so a send to three recipients costs three deliveries. Only deliveries that succeed are charged — retrying the `failed` addresses never pays twice — and a send that reaches nobody is not charged. The calling account pays.
 
 ## Examples
 
@@ -123,6 +123,10 @@ router.post('/api/receipt', async ({ request, user }) => {
 <strong class="example-title">Attach a file and show an inline image</strong>
 
 ```js
+// The uid of a file in the worker owner's storage, e.g. from
+// `(await me.puter.fs.stat('~/Public/logo.png')).uid`.
+const LOGO_UID = '...';
+
 router.post('/api/invoice', async ({ request, user }) => {
     const { to } = await request.json();
     return await user.puter.email.sendTransactional({
@@ -130,9 +134,9 @@ router.post('/api/invoice', async ({ request, user }) => {
         subject: 'Your invoice',
         html: '<img src="cid:logo" alt="Acme"><p>Your invoice is attached.</p>',
         attachments: [
-            // Streamed from the worker owner's storage; shown inline via the cid.
-            { path: '~/Public/logo.png', cid: 'logo' },
-            // Streamed from the user's own storage as a regular attachment.
+            // A uid falls back to the worker owner's storage; shown inline via the cid.
+            { uid: LOGO_UID, cid: 'logo' },
+            // A path is always the caller's: streamed from the user's own storage.
             { path: '~/Documents/invoice.pdf' },
         ],
         emailAccessToken: me.puter.authToken,

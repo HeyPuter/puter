@@ -2,18 +2,23 @@
 // Multipart email files are handled as String'd FormData to save on Multipart parsing logic. The primary goal of this library
 // is not necessarily high performance but high maintanability.
 
+import { PuterJSError } from '../../lib/PuterJSError.js';
+
+/** Every refusal here is the caller's input; the SDK error contract wants a code. */
+const invalid = (message) => new PuterJSError(message, 'invalid_request');
+
 /**
  * One attachment: either inline base64 `content`, or a Puter FS reference
- * (`path`/`uid`) read server-side with the caller's — falling back to the
- * authorizing worker's — file permissions. FS references are streamed from
+ * (`path`/`uid`) read server-side with the caller's file permissions; a `uid`
+ * falls back to the authorizing worker's. FS references are streamed from
  * storage and never travel through the request, so prefer them for anything
  * larger than a few hundred kilobytes.
  *
  * @typedef {Object} EmailAttachment
  * @property {string} [filename] Required with `content`; defaults to the file's name for FS refs.
  * @property {string} [content] Base64 file body. Mutually exclusive with `path`/`uid`.
- * @property {string} [path] Puter FS path (supports `~/`). Mutually exclusive with `content`.
- * @property {string} [uid] Puter FS entry uid. Mutually exclusive with `content`.
+ * @property {string} [path] Puter FS path (supports `~/`, the caller's home). Mutually exclusive with `content`.
+ * @property {string} [uid] Puter FS entry uid; the only way to attach a file of the worker owner's. Mutually exclusive with `content`.
  * @property {string|undefined} [cid] Email content ID for inline images
  * @property {string} [contentType] MIME type of the attachment.
  */
@@ -40,23 +45,101 @@ export function getRFC822DateUTC(date = new Date()) {
 
 export function emlHeader(key, value) {
     if (!isASCII(key)) {
-        throw new Error("eml header key " + key + " is not valid ASCII");
+        throw invalid("eml header key " + key + " is not valid ASCII");
     }
 
     if (Array.isArray(value)) {
         value.forEach((val) => {
             if (!isASCII(val)) {
-                throw new Error("eml header value " + val + " is not valid ASCII");
+                throw invalid("eml header value " + val + " is not valid ASCII");
             }
         })
 
         return `${key}: ${value.join(', ')}\r\n`;
     } else {
         if (!isASCII(value)) {
-            throw new Error("eml header value " + value + " is not valid ASCII");
+            throw invalid("eml header value " + value + " is not valid ASCII");
         }
         return `${key}: ${value}\r\n`;
     }
+}
+
+// UTF-8 bytes per encoded word: 45 bytes is 60 base64 characters, which with
+// the `=?UTF-8?B?` and `?=` wrapping stays inside RFC 2047's 75.
+const ENCODED_WORD_BYTES = 45;
+
+const bytesToBase64 = (bytes) => {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+};
+
+/**
+ * Header text as RFC 2047 encoded words: printable ASCII comes back as is,
+ * anything else as `=?UTF-8?B?...?=` words split on character boundaries and
+ * folded onto continuation lines. Control characters are refused either way:
+ * they have no business in a header, encoded or not.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function encodeWord(text) {
+    if (typeof text !== 'string' || /[\x00-\x1f\x7f]/.test(text)) {
+        throw invalid("eml header value " + text + " is not valid");
+    }
+    if (isASCII(text)) return text;
+
+    const encoder = new TextEncoder();
+    const words = [];
+    let pending = [];
+    for (const char of text) {
+        const bytes = encoder.encode(char);
+        if (pending.length + bytes.length > ENCODED_WORD_BYTES) {
+            words.push(pending);
+            pending = [];
+        }
+        pending.push(...bytes);
+    }
+    if (pending.length > 0) words.push(pending);
+    return words.map(word => `=?UTF-8?B?${bytesToBase64(word)}?=`).join('\r\n ');
+}
+
+/**
+ * One address-list entry, its display name encoded when it needs to be. The
+ * address itself has to stay ASCII: mail without SMTPUTF8 has no encoding
+ * for it.
+ *
+ * @param {string} entry `addr@host` or `Name <addr@host>`
+ * @returns {string}
+ */
+function encodeAddress(entry) {
+    if (isASCII(entry)) return entry;
+    const match = /^\s*(.*?)\s*<([^<>]*)>\s*$/.exec(String(entry));
+    if (!match || !isASCII(match[2])) {
+        throw invalid("eml address " + entry + " is not valid ASCII");
+    }
+    const name = match[1].replace(/^"(.*)"$/, '$1').replace(/\\(.)/g, '$1');
+    return `${encodeWord(name)} <${match[2]}>`;
+}
+
+/** A free-text header (Subject), RFC 2047 encoded when not plain ASCII. */
+export function textHeader(key, value) {
+    if (!isASCII(key)) {
+        throw invalid("eml header key " + key + " is not valid ASCII");
+    }
+    return `${key}: ${encodeWord(value)}\r\n`;
+}
+
+/**
+ * An address-list header (To, Cc, Bcc, Reply-To, From) with non-ASCII display
+ * names encoded. A string is one entry, or an ASCII list passed through as is.
+ */
+export function addressHeader(key, value) {
+    if (!isASCII(key)) {
+        throw invalid("eml header key " + key + " is not valid ASCII");
+    }
+    const entries = Array.isArray(value) ? value : [value];
+    return `${key}: ${entries.map(encodeAddress).join(', ')}\r\n`;
 }
 
 export function determineTopLevelMimeType({ attachments = [], text, html }) {
@@ -78,7 +161,7 @@ export function determineTopLevelMimeType({ attachments = [], text, html }) {
     if (html) {
         return { isMultiPart: false, mimeType: 'text/html; charset=UTF-8' };
     }
-    throw new Error('Email must have text, html, or an attachment');
+    throw invalid('Email must have text, html, or an attachment');
 }
 
 
@@ -100,21 +183,22 @@ export const isASCII = (str) => /^[\x20-\x7E]*$/.test(str);
 
 /**
  * Composes a multipart email attachment
- * 
- * @param {EmailAttachment} attachment 
+ *
+ * @param {EmailAttachment} attachment
+ * @param {import('../../index.js').Puter} [puter] Reads `path` attachments; the module's own instance.
  */
-export async function composeAttachment({ cid, content, contentType, filename, path, uid }) {
+export async function composeAttachment({ cid, content, contentType, filename, path, uid }, puter = globalThis.puter) {
     if (path && content) {
-        throw new Error("Path and Content are mutually exclusive");
+        throw invalid("Path and Content are mutually exclusive");
     }
     if (!path && !content && !uid) {
-        throw new Error("Attachment requires content, path, or uid");
+        throw invalid("Attachment requires content, path, or uid");
     }
     if (uid) {
-        throw new Error("uid attachments are not supported yet");
+        throw invalid("uid attachments are not supported yet");
     }
     if (contentType && !filename) {
-        throw new Error("filename parameter required for contentType");
+        throw invalid("filename parameter required for contentType");
     }
 
     let b64emailContent = content;
@@ -129,12 +213,12 @@ export async function composeAttachment({ cid, content, contentType, filename, p
     }
 
     if (!filename) {
-        throw new Error("Attachment's filename cannot be determined automatically. Please provide filename!");
+        throw invalid("Attachment's filename cannot be determined automatically. Please provide filename!");
     }
     filename = filename.replaceAll('\\', '\\\\');
     filename = filename.replaceAll('"', '\\"');
     if (!isASCII(filename)) {
-        throw new Error("filename must be ascii");
+        throw invalid("filename must be ascii");
     }
 
     if (contentType) {
@@ -142,7 +226,7 @@ export async function composeAttachment({ cid, content, contentType, filename, p
     }
 
     if (!mimeType) {
-        throw new Error("Attachment's mimetype cannot be determined automatically. Please provide contentType!");
+        throw invalid("Attachment's mimetype cannot be determined automatically. Please provide contentType!");
     }
 
     mimeType += ';name="' + filename + '"';
@@ -168,34 +252,36 @@ export function combineParts(parts, boundary) {
 }
 
 /**
- * 
- * @param {EmailComposeOptions} param0 
+ *
+ * @param {EmailComposeOptions} param0
+ * @param {import('../../index.js').Puter} [puter] The module's own instance: who the mail is from, and
+ * whose storage `path` attachments are read from.
  */
-export async function compose({ from, to, cc, bcc, subject, replyTo, attachments = [], text, html }) {
+export async function compose({ from, to, cc, bcc, subject, replyTo, attachments = [], text, html }, puter = globalThis.puter) {
     // --- Header constructing logic ---
     let headerLines = "MIME-Version: 1.0\r\n";
 
     headerLines += emlHeader('Date', getRFC822DateUTC());
 
     if (subject) {
-        headerLines += emlHeader('Subject', subject);
+        headerLines += textHeader('Subject', subject);
     }
     if (to) {
-        headerLines += emlHeader('To', to);
+        headerLines += addressHeader('To', to);
     } else {
-        throw new Error("Cannot compose email without recipient!");
+        throw invalid("Cannot compose email without recipient!");
     }
     if (cc) {
-        headerLines += emlHeader('cc', cc);
+        headerLines += addressHeader('cc', cc);
     }
     if (bcc) {
-        headerLines += emlHeader('bcc', bcc);
+        headerLines += addressHeader('bcc', bcc);
     }
     if (replyTo) {
-        headerLines += emlHeader('Reply-To', replyTo);
+        headerLines += addressHeader('Reply-To', replyTo);
     }
     if (from) {
-        headerLines += emlHeader('From', from);
+        headerLines += addressHeader('From', from);
     } else {
         // Add From Block (hardcoded to puter.email for now)
         const userinfo = await puter.getUser();
@@ -229,8 +315,8 @@ export async function compose({ from, to, cc, bcc, subject, replyTo, attachments
     const inlineAttachments = attachments.filter(a => a.cid);
     const regularAttachments = attachments.filter(a => !a.cid);
 
-    const inlineParts = await Promise.all(inlineAttachments.map(composeAttachment));
-    const regularParts = await Promise.all(regularAttachments.map(composeAttachment));
+    const inlineParts = await Promise.all(inlineAttachments.map(a => composeAttachment(a, puter)));
+    const regularParts = await Promise.all(regularAttachments.map(a => composeAttachment(a, puter)));
 
     // Build the text/html content as one part. Only wrap it in its own nested
     // multipart/alternative (fresh boundary) when both text and html are present.
