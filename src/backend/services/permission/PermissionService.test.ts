@@ -657,6 +657,32 @@ describe('PermissionService (integration)', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
         });
+
+        it('keeps each refusal’s status and wording', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const tooLong = `zztest:${'x'.repeat(300)}:ii:read`;
+
+            await expect(
+                permService.grantDevAppPermission(actor, app.uid, tooLong),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'Invalid `permission`',
+            });
+            await expect(
+                permService.grantUserGroupPermission(actor, uuidv4(), tooLong),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'permission is too long',
+            });
+            await expect(
+                permService.revokeDevAppAll({ user: {} } as Actor, app.uid),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+                message: 'actor must be a user',
+            });
+        });
     });
 
     describe('queryIssuerHolderPermissionsByPrefix', () => {

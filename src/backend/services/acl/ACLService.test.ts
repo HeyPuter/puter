@@ -662,6 +662,67 @@ describe('ACLService.check — scoped tokens and manage', () => {
     });
 });
 
+// -- Group holders ----------------------------------------------------
+
+describe('ACLService.setUserGroup / statUserGroup', () => {
+    const withGroupGrants = (existing: string[]) => {
+        const made = makeService();
+        const permission = Object.assign(made.services.permission, {
+            queryIssuerGroupPermissionsByPrefix: vi.fn(
+                async (_issuer: Actor, _group: string, prefix: string) =>
+                    existing.filter((perm) => perm.startsWith(`${prefix}:`)),
+            ),
+            grantUserGroupPermission: vi.fn().mockResolvedValue(undefined),
+            revokeUserGroupPermission: vi.fn().mockResolvedValue(true),
+        });
+        return { service: made.service, permission };
+    };
+    const node = 'fs:uid\\C/issuer/projects';
+
+    it('grants the new mode to the group and clears the one it supersedes', async () => {
+        const { service, permission } = withGroupGrants([`${node}:read`]);
+
+        expect(
+            await service.setUserGroup(
+                issuerActor,
+                'g-1',
+                resource('/issuer/projects'),
+                'write',
+            ),
+        ).toBe(true);
+        expect(permission.grantUserGroupPermission).toHaveBeenCalledWith(
+            issuerActor,
+            'g-1',
+            `${node}:write`,
+        );
+        expect(permission.revokeUserGroupPermission).toHaveBeenCalledWith(
+            issuerActor,
+            'g-1',
+            `${node}:read`,
+        );
+    });
+
+    it('reports the group grants per ancestor, and refuses a non-user issuer', async () => {
+        const { service } = withGroupGrants([`${node}:read`]);
+
+        expect(
+            await service.statUserGroup(
+                issuerActor,
+                'g-1',
+                resource('/issuer/projects/a.txt'),
+            ),
+        ).toEqual({ '/issuer/projects': [`${node}:read`] });
+        await expect(
+            service.setUserGroup(
+                scopedTokenActor(),
+                'g-1',
+                resource('/issuer/projects'),
+                'read',
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+});
+
 // -- Safe error shaping -------------------------------------------------
 
 describe('ACLService.getSafeAclError', () => {
