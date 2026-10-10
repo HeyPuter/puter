@@ -46,6 +46,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { BYTEPLUS_VIDEO_GENERATION_MODELS } from './models.js';
 import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { BytePlusVideoProvider } from './BytePlusVideoProvider.js';
+import { translateProviderError } from '../../../../controllers/drivers/DriverController.js';
 
 // -- Test harness ----------------------------------------------------
 
@@ -456,13 +457,77 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('maps upstream 5xx on create to a 502', async () => {
+    /** The failure as `/drivers/call` hands it to the caller. */
+    const callerError = async (): Promise<unknown> => {
+        try {
+            await withTestActor(() =>
+                makeProvider().generate({ prompt: 'hi' }),
+            );
+        } catch (e) {
+            return translateProviderError(e);
+        }
+        throw new Error('expected generate to reject');
+    };
+
+    const arkError = (code: string, message: string, status: number) =>
+        jsonResponse({ error: { code, message } }, status);
+
+    it.each([
+        [
+            429,
+            'RateLimitExceeded.EndpointRPMExceeded',
+            429,
+            'upstream_rate_limited',
+        ],
+        [401, 'AuthenticationError', 500, 'upstream_auth_failed'],
+        [403, 'AccessDenied', 500, 'upstream_auth_failed'],
+        [500, 'InternalServiceError', 400, 'upstream_provider_unavailable'],
+        [400, 'InvalidParameter', 400, 'upstream_bad_request'],
+    ])(
+        'maps an upstream %i (%s) on create to %i %s',
+        async (upstreamStatus, upstreamCode, statusCode, legacyCode) => {
+            fetchSpy.mockResolvedValueOnce(
+                arkError(upstreamCode, 'nope', upstreamStatus),
+            );
+            expect(await callerError()).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { upstreamStatus, upstreamCode },
+            });
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([429, 503])(
+        'retries a status poll that returns %i and finishes the job',
+        async (status) => {
+            mockTaskFlow();
+            fetchSpy.mockResolvedValueOnce(
+                arkError('Busy', 'try later', status),
+            );
+            fetchSpy.mockResolvedValueOnce(jsonResponse(succeededTask()));
+
+            const result = await withTestActor(() =>
+                makeProvider().generate({ prompt: 'hi' }),
+            );
+
+            expect(result).toBe('https://ark.example/video.mp4');
+            expect(fetchSpy).toHaveBeenCalledTimes(3);
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('does not retry a status poll rejected for auth', async () => {
+        mockTaskFlow();
         fetchSpy.mockResolvedValueOnce(
-            jsonResponse({ error: { message: 'boom' } }, 500),
+            arkError('AuthenticationError', 'bad key', 401),
         );
-        await expect(
-            withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        expect(await callerError()).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 });
 
