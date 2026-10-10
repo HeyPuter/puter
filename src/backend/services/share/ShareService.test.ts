@@ -5563,6 +5563,42 @@ describe('ShareService', () => {
                 ),
             ).toBe(before);
         });
+
+        it('refuses an invite to a blocked domain whatever its case', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const cfg = server.services.share.config as {
+                blockedEmailDomains?: string[];
+            };
+            const prev = cfg.blockedEmailDomains;
+            cfg.blockedEmailDomains = ['mailinator.com'];
+            try {
+                for (const email of [
+                    'temp@mailinator.com',
+                    'Temp@Mailinator.com',
+                    'temp@SUB.MAILINATOR.COM',
+                ]) {
+                    await expect(
+                        share(owner.actor, {
+                            uid: file.uuid,
+                            recipient: { email },
+                            mode: 'read',
+                        }),
+                        email,
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'email_not_allowed',
+                    });
+                    expect(
+                        await server.stores.share.listPendingByEmail(
+                            email.toLowerCase(),
+                        ),
+                    ).toEqual([]);
+                }
+            } finally {
+                cfg.blockedEmailDomains = prev;
+            }
+        });
     });
 
     describe('claiming is safe against races and duplicates', () => {

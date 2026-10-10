@@ -650,6 +650,81 @@ describe('share email', () => {
         expect(mail.html).not.toContain('?shared=');
     });
 
+    const mailToInbox = (address: string) =>
+        sent.filter((mail) => mail.to.toLowerCase() === address.toLowerCase());
+
+    it("keys an invitee's digest and budget case-insensitively", async () => {
+        const owner = env.users.user;
+        const invitee = uninvitedAddress();
+        const shouted = invitee.toUpperCase();
+        const [first, second, third] = [
+            await makeFile(owner, 'case-a'),
+            await makeFile(owner, 'case-b'),
+            await makeFile(owner, 'case-c'),
+        ];
+
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            await shareWith(owner, invitee, [{ uid: first.uid }]);
+            await sleep(SETTLE_MS);
+            await shareWith(owner, shouted, [{ uid: second.uid }]);
+        });
+
+        // One inbox, one digest, both files.
+        const mail = await waitForMail({ to: invitee });
+        await sleep(SETTLE_MS);
+        expect(mailToInbox(invitee)).toHaveLength(1);
+        expect(mail.html).toContain(first.name);
+        expect(mail.html).toContain(second.name);
+
+        // The pair's quiet window holds whatever case the next share uses.
+        const capitalized = `${invitee[0].toUpperCase()}${invitee.slice(1)}`;
+        await shareWith(owner, capitalized, [{ uid: third.uid }]);
+        await sleep(SETTLE_MS);
+        expect(mailToInbox(invitee)).toHaveLength(1);
+    }, 15_000);
+
+    it('folds gmail spellings of one invitee into one digest', async () => {
+        const owner = env.users.admin;
+        const local = `gm${uniqueSuffix()}`;
+        // Gmail ignores dots and `+tag`: both are `${local}@gmail.com`.
+        const tagged = `${local.slice(0, 4)}.${local.slice(4)}+news@gmail.com`;
+        const plain = `${local}@gmail.com`;
+        const first = await makeFile(owner, 'gmail-a');
+        const second = await makeFile(owner, 'gmail-b');
+
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            await shareWith(owner, tagged, [{ uid: first.uid }]);
+            await sleep(SETTLE_MS);
+            await shareWith(owner, plain, [{ uid: second.uid }]);
+        });
+
+        const mail = await waitForMail({ to: tagged });
+        await sleep(SETTLE_MS);
+        expect(mailToInbox(plain)).toHaveLength(0);
+        expect(mailToInbox(tagged)).toHaveLength(1);
+        expect(mail.html).toContain(first.name);
+        expect(mail.html).toContain(second.name);
+    }, 15_000);
+
+    it('treats dotted and undotted iCloud addresses as two invitees', async () => {
+        const owner = env.users.admin;
+        const local = `ic${uniqueSuffix()}`;
+        // Apple allocates the exact string: these are two mailboxes.
+        const dotted = `${local.slice(0, 4)}.${local.slice(4)}@icloud.com`;
+        const undotted = `${local}@icloud.com`;
+        const first = await makeFile(owner, 'icloud-a');
+        const second = await makeFile(owner, 'icloud-b');
+
+        await shareWith(owner, dotted, [{ uid: first.uid }]);
+        expect((await waitForMail({ to: dotted })).html).toContain(first.name);
+
+        // Its own budget: the dotted address's window doesn't silence it.
+        await shareWith(owner, undotted, [{ uid: second.uid }]);
+        const mail = await waitForMail({ to: undotted });
+        expect(mail.html).toContain(second.name);
+        expect(mail.html).not.toContain(first.name);
+    });
+
     it('honors an account-wide unsubscribe, and offers the link to those who have not', async () => {
         const owner = env.users.user;
         const recipient = await signUpAndConfirm(uninvitedAddress());

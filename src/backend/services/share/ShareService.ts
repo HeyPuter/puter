@@ -32,6 +32,7 @@ import { isUniqueViolation } from '../../util/dbError.js';
 import {
     abuseKey,
     cleanEmail,
+    isBlockedEmail,
     isProviderCanonicalized,
     isStorableEmail,
 } from '../../util/email.js';
@@ -3151,7 +3152,7 @@ export class ShareService extends PuterService {
         // happens to the email.
         if (
             !isStorableEmail(email) ||
-            !(await this.clients.email.validate(email))
+            isBlockedEmail(email, this.config.blockedEmailDomains)
         ) {
             throw new HttpError(400, 'invalid recipient email address', {
                 legacyCode: 'email_not_allowed',
