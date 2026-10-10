@@ -712,6 +712,19 @@ describe('MeteringService', () => {
             expect(result['kv:read']).toMatchObject({ units: 1 });
         });
 
+        it.each([
+            ['infinite', Number.POSITIVE_INFINITY],
+            ['NaN', Number.NaN],
+        ])('counts an %s usageAmount as one unit', async (_label, amount) => {
+            const result = await target.incrementUsage(
+                actor,
+                'kv:read',
+                amount,
+                10,
+            );
+            expect(result['kv:read']).toMatchObject({ units: 1, cost: 10 });
+        });
+
         it('normalizes a negative costOverride to 1 and raises an alarm', async () => {
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
             const result = await target.incrementUsage(

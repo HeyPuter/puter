@@ -517,151 +517,24 @@ export class MeteringService extends PuterService {
         );
     }
 
-    async incrementUsage(
+    /** One usage, through `batchIncrementUsages`. */
+    incrementUsage(
         actor: Actor,
         usageType: string,
         usageAmount: number,
         costOverride?: number,
     ): Promise<UsageByType> {
-        usageAmount = usageAmount < 0 ? 1 : usageAmount;
-
-        const costOverrideRaw = costOverride;
-        costOverride = !Number.isFinite(costOverride)
-            ? undefined
-            : (costOverride as number) < 0
-              ? 1
-              : costOverride;
-
-        if (costOverrideRaw && costOverrideRaw < 0) {
-            this.clients.alarm.create(
-                `metering unexpected negative cost access to: ${usageType}`,
-                `negative cost abuse vector! (${actorLabel(actor)})`,
-                {
-                    userId: actor.user?.uuid,
-                    username: actor.user?.username,
-                    email: actor.user?.email,
-                    appId: actor.effectiveApp?.uid,
-                    usageType,
-                    usageAmount,
-                    costOverride,
-                },
-                'info',
-            );
-        }
-
-        try {
-            if (!usageAmount || !usageType || !actor)
-                return { total: 0 } as UsageByType;
-            if (isSystemActor(actor)) return { total: 0 } as UsageByType;
-
-            const currentMonth = this.monthYearString();
-
-            const totalCost = costOverride ?? 0;
-
-            const escapedUsageType = String(usageType).replace(
-                /\./g,
-                PERIOD_ESCAPE,
-            );
-            const appId = actor.effectiveApp?.uid || GLOBAL_APP_KEY;
-            const userId = actor.user.uuid!;
-            const actorUsageKey = `${METRICS_V2_PREFIX}:actor:${userId}:${currentMonth}`;
-
-            const usageResultPromise = this.#writeShardedUsage({
-                userId,
-                appId,
-                currentMonth,
-                byType: {
-                    [escapedUsageType]: {
-                        units: usageAmount,
-                        cost: totalCost,
-                        count: 1,
-                    },
-                },
-                appTotalCost: totalCost,
-                appCallCount: 1,
-            });
-
-            const [usageResult, subscription, actorAddons] = await Promise.all([
-                usageResultPromise,
-                this.#actorSubscriptionWithStatus(actor),
-                this.getActorAddons(actor),
-            ]);
-            const { policy: actorSubscription, provisionalUntil } =
-                subscription;
-
-            const actorUsages = await this.exactUsageNearAllowance(
-                userId,
-                actorUsageKey,
-                usageResult,
-                actorSubscription.monthUsageAllowance,
-            );
-
-            const settledAllowanceUsed = await this.settleIncrementCharges(
-                userId,
-                actorUsageKey,
-                actorUsages,
-                actorSubscription.monthUsageAllowance,
-                actorAddons,
-                totalCost,
-            );
-
-            this.maybeAlertOveruse({
-                actor,
-                userId,
-                actorUsages,
-                actorSubscription,
-                actorAddons,
-                incrementCost: totalCost,
-                usageType,
-                usageAmount,
-                costOverride,
-            });
-
-            this.rememberRemainingCredits(
-                userId,
-                settledAllowanceUsed,
-                actorSubscription.monthUsageAllowance,
-                actorAddons,
-                provisionalUntil,
-            );
-
-            const own = this.#withDetail(actorUsages, usageResult.detail);
-            const charged = await this.applyMonthlyCharges(
-                actor,
-                currentMonth,
-                actorUsages,
-            );
-            // Where the call and a charge touched the same type, the charge's
-            // running record is the newer one.
-            return charged && usageResult.detail
-                ? ({ ...own, ...charged } as UsageByType)
-                : (charged ?? own);
-        } catch (e) {
-            console.error('[metering] incrementUsage failed', {
-                actor,
-                usageType,
-                usageAmount,
-                error: e,
-            });
-            this.clients.alarm.create(
-                `metering service error for user: ${actorLabel(actor)} app: ${actor.effectiveApp?.uid}`,
-                (e as Error).message,
-                {
-                    userId: actor.user?.uuid,
-                    username: actor.user?.username,
-                    email: actor.user?.email,
-                    appId: actor.effectiveApp?.uid,
-                    error: e as Error,
-                    usageType,
-                    usageAmount,
-                    costOverride,
-                },
-                'info',
-            );
-            return { total: 0 } as UsageByType;
-        }
+        return this.batchIncrementUsages(actor, [
+            { usageType, usageAmount, costOverride },
+        ]);
     }
 
+    /**
+     * Record usages for one actor in a single write. An amount that is negative
+     * or not finite counts as one unit, and a negative cost as 1, so a bad
+     * caller is billed something rather than nothing; a zero amount or missing
+     * type is skipped.
+     */
     async batchIncrementUsages(
         actor: Actor,
         usages: UsageInput[],
@@ -2790,10 +2663,7 @@ export class MeteringService extends PuterService {
         actorSubscription: SubscriptionPolicy;
         actorAddons: UsageAddons;
         incrementCost: number;
-        usageType?: string;
-        usageAmount?: number;
-        costOverride?: number;
-        batchUsages?: UsageInput[];
+        batchUsages: UsageInput[];
     }): void {
         const {
             actor,
@@ -2847,9 +2717,6 @@ export class MeteringService extends PuterService {
                 username: actor.user?.username,
                 email: actor.user?.email,
                 appId: actor.effectiveApp?.uid,
-                usageType: ctx.usageType,
-                usageAmount: ctx.usageAmount,
-                costOverride: ctx.costOverride,
                 batchUsages: ctx.batchUsages,
                 totalUsage: actorUsages.total,
                 monthUsageAllowance: actorSubscription.monthUsageAllowance,
