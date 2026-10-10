@@ -45,6 +45,7 @@ import { setupTestServer } from '../../testUtil.js';
 import { kv } from '../../util/kvSingleton.js';
 import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
+import { OPEN_AI_MODELS } from './providers/openai/models.js';
 import {
     clearUnhealthyRoutes,
     isRouteUnhealthy,
@@ -562,5 +563,85 @@ describe('ChatCompletionDriver timeout classification across the chain', () => {
             statusCode: 400,
             legacyCode: 'upstream_failed',
         });
+    });
+});
+
+// Azure is served ahead of OpenAI for the models it fronts, at OpenAI's list
+// price — the long-context tier included.
+describe('ChatCompletionDriver Azure-served OpenAI pricing', () => {
+    let azureDriver: ChatCompletionDriver;
+
+    beforeAll(async () => {
+        azureDriver = new ChatCompletionDriver(
+            {
+                providers: {
+                    'azure-openai': {
+                        apiKey: 'test-key',
+                        apiURL: 'https://azure.test/openai/v1',
+                    },
+                    'openai-completion': { apiKey: 'test-key' },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        azureDriver.onServerStart();
+        for (let i = 0; i < 200; i++) {
+            if ((await azureDriver.list()).includes('azure:openai/gpt-5.4')) {
+                break;
+            }
+            await new Promise((r) => setTimeout(r, 5));
+        }
+    });
+
+    it('bills a gpt-5.4 prompt past the long-context threshold at the raised rates', async () => {
+        const recorded: MockInstance = vi.spyOn(
+            server.services.metering,
+            'utilRecordUsageObject',
+        );
+        // 300K input tokens (100K of them cached) is past OpenAI's 272K
+        // threshold: 2x every input rate and 1.5x output.
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'ok' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 300_000,
+                completion_tokens: 1_000,
+                prompt_tokens_details: { cached_tokens: 100_000 },
+            },
+        });
+
+        const res = (await withTestActor(() =>
+            azureDriver.complete({
+                model: 'gpt-5.4',
+                messages: [{ role: 'user', content: 'summarize this' }],
+            }),
+        )) as { usage: Record<string, number> };
+
+        const { costs } = OPEN_AI_MODELS.find(
+            (m) => m.puterId === 'openai:openai/gpt-5.4',
+        )!;
+        const expected = {
+            prompt_tokens: 200_000 * costs.prompt_tokens * 2,
+            completion_tokens: 1_000 * costs.completion_tokens * 1.5,
+            cached_tokens: 100_000 * costs.cached_tokens * 2,
+        };
+        const call = recorded.mock.calls.find(
+            ([, , prefix]) => prefix === 'azure-openai:gpt-5.4',
+        );
+        expect(call?.[3]).toEqual(expected);
+        expect(res.usage.usd_cents).toBeCloseTo(
+            (expected.prompt_tokens +
+                expected.completion_tokens +
+                expected.cached_tokens) /
+                1_000_000,
+        );
+        recorded.mockRestore();
     });
 });
