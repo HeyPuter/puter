@@ -29,6 +29,7 @@ import {
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
+import { SAMPLE_AUDIO_URL } from '../util/testMode.js';
 import { upstreamFetch } from '../util/upstreamErrors.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
@@ -40,7 +41,6 @@ import { VOICE_CHANGER_COSTS } from './costs.js';
 const DEFAULT_MODEL = 'eleven_multilingual_sts_v2';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
 // Covers the upload as well as the conversion.
 const CONVERT_TIMEOUT_MS = 10 * 60 * 1000;

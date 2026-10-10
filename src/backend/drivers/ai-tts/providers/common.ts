@@ -17,5 +17,45 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Actor } from '../../../core/actor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../util/aiCostFactor.js';
+import type { DriverStreamResult } from '../../meta.js';
+
 /** Bounds a synthesis call, audio download included. */
 export const TTS_UPSTREAM_TIMEOUT_MS = 120_000;
+
+/**
+ * Runs `synthesize` under a hold on `text.length × ucentsPerChar`, then meters
+ * exactly that once it succeeds. Per-character prices are known up front, so
+ * the hold and the charge are the same amount.
+ */
+export function meterPerCharacter(
+    metering: AiMeteringService,
+    actor: Actor,
+    usageType: string,
+    ucentsPerChar: number,
+    text: string,
+    synthesize: () => Promise<DriverStreamResult>,
+): Promise<DriverStreamResult> {
+    const cost = ucentsPerChar * text.length;
+    return withAiCreditHold(metering, actor, usageType, cost, async () => {
+        const result = await synthesize();
+        metering.incrementUsage(actor, usageType, text.length, cost);
+        return result;
+    });
+}
+
+/** The cost-report lines for a `<model or engine> → ucents/char` table. */
+export const characterCostReport = (
+    provider: string,
+    costs: Record<string, number>,
+): Record<string, unknown>[] =>
+    Object.entries(costs).map(([key, ucentsPerUnit]) => ({
+        usageType: `${provider}:${key}:character`,
+        ucentsPerUnit,
+        unit: 'character',
+        source: `driver:aiTts/${provider}`,
+    }));

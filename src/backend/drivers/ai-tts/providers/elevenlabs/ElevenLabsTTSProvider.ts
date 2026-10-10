@@ -19,20 +19,27 @@
 
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import { upstreamFetch } from '../../../util/upstreamErrors.js';
-import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
-import { TTSProvider } from '../TTSProvider.js';
-import { TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
+import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import type {
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+    ITTSProvider,
+} from '../../types.js';
+import {
+    characterCostReport,
+    meterPerCharacter,
+    TTS_UPSTREAM_TIMEOUT_MS,
+} from '../common.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" sample voice
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const ELEVENLABS_TTS_MODELS = [
     { id: DEFAULT_MODEL, name: 'Eleven Multilingual v2' },
@@ -48,7 +55,7 @@ const ELEVENLABS_TTS_MODELS = [
  * ElevenLabs TTS provider. Uses the ElevenLabs REST API to synthesize speech
  * and returns audio as a DriverStreamResult.
  */
-export class ElevenLabsTTSProvider extends TTSProvider {
+export class ElevenLabsTTSProvider implements ITTSProvider {
     readonly providerName = 'elevenlabs';
 
     private apiKey: string;
@@ -56,15 +63,13 @@ export class ElevenLabsTTSProvider extends TTSProvider {
     private defaultVoiceId: string;
 
     constructor(
-        meteringService: AiMeteringService,
+        private readonly meteringService: AiMeteringService,
         config: {
             apiKey: string;
             apiBaseUrl?: string;
             defaultVoiceId?: string;
         },
     ) {
-        super(meteringService, config);
-
         this.apiKey = config.apiKey;
         this.baseUrl = config.apiBaseUrl ?? 'https://api.elevenlabs.io';
         this.defaultVoiceId = config.defaultVoiceId ?? DEFAULT_VOICE_ID;
@@ -131,15 +136,8 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         }));
     }
 
-    override getReportedCosts(): Record<string, unknown>[] {
-        return Object.entries(ELEVENLABS_TTS_COSTS).map(
-            ([model, ucentsPerUnit]) => ({
-                usageType: `elevenlabs:${model}:character`,
-                ucentsPerUnit,
-                unit: 'character',
-                source: 'driver:aiTts/elevenlabs',
-            }),
-        );
+    getReportedCosts(): Record<string, unknown>[] {
+        return characterCostReport('elevenlabs', ELEVENLABS_TTS_COSTS);
     }
 
     async synthesize(
@@ -185,66 +183,35 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             );
         }
 
-        const desiredFormat =
-            output_format || response_format || DEFAULT_OUTPUT_FORMAT;
+        const payload: Record<string, unknown> = {
+            text,
+            model_id: modelId,
+            output_format:
+                output_format || response_format || DEFAULT_OUTPUT_FORMAT,
+        };
+        const finalVoiceSettings = voice_settings ?? voiceSettings;
+        if (finalVoiceSettings) payload.voice_settings = finalVoiceSettings;
 
-        const actor = Context.get('actor')!;
-        const usageKey = `elevenlabs:${modelId}:character`;
-        const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId];
-        const totalCost = ucentsPerChar * text.length;
-
-        const hold = await this.meteringService.reserveAiCredits(
-            actor,
-            usageKey,
-            totalCost,
+        return meterPerCharacter(
+            this.meteringService,
+            Context.get('actor')!,
+            `elevenlabs:${modelId}:character`,
+            ELEVENLABS_TTS_COSTS[modelId],
+            text,
+            async () => {
+                const response = await this.request(
+                    `/v1/text-to-speech/${voiceId}`,
+                    { method: 'POST', body: payload },
+                );
+                const buffer = Buffer.from(await response.arrayBuffer());
+                return {
+                    dataType: 'stream',
+                    content_type:
+                        response.headers.get('content-type') || 'audio/mpeg',
+                    chunked: true,
+                    stream: Readable.from(buffer),
+                };
+            },
         );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const payload: any = {
-                text,
-                model_id: modelId,
-                output_format: desiredFormat,
-            };
-
-            const finalVoiceSettings = voice_settings ?? voiceSettings;
-            if (finalVoiceSettings) {
-                payload.voice_settings = finalVoiceSettings;
-            }
-
-            const response = await this.request(
-                `/v1/text-to-speech/${voiceId}`,
-                {
-                    method: 'POST',
-                    body: payload,
-                },
-            );
-
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            const stream = Readable.from(buffer);
-
-            this.meteringService.incrementUsage(
-                actor,
-                usageKey,
-                text.length,
-                totalCost,
-            );
-
-            const contentType =
-                response.headers.get('content-type') || 'audio/mpeg';
-
-            return {
-                dataType: 'stream',
-                content_type: contentType,
-                chunked: true,
-                stream,
-            };
-        } finally {
-            await hold.release();
-        }
     }
 }
