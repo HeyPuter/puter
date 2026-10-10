@@ -293,6 +293,19 @@ export class MeteringService extends PuterService {
     >();
 
     /**
+     * Uuid → an addons record with no purchased credit left, for the increment
+     * path. Only a grant changes one, since nothing draws on an empty pool, and
+     * every grant announces `credits-changed`, which drops it. A record with
+     * credit left is always read fresh: other nodes draw it down unannounced.
+     */
+    #spentAddons = new Map<
+        string,
+        { addons: UsageAddons; expiresAt: number }
+    >();
+    /** Bumped on every drop, so a read that straddles one isn't cached. */
+    #spentAddonsDrops = 0;
+
+    /**
      * Uuid → until when a near-allowance read bypasses the exact-read throttle.
      * Set on a credits change (a purchase, an admin correction): for a short
      * window after one, this node's cached base could be stale relative to it,
@@ -621,7 +634,7 @@ export class MeteringService extends PuterService {
             const [usageResult, subscription, actorAddons] = await Promise.all([
                 usageResultPromise,
                 this.#actorSubscriptionWithStatus(actor),
-                this.getActorAddons(actor),
+                this.#addonsForSettle(actor),
             ]);
             const { policy: actorSubscription, provisionalUntil } =
                 subscription;
@@ -1716,6 +1729,8 @@ export class MeteringService extends PuterService {
     /** Local-only drop. The announcement path is `invalidateActorCredits`. */
     #dropCachedCredits(userUuid: string): void {
         this.creditCache.delete(userUuid);
+        this.#spentAddons.delete(userUuid);
+        this.#spentAddonsDrops++;
         // Added capacity re-arms the alert: the next exhaustion is news again.
         this.creditAlertState.delete(userUuid);
     }
@@ -1758,7 +1773,7 @@ export class MeteringService extends PuterService {
                 return;
             }
             const [addons, totals] = await Promise.all([
-                this.getActorAddons(actor),
+                this.#addonsForSettle(actor),
                 this.currentMonthTotals(actor),
             ]);
             this.rememberRemainingCredits(
@@ -2156,6 +2171,31 @@ export class MeteringService extends PuterService {
         return typeof res === 'number' && Number.isFinite(res) && res > 0
             ? res
             : null;
+    }
+
+    /** `getActorAddons`, through `#spentAddons`. */
+    async #addonsForSettle(actor: Actor): Promise<UsageAddons> {
+        const uuid = actor.user?.uuid;
+        const cached = uuid ? this.#spentAddons.get(uuid) : undefined;
+        if (cached && cached.expiresAt > Date.now()) return cached.addons;
+
+        const drops = this.#spentAddonsDrops;
+        const addons = await this.getActorAddons(actor);
+        if (!uuid) return addons;
+        this.#spentAddons.delete(uuid);
+        const creditLeft =
+            (addons.purchasedCredits || 0) -
+            (addons.consumedPurchaseCredits || 0);
+        if (creditLeft > 0 || drops !== this.#spentAddonsDrops) return addons;
+        if (this.#spentAddons.size >= MeteringService.CREDIT_CACHE_LIMIT) {
+            const oldest = this.#spentAddons.keys().next().value;
+            if (oldest !== undefined) this.#spentAddons.delete(oldest);
+        }
+        this.#spentAddons.set(uuid, {
+            addons,
+            expiresAt: Date.now() + MeteringService.CREDIT_CACHE_MS,
+        });
+        return addons;
     }
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {
