@@ -36,7 +36,10 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { appDataPermission } from '../permission/appDataScopes.js';
 import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
+import {
+    toPendingUploadSessionKey,
+    toPendingUploadSessionPartition,
+} from '../../stores/fs/pendingUploadSessionHelpers.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
@@ -148,19 +151,25 @@ const caught = async (run: () => Promise<unknown>): Promise<HttpError> => {
  */
 const expirePendingSession = async (sessionId: string): Promise<void> => {
     const key = toPendingUploadSessionKey(sessionId);
-    const { res: stored } = await server.stores.kv.get({ key });
-    await server.stores.kv.batchPut({
-        items: [
-            {
-                key,
-                value: {
-                    ...(stored as Record<string, unknown>),
-                    expiresAt: Date.now() - 1000,
+    const kvOpts = {
+        systemPartition: toPendingUploadSessionPartition(sessionId),
+    };
+    const { res: stored } = await server.stores.kv.get({ key }, kvOpts);
+    await server.stores.kv.batchPut(
+        {
+            items: [
+                {
+                    key,
+                    value: {
+                        ...(stored as Record<string, unknown>),
+                        expiresAt: Date.now() - 1000,
+                    },
+                    expireAt: Math.ceil((Date.now() + 60 * 60 * 1000) / 1000),
                 },
-                expireAt: Math.ceil((Date.now() + 60 * 60 * 1000) / 1000),
-            },
-        ],
-    });
+            ],
+        },
+        kvOpts,
+    );
 };
 
 const entryAt = (user: TestUser, path: string) =>

@@ -290,6 +290,24 @@ describe('who is left out', () => {
         expect(mutations()).toEqual([]);
     });
 
+    it('says nothing for a system partition', async () => {
+        const partition = { systemPartition: 'events-test' };
+        await store.batchPut(
+            {
+                items: [
+                    { key: 'a', value: 1 },
+                    { key: 'b', value: 2 },
+                ],
+            },
+            partition,
+        );
+        await store.set({ key: KEY, value: 1 }, partition);
+        await store.del({ key: 'a' }, partition);
+        await store.flush(partition);
+
+        expect(mutations()).toEqual([]);
+    });
+
     it('says nothing for an actor with no user row to key on', async () => {
         await store.set(
             { key: KEY, value: 1 },

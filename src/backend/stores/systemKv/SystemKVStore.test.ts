@@ -15,12 +15,13 @@ import {
     incrExpressionBytes,
     KV_GLOBAL_APP_KEY,
     kvNamespace,
+    parseKvNamespace,
     PathPrefixIds,
     type SystemKVStore,
 } from './SystemKVStore.ts';
 import { PUTER_KV_STORE_TABLE_NAME } from './tableDefinition.ts';
 import { PuterServer } from '../../server.ts';
-import type { Actor } from '../../core/actor.ts';
+import { SYSTEM_ACTOR_UUID, type Actor } from '../../core/actor.ts';
 
 describe('incr expression sizing', () => {
     const longPath = (i: number): string =>
@@ -4348,6 +4349,76 @@ describe('SystemKVStore', () => {
             expect(got.res).toBeNull();
             const listed = await target.list({ as: 'keys' }, opts);
             expect(listed.res).not.toContain('pastMarker');
+        });
+    });
+
+    describe('system partitions', () => {
+        const systemNamespace = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
+        // Mirrors the store's own naming for a partition.
+        const partitionNamespace = (partition: string) =>
+            `${systemNamespace}:${partition}`;
+        const rawItem = async (namespace: string, key: string) =>
+            (
+                await server.clients.dynamo.get(PUTER_KV_STORE_TABLE_NAME, {
+                    namespace,
+                    key,
+                })
+            ).Item;
+
+        let key: string;
+        beforeEach(() => {
+            key = `part-${Math.random().toString(36).slice(2)}`;
+        });
+
+        it('files a system write under its own partition key', async () => {
+            await target.batchPut(
+                { items: [{ key, value: 'v' }] },
+                { systemPartition: 'p-1' },
+            );
+
+            expect((await rawItem(partitionNamespace('p-1'), key))?.value).toBe(
+                'v',
+            );
+            expect(await rawItem(systemNamespace, key)).toBeUndefined();
+        });
+
+        it('reads only from the partition it names', async () => {
+            await target.set({ key, value: 'v' }, { systemPartition: 'p-1' });
+
+            expect(
+                (await target.get({ key }, { systemPartition: 'p-1' })).res,
+            ).toBe('v');
+            expect(
+                (await target.get({ key: [key] }, { systemPartition: 'p-1' }))
+                    .res,
+            ).toEqual(['v']);
+            expect((await target.get({ key })).res).toBeNull();
+            expect(
+                (await target.get({ key }, { systemPartition: 'p-2' })).res,
+            ).toBeNull();
+        });
+
+        it('does not parse as a user namespace', () => {
+            expect(parseKvNamespace(partitionNamespace('p-1'))).toBeNull();
+        });
+
+        it('ignores a partition asked for by any other actor', async () => {
+            await target.set(
+                { key, value: 'v' },
+                { ...opts, systemPartition: 'p-1' },
+            );
+
+            expect(
+                (
+                    await rawItem(
+                        kvNamespace(actor.user.uuid!, KV_GLOBAL_APP_KEY),
+                        key,
+                    )
+                )?.value,
+            ).toBe('v');
+            expect(
+                await rawItem(partitionNamespace('p-1'), key),
+            ).toBeUndefined();
         });
     });
 });
