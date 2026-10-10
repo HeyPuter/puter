@@ -6556,4 +6556,48 @@ describe('FSService subtree paging', () => {
             listAll.mockRestore();
         }
     });
+
+    it('copies a tree larger than a page, contents and all', async () => {
+        const { root, descendants } = await makeTree('page-cp');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        let copy: FSEntry | undefined;
+        await withPageSize(2, async () => {
+            copy = await fs.copy(user.userId, {
+                source: root,
+                destinationParent: destination,
+            });
+        });
+
+        const copied = await server.stores.fsEntry.listDescendantsByPath(
+            copy!.path,
+        );
+        const relative = (entries: FSEntry[], base: string) =>
+            entries.map((e) => e.path.slice(base.length)).sort();
+        expect(relative(copied, copy!.path)).toEqual(
+            relative(descendants, root.path),
+        );
+        const leaf = copied.find((e) => e.path.endsWith('/sub/deep/f.txt'))!;
+        expect(await readBack(leaf)).toBe('f');
+    });
+
+    it('copies each level of files as one insert', async () => {
+        const { root } = await makeTree('level-cp');
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const inserts = vi.spyOn(server.stores.fsEntry, 'batchCreateEntries');
+        const objects = vi.spyOn(server.stores.s3Object, 'copyObject');
+        try {
+            await fs.copy(user.userId, {
+                source: root,
+                destinationParent: destination,
+                newName: 'level-cp-copy',
+            });
+            // Files sit at three depths: one insert each, not one per file.
+            expect(inserts).toHaveBeenCalledTimes(3);
+            expect(objects).toHaveBeenCalledTimes(6);
+        } finally {
+            inserts.mockRestore();
+            objects.mockRestore();
+        }
+    });
 });
