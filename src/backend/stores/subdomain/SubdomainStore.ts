@@ -18,6 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
 
 /**
@@ -358,8 +359,8 @@ export class SubdomainStore extends PuterStore {
             values.push(afterId);
         }
         if (excludePrefix) {
-            conditions.push('`subdomain` NOT LIKE ?');
-            values.push(`${excludePrefix}%`);
+            conditions.push("`subdomain` NOT LIKE ? ESCAPE '!'");
+            values.push(`${escapeLike(excludePrefix)}%`);
         }
         const whereClause = conditions.length
             ? `WHERE ${conditions.join(' AND ')}`
@@ -393,8 +394,8 @@ export class SubdomainStore extends PuterStore {
             values.push(appOwner);
         }
         if (excludePrefix) {
-            conditions.push('`subdomain` NOT LIKE ?');
-            values.push(`${excludePrefix}%`);
+            conditions.push("`subdomain` NOT LIKE ? ESCAPE '!'");
+            values.push(`${escapeLike(excludePrefix)}%`);
         }
         const whereClause = conditions.length
             ? `WHERE ${conditions.join(' AND ')}`
@@ -435,8 +436,8 @@ export class SubdomainStore extends PuterStore {
     ): Promise<SubdomainRow[]> {
         if (!userId || prefix == null) return [];
 
-        const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
-        const values: unknown[] = [userId, `${prefix}%`];
+        const conditions = ['`user_id` = ?', "`subdomain` LIKE ? ESCAPE '!'"];
+        const values: unknown[] = [userId, `${escapeLike(prefix)}%`];
         const appOwnerFilter = appOwnerCondition(extra);
         if (appOwnerFilter) {
             conditions.push(appOwnerFilter.condition);
@@ -478,8 +479,8 @@ export class SubdomainStore extends PuterStore {
     ): Promise<number> {
         if (!userId || prefix == null) return 0;
 
-        const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
-        const values: unknown[] = [userId, `${prefix}%`];
+        const conditions = ['`user_id` = ?', "`subdomain` LIKE ? ESCAPE '!'"];
+        const values: unknown[] = [userId, `${escapeLike(prefix)}%`];
         const appOwnerFilter = appOwnerCondition(extra);
         if (appOwnerFilter) {
             conditions.push(appOwnerFilter.condition);

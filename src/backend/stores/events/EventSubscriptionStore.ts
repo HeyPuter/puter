@@ -19,6 +19,7 @@
 
 import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { bumpGeneration } from '../../util/redisGeneration.js';
 import { PuterStore } from '../types.js';
 import type {
     DispatchSubscription,
@@ -1135,15 +1136,17 @@ export class EventSubscriptionStore extends PuterStore {
     // -- Generation --------------------------------------------------
 
     /**
-     * Advance the user's subscription-set generation. A single-key `INCR`, so
-     * it is cluster-safe and costs one command; the broadcast that carries it
-     * is what actually invalidates other processes.
+     * Advance the user's subscription-set generation. Single-key, so it is
+     * cluster-safe; the broadcast that carries it is what actually invalidates
+     * other processes.
      */
     async bumpGeneration(userId: number | string): Promise<number> {
-        const key = generationKey(userId);
-        const next = await this.clients.redis.incr(key);
-        await this.clients.redis.expire(key, GENERATION_TTL_SECONDS);
-        return typeof next === 'number' ? next : 0;
+        const next = await bumpGeneration(
+            this.clients.redis,
+            generationKey(userId),
+            GENERATION_TTL_SECONDS,
+        );
+        return Number.isFinite(next) ? next : 0;
     }
 
     async getGeneration(userId: number | string): Promise<number> {

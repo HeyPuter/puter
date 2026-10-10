@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import { decodeCursor, keysetPage, openIdCursor } from '../../util/pagination';
+import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
 
 /** Default page size for the keyset listings. */
@@ -881,12 +882,11 @@ export class ShareStore extends PuterStore {
      * @param {number} newOwnerId @param {string} path
      */
     async reassignEntryOwnerUnder(newOwnerId, path) {
-        const escaped = path.replace(/([!%_])/g, '!$1');
         await this.clients.db.write(
             'UPDATE `share` SET `entry_owner_user_id` = ? WHERE `fsentry_id` ' +
                 'IN (SELECT `id` FROM `fsentries` WHERE `path` = ? OR ' +
                 "`path` LIKE ? ESCAPE '!')",
-            [newOwnerId, path, `${escaped}/%`],
+            [newOwnerId, path, `${escapeLike(path)}/%`],
         );
     }
 

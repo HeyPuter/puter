@@ -406,6 +406,28 @@ describe('SubdomainStore listing and counting', () => {
         ).toBe(0);
     });
 
+    it('matches a prefix literally, not as a LIKE pattern', async () => {
+        const userId = await makeUser();
+        const p = prefix();
+        await createFor(userId, `${p}a_b`);
+        await createFor(userId, `${p}axb`);
+
+        expect(
+            (await store.listByUserIdAndPrefix(userId, `${p}a_`)).map(
+                (r) => r.subdomain,
+            ),
+        ).toEqual([`${p}a_b`]);
+        expect(await store.countByUserIdAndPrefix(userId, `${p}a_`)).toBe(1);
+        expect(
+            (
+                await store.listByUserId(userId, { excludePrefix: `${p}a_` })
+            ).map((r) => r.subdomain),
+        ).toEqual([`${p}axb`]);
+        expect(
+            await store.count({ userId, excludePrefix: `${p}a_` }),
+        ).toBe(1);
+    });
+
     it('narrows a prefix listing by a single app id and paginates it', async () => {
         const userId = await makeUser();
         const p = prefix();

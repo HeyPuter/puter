@@ -29,6 +29,8 @@ import {
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
 import { keysetPage, openIdCursor } from '../../util/pagination';
+import { bumpGeneration } from '../../util/redisGeneration';
+import { escapeLike } from '../../util/sqlLike';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -124,17 +126,7 @@ export interface FlatPermRef {
 const subtreeRoot = (prefix: string): string =>
     prefix.endsWith(':') ? prefix.slice(0, -1) : prefix;
 
-/**
- * Match a permission and everything beneath it.
- *
- * `_` and `%` are LIKE wildcards, so an unescaped one would widen the match
- * beyond the intended subtree. `!` as the escape character, matching
- * FSEntryStore: a backslash one would have to be written `ESCAPE '\\'` in the
- * SQL text, and MySQL processes backslash escapes inside string literals, so
- * the `'\'` a JS `'\\'` produces reads as an escaped quote and leaves the
- * literal unterminated. SQLite and Postgres accept it, which is why only MySQL
- * would have seen the parse error.
- */
+/** Match a permission and everything beneath it. */
 const subtreeClause = (
     permissions: string[],
 ): { where: string; params: string[] } => ({
@@ -143,7 +135,7 @@ const subtreeClause = (
         .join(' OR '),
     params: permissions.flatMap((permission) => [
         permission,
-        `${permission.replace(/([!%_])/g, '!$1')}:%`,
+        `${escapeLike(permission)}:%`,
     ]),
 });
 
@@ -498,13 +490,7 @@ export class PermissionStore extends PuterStore {
         permissions: string[],
     ): Promise<Array<{ group_id: number; permission: string }>> {
         if (permissions.length === 0) return [];
-        const where = permissions
-            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
-            .join(' OR ');
-        const params = permissions.flatMap((permission) => [
-            permission,
-            `${permission.replace(/([!%_])/g, '!$1')}:%`,
-        ]);
+        const { where, params } = subtreeClause(permissions);
 
         const rows = (await this.clients.db.read(
             'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
@@ -1344,16 +1330,16 @@ export class PermissionStore extends PuterStore {
     async #applyCacheGenerationBump(actorUid: string): Promise<void> {
         const key = this.#cacheGenerationKey(actorUid);
         try {
-            const next = await this.clients.redis.incr(key);
             // Keep the counter alive well past the cache TTL so it can't
             // reset to 0 and revive same-generation stale entries.
-            await this.clients.redis.expire(
+            const next = await bumpGeneration(
+                this.clients.redis,
                 key,
                 PERMISSION_CACHE_GENERATION_TTL_SECONDS,
             );
             // Make this node consistent immediately; other nodes pick up the
             // new value when their local copy expires (≤ local TTL).
-            if (typeof next === 'number') {
+            if (Number.isFinite(next)) {
                 kv.set(this.#localCacheGenerationKey(actorUid), next, {
                     EX: PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS,
                 });

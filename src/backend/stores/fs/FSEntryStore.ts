@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import { escapeLike } from '../../util/sqlLike.js';
 import {
     keysetPage,
     normalizeLimit,
@@ -2715,12 +2716,8 @@ export class FSEntryStore extends PuterStore {
         return entries;
     }
 
-    // Escape a string for safe use inside a LIKE pattern. We use backslash as
-    // the LIKE escape char so `%` and `_` in user paths aren't treated as wildcards.
-    // Uses `!` as the LIKE escape character — both MySQL and SQLite treat `!` as
-    // a plain character inside string literals, so no dialect-specific quoting.
     #escapeLikePattern(value: string): string {
-        return value.replace(/([!%_])/g, '!$1');
+        return escapeLike(value);
     }
 
     // All descendants of a directory path (recursive). Paths in fsentries are
