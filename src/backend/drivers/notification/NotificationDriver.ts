@@ -17,8 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { assertResolvedActor } from '../../core/actor.js';
-import { Context } from '../../core/context.js';
+import {
+    assertResolvedActor,
+    requireContextActor,
+    type UserActor,
+} from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { resolveNotifFetch } from '../../services/events/notifFetch.js';
 import {
@@ -38,7 +41,8 @@ import {
 } from '../../services/notification/notificationTypes.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
+import type { DriverRateLimitConfig } from '../meta.js';
+import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 
 const MAX_SELECT_LIMIT = 200;
 
@@ -110,15 +114,7 @@ export class NotificationDriver extends PuterDriver {
         },
     };
 
-    readonly concurrent: DriverConcurrentConfig = {
-        default: {
-            limit: 20,
-            bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 10,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
-            },
-        },
-    };
+    readonly concurrent = CRUD_CONCURRENT;
 
     // -- Driver methods ----------------------------------------------
 
@@ -277,14 +273,8 @@ export class NotificationDriver extends PuterDriver {
 
     // -- Permissions -------------------------------------------------
 
-    #requireActor(): Actor & {
-        user: { id: number; uuid: string; username: string };
-    } {
-        const actor = Context.get('actor') as Actor | undefined;
-        if (!actor)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
+    #requireActor(): UserActor {
+        const actor = requireContextActor();
         if (!actor.user?.id)
             throw new HttpError(403, 'User actor required', {
                 legacyCode: 'forbidden',
@@ -292,15 +282,11 @@ export class NotificationDriver extends PuterDriver {
         // Unresolved is not "no app", and reading it that way here is what
         // would hand an app the account-wide mailbox.
         assertResolvedActor(actor);
-        return actor as Actor & {
-            user: { id: number; uuid: string; username: string };
-        };
+        return actor as UserActor;
     }
 
     /** Writing a notification stays the holder's, per the token table. */
-    #requireUserActor(): Actor & {
-        user: { id: number; uuid: string; username: string };
-    } {
+    #requireUserActor(): UserActor {
         const actor = this.#requireActor();
         if (actor.effectiveApp)
             throw new HttpError(403, 'App actors cannot create notifications', {

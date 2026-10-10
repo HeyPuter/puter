@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Context } from '../../core/context.js';
+import { actorOwnsRow, requireContextActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
@@ -50,6 +50,7 @@ import {
     WEB_AND_EXTENSION_PROTOCOLS,
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
+import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 
 /**
  * Shared by every method that writes an app row. Each one also allocates or
@@ -176,16 +177,7 @@ export class AppDriver extends PuterDriver {
         },
     };
 
-    /** @type {import('../meta.js').DriverConcurrentConfig} */
-    concurrent = {
-        default: {
-            limit: 20,
-            bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 10,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
-            },
-        },
-    };
+    concurrent = CRUD_CONCURRENT;
 
     get appStore() {
         return this.stores.app;
@@ -202,7 +194,7 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const fields = await this.#validateInput(object, { isCreate: true });
@@ -286,7 +278,7 @@ export class AppDriver extends PuterDriver {
     }
 
     async read({ uid, id, params = {}, ...rest } = {}) {
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         const app = await this.#resolve({ uid, id });
         if (!app)
             throw new HttpError(404, 'App not found', {
@@ -331,7 +323,7 @@ export class AppDriver extends PuterDriver {
      */
     async select(args = {}) {
         const { predicate, params = {} } = args;
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 500;
@@ -411,7 +403,7 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const app = await this.#resolve({ uid, id });
@@ -497,7 +489,7 @@ export class AppDriver extends PuterDriver {
     }
 
     async delete({ uid, id } = {}) {
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const app = await this.#resolve({ uid, id });
@@ -755,15 +747,6 @@ export class AppDriver extends PuterDriver {
 
     // -- Permission checks --------------------------------------------
 
-    #requireActor() {
-        const actor = Context.get('actor');
-        if (!actor)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
-        return actor;
-    }
-
     #requireUserOrAppActor(actor) {
         if (!actor.user)
             throw new HttpError(403, 'User actor required', {
@@ -812,26 +795,15 @@ export class AppDriver extends PuterDriver {
     }
 
     async #checkWriteAccess(app, actor) {
-        // App actor matching app_owner
-        const ownApp = actor.effectiveApp;
-        let hasAccess = false;
-        if (!ownApp?.id) {
-            hasAccess = actor.user?.id === app.owner_user_id;
-        } else if (ownApp.id === app.app_owner) {
-            hasAccess = actor.user?.id === app.owner_user_id;
+        const owns = actorOwnsRow(actor, {
+            ownerUserId: app.owner_user_id,
+            appOwnerId: app.app_owner,
+        });
+        if (owns) return;
+        if (await this.permService.check(actor, 'system:es:write-all-owners')) {
+            return;
         }
-        // System-wide write
-        if (!hasAccess) {
-            hasAccess = await this.permService.check(
-                actor,
-                'system:es:write-all-owners',
-            );
-        }
-        if (!hasAccess) {
-            throw new HttpError(403, 'Access denied', {
-                legacyCode: 'forbidden',
-            });
-        }
+        throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     // -- Serialization ------------------------------------------------

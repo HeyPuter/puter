@@ -18,16 +18,20 @@
  */
 
 import { posix as pathPosix } from 'node:path';
-import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
-import type { Actor } from '../../core/actor.js';
-import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
+import {
+    actorOwnsRow,
+    assertActorEmailVerified,
+    requireContextUserActor,
+    type Actor,
+} from '../../core/actor.js';
+import type { DriverRateLimitConfig } from '../meta.js';
+import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import type { AppView } from '../../util/appView.js';
@@ -124,15 +128,7 @@ export class SubdomainDriver extends PuterDriver {
         },
     };
 
-    readonly concurrent: DriverConcurrentConfig = {
-        default: {
-            limit: 20,
-            bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 10,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
-            },
-        },
-    };
+    readonly concurrent = CRUD_CONCURRENT;
 
     // -- Driver methods ----------------------------------------------
 
@@ -144,9 +140,8 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
 
         const subdomain = this.#validateSubdomain(object.subdomain);
 
@@ -250,7 +245,7 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
+        const actor = requireContextUserActor();
         const row = await this.#resolve(args);
         // Worker deployments live in this table but aren't sites. `select`
         // excludes them and the workers driver serves them under its own
@@ -271,8 +266,7 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     async select(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
+        const actor = requireContextUserActor();
 
         const predicate = args.predicate as unknown[] | string | undefined;
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 5000;
@@ -359,9 +353,8 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
 
         const row = await this.#resolve(args);
         if (!row)
@@ -430,9 +423,8 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     async delete(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
 
         const row = await this.#resolve(args);
         if (!row)
@@ -519,40 +511,6 @@ export class SubdomainDriver extends PuterDriver {
 
     // -- Permissions -------------------------------------------------
 
-    #requireActor(): Actor & {
-        user: { id: number; uuid: string; username: string };
-    } {
-        const actor = Context.get('actor') as Actor | undefined;
-        if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
-        return actor as Actor & {
-            user: { id: number; uuid: string; username: string };
-        };
-    }
-
-    #requireUser(actor: Actor): void {
-        if (!actor.user?.id)
-            throw new HttpError(403, 'User actor required', {
-                legacyCode: 'forbidden',
-            });
-    }
-
-    /**
-     * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
-     * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver level
-     * so /drivers/call can't bypass the gate the HTTP route enforces.
-     */
-    #requireVerified(actor: Actor): void {
-        assertVerifiedEmail(
-            Boolean(this.config.strict_email_verification_required),
-            actor.user,
-            400,
-        );
-    }
-
     async #hasPermission(actor: Actor, permission: string): Promise<boolean> {
         try {
             return await this.services.permission.check(actor, permission);
@@ -626,26 +584,15 @@ export class SubdomainDriver extends PuterDriver {
         row: Record<string, unknown>,
         actor: Actor,
     ): Promise<void> {
-        // App actor matching app_owner
-        const app = actor.effectiveApp;
-        let hasAccess = false;
-        if (!app?.id) {
-            hasAccess = actor.user?.id === row.user_id;
-        } else if (app.id === row.app_owner) {
-            hasAccess = actor.user?.id === row.user_id;
+        const owns = actorOwnsRow(actor, {
+            ownerUserId: row.user_id,
+            appOwnerId: row.app_owner,
+        });
+        if (owns) return;
+        if (await this.#hasPermission(actor, 'system:es:write-all-owners')) {
+            return;
         }
-        // System-wide write
-        if (!hasAccess) {
-            hasAccess = await this.#hasPermission(
-                actor,
-                'system:es:write-all-owners',
-            );
-        }
-        if (!hasAccess) {
-            throw new HttpError(403, 'Access denied', {
-                legacyCode: 'forbidden',
-            });
-        }
+        throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     // -- Config ------------------------------------------------------

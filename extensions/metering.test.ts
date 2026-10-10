@@ -63,15 +63,6 @@ const seedUser = async () => {
 };
 
 describe('metering extension — handleMeteringUsage', () => {
-    it('throws HttpError(401) when no user actor is on the context', async () => {
-        const { res } = makeRes();
-        await expect(
-            runWithContext({ actor: undefined }, () =>
-                handleMeteringUsage(makeReq(), res),
-            ),
-        ).rejects.toMatchObject({ statusCode: 401 });
-    });
-
     it('returns usage details merged with allowanceInfo for an authenticated user', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();
@@ -166,18 +157,6 @@ describe('metering extension — handleMeteringUsage', () => {
 });
 
 describe('metering extension — handleMeteringUsageForApp', () => {
-    it('throws HttpError(401) when no user actor is on the context', async () => {
-        const { res } = makeRes();
-        await expect(
-            runWithContext({ actor: undefined }, () =>
-                handleMeteringUsageForApp(
-                    makeReq({ params: { appIdOrName: 'any' } }),
-                    res,
-                ),
-            ),
-        ).rejects.toMatchObject({ statusCode: 401 });
-    });
-
     it('throws HttpError(400) when no appId is supplied', async () => {
         const user = await seedUser();
         const { res } = makeRes();

@@ -95,8 +95,8 @@ export const handleMeteringUsage = async (
     _req: Request,
     res: Response,
 ): Promise<void> => {
-    const actor = Context.get('actor');
-    if (!actor?.user) throw new HttpError(401, 'Authentication required');
+    // Behind `requireAuth`, so there is always an actor.
+    const actor = Context.get('actor')!;
 
     const [actorUsage, allowanceInfo] = await Promise.all([
         services.metering.getActorCurrentMonthUsageDetails(actor),
@@ -146,8 +146,8 @@ export const handleMeteringUsageForApp = async (
     req: Request,
     res: Response,
 ): Promise<void> => {
-    const actor = Context.get('actor');
-    if (!actor?.user) throw new HttpError(401, 'Authentication required');
+    // Behind `requireAuth`, so there is always an actor.
+    const actor = Context.get('actor')!;
 
     let appId = String(req.params.appIdOrName ?? '');
     if (!appId) throw new HttpError(400, 'appId parameter is required');

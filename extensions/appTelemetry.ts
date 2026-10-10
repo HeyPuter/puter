@@ -1,5 +1,4 @@
 import { Context } from '@heyputer/backend/src/core';
-import type { Actor } from '@heyputer/backend/src/core/actor';
 import { HttpError } from '@heyputer/backend/src/core/http';
 import { PuterDriver } from '@heyputer/backend/src/drivers/types';
 import type {
@@ -133,11 +132,17 @@ export class AppTelemetryDriver extends PuterDriver {
         const owner = await this.stores.user.getById(ownerId);
         if (!owner?.uuid) throw new HttpError(404, 'App owner not found');
 
-        const actor = Context.get('actor');
-        if (!actor) throw new HttpError(401, 'Authentication required');
-        const ownsApp = await this.services.permission
-            .check(actor as Actor, `apps-of-user:${owner.uuid}:write`)
-            .catch(() => false);
+        // `/drivers/call` requires auth, so there is always an actor.
+        const actor = Context.get('actor')!;
+        let ownsApp = false;
+        try {
+            ownsApp = await this.services.permission.check(
+                actor,
+                `apps-of-user:${owner.uuid}:write`,
+            );
+        } catch {
+            // A failed check is a denial.
+        }
         if (!ownsApp) throw new HttpError(403, 'Permission denied');
 
         const appId = (app as { id: number }).id;

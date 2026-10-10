@@ -21,10 +21,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { EventMetadata } from '../../clients/event/types.js';
-import { makeActor, type Actor } from '../../core/actor.js';
-import { Context } from '../../core/context.js';
+import {
+    assertActorEmailVerified,
+    makeActor,
+    requireContextUserActor,
+    type Actor,
+} from '../../core/actor.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
-import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
     WORKER_SUBDOMAIN_PREFIX,
@@ -327,12 +330,12 @@ export class WorkerDriver extends PuterDriver {
         [INTERNAL_ADMISSION_BYPASS]?: boolean;
         [INTERNAL_DEPLOY_TARGET]?: InternalDeployTarget;
     }): Promise<unknown> {
-        const actor = this.#requireActor();
+        const actor = requireContextUserActor();
         const skipAdmission = args[INTERNAL_ADMISSION_BYPASS] === true;
         const deployTarget = this.#validateDeployTarget(
             args[INTERNAL_DEPLOY_TARGET],
         );
-        if (!skipAdmission) this.#requireVerified(actor);
+        if (!skipAdmission) assertActorEmailVerified(actor, this.config);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
         // `effectiveApp`, not `app`: a token an app issued carries no app of
@@ -539,8 +542,8 @@ export class WorkerDriver extends PuterDriver {
     }
 
     async destroy(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
         const workerName = String(args.workerName ?? '').toLowerCase();
         if (!workerName)
             throw new HttpError(400, 'Missing `workerName`', {
@@ -573,7 +576,7 @@ export class WorkerDriver extends PuterDriver {
     }
 
     async getFilePaths(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
+        const actor = requireContextUserActor();
         const workerName = args.workerName as string | undefined;
 
         const limit = normalizeLimit(args.limit, { cap: 5000 });
@@ -840,19 +843,6 @@ export class WorkerDriver extends PuterDriver {
 
     // -- Helpers ------------------------------------------------------
 
-    #requireActor(): Actor & {
-        user: { id: number; uuid: string; username: string };
-    } {
-        const actor = Context.get('actor') as Actor | undefined;
-        if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
-        return actor as Actor & {
-            user: { id: number; uuid: string; username: string };
-        };
-    }
-
     /**
      * Only in-process code can supply a deploy target, so this is not a trust
      * boundary — it is a guard against a caller putting a path separator or a
@@ -1026,20 +1016,6 @@ export class WorkerDriver extends PuterDriver {
 
     #workerConfig(): NonNullable<typeof this.config.workers> {
         return this.config.workers ?? {};
-    }
-
-    /**
-     * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
-     * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver level
-     * so /drivers/call can't bypass the gate the HTTP route enforces.
-     */
-    #requireVerified(actor: Actor): void {
-        assertVerifiedEmail(
-            Boolean(this.config.strict_email_verification_required),
-            actor.user,
-            400,
-        );
     }
 
     // -- Hot-reload: auto-redeploy on source file write --------------

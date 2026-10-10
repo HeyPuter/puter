@@ -28,8 +28,8 @@ export const handleInstalledApps = async (
     req: Request,
     res: Response,
 ): Promise<void> => {
-    const actor = Context.get('actor');
-    if (!actor?.user?.id) throw new HttpError(401, 'Authentication required');
+    // Behind `requireUserActor`, so there is always an actor.
+    const actor = Context.get('actor')!;
 
     const orderBy = String(req.query.orderBy ?? 'installed_at');
     if (!(ALLOWED_ORDER_BY as readonly string[]).includes(orderBy)) {
