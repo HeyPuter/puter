@@ -39,6 +39,7 @@ import {
     PendingUploadSession,
 } from './FSEntry.js';
 import {
+    groupByPendingUploadSessionPartition,
     normalizePendingUploadSession,
     PendingUploadSessionStatus,
     toPendingUploadSession,
@@ -459,15 +460,29 @@ export class FSEntryStore extends PuterStore {
         }
 
         try {
-            await this.stores.kv.batchPut({
-                items: sessions.map((session) => ({
-                    key: toPendingUploadSessionKey(session.sessionId),
-                    value: session,
-                    expireAt: toPendingUploadSessionExpiresAtSeconds(
-                        session.expiresAt,
+            await runWithConcurrencyLimit(
+                groupByPendingUploadSessionPartition(
+                    sessions,
+                    (session) => session.sessionId,
+                ),
+                DEFAULT_DB_CHUNK_CONCURRENCY,
+                ([systemPartition, group]) =>
+                    this.stores.kv.batchPut(
+                        {
+                            items: group.map((session) => ({
+                                key: toPendingUploadSessionKey(
+                                    session.sessionId,
+                                ),
+                                value: session,
+                                expireAt:
+                                    toPendingUploadSessionExpiresAtSeconds(
+                                        session.expiresAt,
+                                    ),
+                            })),
+                        },
+                        { systemPartition },
                     ),
-                })),
-            });
+            );
         } catch (error) {
             if (error instanceof Error) {
                 throw error;
@@ -485,29 +500,57 @@ export class FSEntryStore extends PuterStore {
             return sessionsById;
         }
 
-        const { res: rawValues } = await this.stores.kv.get({
-            key: uniqueSessionIds.map((sessionId) =>
-                toPendingUploadSessionKey(sessionId),
-            ),
-        });
-        if (!Array.isArray(rawValues)) {
-            return sessionsById;
-        }
-
-        for (let index = 0; index < uniqueSessionIds.length; index++) {
-            const sessionId = uniqueSessionIds[index];
-            const rawValue = rawValues[index];
-            if (!sessionId) {
-                continue;
-            }
-
-            const normalizedSession = normalizePendingUploadSession(
-                rawValue,
-                sessionId,
+        const readSessions = async (
+            ids: string[],
+            systemPartition?: string,
+        ): Promise<void> => {
+            // SystemKVStore returns `{ res, usage }`; only `res` is the value.
+            const { res: rawValues } = await this.stores.kv.get(
+                {
+                    key: ids.map((sessionId) =>
+                        toPendingUploadSessionKey(sessionId),
+                    ),
+                },
+                { systemPartition },
             );
-            if (normalizedSession) {
-                sessionsById.set(sessionId, normalizedSession);
+            if (!Array.isArray(rawValues)) {
+                return;
             }
+
+            for (let index = 0; index < ids.length; index++) {
+                const sessionId = ids[index];
+                if (!sessionId) {
+                    continue;
+                }
+
+                const normalizedSession = normalizePendingUploadSession(
+                    rawValues[index],
+                    sessionId,
+                );
+                if (normalizedSession) {
+                    sessionsById.set(sessionId, normalizedSession);
+                }
+            }
+        };
+
+        await runWithConcurrencyLimit(
+            groupByPendingUploadSessionPartition(
+                uniqueSessionIds,
+                (sessionId) => sessionId,
+            ),
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            ([systemPartition, ids]) => readSessions(ids, systemPartition),
+        );
+
+        // Sessions written before partitioning sit in the unpartitioned system
+        // namespace. A session lives at most an hour (the presign clamp), so
+        // this fallback can go once partitioned writes have been deployed
+        // everywhere for longer than that.
+        const unpartitionedIds = uniqueSessionIds.filter(
+            (sessionId) => !sessionsById.has(sessionId),
+        );
+        if (unpartitionedIds.length > 0) {
+            await readSessions(unpartitionedIds);
         }
 
         return sessionsById;
@@ -2260,13 +2303,10 @@ export class FSEntryStore extends PuterStore {
     async getPendingEntryBySessionId(
         sessionId: string,
     ): Promise<PendingUploadSession | null> {
-        // SystemKVStore returns `{ res, usage }`. Hand the raw value (res)
-        // to the normalizer — passing the envelope would trip
-        // `isPendingUploadSession` and silently 404 the session.
-        const { res } = await this.stores.kv.get({
-            key: toPendingUploadSessionKey(sessionId),
-        });
-        return normalizePendingUploadSession(res, sessionId);
+        const sessionsById = await this.#getPendingUploadSessionsBySessionIds([
+            sessionId,
+        ]);
+        return sessionsById.get(sessionId) ?? null;
     }
 
     async getPendingEntriesBySessionIds(

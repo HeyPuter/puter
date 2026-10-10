@@ -28,6 +28,12 @@ import { decodeCursor, encodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSEntry, FSEntryCreateInput } from './FSEntry.js';
 import { FSEntryStore } from './FSEntryStore.js';
+import {
+    toPendingUploadSession,
+    toPendingUploadSessionExpiresAtSeconds,
+    toPendingUploadSessionKey,
+    toPendingUploadSessionPartition,
+} from './pendingUploadSessionHelpers.js';
 
 describe('FSEntryStore', () => {
     it('quotes camelCase storage allowance aliases for Postgres', async () => {
@@ -1846,6 +1852,123 @@ describe('FSEntryStore pending upload sessions', () => {
                 store.getPendingEntryBySessionId(session.sessionId),
             ).resolves.toMatchObject({ status: 'completed' });
         }
+    });
+
+    describe('partitioning', () => {
+        const readStored = async (sessionId: string, partitioned: boolean) => {
+            const { res } = await server.stores.kv.get(
+                { key: toPendingUploadSessionKey(sessionId) },
+                partitioned
+                    ? {
+                          systemPartition:
+                              toPendingUploadSessionPartition(sessionId),
+                      }
+                    : undefined,
+            );
+            return res;
+        };
+
+        /** Write a session where it lived before sessions were partitioned. */
+        const seedUnpartitioned = async (
+            input: ReturnType<typeof makeSession>,
+        ) => {
+            await server.stores.kv.batchPut({
+                items: [
+                    {
+                        key: toPendingUploadSessionKey(input.sessionId),
+                        value: toPendingUploadSession(input, Date.now()),
+                        expireAt: toPendingUploadSessionExpiresAtSeconds(
+                            input.expiresAt,
+                        ),
+                    },
+                ],
+            });
+        };
+
+        it('writes each session to its own partition, not the shared system namespace', async () => {
+            const user = await makeUser();
+            const sessions = Array.from({ length: 40 }, () =>
+                makeSession(user),
+            );
+            await store.batchCreatePendingEntries(sessions);
+
+            const partitions = new Set(
+                sessions.map((session) =>
+                    toPendingUploadSessionPartition(session.sessionId),
+                ),
+            );
+            expect(partitions.size).toBeGreaterThan(1);
+            for (const session of sessions) {
+                await expect(
+                    readStored(session.sessionId, true),
+                ).resolves.toMatchObject({ sessionId: session.sessionId });
+                await expect(
+                    readStored(session.sessionId, false),
+                ).resolves.toBeNull();
+            }
+        });
+
+        it('writes status changes to the partition the session was created in', async () => {
+            const user = await makeUser();
+            const session = makeSession(user);
+            await store.createPendingEntry(session);
+
+            await store.markPendingEntryFailed(session.sessionId, 'broke');
+
+            await expect(
+                readStored(session.sessionId, true),
+            ).resolves.toMatchObject({
+                status: 'failed',
+                failureReason: 'broke',
+            });
+            await expect(
+                readStored(session.sessionId, false),
+            ).resolves.toBeNull();
+        });
+
+        it('still reads a session written before partitioning', async () => {
+            const user = await makeUser();
+            const legacy = makeSession(user);
+            const current = makeSession(user);
+            await seedUnpartitioned(legacy);
+            await store.createPendingEntry(current);
+
+            await expect(
+                store.getPendingEntryBySessionId(legacy.sessionId),
+            ).resolves.toMatchObject({
+                sessionId: legacy.sessionId,
+                status: 'pending',
+            });
+            const read = await store.getPendingEntriesBySessionIds([
+                legacy.sessionId,
+                'missing',
+                current.sessionId,
+            ]);
+            expect(read.map((session) => session?.sessionId ?? null)).toEqual([
+                legacy.sessionId,
+                null,
+                current.sessionId,
+            ]);
+        });
+
+        it('moves an unpartitioned session to its partition on its next update', async () => {
+            const user = await makeUser();
+            const legacy = makeSession(user);
+            await seedUnpartitioned(legacy);
+
+            await store.markPendingEntryCompleted(legacy.sessionId);
+
+            await expect(
+                readStored(legacy.sessionId, true),
+            ).resolves.toMatchObject({ status: 'completed' });
+            // The partition wins over the stale copy left behind.
+            await expect(
+                readStored(legacy.sessionId, false),
+            ).resolves.toMatchObject({ status: 'pending' });
+            await expect(
+                store.getPendingEntryBySessionId(legacy.sessionId),
+            ).resolves.toMatchObject({ status: 'completed' });
+        });
     });
 });
 

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import murmurhash from 'murmurhash';
 import { PendingUploadCreateInput, PendingUploadSession } from './FSEntry.js';
 
 export type PendingUploadSessionStatus =
@@ -27,8 +28,34 @@ export type PendingUploadSessionStatus =
 
 export const PENDING_UPLOAD_SESSION_KEY_PREFIX = 'prodfsv2:upload-session:';
 
+/**
+ * System KV partitions sessions are spread across. Changing it moves live
+ * sessions to partitions their reads won't look in.
+ */
+export const PENDING_UPLOAD_SESSION_PARTITIONS = 16;
+
 export function toPendingUploadSessionKey(sessionId: string): string {
     return `${PENDING_UPLOAD_SESSION_KEY_PREFIX}${sessionId}`;
+}
+
+/** The system KV partition a session lives in, from its id alone. */
+export function toPendingUploadSessionPartition(sessionId: string): string {
+    return `upload-session-${murmurhash.v3(sessionId) % PENDING_UPLOAD_SESSION_PARTITIONS}`;
+}
+
+/** `values` grouped by the partition of the session each belongs to. */
+export function groupByPendingUploadSessionPartition<T>(
+    values: T[],
+    sessionIdOf: (value: T) => string,
+): Array<[partition: string, values: T[]]> {
+    const groups = new Map<string, T[]>();
+    for (const value of values) {
+        const partition = toPendingUploadSessionPartition(sessionIdOf(value));
+        const group = groups.get(partition);
+        if (group) group.push(value);
+        else groups.set(partition, [value]);
+    }
+    return [...groups];
 }
 
 export function toPendingUploadSessionExpiresAtSeconds(
