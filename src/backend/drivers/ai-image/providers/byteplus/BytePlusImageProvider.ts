@@ -25,7 +25,7 @@ import type { ImageSize } from '../../types.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageModel,
@@ -78,9 +78,12 @@ interface ArkImageResponse {
  */
 export class BytePlusImageProvider implements IImageProvider {
     #client: OpenAI;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
 
-    constructor(config: BytePlusImageConfig, meteringService: MeteringService) {
+    constructor(
+        config: BytePlusImageConfig,
+        meteringService: AiMeteringService,
+    ) {
         if (!config.apiKey) {
             throw new Error('BytePlus image generation requires an API key');
         }
@@ -166,73 +169,82 @@ export class BytePlusImageProvider implements IImageProvider {
                 legacyCode: 'unauthorized',
             });
         }
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            `byteplus-image-generation:${selectedModel.id}:${outputCostKey}`,
             estimatedCents * 1_000_000,
         );
-        if (!usageAllowed) {
+        if (!hold) {
             throw insufficientCreditsError();
         }
 
-        const image =
-            inputImageCount > 0
-                ? input_images!.map((img) =>
-                      toUrlOrDataUri(img, input_image_mime_type),
-                  )
-                : undefined;
+        try {
+            const image =
+                inputImageCount > 0
+                    ? input_images!.map((img) =>
+                          toUrlOrDataUri(img, input_image_mime_type),
+                      )
+                    : undefined;
 
-        const response = (await this.#client.images.generate({
-            model: selectedModel.id,
-            prompt,
-            // Ark-specific params not in the OpenAI type; passed through.
-            ...(size ? { size } : {}),
-            ...(image ? { image: image.length === 1 ? image[0] : image } : {}),
-            response_format: 'url',
-            watermark: false,
-        } as Parameters<OpenAI['images']['generate']>[0])) as ArkImageResponse;
+            const response = (await this.#client.images.generate({
+                model: selectedModel.id,
+                prompt,
+                // Ark-specific params not in the OpenAI type; passed through.
+                ...(size ? { size } : {}),
+                ...(image
+                    ? { image: image.length === 1 ? image[0] : image }
+                    : {}),
+                response_format: 'url',
+                watermark: false,
+            } as Parameters<
+                OpenAI['images']['generate']
+            >[0])) as ArkImageResponse;
 
-        const first = response.data?.[0];
-        if (first?.error) {
-            throw new HttpError(
-                400,
-                first.error.message ?? 'Image generation failed',
+            const first = response.data?.[0];
+            if (first?.error) {
+                throw new HttpError(
+                    400,
+                    first.error.message ?? 'Image generation failed',
+                    {
+                        legacyCode: 'upstream_failed',
+                        fields: { provider: 'byteplus' },
+                    },
+                );
+            }
+            const url =
+                first?.url ||
+                (first?.b64_json
+                    ? imageDataUri(
+                          first.b64_json,
+                          `image/${first.output_format ?? 'jpeg'}`,
+                      )
+                    : undefined);
+            if (!url) {
+                throw new Error(
+                    'Failed to extract image URL from BytePlus response',
+                );
+            }
+
+            const usageEntries = [
                 {
-                    legacyCode: 'upstream_failed',
-                    fields: { provider: 'byteplus' },
+                    usageType: `byteplus-image-generation:${selectedModel.id}:${outputCostKey}`,
+                    usageAmount: 1,
+                    costOverride: outputCents * 1_000_000,
                 },
-            );
-        }
-        const url =
-            first?.url ||
-            (first?.b64_json
-                ? imageDataUri(
-                      first.b64_json,
-                      `image/${first.output_format ?? 'jpeg'}`,
-                  )
-                : undefined);
-        if (!url) {
-            throw new Error(
-                'Failed to extract image URL from BytePlus response',
-            );
-        }
+            ];
+            if (billableInputs > 0) {
+                usageEntries.push({
+                    usageType: `byteplus-image-generation:${selectedModel.id}:input_image`,
+                    usageAmount: billableInputs,
+                    costOverride: billableInputs * inputImageCents * 1_000_000,
+                });
+            }
+            this.#meteringService.batchIncrementUsages(actor, usageEntries);
 
-        const usageEntries = [
-            {
-                usageType: `byteplus-image-generation:${selectedModel.id}:${outputCostKey}`,
-                usageAmount: 1,
-                costOverride: outputCents * 1_000_000,
-            },
-        ];
-        if (billableInputs > 0) {
-            usageEntries.push({
-                usageType: `byteplus-image-generation:${selectedModel.id}:input_image`,
-                usageAmount: billableInputs,
-                costOverride: billableInputs * inputImageCents * 1_000_000,
-            });
+            return url;
+        } finally {
+            await hold.release();
         }
-        this.#meteringService.batchIncrementUsages(actor, usageEntries);
-
-        return url;
     }
 
     /**

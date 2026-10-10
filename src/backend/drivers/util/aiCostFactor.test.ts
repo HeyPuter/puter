@@ -270,7 +270,29 @@ describe('AI cost factor', () => {
                 );
                 await hold?.release();
                 expect(check).toHaveBeenCalledWith(actor, 1300);
-                expect(reserve).toHaveBeenCalledWith(actor, 1300);
+                expect(reserve).toHaveBeenCalledWith(actor, 1300, undefined);
+            } finally {
+                check.mockRestore();
+                reserve.mockRestore();
+            }
+        });
+
+        it('passes a hold lifetime through to the service', async () => {
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            const reserve = vi.spyOn(metering, 'reserveCredits');
+            try {
+                const hold = await scoped.reserveAiCredits(
+                    actor,
+                    'openai:tts-1:character',
+                    1000,
+                    { ttlMs: 60_000 },
+                );
+                await hold?.release();
+                expect(reserve).toHaveBeenCalledWith(actor, 1000, {
+                    ttlMs: 60_000,
+                });
             } finally {
                 check.mockRestore();
                 reserve.mockRestore();

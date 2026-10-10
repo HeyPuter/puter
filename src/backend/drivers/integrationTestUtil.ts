@@ -72,6 +72,7 @@ export const makeMeteringStub = (): AiMeteringService =>
         hasEnoughCredits: () => Promise.resolve(true),
         costFactor: () => Promise.resolve(1),
         reserveAiCredits: () => Promise.resolve(NO_CREDIT_HOLD),
+        reserveCredits: () => Promise.resolve(NO_CREDIT_HOLD),
         getRemainingUsage: () => Promise.resolve(Number.MAX_SAFE_INTEGER),
         getReportedCosts: () => [],
     }) as unknown as AiMeteringService;

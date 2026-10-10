@@ -39,10 +39,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { type Actor, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { BYTEPLUS_VIDEO_GENERATION_MODELS } from './models.js';
 import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { BytePlusVideoProvider } from './BytePlusVideoProvider.js';
@@ -62,6 +64,14 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-video',
+    );
+
 const makeProvider = (
     config: { apiKey?: string; apiBaseUrl?: string } = {},
 ) =>
@@ -71,7 +81,7 @@ const makeProvider = (
             ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
             pollIntervalMs: 1,
         },
-        server.services.metering,
+        aiMetering(),
     );
 
 beforeEach(() => {
@@ -127,11 +137,7 @@ const findModel = (id: string) =>
 describe('BytePlusVideoProvider construction and catalog', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new BytePlusVideoProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new BytePlusVideoProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 
@@ -400,7 +406,7 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
             // The default poll interval keeps the window to ~60 polls.
             const provider = new BytePlusVideoProvider(
                 { apiKey: 'test-key' },
-                server.services.metering,
+                aiMetering(),
             );
 
             const rejection = withTestActor(() =>
@@ -506,6 +512,54 @@ describe('BytePlusVideoProvider.generate metering', () => {
                 makeProvider().generate({ prompt: 'hi', seconds: 10 }),
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
+    });
+
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 102,
+                uuid: `ark-video-${name}-${Date.now()}`,
+                username: name,
+            },
+        });
+    const outstanding = (actor: Actor) =>
+        server.stores.creditHold.outstanding(actor.user!.uuid);
+
+    it('holds the clamped clip while the task runs and releases it after', async () => {
+        // seedance 2.0 mini @720p: 7.56 cents/s.
+        const perSecondMicroCents = 21_600 * 0.00035 * 1_000_000;
+        const actor = holdUser('hold');
+        let heldWhilePolling = -1;
+        fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 'cgt-test-1' }));
+        fetchSpy.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return jsonResponse(succeededTask());
+        });
+
+        await withTestActor(
+            () => makeProvider().generate({ prompt: 'hi', seconds: 5 }),
+            actor,
+        );
+
+        expect(heldWhilePolling).toBe(Math.round(5 * perSecondMicroCents));
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    it('releases the hold when the task fails', async () => {
+        const actor = holdUser('fail');
+        mockTaskFlow({
+            id: 'cgt-test-1',
+            status: 'failed',
+            error: { code: 'InternalError', message: 'boom' },
+        });
+
+        await expect(
+            withTestActor(
+                () => makeProvider().generate({ prompt: 'hi' }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 502 });
+        expect(await outstanding(actor)).toBe(0);
     });
 });
 

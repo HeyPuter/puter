@@ -50,6 +50,7 @@ import {
     sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { OpenAiImageProvider } from './OpenAiImageProvider.js';
 
@@ -109,8 +110,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new OpenAiImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new OpenAiImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateMock.mockReset();
@@ -239,6 +248,37 @@ describe('OpenAiImageProvider.generate credit gate', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(generateMock).not.toHaveBeenCalled();
+    });
+
+    it('holds the estimate while OpenAI runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 61, uuid: `oai-hold-${Date.now()}`, username: 'hold' },
+        });
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return { data: [{ url: 'https://oai.example/img.png' }] };
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-2',
+                    prompt: 'hi',
+                    ratio: { w: 1024, h: 1024 },
+                }),
+            actor,
+        );
+
+        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        expect(estimate).toBeGreaterThan(0);
+        expect(heldDuringCall).toBe(Math.ceil(estimate));
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

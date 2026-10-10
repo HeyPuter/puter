@@ -40,11 +40,13 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { type Actor, makeActor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { TogetherVideoProvider } from './TogetherVideoProvider.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
@@ -96,11 +98,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
-const makeProvider = () =>
-    new TogetherVideoProvider(
-        { apiKey: 'test-key' },
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
         server.services.metering,
+        server.clients.event,
+        'ai-video',
     );
+
+const makeProvider = () =>
+    new TogetherVideoProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     videosCreateMock.mockReset();
@@ -134,11 +141,7 @@ describe('TogetherVideoProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new TogetherVideoProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new TogetherVideoProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -780,6 +783,180 @@ describe('TogetherVideoProvider.generate per-second models', () => {
             legacyCode: 'insufficient_funds',
         });
         expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+});
+
+// ── Credit holds ────────────────────────────────────────────────────
+
+describe('TogetherVideoProvider.generate credit holds', () => {
+    // Seedance 2.5 at its default 720p tier: 24.9 usd-cents/second, 4-30s.
+    const SEEDANCE = 'togetherai:bytedance/seedance-2.5';
+    const perSecond = 24.9 * 1_000_000;
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 101,
+                uuid: `together-video-${name}-${Date.now()}`,
+                username: name,
+            },
+        });
+    const outstanding = (actor: Actor) =>
+        server.stores.creditHold.outstanding(actor.user!.uuid);
+    const completed = (id: string) => ({
+        id,
+        status: 'completed',
+        outputs: { video_url: `https://together/${id}.mp4` },
+    });
+
+    it('holds the clamped clip for the whole job and releases it once metered', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('hold');
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-held' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-held');
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: SEEDANCE,
+                    seconds: 10,
+                }),
+            actor,
+        );
+
+        expect(heldWhilePolling).toBe(Math.round(10 * perSecond));
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    // Usage is recorded only when a job finishes, minutes later, so a job
+    // started meanwhile must be clamped to what the first leaves uncommitted.
+    it('clamps a concurrent job to the balance the first one leaves', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('concurrent');
+        // A balance that buys 15.5 seconds, with holds subtracted for real.
+        remainingUsageSpy.mockRestore();
+        vi.spyOn(server.services.metering, 'getAllowedUsage').mockResolvedValue(
+            {
+                remaining: 15.5 * perSecond,
+                monthUsageAllowance: 15.5 * perSecond,
+                addons: {},
+            } as never,
+        );
+        let finishFirst: () => void = () => {};
+        videosCreateMock
+            .mockResolvedValueOnce({ id: 'job-first' })
+            .mockResolvedValueOnce({ id: 'job-second' });
+        videosRetrieveMock
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () => resolve(completed('job-first'));
+                    }),
+            )
+            .mockResolvedValueOnce(completed('job-second'));
+
+        const first = withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'first',
+                    model: SEEDANCE,
+                    seconds: 10,
+                }),
+            actor,
+        );
+        await vi.waitFor(() =>
+            expect(videosRetrieveMock).toHaveBeenCalledTimes(1),
+        );
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'second',
+                    model: SEEDANCE,
+                    seconds: 10,
+                }),
+            actor,
+        );
+        finishFirst();
+        await first;
+
+        const sent = videosCreateMock.mock.calls.map(([body]) => body.seconds);
+        expect(sent).toEqual(['10', '5']);
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    it('prices the clamp and the hold at the model cost factor', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('factor');
+        // 10.5 seconds at list price; doubled, it buys 5.
+        remainingUsageSpy.mockResolvedValue(10.5 * perSecond);
+        const doubled = (_key: string, event: { factor: number }) => {
+            event.factor = 2;
+        };
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-factor' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-factor');
+        });
+
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        prompt: 'hi',
+                        model: SEEDANCE,
+                        seconds: 10,
+                    }),
+                actor,
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(videosCreateMock.mock.calls[0]![0].seconds).toBe('5');
+        expect(heldWhilePolling).toBe(Math.round(5 * perSecond * 2));
+    });
+
+    it("holds a per-clip model's price for the job", async () => {
+        const provider = makeProvider();
+        const actor = holdUser('per-clip');
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-clip' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-clip');
+        });
+
+        await withTestActor(
+            () => provider.generate({ prompt: 'hi', model: DIRECTOR }),
+            actor,
+        );
+
+        // The director model is 28 cents per video.
+        expect(heldWhilePolling).toBe(28 * 1_000_000);
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    it('releases the hold when the client disconnects mid-job', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('abort');
+        const abort = new AbortController();
+        abort.abort();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
+
+        await expect(
+            withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return provider.generate({ prompt: 'hi', model: SEEDANCE });
+            }, actor),
+        ).rejects.toMatchObject({ legacyCode: 'client_aborted' });
+        expect(videosCreateMock).toHaveBeenCalledTimes(1);
+        expect(await outstanding(actor)).toBe(0);
     });
 });
 
