@@ -89,6 +89,9 @@ export class AzureResponsesProvider implements IChatProvider {
 
     #fsService: FSService;
 
+    // Azure has no moderation endpoint, so checks go through OpenAI's.
+    #moderationProvider: IChatProvider | null = null;
+
     constructor(
         meteringService: MeteringService,
         stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
@@ -102,6 +105,10 @@ export class AzureResponsesProvider implements IChatProvider {
             apiKey: config.apiKey,
             baseURL: config.apiURL,
         });
+    }
+
+    setModerationProvider(provider: IChatProvider): void {
+        this.#moderationProvider = provider;
     }
 
     /**
@@ -377,29 +384,12 @@ export class AzureResponsesProvider implements IChatProvider {
         });
     }
 
-    async checkModeration(text: string) {
-        // create moderation
-        const results = await this.#openAi.moderations.create({
-            model: 'omni-moderation-latest',
-            input: text,
-        });
-
-        let flagged = false;
-
-        for (const result of results?.results ?? []) {
-            // OpenAI does a crazy amount of false positives. We filter by their 80% interval
-            const veryFlaggedEntries = Object.entries(
-                result.category_scores,
-            ).filter((e) => e[1] > 0.8);
-            if (veryFlaggedEntries.length > 0) {
-                flagged = true;
-                break;
-            }
+    checkModeration(
+        text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
+        if (!this.#moderationProvider) {
+            throw new Error('moderation requires the OpenAI provider');
         }
-
-        return {
-            flagged,
-            results,
-        };
+        return this.#moderationProvider.checkModeration(text);
     }
 }
