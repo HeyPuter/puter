@@ -3233,15 +3233,8 @@ describe('FSService reads', () => {
         expect(scoped).toEqual([]);
     });
 
-    it('answers existence and walks the ancestor chain', async () => {
+    it('walks the ancestor chain', async () => {
         await writeFile(user, `${user.home}/Documents/anc.txt`, 'x');
-
-        await expect(
-            fs.entryExistsByPath(`${user.home}/Documents/anc.txt`),
-        ).resolves.toBe(true);
-        await expect(
-            fs.entryExistsByPath(`${user.home}/Documents/missing.txt`),
-        ).resolves.toBe(false);
 
         const chain = await fs.getAncestorChain(
             `${user.home}/Documents/anc.txt`,
@@ -4591,7 +4584,10 @@ describe('FSService copy event dispatch', () => {
                 });
                 return true;
             });
-        const walkSpy = vi.spyOn(eventsFs, 'getAncestorChain');
+        const walkSpy = vi.spyOn(
+            eventsServer.stores.fsEntry,
+            'getAncestorChain',
+        );
         return {
             dispatched,
             walkSpy,

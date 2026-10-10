@@ -1122,11 +1122,7 @@ export class WebDAVController extends PuterController {
 
         const allowed = await this.services.acl.check(
             actor,
-            {
-                path: root.path,
-                resolveAncestors: () =>
-                    this.services.fs.getAncestorChain(root.path),
-            },
+            this.services.acl.fsDescriptor(root.path),
             'read',
         );
         if (!allowed) return null;
@@ -1145,14 +1141,8 @@ export class WebDAVController extends PuterController {
     // -- ACL helpers -------------------------------------------------
 
     async #canRead(actor: Actor, path: string): Promise<boolean> {
-        return await this.services.acl.check(
-            actor,
-            {
-                path,
-                resolveAncestors: () => this.services.fs.getAncestorChain(path),
-            },
-            'read',
-        );
+        const acl = this.services.acl;
+        return await acl.check(actor, acl.fsDescriptor(path), 'read');
     }
 
     async #assertRead(actor: Actor, path: string): Promise<void> {
@@ -1163,11 +1153,8 @@ export class WebDAVController extends PuterController {
     }
 
     async #assertWrite(actor: Actor, path: string): Promise<void> {
-        const descriptor = {
-            path,
-            resolveAncestors: () => this.services.fs.getAncestorChain(path),
-        };
-        const ok = await this.services.acl.check(actor, descriptor, 'write');
+        const acl = this.services.acl;
+        const ok = await acl.check(actor, acl.fsDescriptor(path), 'write');
         if (!ok)
             throw new HttpError(403, 'Permission denied', {
                 legacyCode: 'permission_denied',

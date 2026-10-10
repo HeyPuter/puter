@@ -331,11 +331,6 @@ const buildService = (
                     });
                 }),
             },
-            fs: {
-                getAncestorChain: vi.fn(async (path: string) =>
-                    ancestorChain(path),
-                ),
-            },
             acl: aclService(),
             permission: permissionService(),
             metering: {
@@ -375,6 +370,7 @@ const fsEntryStore = {
     getEntryByUuid: async (uid: string) => entries.get(`uid:${uid}`) ?? null,
     getEntryByPath: async (path: string) => entries.get(`path:${path}`) ?? null,
     getEntryById: async () => null,
+    getAncestorChain: async (path: string) => ancestorChain(path),
 };
 
 const register = (node: FSEntry): FSEntry => {
@@ -383,7 +379,7 @@ const register = (node: FSEntry): FSEntry => {
     return node;
 };
 
-/** Existing ancestors of a path, deepest first — what `FSService` returns. */
+/** Existing ancestors of a path, deepest first — what `FSEntryStore` returns. */
 const ancestorChain = (path: string): Array<{ uid: string; path: string }> => {
     const chain: Array<{ uid: string; path: string }> = [];
     let cursor = path;

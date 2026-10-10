@@ -23,8 +23,13 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSService } from '../../services/fs/FSService.js';
 import type { NodeRef } from '../../services/fs/resolveNode.js';
-import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
-import { isAppActor, type Actor } from '../../core/actor.js';
+import {
+    FS_ROUTE_REFUSAL,
+    type ACLService,
+    type AclMode,
+    type AclRefusalOptions,
+} from '../../services/acl/ACLService.js';
+import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -209,103 +214,35 @@ export async function resolveV1Selector(
 
 // -- ACL --------------------------------------------------------------
 
+/**
+ * The filesystem refusal, except that an app is told a path it can't reach
+ * doesn't exist, so a sibling user's or another app's files don't show up as
+ * merely forbidden.
+ */
+const LEGACY_REFUSAL: AclRefusalOptions = {
+    ...FS_ROUTE_REFUSAL,
+    hideFromApps: true,
+};
+
+/** `_fsService` is unused; the call sites still pass it. */
 export async function assertAccess(
     aclService: ACLService,
-    fsService: FSService,
+    _fsService: FSService,
     actor: Actor,
     path: string,
     mode: AclMode,
 ): Promise<void> {
-    let ancestors: Promise<Array<{ uid: string; path: string }>> | null = null;
-    const descriptor = {
-        path,
-        resolveAncestors() {
-            if (!ancestors) {
-                ancestors = fsService.getAncestorChain(path);
-            }
-            return ancestors;
-        },
-    };
-    const allowed = await aclService.check(actor, descriptor, mode);
-    if (allowed) return;
-    const safe = (await aclService.getSafeAclError(
-        actor,
-        descriptor,
-        mode,
-    )) as {
-        status?: unknown;
-        message?: unknown;
-        fields?: { code?: unknown };
-    };
-    const status = Number(safe?.status);
-    const message =
-        typeof safe?.message === 'string' && safe.message.length > 0
-            ? safe.message
-            : 'Access denied';
-    const code =
-        typeof safe?.fields?.code === 'string' ? safe.fields.code : undefined;
-    const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-
-    // App-under-user actors see denials as 404 "subject_does_not_exist"
-    // so existence of a sibling user's / other-app's files isn't leaked
-    // through the error code. User-actor denials keep the real 403.
-
-    if (isAppActor(actor)) {
-        throw new HttpError(404, 'Subject does not exist', {
-            legacyCode: 'subject_does_not_exist',
-        });
-    }
-
-    if (status === 404) {
-        throw new HttpError(404, message, {
-            ...(legacyCode ? { legacyCode } : {}),
-        });
-    }
-    throw new HttpError(403, message, {
-        legacyCode: legacyCode ?? 'access_denied',
-    });
+    await aclService.assertFsAccess(actor, path, mode, LEGACY_REFUSAL);
 }
 
-/**
- * Authorize creation of a new entry at `targetPath`. The standard rule is write
- * on the parent, but we also allow it when the actor has explicit write on the
- * target itself — this covers an app creating its own
- * `/<user>/AppData/<app_uid>` folder (parent `AppData` is off-limits, but the
- * target is the app's own subtree per ACLService's short-circuit) and shares
- * granted directly on a not-yet-created path.
- *
- * On failure, delegates to `assertAccess` on the parent so the error shape
- * stays identical to the previous parent-only check.
- */
+/** `ACLService.assertFsCreate`, refused the legacy way. */
 export async function assertCanCreate(
     aclService: ACLService,
-    fsService: FSService,
+    _fsService: FSService,
     actor: Actor,
     targetPath: string,
 ): Promise<void> {
-    const parent = pathPosix.dirname(targetPath);
-    const parentForCheck = parent === '/' ? targetPath : parent;
-
-    const makeDescriptor = (path: string) => {
-        let cache: Promise<Array<{ uid: string; path: string }>> | null = null;
-        return {
-            path,
-            resolveAncestors() {
-                if (!cache) cache = fsService.getAncestorChain(path);
-                return cache;
-            },
-        };
-    };
-
-    if (
-        await aclService.check(actor, makeDescriptor(parentForCheck), 'write')
-    ) {
-        return;
-    }
-    if (await aclService.check(actor, makeDescriptor(targetPath), 'write')) {
-        return;
-    }
-    await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
+    await aclService.assertFsCreate(actor, targetPath, LEGACY_REFUSAL);
 }
 
 /** `write` on the destination parent, unless it is the entry's own Trash. */

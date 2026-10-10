@@ -45,6 +45,7 @@ import {
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
+    AncestorChain,
     FSEntry,
     FSEntryCreateInput,
     FSEntryWriteInput,
@@ -94,9 +95,6 @@ import type {
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
-
-/** What `getAncestorChain` returns: a node and every directory above it. */
-type AncestorChain = Array<{ uid: string; path: string }>;
 
 /**
  * Storage-allowance sentinel meaning "don't enforce a quota on this write".
@@ -399,7 +397,7 @@ export class FSService extends PuterService {
                 if (!entry || entry.userId === actor.user.id) return undefined;
 
                 const ancestors = (
-                    await this.getAncestorChain(entry.path)
+                    await fsEntryStore.getAncestorChain(entry.path)
                 ).slice(1);
                 if (ancestors.length === 0) return undefined;
                 const wanted = ancestors.map((ancestor) =>
@@ -1775,32 +1773,12 @@ export class FSService extends PuterService {
         };
     }
 
-    async entryExistsByPath(path: string): Promise<boolean> {
-        const entry = await this.stores.fsEntry.getEntryByPath(path);
-        return entry !== null;
-    }
-
-    async getAncestorChain(
-        path: string,
-    ): Promise<Array<{ uid: string; path: string }>> {
-        const paths: string[] = [];
-        let cursor = this.#normalizePath(path);
-        while (cursor !== '/') {
-            paths.push(cursor);
-            cursor = pathPosix.dirname(cursor);
-        }
-
-        const entriesByPath =
-            await this.stores.fsEntry.getEntriesByPaths(paths);
-
-        const ancestors: Array<{ uid: string; path: string }> = [];
-        for (const p of paths) {
-            const entry = entriesByPath.get(p);
-            if (entry) {
-                ancestors.push({ uid: entry.uid, path: entry.path });
-            }
-        }
-        return ancestors;
+    /**
+     * For drivers and extensions building an ACL descriptor by hand; services
+     * use `ACLService.fsDescriptor`, which reads the store directly.
+     */
+    async getAncestorChain(path: string): Promise<AncestorChain> {
+        return this.stores.fsEntry.getAncestorChain(this.#normalizePath(path));
     }
 
     async prepareBatchWrites(
@@ -4342,11 +4320,7 @@ export class FSService extends PuterService {
             if (actor) {
                 const allowed = await this.services.acl.check(
                     actor,
-                    {
-                        path: entry.path,
-                        resolveAncestors: () =>
-                            this.getAncestorChain(entry.path),
-                    },
+                    this.services.acl.fsDescriptor(entry.path),
                     'write',
                 );
                 if (allowed) return;
@@ -4369,10 +4343,7 @@ export class FSService extends PuterService {
         if (actor && parentPath !== '/') {
             const allowed = await this.services.acl.check(
                 actor,
-                {
-                    path: parentPath,
-                    resolveAncestors: () => this.getAncestorChain(parentPath),
-                },
+                this.services.acl.fsDescriptor(parentPath),
                 'write',
             );
             if (allowed) return;
@@ -5259,47 +5230,8 @@ export class FSService extends PuterService {
             });
         }
 
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const descriptor = {
-            path: entry.path,
-            resolveAncestors: () => {
-                if (!ancestorsCache) {
-                    ancestorsCache = this.getAncestorChain(entry.path);
-                }
-                return ancestorsCache;
-            },
-        };
-        const allowed = await this.services.acl.check(actor, descriptor, mode);
-        if (allowed) return;
-
-        const safe = (await this.services.acl.getSafeAclError(
-            actor,
-            descriptor,
-            mode,
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: { code?: unknown };
-        };
-        const status = Number(safe?.status);
-        const message =
-            typeof safe?.message === 'string' && safe.message.length > 0
-                ? safe.message
-                : 'Access denied';
-        const code =
-            typeof safe?.fields?.code === 'string'
-                ? safe.fields.code
-                : undefined;
-        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-        if (status === 404) {
-            throw new HttpError(404, message, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-        throw new HttpError(403, message, {
-            legacyCode: legacyCode ?? 'access_denied',
+        await this.services.acl.assertFsAccess(actor, entry.path, mode, {
+            forbiddenCode: 'access_denied',
         });
     }
 }
