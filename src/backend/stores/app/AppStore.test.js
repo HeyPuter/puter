@@ -77,7 +77,7 @@ describe('AppStore app stats (cache-on-read)', () => {
 
     it('computes all-time open/unique-user counts from SQL when no ClickHouse client is registered', async () => {
         const uid = freshUid();
-        // 3 opens across 2 distinct users.
+        // 3 rows across 2 users, two of them the same user on one day.
         await insertOpen(uid, 1, 1700000000);
         await insertOpen(uid, 1, 1700000100);
         await insertOpen(uid, 2, 1700000200);
@@ -85,9 +85,24 @@ describe('AppStore app stats (cache-on-read)', () => {
         const stats = await appStore.getAppsStats([uid]);
 
         expect(stats.get(uid)).toEqual({
-            open_count: 3,
+            // An account's repeat opens in a day count once.
+            open_count: 2,
             user_count: 2,
             referral_count: null,
+        });
+    });
+
+    it('counts the same account again on a later day', async () => {
+        const uid = freshUid();
+        const day = 86400;
+        await insertOpen(uid, 1, 1700000000);
+        await insertOpen(uid, 1, 1700000000 + 30);
+        await insertOpen(uid, 1, 1700000000 + day);
+        await insertOpen(uid, 1, 1700000000 + 2 * day);
+
+        expect((await appStore.getAppsStats([uid])).get(uid)).toMatchObject({
+            open_count: 3,
+            user_count: 1,
         });
     });
 
@@ -1165,7 +1180,8 @@ describe('AppStore detailed stats', () => {
     it('computes all-time totals from SQL by default', async () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID);
         expect(stats).toEqual({
-            open_count: 3,
+            // Three rows, but two of them one account on one day.
+            open_count: 2,
             user_count: 2,
             referral_count: null,
         });
@@ -1191,7 +1207,8 @@ describe('AppStore detailed stats', () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID, {
             period,
         });
-        expect(stats.open_count).toBe(3);
+        // The fixture's three rows are two accounts on one day.
+        expect(stats.open_count).toBe(2);
         expect(stats.user_count).toBe(2);
     });
 
@@ -1218,7 +1235,7 @@ describe('AppStore detailed stats', () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID, {
             period: 'not-a-period',
         });
-        expect(stats.open_count).toBe(3);
+        expect(stats.open_count).toBe(2);
     });
 
     it('rejects an unsupported grouping', async () => {
@@ -1236,7 +1253,7 @@ describe('AppStore detailed stats', () => {
             grouping: 'day',
         });
 
-        expect(stats.open_count).toBe(3);
+        expect(stats.open_count).toBe(2);
         expect(stats.user_count).toBe(2);
         const open = stats.grouped_stats.open_count;
         // A 7-day window yields 8 day buckets (inclusive of both ends).
@@ -1244,7 +1261,7 @@ describe('AppStore detailed stats', () => {
         expect(open.every((b) => typeof b.count === 'number')).toBe(true);
         const today = new Date().toISOString().slice(0, 10);
         const todayBucket = open.find((b) => b.period === today);
-        expect(todayBucket?.count).toBe(3);
+        expect(todayBucket?.count).toBe(2);
         // Every earlier bucket is an explicit zero, not a gap.
         expect(
             open.filter((b) => b.period !== today).every((b) => b.count === 0),
@@ -1258,7 +1275,7 @@ describe('AppStore detailed stats', () => {
                 period: 'today',
                 grouping,
             });
-            expect(stats.open_count).toBe(3);
+            expect(stats.open_count).toBe(2);
             expect(stats.grouped_stats.open_count.length).toBeGreaterThan(0);
             expect(stats.grouped_stats.user_count.length).toBe(
                 stats.grouped_stats.open_count.length,
@@ -1275,7 +1292,7 @@ describe('AppStore detailed stats', () => {
             period: '30d',
             grouping: 'week',
         });
-        expect(stats.open_count).toBe(3);
+        expect(stats.open_count).toBe(2);
         expect(stats.grouped_stats.open_count.length).toBeGreaterThan(0);
     });
 
@@ -1550,13 +1567,23 @@ describe('AppStore findCanonicalUidByIndexUrlCandidates', () => {
     it('prefers the private row, then the oldest match', async () => {
         const url = `https://canon-${Math.random().toString(36).slice(2, 10)}.example.com/`;
         const pub = await appStore.create(
-            { name: `pub-${Math.random().toString(36).slice(2, 8)}`, title: 't', index_url: url },
+            {
+                name: `pub-${Math.random().toString(36).slice(2, 8)}`,
+                title: 't',
+                index_url: url,
+            },
             { ownerUserId: 1 },
         );
         const privUid = `app-${Math.random().toString(36).slice(2, 10)}`;
         await server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
-            [privUid, `priv-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+            [
+                privUid,
+                `priv-${Math.random().toString(36).slice(2, 8)}`,
+                't',
+                url,
+                1,
+            ],
         );
 
         const uid = await appStore.findCanonicalUidByIndexUrlCandidates([url]);
@@ -1565,8 +1592,12 @@ describe('AppStore findCanonicalUidByIndexUrlCandidates', () => {
     });
 
     it('returns null for an empty, non-array, or non-matching candidate list', async () => {
-        expect(await appStore.findCanonicalUidByIndexUrlCandidates([])).toBeNull();
-        expect(await appStore.findCanonicalUidByIndexUrlCandidates(null)).toBeNull();
+        expect(
+            await appStore.findCanonicalUidByIndexUrlCandidates([]),
+        ).toBeNull();
+        expect(
+            await appStore.findCanonicalUidByIndexUrlCandidates(null),
+        ).toBeNull();
         expect(
             await appStore.findCanonicalUidByIndexUrlCandidates([
                 'https://nothing-here.example.com/',
@@ -1623,13 +1654,25 @@ describe('AppStore listIndexUrlWinners', () => {
         const priv1Uid = `app-${Math.random().toString(36).slice(2, 10)}`;
         await server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
-            [priv1Uid, `priv1-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+            [
+                priv1Uid,
+                `priv1-${Math.random().toString(36).slice(2, 8)}`,
+                't',
+                url,
+                1,
+            ],
         );
         const priv1 = await appStore.getByUid(priv1Uid);
         const priv2Uid = `app-${Math.random().toString(36).slice(2, 10)}`;
         await server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
-            [priv2Uid, `priv2-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+            [
+                priv2Uid,
+                `priv2-${Math.random().toString(36).slice(2, 8)}`,
+                't',
+                url,
+                1,
+            ],
         );
         const priv2 = await appStore.getByUid(priv2Uid);
 

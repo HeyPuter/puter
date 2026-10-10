@@ -226,6 +226,31 @@ export class AbstractDatabaseClient extends PuterClient {
         });
     }
 
+    /**
+     * Whole days since the epoch, from a unix-seconds column. MySQL's `/`
+     * yields a decimal, which would make two moments in one day distinct.
+     *
+     * @param secondsExpression Column or expression holding unix seconds.
+     */
+    dayBucket(secondsExpression: string): string {
+        return this.case({
+            mysql: `(${secondsExpression} DIV 86400)`,
+            otherwise: `(${secondsExpression} / 86400)`,
+        });
+    }
+
+    /**
+     * Counts each (`userExpression`, day) pair once. A single `COUNT(DISTINCT
+     * a, b)` is MySQL-only, so the pair is folded into one number — the
+     * multiplier is far above any day index this reaches.
+     */
+    countDistinctUserDays(
+        userExpression: string,
+        secondsExpression: string,
+    ): string {
+        return `COUNT(DISTINCT ${userExpression} * 1000000 + ${this.dayBucket(secondsExpression)})`;
+    }
+
     nullCoalesce(...expressions: readonly string[]): string {
         if (expressions.length === 0) {
             throw new Error('nullCoalesce requires at least one expression');

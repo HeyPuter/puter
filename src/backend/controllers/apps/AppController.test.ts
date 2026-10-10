@@ -338,6 +338,43 @@ describe('AppController POST /rao', () => {
         expect(rows).toHaveLength(1);
     });
 
+    it('keeps every open as a row, and counts one per account per day', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const app = await createApp(owner.actor);
+
+        const open = async (user: { actor: Actor; userId: number }) => {
+            const { res } = makeRes();
+            await withActor(user.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: user.actor }),
+                    res,
+                ),
+            );
+        };
+
+        for (let i = 0; i < 5; i++) await open(owner);
+        await open(other);
+        await server.controllers.apps.drainPendingAppOpens();
+
+        // Every open is still a row: the recent-apps list orders on them.
+        const rows = (await server.clients.db.read(
+            'SELECT `user_id` FROM `app_opens` WHERE `app_uid` = ?',
+            [app.uid],
+        )) as Array<{ user_id: number }>;
+        expect(rows).toHaveLength(6);
+
+        // The count is accounts-per-day, so repeats do not move it against
+        // `user_count`.
+        const stats = await server.stores.app.getAppsStats([app.uid]);
+        expect(stats.get(app.uid)).toMatchObject({
+            open_count: 2,
+            user_count: 2,
+        });
+    });
+
     // `app_opens` is analytics: the response carries nothing derived from it
     // and the client never awaits the post. Holding the response open for a
     // primary write put that write's latency inside the app launch it was
