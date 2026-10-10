@@ -195,7 +195,26 @@ describe('XAIProvider.complete request shape', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1 },
     };
 
-    it('forwards model + messages and locks max_tokens=1000', async () => {
+    it('forwards model, messages and the max_tokens it was given', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.6',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 4096,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.model).toBe('grok-4.6');
+        expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
+        // The driver's credit gate writes its output cap here.
+        expect(args.max_tokens).toBe(4096);
+    });
+
+    it('leaves max_tokens off the request when none is given', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -207,11 +226,7 @@ describe('XAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('grok-4.6');
-        expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
-        // max_tokens is hardcoded by the provider — the call to xAI
-        // should always cap at 1000 tokens of completion.
-        expect(args.max_tokens).toBe(1000);
+        expect('max_tokens' in args).toBe(false);
     });
 
     it('omits the `tools` key entirely when no tools are supplied', async () => {

@@ -1453,6 +1453,36 @@ describe('handle_completion_output non-stream', () => {
         expect(moderate).toHaveBeenCalledWith('banned content');
     });
 
+    it('withholds the completion as moderation_unavailable when the check throws', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        const completion = {
+            choices: [{ message: { content: 'unchecked' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        };
+        const usage_calculator = vi.fn(({ usage }) => usage);
+        await expect(
+            handle_completion_output({
+                deviations: undefined,
+                stream: false,
+                completion,
+                usage_calculator,
+                moderate: async () => {
+                    throw Object.assign(new Error('moderation down'), {
+                        status: 503,
+                    });
+                },
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_unavailable',
+        });
+        // Metered before the check: the completion was still produced.
+        expect(usage_calculator).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+    });
+
     it('skips moderation when the completion content is null', async () => {
         const completion = {
             choices: [{ message: { content: null } }],
