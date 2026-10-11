@@ -31,6 +31,12 @@ export function pipeStreamResult(
     res: ServerResponse,
     label: string,
 ): void {
+    // The caller hung up while the driver ran; `pipeline` throws on a closed
+    // destination, so drop the source instead.
+    if (res.closed || res.destroyed) {
+        stream.destroy();
+        return;
+    }
     pipeline(stream, res, (err) => {
         if (!err) return;
         if (!res.destroyed) res.destroy();

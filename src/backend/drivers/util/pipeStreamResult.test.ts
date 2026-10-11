@@ -128,4 +128,33 @@ describe('pipeStreamResult', () => {
         expect(pulls).toBe(pullsAtClose);
         expect(warn).not.toHaveBeenCalled();
     });
+
+    it('drops the source, without throwing, when the client left before the result was ready', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const source = Readable.from(['late']);
+        const piped = new Promise<unknown>((resolve) => {
+            server = createServer((_req, res) => {
+                // The driver is still running when the caller hangs up.
+                res.once('close', () => {
+                    try {
+                        pipeStreamResult(source, res, 'test.run');
+                        resolve(undefined);
+                    } catch (e) {
+                        resolve(e);
+                    }
+                });
+            });
+        });
+        await new Promise<void>((resolve) => server!.listen(0, resolve));
+        const { port } = server!.address() as AddressInfo;
+        const req = get(`http://127.0.0.1:${port}/`);
+        req.on('error', () => {});
+        req.on('socket', (socket) =>
+            socket.on('connect', () => setTimeout(() => req.destroy(), 20)),
+        );
+
+        expect(await piped).toBeUndefined();
+        expect(source.destroyed).toBe(true);
+        expect(warn).not.toHaveBeenCalled();
+    });
 });
