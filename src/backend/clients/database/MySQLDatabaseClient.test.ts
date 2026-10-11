@@ -619,6 +619,21 @@ describe('MySQLDatabaseClient — tryHardRead', () => {
             { from: 'primary' },
         ]);
     });
+
+    it('reads the primary once when the replica fails in a way read() fails over on', async () => {
+        const replica = {
+            execute: vi.fn().mockRejectedValue(codedError('dbBatchFailed')),
+        };
+        const primary = {
+            execute: vi.fn().mockResolvedValue([[{ from: 'primary' }]]),
+        };
+        const client = makeClient({ replica, primary });
+
+        await expect(client.tryHardRead('SELECT 1')).resolves.toEqual([
+            { from: 'primary' },
+        ]);
+        expect(primary.execute).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('MySQLDatabaseClient — migrations', () => {

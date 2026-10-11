@@ -120,6 +120,17 @@ export class AbstractDatabaseClient extends PuterClient {
     }
 
     /**
+     * The replica leg of `tryHardRead`. Override when `read()` falls back to
+     * the primary by itself, or a replica failure reads the primary twice.
+     */
+    protected replicaRead(
+        query: string,
+        params: unknown[],
+    ): Promise<Record<string, unknown>[]> {
+        return this.read(query, params);
+    }
+
+    /**
      * Like `read()`, but an empty or failed replica read falls back to the
      * primary, so replication lag can't hide a row that was just written. The
      * primary read starts alongside the replica one rather than after it.
@@ -134,7 +145,7 @@ export class AbstractDatabaseClient extends PuterClient {
 
         const primary = settle(this.pread(query, params));
         try {
-            const rows = await this.read(query, params);
+            const rows = await this.replicaRead(query, params);
             if (rows.length > 0) return rows;
         } catch {
             // replica failed — fall through to primary

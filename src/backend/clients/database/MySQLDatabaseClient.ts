@@ -205,6 +205,16 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         return this.configuration === Configuration.REPLICA;
     }
 
+    // No failover: `tryHardRead` already has a primary read in flight.
+    protected override async replicaRead(
+        query: string,
+        params: unknown[],
+    ): Promise<Record<string, unknown>[]> {
+        const result = await this.dbReplica.execute(query, params);
+        if (!result) return [];
+        return (result[0] as Record<string, unknown>[]) ?? [];
+    }
+
     // ------------------------------------------------------------------
     // Pool management
     // ------------------------------------------------------------------
