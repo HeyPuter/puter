@@ -33,7 +33,10 @@ type TaskbarDeps = Parameters<typeof getTaskbarItems>[1];
 
 export interface UserDetailsDeps {
     config: IConfig;
-    clients: CardFallbackClients & TaskbarDeps['clients'];
+    // `db.write` backs the taskbar's first-read default row.
+    clients: CardFallbackClients & {
+        db: { write: (query: string, params?: unknown[]) => Promise<unknown> };
+    };
     stores: TaskbarDeps['stores'] & {
         kv: Pick<SystemKVStore, 'get'>;
         team: Pick<TeamStore, 'getOrgSeat'>;
@@ -195,17 +198,19 @@ export async function buildUserDetails(
 
     if (isUser) {
         // Best-effort: the account still works without them.
+        // Not an inline literal, so a `TaskbarDeps` without `clients` still
+        // accepts it.
+        const taskbarDeps = {
+            clients,
+            stores,
+            apiBaseUrl: String(config.api_base_url ?? ''),
+            config,
+        };
         try {
-            details.taskbar_items = await getTaskbarItems(
-                user,
-                {
-                    clients,
-                    stores,
-                    apiBaseUrl: String(config.api_base_url ?? ''),
-                    config,
-                },
-                { iconSize: opts.iconSize, noIcons: opts.noIcons },
-            );
+            details.taskbar_items = await getTaskbarItems(user, taskbarDeps, {
+                iconSize: opts.iconSize,
+                noIcons: opts.noIcons,
+            });
         } catch (e) {
             console.warn('[user-details] taskbar_items failed:', e);
             details.taskbar_items = [];
