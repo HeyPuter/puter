@@ -216,7 +216,7 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
     ```
     …and update the S3 public endpoint:
     ```json
-    "s3": { "s3Config": { "publicEndpoint": "https://s3.puter.local", ... } }
+    "s3": { "s3Config": { "publicEndpoint": "https://s3.puter.localhost", ... } }
     ```
 
 ## Running behind your own reverse proxy
@@ -263,15 +263,15 @@ Healthy startup:
 
 ```
 [config] override from /etc/puter/config.json
-[mysql] running migrations from /opt/puter/dist/src/backend/clients/database/migrations/mysql: 2 file(s)
+[mysql] running migrations from /opt/puter/dist/src/backend/clients/database/migrations/mysql: <n> file(s)
 [mysql] applied mysql_mig_1.sql (...)
-[mysql] applied mysql_mig_2.sql (9 statements)
+...
 ```
 
-Then open **<https://puter.local>** (or `http://` if you skipped TLS). Login is `admin` — the temp password is printed once in the puter container logs on first boot:
+Then open **<https://puter.localhost>** (or `http://` if you skipped TLS). Login is `admin`; its temporary password is printed in the puter container logs on every boot until you change it:
 
 ```bash
-docker compose logs puter | grep tmp_password
+docker compose logs puter | grep "password for admin"
 ```
 
 Change it in Settings after first login.
@@ -394,14 +394,14 @@ Full provider list (chat, image, video, TTS, OCR) is in the template.
 
 ### Per-user storage quota
 
-Default is 100 MB per user.
+Storage is unlimited by default (bounded by host disk). To cap each user:
 
 ```json
 "storage_capacity": 5368709120,   // 5 GB
 "is_storage_limited": true
 ```
 
-Set `is_storage_limited: false` for unlimited (bounded by host disk).
+`storage_capacity` defaults to 100 MB.
 
 ### Usage metering and budgets
 
@@ -413,8 +413,8 @@ deletion, stay available so an account can always see what it has and clear it.
 
 On a self-hosted install this is almost certainly not what you want. There is
 nowhere to buy more, so accounts are held to the free monthly allowance
-(US$0.25 of measured cost — roughly 2 GiB of downloads) and start being refused
-after that. Turn it off:
+(US$0.50 of measured cost for a registered account, roughly 2.5 GiB of
+downloads) and start being refused after that. Turn it off:
 
 ```json
 "unlimitedMetering": true
@@ -423,12 +423,6 @@ after that. Turn it off:
 Every account then resolves to an unlimited policy. Usage is still recorded, so
 the dashboard still shows what is being consumed; nothing is ever refused for
 lack of budget.
-
-For API testing, you can also set `"unlimitedMetering": true` in your
-ignored runtime config: `puter/config/config.json` for Docker, or the repository's
-`config.json` for `npm start`. Merge it into the existing config and restart Puter.
-This includes guest accounts and applies to the whole local instance. Keep normal
-metering settings when testing budget or subscription enforcement.
 
 To keep the budgets but stop them blocking anything — recording only:
 
@@ -470,9 +464,10 @@ temporary or permanent one.
 "disable_user_signup": true
 ```
 
-### Block disposable email TLDs
+### Block disposable email domains
 
-Only enforced when `env: "prod"`.
+Addresses on these domains (suffix match, so subdomains too) can't sign up or be
+set as an account's email.
 
 ```json
 "blockedEmailDomains": ["mailinator.com", "tempmail.com", "guerrillamail.com"]
@@ -623,12 +618,10 @@ services:
 ```
 
 If that file already exists, merge these settings into its `puter` service.
-Compose loads and merges the override automatically. `build.context: .` selects
-this checkout, and `pull_policy: never` prevents pulling the published Puter image.
-
-Use this override for local build settings instead of editing `docker-compose.yml`.
-The override is ignored by Git, keeping local configuration out of pull requests
-and avoiding conflicts in the shared Compose file when pulling updates.
+Compose merges the override automatically: `build.context: .` builds this
+checkout, and `pull_policy: never` stops it pulling the published image. Git
+ignores the override, so local build settings stay out of pull requests and
+don't conflict with `docker-compose.yml` when you pull updates.
 
 From the repository root, build and start the stack:
 
@@ -667,11 +660,11 @@ Migrations re-apply idempotently across pulls. Volumes are preserved.
 **Site loads but I get a 502 / "Bad Gateway" from Caddy.**
 The puter container failed to come up. `docker compose logs puter` will tell you which dependency rejected it (most often DB password mismatch between `.env` and `config.json`).
 
-**Login screen says "admin password not set".**
-First-boot temp password is logged once. Find it: `docker compose logs puter | grep "tmp_password"`. After login, change it in Settings.
+**Can't find the admin password.**
+It's logged on every boot until you change it: `docker compose logs puter | grep "password for admin"`. After login, change it in Settings.
 
 **Healthcheck reports unhealthy but the site works.**
-The healthcheck hits `puter.localhost:4100/test` from inside the container. If you changed `domain` or `port`, the check still uses defaults. The site itself is fine.
+The compose healthcheck requests `http://localhost:4100/` from inside the container. If you changed `port` or set `allow_all_host_values: false`, the check fails while the site itself is fine.
 
 **Nothing resolves at `puter.example.com` after DNS changes.**
 DNS propagates slowly. `dig puter.example.com` and `dig api.puter.example.com` should both return your server IP. If not, give it 5–60 minutes.
