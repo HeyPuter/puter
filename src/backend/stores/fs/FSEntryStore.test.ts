@@ -1643,9 +1643,14 @@ describe('FSEntryStore home and prefix rewrites', () => {
 describe('FSEntryStore subtrees under names starting with a supplementary character', () => {
     // `🔥 a/🔥 b/c.txt` under a fresh directory.
     const seed = async (user: StoreUser, parent: string) => {
-        await store.ensureDirectoriesForUser(user.userId, [
-            { path: `${parent}/🔥 a/🔥 b`, createPaths: true },
-        ]);
+        let dir = (await store.getEntryByPath(`${user.home}/Documents`))!;
+        for (const name of [parent.split('/').pop()!, '🔥 a', '🔥 b']) {
+            dir = await store.createNonFileEntry({
+                parent: dir,
+                name,
+                kind: 'directory',
+            });
+        }
         return createFile(user, `${parent}/🔥 a/🔥 b/c.txt`);
     };
 
