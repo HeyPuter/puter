@@ -27,7 +27,6 @@ import {
     ImagesResponse,
 } from 'openai/resources/images.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
     IGenerateParams,
     IImageModel,
@@ -39,6 +38,7 @@ import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 
 interface OpenAIImageUsage {
     inputTokens: number;
@@ -56,7 +56,7 @@ interface OpenAIImageUsage {
  * via `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
     #openai: OpenAI;
 
     static #NON_SIZE_COST_KEYS = [
@@ -90,7 +90,10 @@ export class OpenAiImageProvider implements IImageProvider {
         max: 96,
     };
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         this.#meteringService = meteringService;
         this.#openai = new openai.OpenAI({
             apiKey: config.apiKey,
@@ -208,100 +211,105 @@ export class OpenAiImageProvider implements IImageProvider {
         const estimatedTotalCostInMicroCents = this.#toMicroCents(
             estimatedInputCostInCents + estimatedOutputCostInCents,
         );
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const usageType = `openai:${selectedModel.id}:${price_key}`;
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            usageType,
             estimatedTotalCostInMicroCents,
         );
 
-        if (!usageAllowed) {
+        if (!hold) {
             throw insufficientCreditsError();
         }
 
-        // With input images we use the edit endpoint (gpt-image only);
-        // otherwise the standard generate endpoint.
-        const result = hasInputImages
-            ? await this.#openai.images.edit(
-                  await this.#buildEditParams(
-                      selectedModel.id,
-                      { user: userIdentifier, prompt, size, quality },
-                      input_images!,
-                      input_image_mime_type,
-                  ),
-              )
-            : await this.#openai.images.generate(
-                  this.#buildApiParams(selectedModel.id, {
-                      user: userIdentifier,
-                      prompt,
-                      size,
-                      quality,
-                  } as Partial<ImageGenerateParamsNonStreaming>),
-              );
+        try {
+            // With input images we use the edit endpoint (gpt-image only);
+            // otherwise the standard generate endpoint.
+            const result = hasInputImages
+                ? await this.#openai.images.edit(
+                      await this.#buildEditParams(
+                          selectedModel.id,
+                          { user: userIdentifier, prompt, size, quality },
+                          input_images!,
+                          input_image_mime_type,
+                      ),
+                  )
+                : await this.#openai.images.generate(
+                      this.#buildApiParams(selectedModel.id, {
+                          user: userIdentifier,
+                          prompt,
+                          size,
+                          quality,
+                      } as Partial<ImageGenerateParamsNonStreaming>),
+                  );
 
-        const usage = this.#extractUsage(result);
-        const hasInputTokenUsage =
-            usage.inputTokens > 0 ||
-            usage.inputTextTokens > 0 ||
-            usage.inputImageTokens > 0;
+            const usage = this.#extractUsage(result);
+            const hasInputTokenUsage =
+                usage.inputTokens > 0 ||
+                usage.inputTextTokens > 0 ||
+                usage.inputImageTokens > 0;
 
-        const billableUsage = hasInputTokenUsage
-            ? usage
-            : {
-                  ...usage,
-                  inputTokens: estimatedPromptTokenCount,
-                  inputTextTokens: estimatedPromptTokenCount,
-              };
+            const billableUsage = hasInputTokenUsage
+                ? usage
+                : {
+                      ...usage,
+                      inputTokens: estimatedPromptTokenCount,
+                      inputTextTokens: estimatedPromptTokenCount,
+                  };
 
-        const inputCostInCents = hasInputTokenUsage
-            ? this.#calculateInputCostInCents(selectedModel, billableUsage)
-            : estimatedInputCostInCents;
-        const outputCostInCents = this.#calculateOutputCostInCents(
-            selectedModel,
-            usage,
-            outputPriceInCents,
-        );
-
-        const usageType = `openai:${selectedModel.id}:${price_key}`;
-        const usageEntries: Array<{
-            usageType: string;
-            usageAmount: number;
-            costOverride: number;
-        }> = [];
-        if (inputCostInCents > 0) {
-            usageEntries.push({
-                usageType: `${usageType}:input`,
-                usageAmount: Math.max(
-                    billableUsage.inputTokens || estimatedPromptTokenCount,
-                    1,
-                ),
-                costOverride: this.#toMicroCents(inputCostInCents),
-            });
-        }
-        if (outputCostInCents > 0) {
-            usageEntries.push({
-                usageType: `${usageType}:output`,
-                usageAmount: Math.max(usage.outputTokens, 1),
-                costOverride: this.#toMicroCents(outputCostInCents),
-            });
-        }
-        if (usageEntries.length) {
-            this.#meteringService.batchIncrementUsages(actor, usageEntries);
-        }
-
-        const url =
-            result.data?.[0]?.url ||
-            (result.data?.[0]?.b64_json
-                ? imageDataUri(result.data[0].b64_json)
-                : null);
-
-        if (!url) {
-            throw new HttpError(
-                400,
-                'Failed to extract image URL from OpenAI response',
-                { legacyCode: 'unknown_error' },
+            const inputCostInCents = hasInputTokenUsage
+                ? this.#calculateInputCostInCents(selectedModel, billableUsage)
+                : estimatedInputCostInCents;
+            const outputCostInCents = this.#calculateOutputCostInCents(
+                selectedModel,
+                usage,
+                outputPriceInCents,
             );
-        }
 
-        return url;
+            const usageEntries: Array<{
+                usageType: string;
+                usageAmount: number;
+                costOverride: number;
+            }> = [];
+            if (inputCostInCents > 0) {
+                usageEntries.push({
+                    usageType: `${usageType}:input`,
+                    usageAmount: Math.max(
+                        billableUsage.inputTokens || estimatedPromptTokenCount,
+                        1,
+                    ),
+                    costOverride: this.#toMicroCents(inputCostInCents),
+                });
+            }
+            if (outputCostInCents > 0) {
+                usageEntries.push({
+                    usageType: `${usageType}:output`,
+                    usageAmount: Math.max(usage.outputTokens, 1),
+                    costOverride: this.#toMicroCents(outputCostInCents),
+                });
+            }
+            if (usageEntries.length) {
+                this.#meteringService.batchIncrementUsages(actor, usageEntries);
+            }
+
+            const url =
+                result.data?.[0]?.url ||
+                (result.data?.[0]?.b64_json
+                    ? imageDataUri(result.data[0].b64_json)
+                    : null);
+
+            if (!url) {
+                throw new HttpError(
+                    400,
+                    'Failed to extract image URL from OpenAI response',
+                    { legacyCode: 'unknown_error' },
+                );
+            }
+
+            return url;
+        } finally {
+            await hold.release();
+        }
     }
 
     #extractUsage(result: ImagesResponse): OpenAIImageUsage {
