@@ -1024,6 +1024,70 @@ describe('FSService storage allowance', () => {
         ).resolves.toMatchObject({ size: 40 });
     });
 
+    // `stale` is the row a copy request resolved before an overwrite of the
+    // same file committed; the copy then duplicates the newer bytes.
+    const growUnderCopy = async (
+        user: Awaited<ReturnType<typeof quotaUser>>,
+        before: number,
+        after: number,
+    ) => {
+        const { fsEntry: stale } = await user.write(
+            'grown.txt',
+            'x'.repeat(before),
+        );
+        await limitedFs.write(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/grown.txt`,
+                size: after,
+                overwrite: true,
+            },
+            fileContent: 'y'.repeat(after),
+        });
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+        return { stale, documents };
+    };
+
+    it('records the bytes a copy duplicated, not the size it was resolved with', async () => {
+        const user = await quotaUser(1024);
+        const { stale, documents } = await growUnderCopy(user, 10, 50);
+
+        const copy = await limitedFs.copy(user.userId, {
+            source: stale,
+            destinationParent: documents,
+            newName: 'grown-copy.txt',
+        });
+
+        expect(copy.size).toBe(50);
+        await expect(
+            limitedFs.getUsersStorageAllowance(user.userId),
+        ).resolves.toEqual({ curr: 100, max: 1024 });
+    });
+
+    it('rejects a copy whose duplicated bytes exceed the allowance', async () => {
+        const user = await quotaUser(64);
+        const { stale, documents } = await growUnderCopy(user, 10, 40);
+
+        // 10 more bytes fit beside the 40 in use; the 40 actually copied don't.
+        const error = await caught(() =>
+            limitedFs.copy(user.userId, {
+                source: stale,
+                destinationParent: documents,
+                newName: 'grown-copy.txt',
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/grown-copy.txt`,
+            ),
+        ).toBeNull();
+        await expect(
+            limitedFs.getUsersStorageAllowance(user.userId),
+        ).resolves.toEqual({ curr: 40, max: 64 });
+    });
+
     it('rejects a batch signed write that would exceed the allowance', async () => {
         const user = await quotaUser(64);
         const error = await caught(() =>
