@@ -604,7 +604,9 @@ export class AppStore extends PuterStore {
                 [uid],
             );
             if (rows.length === 0) throw error;
-            return this.#normalizeRow(rows[0]);
+            const app = this.#normalizeRow(rows[0]);
+            await this.#writeCache(app);
+            return app;
         }
         const insertId = result?.insertId;
         if (!insertId)
@@ -1020,6 +1022,11 @@ export class AppStore extends PuterStore {
 
     #cacheKeysForApp(app) {
         return this.#cache.keysFor(app);
+    }
+
+    /** Caches `app` on this node unless it was deleted. Never throws. */
+    #writeCache(app) {
+        return this.#cache.write([app]);
     }
 
     async #writeListCache(cacheKey, apps) {

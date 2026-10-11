@@ -906,6 +906,26 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(second.uid).toBe(uid);
     });
 
+    it('caches the row a lost bootstrap race reads from the primary', async () => {
+        const uid = `app-origin-${Math.random().toString(36).slice(2, 10)}`;
+        const origin = `https://${uid}.example.com`;
+        const first = await appStore.createFromOrigin(uid, origin);
+        // Let the read-through backfill land before clearing it.
+        await new Promise((r) => setTimeout(r, 20));
+        await redis.del(
+            `apps:id:${first.id}`,
+            `apps:uid:${uid}`,
+            `apps:name:${uid}`,
+        );
+
+        await appStore.createFromOrigin(uid, origin);
+
+        const cached = JSON.parse(
+            (await redis.get(`apps:uid:${uid}`)) ?? 'null',
+        );
+        expect(cached?.id).toBe(first.id);
+    });
+
     // -- list / count ---------------------------------------------------
 
     it('filters list() by owner, creating app and name', async () => {
