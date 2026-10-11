@@ -42,7 +42,6 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
-import { kv } from '../../util/kvSingleton.js';
 import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import {
@@ -50,6 +49,7 @@ import {
     isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
+import { InfronProvider } from './providers/infron/InfronProvider.js';
 
 // -- OpenAI SDK mock ------------------------------------------------
 // Gemini reaches Google through `new openai.OpenAI()` (default export) and
@@ -80,9 +80,6 @@ vi.mock('axios', () => ({
 let server: PuterServer;
 let driver: ChatCompletionDriver;
 
-const INFRON_KV_KEY = 'infronChat:models';
-const OPENROUTER_KV_KEY = 'openrouterChat:models';
-
 // Google lists gemini-2.5-flash input at $0.30/MTok. The gateway quotes a
 // floor price across its upstream routes, so it undercuts — which is exactly
 // the condition that used to hand it the traffic.
@@ -107,6 +104,17 @@ const GATEWAY_CATALOG = [
         max_output_tokens: 8_192,
         min_prompt_price: 0.3,
         min_completion_price: 2.5,
+    },
+    {
+        // A gateway id with capitals, which the driver's map lowercases.
+        id: 'Qwen/QwQ-Max',
+        display_name: 'Qwen: QwQ Max',
+        category_type: 'LLM',
+        supported_endpoint_types: ['openai'],
+        context_length: 131_072,
+        max_output_tokens: 8_192,
+        min_prompt_price: 1.6,
+        min_completion_price: 6.4,
     },
     {
         // A vendor we integrate with directly that isn't Google — the case
@@ -144,8 +152,6 @@ const OPENROUTER_CATALOG = [
 
 beforeAll(async () => {
     server = await setupTestServer();
-    kv.del?.(INFRON_KV_KEY);
-    kv.del?.(OPENROUTER_KV_KEY);
     axiosRequestMock.mockImplementation(({ url }: { url: string }) => ({
         data: {
             data: url.includes('openrouter')
@@ -173,19 +179,7 @@ beforeAll(async () => {
         server.stores,
         server.services,
     );
-    driver.onServerStart();
-    // `onServerStart` doesn't await `#buildModelMap`, and the gateway
-    // catalogs resolve on a microtask — poll until both gateways land.
-    for (let i = 0; i < 200; i++) {
-        const ids = await driver.list();
-        if (
-            ids.some((id) => id.startsWith('infron:')) &&
-            ids.some((id) => id.startsWith('openrouter:'))
-        ) {
-            break;
-        }
-        await new Promise((r) => setTimeout(r, 5));
-    }
+    await driver.onServerStart();
 });
 
 // Every failure in this file marks the route it hit. Without this the first
@@ -256,6 +250,58 @@ describe('ChatCompletionDriver gemini routing', () => {
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+});
+
+describe('ChatCompletionDriver hands providers their own catalog entry', () => {
+    it('sends a gateway model under its own casing, not the lowercased map id', async () => {
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const record = vi.spyOn(
+            server.services.metering,
+            'utilRecordUsageObject',
+        );
+
+        await withTestActor(() =>
+            driver.complete({
+                model: 'qwen/qwq-max',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('Qwen/QwQ-Max');
+        expect(record.mock.calls.at(-1)![2]).toBe('infron:Qwen/QwQ-Max');
+        record.mockRestore();
+    });
+
+    it('leaves the provider nothing to look up per request', async () => {
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const catalog = vi.spyOn(InfronProvider.prototype, 'models');
+
+        await withTestActor(() =>
+            driver.complete({
+                model: 'qwen/qwq-max',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(catalog).not.toHaveBeenCalled();
+        catalog.mockRestore();
     });
 });
 

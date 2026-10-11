@@ -54,6 +54,7 @@ import { withTestActor } from '../integrationTestUtil.js';
 import { COUNT_TOKENS, ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
+import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import type {
     IChatCompleteResult,
     IChatProvider,
@@ -78,17 +79,8 @@ const makeDriver = async () => {
         server.stores,
         server.services,
     );
-    d.onServerStart();
-    // `onServerStart` kicks off `#buildModelMap` without awaiting it.
-    // Poll `models()` until the map is populated — production never
-    // serves a request before the kernel has finished booting, but in
-    // tests we hit the driver before microtasks have drained.
-    for (let i = 0; i < 200; i++) {
-        const m = await d.models();
-        if (m.length > 0) return d;
-        await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error('ChatCompletionDriver model map never populated in test');
+    await d.onServerStart();
+    return d;
 };
 
 beforeAll(async () => {
@@ -181,6 +173,74 @@ describe('ChatCompletionDriver model catalog', () => {
         expect(costly.ucentsPerUnit).toBe(1000);
         expect(costly.unit).toBe('token');
         expect(costly.source).toBe('driver:aiChat/fake-chat');
+    });
+});
+
+describe('ChatCompletionDriver model map', () => {
+    const newDriver = (providers: Record<string, unknown>) =>
+        new ChatCompletionDriver(
+            { providers } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+
+    it('registers a keyed provider under its name, read from its config key', async () => {
+        const d = newDriver({
+            gemini: { apiKey: 'k' },
+            // Registered as `moonshotai`, configured as `moonshot`.
+            moonshot: { apiKey: 'k' },
+            xai: { secret_key: 'k' },
+            ollama: { enabled: false },
+        });
+        await d.onServerStart();
+        const providers = new Set((await d.models()).map((m) => m.provider));
+        expect(providers).toEqual(
+            new Set(['gemini', 'moonshotai', 'xai', 'fake-chat']),
+        );
+        d.onServerShutdown();
+    });
+
+    it('is built by the time onServerStart resolves', async () => {
+        const d = newDriver({ ollama: { enabled: false } });
+        await d.onServerStart();
+        expect((await d.models()).length).toBeGreaterThan(0);
+        d.onServerShutdown();
+    });
+
+    it('leaves out a provider whose catalog fails instead of failing the build', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(OllamaChatProvider.prototype, 'models').mockRejectedValue(
+            new Error('catalog down'),
+        );
+        const d = newDriver({ ollama: {} });
+        await d.onServerStart();
+        expect((await d.models()).map((m) => m.provider)).toContain(
+            'fake-chat',
+        );
+        d.onServerShutdown();
+    });
+
+    it('rebuilds on a timer, picking up catalog changes', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+        try {
+            const real = FakeChatProvider.prototype.models;
+            const models = vi.spyOn(FakeChatProvider.prototype, 'models');
+            const d = newDriver({ ollama: { enabled: false } });
+            await d.onServerStart();
+            expect(await d.list()).not.toContain('added-later');
+
+            models.mockImplementation(async function (this: FakeChatProvider) {
+                const catalog = await real.call(this);
+                return [{ ...catalog[0]!, id: 'added-later' }, ...catalog];
+            });
+            await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+            expect(await d.list()).toContain('added-later');
+            d.onServerShutdown();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -1133,13 +1193,8 @@ describe('ChatCompletionDriver Claude usage.thinking_tokens', () => {
             server.stores,
             server.services,
         );
-        d.onServerStart();
-        for (let i = 0; i < 200; i++) {
-            const m = await d.models();
-            if (m.some((model) => model.id === THINKING_MODEL)) return d;
-            await new Promise((r) => setTimeout(r, 5));
-        }
-        throw new Error('claude driver model map never populated in test');
+        await d.onServerStart();
+        return d;
     };
 
     it('adds thinking_tokens to the non-stream wire usage, priced only off the real output', async () => {

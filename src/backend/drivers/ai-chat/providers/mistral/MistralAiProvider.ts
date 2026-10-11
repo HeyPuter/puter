@@ -36,8 +36,9 @@ import {
 } from '../../utils/mediaParts.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { shouldPresentAsOpenAI } from '../../utils/normalizeToOpenAI.js';
+import { withSdkTimeout } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 /**
  * Mistral's reasoning-capable models return `content` as a chunk array rather
@@ -126,10 +127,6 @@ export class MistralAIProvider implements IChatProvider {
 
     async models() {
         return MISTRAL_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(await this.models());
     }
 
     /**
@@ -242,7 +239,13 @@ export class MistralAIProvider implements IChatProvider {
                     maxTokens: max_tokens,
                     temperature,
                 },
-                { signal: Context.get('abortSignal') },
+                // The SDK retries nothing by default and has no timeout once a
+                // signal is passed; a stream is bounded by its caller instead.
+                {
+                    signal: stream
+                        ? Context.get('abortSignal')
+                        : withSdkTimeout(Context.get('abortSignal')),
+                },
             );
         } catch (e) {
             // The SDK validates input client-side and throws without a status,
@@ -395,20 +398,18 @@ export class MistralAIProvider implements IChatProvider {
             },
             completion: completion as ChatCompletionResponse,
             stream,
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * selectedModel.costs[k]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                // `coerceMistralUsage` has already taken cached reads out of
+                // `prompt_tokens`.
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
                     this.meteringModelKey(selectedModel.id),
-                    costsOverrideFromModel,
+                    selectedModel,
+                    OpenAIUtil.extractMeteredUsage(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
         });
     }

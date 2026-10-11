@@ -26,8 +26,7 @@
  * end. The Together SDK is mocked at the module boundary (the real
  * network egress point) so the provider never reaches the network.
  * Models are sourced through the SDK (`together.models.list()`) and
- * cached in the shared `kv` singleton — each test seeds/clears the
- * cache up front. The companion integration test
+ * cached per provider instance. The companion integration test
  * (TogetherAIProvider.integration.test.ts) exercises the real Together
  * endpoint.
  */
@@ -49,10 +48,10 @@ import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { TogetherAIProvider } from './TogetherAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Together SDK mock ───────────────────────────────────────────────
 
@@ -80,7 +79,6 @@ vi.mock('together-ai', () => {
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
-const KV_KEY = 'togetherai:models';
 // Together's `models.list()` returns API-shaped rows; the provider
 // coerces them to IChatModel. Costs (per million):
 // Llama-3.3-70B: input=18, output=18; Qwen-7B: input=20, output=20.
@@ -157,16 +155,12 @@ beforeEach(() => {
     createMock.mockReset();
     modelsListMock.mockReset();
     togetherCtor.mockReset();
-    // Clear the cached model list from prior tests so each test
-    // re-resolves through the mocked SDK (or the seeded value below).
-    kv.del(KV_KEY);
     modelsListMock.mockResolvedValue(SAMPLE_API_MODELS);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    kv.del(KV_KEY);
 });
 
 // ── Construction ────────────────────────────────────────────────────
@@ -177,7 +171,8 @@ describe('TogetherAIProvider construction', () => {
         expect(togetherCtor).toHaveBeenCalledTimes(1);
         expect(togetherCtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
-            timeout: 600_000,
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -194,7 +189,7 @@ describe('TogetherAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases for chat models only', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         // Embedding-typed models are filtered out.
         expect(ids).not.toContain('togetherai:some/embedding-model');
         // Canonical id is prefixed with togetherai:
@@ -221,7 +216,7 @@ describe('TogetherAIProvider model catalog', () => {
         expect(model.max_tokens).toBe(Math.floor(32768 * 0.95));
     });
 
-    it('caches the coerced model list in kv after the first call', async () => {
+    it('caches the coerced model list after the first call', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();
@@ -292,7 +287,7 @@ describe('TogetherAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0);
     });
 
-    it('passes tools through unchanged when supplied; omits the key when not', async () => {
+    it('sends function tools in the OpenAI shape; omits the key when not', async () => {
         const { provider } = makeProvider();
 
         // No tools.
@@ -323,7 +318,7 @@ describe('TogetherAIProvider.complete request shape', () => {
                 tools,
             }),
         );
-        expect(createMock.mock.calls[1]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[1]![0].tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -619,20 +614,18 @@ describe('TogetherAIProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe(
-            'meta-llama/Llama-3.3-70B-Instruct-Turbo',
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 

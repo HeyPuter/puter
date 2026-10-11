@@ -41,7 +41,6 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import {
@@ -50,6 +49,7 @@ import {
     stripNeuralwattPrefix,
 } from './models.js';
 import { NeuralwattProvider } from './NeuralwattProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -84,9 +84,6 @@ vi.mock('axios', () => ({
 
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
-
-const KV_MODELS_KEY = 'neuralwattChat:models';
-const KV_QUOTA_KEY = 'neuralwattChat:quota';
 
 const SAMPLE_API_MODELS = [
     {
@@ -227,15 +224,11 @@ beforeEach(() => {
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
     mockCatalogAndQuota('energy');
-    kv.del(KV_MODELS_KEY);
-    kv.del(KV_QUOTA_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    kv.del(KV_MODELS_KEY);
-    kv.del(KV_QUOTA_KEY);
 });
 
 // ── Mapping helpers ─────────────────────────────────────────────────
@@ -305,6 +298,8 @@ describe('NeuralwattProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.neuralwatt.com/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -313,6 +308,8 @@ describe('NeuralwattProvider construction', () => {
         expect(openAICtor).toHaveBeenLastCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.neuralwatt.example/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -340,7 +337,7 @@ describe('NeuralwattProvider model catalog', () => {
 
     it('list() prefixes ids and skips deprecated / pricing_tbd entries', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('neuralwatt:deepseek-v4-flash');
         expect(ids).toContain('neuralwatt:zai-org/GLM-5.1-FP8');
         expect(ids).toContain('GLM-5.1-FP8');
@@ -348,7 +345,7 @@ describe('NeuralwattProvider model catalog', () => {
         expect(ids).not.toContain('neuralwatt:deprecated-model');
     });
 
-    it('caches the model list in kv after the first axios round-trip', async () => {
+    it('caches the model list after the first axios round-trip', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();
@@ -459,76 +456,6 @@ describe('NeuralwattProvider.complete request shape', () => {
         });
         expect(createMock).not.toHaveBeenCalled();
     });
-
-    it('prefers a vision catalog model when the prompt has images and no model was named', async () => {
-        // Seed a vision model into the catalog payload.
-        axiosRequestMock.mockImplementation(async (opts: { url?: string }) => {
-            if (opts.url?.endsWith('/quota')) {
-                return {
-                    data: { balance: { accounting_method: 'energy' } },
-                };
-            }
-            return {
-                data: {
-                    data: [
-                        ...SAMPLE_API_MODELS,
-                        {
-                            id: 'gemma-4-31b',
-                            metadata: {
-                                display_name: 'Gemma 4 31B',
-                                pricing: {
-                                    input_per_million: 0.1,
-                                    output_per_million: 0.2,
-                                    pricing_tbd: false,
-                                },
-                                capabilities: {
-                                    tools: true,
-                                    vision: true,
-                                },
-                                limits: {
-                                    max_context_length: 256_000,
-                                    max_output_tokens: 16_384,
-                                },
-                            },
-                        },
-                    ],
-                },
-            };
-        });
-
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce({
-            choices: [
-                {
-                    message: { content: 'a cat', role: 'assistant' },
-                    finish_reason: 'stop',
-                },
-            ],
-            usage: { prompt_tokens: 1, completion_tokens: 1 },
-            cost: { request_cost_usd: 0 },
-        });
-
-        await withTestActor(() =>
-            provider.complete({
-                model: '',
-                messages: [
-                    {
-                        role: 'user',
-                        content: [
-                            {
-                                type: 'image_url',
-                                image_url: {
-                                    url: 'data:image/png;base64,abc',
-                                },
-                            },
-                        ],
-                    },
-                ],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('gemma-4-31b');
-    });
 });
 
 // ── Non-stream metering ─────────────────────────────────────────────
@@ -567,7 +494,7 @@ describe('NeuralwattProvider.complete non-stream output', () => {
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('neuralwatt:deepseek-v4-flash');
         expect(usage).toMatchObject({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
             energy_kwh: 0.00000145,
@@ -614,13 +541,14 @@ describe('NeuralwattProvider.complete non-stream output', () => {
         const completionRate = 0.28 * 100;
         const cachedRate = 0.014 * 100;
         const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        // Cached reads come out of `prompt_tokens`; they're priced once.
         expect(usage).toMatchObject({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(overrides).toMatchObject({
-            prompt_tokens: 100 * promptRate,
+            prompt_tokens: 90 * promptRate,
             completion_tokens: 50 * completionRate,
             cached_tokens: 10 * cachedRate,
         });

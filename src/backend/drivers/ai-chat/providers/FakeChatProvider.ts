@@ -74,9 +74,7 @@ export class FakeChatProvider implements IChatProvider {
             },
         ];
     }
-    async list() {
-        return ['fake', 'costly', 'abuse'];
-    }
+
     async complete({
         messages,
         stream,

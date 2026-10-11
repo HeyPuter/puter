@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { GROQ_MODELS } from './models.js';
 import { GroqAIProvider } from './GroqAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Groq SDK mock ───────────────────────────────────────────────────
 
@@ -136,7 +137,15 @@ describe('GroqAIProvider construction', () => {
     it('constructs the Groq SDK with the configured API key', () => {
         makeProvider();
         expect(groqCtor).toHaveBeenCalledTimes(1);
-        expect(groqCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(groqCtor).toHaveBeenCalledWith({
+
+            apiKey: 'test-key',
+
+            maxRetries: 0,
+
+            timeout: 60_000,
+
+        });
     });
 });
 
@@ -155,7 +164,7 @@ describe('GroqAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of GROQ_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -187,7 +196,7 @@ describe('GroqAIProvider model catalog', () => {
         'meta-llama/llama-guard-4-12b',
     ])('drops the deprecated %s', async (id) => {
         const { provider } = makeProvider();
-        expect(await provider.list()).not.toContain(id);
+        expect(modelLookupNames(await provider.models())).not.toContain(id);
     });
 });
 
@@ -240,7 +249,7 @@ describe('GroqAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
-    it('passes tools through (including undefined when omitted, not deleted from the wire)', async () => {
+    it('sends function tools in the OpenAI shape', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -261,7 +270,7 @@ describe('GroqAIProvider.complete request shape', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[0]![0].tools).toEqual(tools);
     });
 
     it('routes via stream=true verbatim (Groq SDK accepts the boolean)', async () => {
@@ -359,24 +368,18 @@ describe('GroqAIProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('openai/gpt-oss-20b');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'groq:openai/gpt-oss-20b',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 

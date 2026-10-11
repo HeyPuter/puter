@@ -57,6 +57,7 @@ import {
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -98,13 +99,8 @@ afterAll(async () => {
 
 const makeProvider = () => {
     const provider = new OpenAiResponsesChatProvider(
-        server.services.metering,
-        {
-            fsEntry: server.stores.fsEntry,
-            s3Object: server.stores.s3Object,
-        },
-        server.services.fs,
         { apiKey: 'test-key' },
+        server.services.metering,
     );
     return { provider };
 };
@@ -154,7 +150,15 @@ describe('OpenAiResponsesChatProvider construction', () => {
     it('constructs the OpenAI SDK with the configured API key', () => {
         makeProvider();
         expect(openAICtor).toHaveBeenCalledTimes(1);
-        expect(openAICtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(openAICtor).toHaveBeenCalledWith({
+
+            apiKey: 'test-key',
+
+            maxRetries: 0,
+
+            timeout: 10 * 60 * 1000,
+
+        });
     });
 });
 
@@ -246,7 +250,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
                 max_tokens: 128_000,
                 responses_api: true,
             });
-            expect(provider.list()).toEqual(
+            expect(modelLookupNames(provider.models())).toEqual(
                 expect.arrayContaining([id, `openai/${id}`]),
             );
         },
@@ -264,7 +268,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases for Responses models', () => {
         const { provider } = makeProvider();
-        const ids = provider.list();
+        const ids = modelLookupNames(provider.models());
         expect(ids).toContain('gpt-5.6-sol');
         expect(ids).toContain('openai/gpt-5.6-sol');
         expect(ids).toContain('gpt-6-astra');

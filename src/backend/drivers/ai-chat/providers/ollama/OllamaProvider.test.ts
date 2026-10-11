@@ -43,10 +43,10 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OllamaChatProvider } from './OllamaProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- External boundaries ---------------------------------------------
 
@@ -73,8 +73,6 @@ vi.mock('axios', () => ({
     default: { request: axiosRequestMock },
     request: axiosRequestMock,
 }));
-
-const MODELS_CACHE_KEY = 'ollamaChat:models';
 
 // -- Test harness ----------------------------------------------------
 
@@ -133,14 +131,10 @@ beforeEach(() => {
     createMock.mockReset();
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
-    // The catalog cache is a process-wide singleton — clear it so each test
-    // controls whether discovery hits the Ollama server.
-    kv.del(MODELS_CACHE_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
-    kv.del(MODELS_CACHE_KEY);
     vi.restoreAllMocks();
 });
 
@@ -152,6 +146,8 @@ describe('OllamaChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'ollama',
             baseURL: 'http://localhost:11434/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -160,6 +156,8 @@ describe('OllamaChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'ollama',
             baseURL: 'http://ollama.internal:9999/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -190,6 +188,7 @@ describe('OllamaChatProvider model discovery', () => {
         expect(axiosRequestMock).toHaveBeenCalledWith({
             method: 'GET',
             url: 'http://ollama.internal:11434/api/tags',
+            signal: expect.any(AbortSignal),
         });
         expect(models).toEqual([
             {
@@ -221,23 +220,21 @@ describe('OllamaChatProvider model discovery', () => {
     });
 
     it('returns an empty catalog when the Ollama server is unreachable', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
         axiosRequestMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
         expect(await makeProvider().models()).toEqual([]);
-        // A failed probe must not be cached as a valid catalog.
-        expect(kv.get(MODELS_CACHE_KEY)).toBeFalsy();
     });
 
-    it('returns an empty catalog — and caches nothing — when Ollama has no models', async () => {
+    it('returns an empty catalog when Ollama has no models', async () => {
         axiosRequestMock.mockResolvedValueOnce({ data: {} });
         expect(await makeProvider().models()).toEqual([]);
-        expect(kv.get(MODELS_CACHE_KEY)).toBeFalsy();
     });
 
     it('list() returns just the namespaced model ids', async () => {
         axiosRequestMock.mockResolvedValueOnce({
             data: { models: [{ name: 'llama3.2' }, { name: 'qwen3' }] },
         });
-        expect(await makeProvider().list()).toEqual([
+        expect(modelLookupNames(await makeProvider().models())).toEqual([
             'ollama:ollama/llama3.2',
             'ollama:ollama/qwen3',
         ]);
@@ -247,16 +244,16 @@ describe('OllamaChatProvider model discovery', () => {
 // -- Completion ------------------------------------------------------
 
 describe('OllamaChatProvider.complete', () => {
-    it('strips the `ollama:` namespace before calling the local server', async () => {
+    it('sends the local server the model name it listed', async () => {
         axiosRequestMock.mockResolvedValue({
-            data: { models: [{ name: 'llama3.2' }] },
+            data: { models: [{ name: 'llama3.2:latest' }] },
         });
         createMock.mockResolvedValueOnce(okCompletion);
         const provider = makeProvider();
 
         await withTestActor(() =>
             provider.complete({
-                model: 'ollama:ollama/llama3.2',
+                model: 'ollama:ollama/llama3.2:latest',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 64,
                 temperature: 0.5,
@@ -264,7 +261,9 @@ describe('OllamaChatProvider.complete', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('ollama/llama3.2');
+        // `/api/tags` names the model `llama3.2:latest`; `ollama:ollama/` is
+        // Puter's namespace and means nothing to the local server.
+        expect(args.model).toBe('llama3.2:latest');
         expect(args.messages).toEqual([{ role: 'user', content: 'hi' }]);
         expect(args.max_tokens).toBe(64);
         expect(args.temperature).toBe(0.5);
@@ -313,36 +312,10 @@ describe('OllamaChatProvider.complete', () => {
         });
     });
 
-    it('namespaces an undiscovered bare model name for metering', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
-        createMock.mockResolvedValueOnce(okCompletion);
-
-        await withTestActor(() =>
-            makeProvider().complete({
-                model: 'phi4',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(recordSpy.mock.calls[0]![2]).toBe('ollama:ollama/phi4');
-    });
-
-    it('keeps an already-namespaced `ollama/` model id intact for metering', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
-        createMock.mockResolvedValueOnce(okCompletion);
-
-        await withTestActor(() =>
-            makeProvider().complete({
-                model: 'ollama/phi4',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(recordSpy.mock.calls[0]![2]).toBe('ollama:ollama/phi4');
-    });
-
     it('forwards tools and requests usage frames when streaming', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
+        axiosRequestMock.mockResolvedValue({
+            data: { models: [{ name: 'llama3.2' }] },
+        });
         createMock.mockReturnValueOnce(
             asAsyncIterable([
                 { choices: [{ delta: { content: 'ha' } }] },
@@ -359,7 +332,7 @@ describe('OllamaChatProvider.complete', () => {
 
         const result = await withTestActor(() =>
             makeProvider().complete({
-                model: 'ollama:llama3.2',
+                model: 'ollama:ollama/llama3.2',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
                 tools: tools as never,
@@ -389,14 +362,16 @@ describe('OllamaChatProvider.complete', () => {
     });
 
     it('rethrows a failure from the local Ollama server without metering it', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { models: [] } });
+        axiosRequestMock.mockResolvedValue({
+            data: { models: [{ name: 'llama3.2' }] },
+        });
         const boom = new Error('ollama refused the connection');
         createMock.mockRejectedValueOnce(boom);
 
         await expect(
             withTestActor(() =>
                 makeProvider().complete({
-                    model: 'ollama:llama3.2',
+                    model: 'ollama:ollama/llama3.2',
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
             ),

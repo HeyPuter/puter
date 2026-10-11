@@ -20,10 +20,7 @@
 import { OpenAI } from 'openai';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
 import { Context } from '../../../../core/context.js';
-import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
-import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type {
     IChatModel,
     IChatProvider,
@@ -37,13 +34,12 @@ import {
     openAICompatParams,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
 import { responseSamplingParams } from '../../utils/responseSampling.js';
-import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
     type === 'web_search_20250305' ||
@@ -91,20 +87,12 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
-
-    #fsService: FSService;
-
-    constructor(
-        meteringService: MeteringService,
-        stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-        fsService: FSService,
-        config: { apiKey: string },
-    ) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#meteringService = meteringService;
-        this.#stores = stores;
-        this.#fsService = fsService;
-        this.#openAi = new OpenAI({ apiKey: config.apiKey });
+        this.#openAi = new OpenAI({
+            apiKey: config.apiKey,
+            ...sdkClientOptions(),
+        });
     }
 
     /**
@@ -119,10 +107,6 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         return OPEN_AI_MODELS.filter(
             (e) => e.responses_api_only === true || e.responses_api === true,
         );
-    }
-
-    list() {
-        return modelLookupNames(this.models({ no_restrictions: false }));
     }
 
     getDefaultModel() {
@@ -211,15 +195,6 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
-
-        // Resolve any `puter_path` content parts into inline base64 data URLs
-        // before the Responses API sees them.
-        await processPuterPathUploads(
-            messages,
-            this.#stores,
-            this.#fsService,
-            actor,
-        );
 
         if (tools) {
             // Unravel tools to OpenAI Responses API format
@@ -358,32 +333,30 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                         : {}),
                 };
 
-                const costsOverrideFromModel = buildCostsOverride(
-                    trackedUsage,
+                const metered = meterChatUsage(
+                    this.#meteringService,
+                    actor,
+                    this.meteringModelKey(modelUsed.id),
                     modelUsed,
-                );
-                // Priced dynamically: the rate depends on which
-                // web-search tool variant was requested and whether the model
-                // is a reasoning model, not a static per-model cost-table
-                // entry — `buildCostsOverride`'s fallback would otherwise
-                // price it (wrongly) at the input/output token rate.
-                if (webSearchCalls) {
-                    const rate = webSearchCallRate(tools, modelUsed.id) ?? 0;
-                    costsOverrideFromModel.web_search_calls =
-                        webSearchCalls * rate;
-                    setUsageCosts?.({
-                        web_search_calls:
-                            costsOverrideFromModel.web_search_calls,
-                    });
-                }
-
-                this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor!,
-                    this.meteringModelKey(modelUsed?.id),
-                    costsOverrideFromModel,
+                    // Priced dynamically: the rate depends on which
+                    // web-search tool variant was requested and whether the
+                    // model is a reasoning model, not a static per-model
+                    // cost-table entry — the model's rates would otherwise
+                    // price it (wrongly) at the input/output token rate.
+                    webSearchCalls
+                        ? {
+                              costOverrides: {
+                                  web_search_calls:
+                                      webSearchCalls *
+                                      (webSearchCallRate(tools, modelUsed.id) ??
+                                          0),
+                              },
+                          }
+                        : {},
                 );
-                return trackedUsage;
+                setUsageCosts?.(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

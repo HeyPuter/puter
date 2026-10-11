@@ -26,7 +26,7 @@
  * end. OpenRouter is OpenAI-compatible, so the OpenAI SDK is mocked
  * at the module boundary; the model catalog is fetched via `axios`
  * which is mocked at its module boundary too. Both are the real
- * network egress points. Each test clears the kv-cached model list.
+ * network egress points.
  * The companion integration test (OpenRouterProvider.integration.test.ts)
  * exercises the real OpenRouter endpoint.
  */
@@ -47,10 +47,10 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -85,8 +85,6 @@ vi.mock('axios', () => ({
 
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
-
-const KV_KEY = 'openrouterChat:models';
 
 const SAMPLE_API_MODELS = [
     {
@@ -206,13 +204,11 @@ beforeEach(() => {
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
     seedModelsCache();
-    kv.del(KV_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    kv.del(KV_KEY);
 });
 
 // ── Construction ────────────────────────────────────────────────────
@@ -224,6 +220,8 @@ describe('OpenRouterProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://openrouter.ai/api/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -238,6 +236,8 @@ describe('OpenRouterProvider construction', () => {
         expect(openAICtor).toHaveBeenLastCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.openrouter.example/api/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -252,7 +252,7 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('list() prefixes ids with openrouter: and filters out openrouter/auto', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('openrouter:openai/gpt-6-luna');
         expect(ids).toContain('openrouter:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('openrouter:openrouter/auto');
@@ -260,7 +260,7 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('filters out models OpenRouter has scheduled for expiration', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('openrouter:qwen/qwen3-max');
         expect(ids).not.toContain('qwen/qwen3-max');
     });
@@ -277,12 +277,39 @@ describe('OpenRouterProvider model catalog', () => {
         });
     });
 
-    it('caches the coerced model list in kv after the first axios round-trip', async () => {
+    it('caches the coerced model list after the first axios round-trip', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();
         // Second call should be a cache hit, not a second axios request.
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('serves completions from the cached catalog and reuses its entries', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const before = await provider.models();
+
+        for (let i = 0; i < 3; i++) {
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        }
+
+        expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+        // The same converted entries, not a catalog rebuilt per request.
+        expect(await provider.models()).toBe(before);
     });
 
     it('falls back to the context window when no output cap is reported', async () => {
@@ -412,7 +439,7 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:anthropic/claude-sonnet',
+                model: 'openrouter:anthropic/claude-haiku-4.5',
                 messages: [
                     {
                         role: 'user',
@@ -552,8 +579,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         const { provider } = makeProvider();
         const apiError = { error: { message: 'Some other failure' } };
         createMock.mockRejectedValueOnce(apiError);
-        // Provider logs before rethrowing — silence the noise.
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -568,7 +593,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         // Only one attempt was made.
         expect(createMock).toHaveBeenCalledTimes(1);
         expect(recordSpy).not.toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
     });
 
     it('rethrows a transport error as itself rather than masking it', async () => {
@@ -576,7 +600,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         // No `.error` on the object: the shape a socket failure arrives in.
         const transportError = new Error('socket hang up');
         createMock.mockRejectedValueOnce(transportError);
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -589,7 +612,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         ).rejects.toBe(transportError);
 
         expect(createMock).toHaveBeenCalledTimes(1);
-        expect(logSpy).toHaveBeenCalled();
     });
 });
 

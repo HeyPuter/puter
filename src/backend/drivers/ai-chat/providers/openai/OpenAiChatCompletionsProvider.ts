@@ -21,10 +21,7 @@ import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
-import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
-import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type {
     IChatModel,
     IChatProvider,
@@ -40,12 +37,11 @@ import {
     clampReasoningEffort,
     openAICompatParams,
 } from '../../utils/openaiParams.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
-import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
     tool.type === 'web_search' ||
@@ -69,22 +65,14 @@ export class OpenAiChatProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
-
-    #fsService: FSService;
-
     #responsesProvider: OpenAiResponsesChatProvider | null = null;
 
-    constructor(
-        meteringService: MeteringService,
-        stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-        fsService: FSService,
-        config: { apiKey: string },
-    ) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#meteringService = meteringService;
-        this.#stores = stores;
-        this.#fsService = fsService;
-        this.#openAi = new OpenAI({ apiKey: config.apiKey });
+        this.#openAi = new OpenAI({
+            apiKey: config.apiKey,
+            ...sdkClientOptions(),
+        });
     }
 
     // Wired up by the driver after both OpenAI providers are built, so the
@@ -101,10 +89,6 @@ export class OpenAiChatProvider implements IChatProvider {
      */
     models() {
         return OPEN_AI_MODELS.filter((e) => !e.responses_api_only);
-    }
-
-    list() {
-        return modelLookupNames(this.models());
     }
 
     getDefaultModel() {
@@ -197,16 +181,6 @@ export class OpenAiChatProvider implements IChatProvider {
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
 
-        // Resolve any `puter_path` content parts into inline base64 data URLs.
-        // Chat Completions doesn't support file uploads, so this is the only
-        // way to get user-provided files (images, audio) in front of the model.
-        await processPuterPathUploads(
-            messages,
-            this.#stores,
-            this.#fsService,
-            actor,
-        );
-
         // Strip Anthropic-only shape a fallback-replayed message can carry
         // (thinking/server-tool blocks, cache_control, citations) before the
         // existing in-place coercion below, so that mutates only this pass's
@@ -280,7 +254,7 @@ export class OpenAiChatProvider implements IChatProvider {
         );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: ({ usage, setUsageCosts }) => {
                 const cachedTokens =
                     usage.prompt_tokens_details?.cached_tokens ?? 0;
                 // GPT-5.6 and later bill cache writes at 1.25x input. They're
@@ -303,18 +277,15 @@ export class OpenAiChatProvider implements IChatProvider {
                         : {}),
                 };
 
-                const costsOverrideFromModel = buildCostsOverride(
-                    trackedUsage,
-                    modelUsed,
-                );
-
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
-                    this.meteringModelKey(modelUsed?.id),
-                    costsOverrideFromModel,
+                    this.meteringModelKey(modelUsed.id),
+                    modelUsed,
+                    trackedUsage,
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
             stream,
             completion,

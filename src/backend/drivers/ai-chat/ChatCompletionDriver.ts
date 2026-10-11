@@ -25,6 +25,7 @@ import { Context } from '../../core/context.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import { isFreeSubscription } from '../../services/metering/consts.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
 import type { DriverStreamResult } from '../meta.js';
@@ -56,6 +57,7 @@ import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import type { ChatProviderConfig } from './providers/OpenAICompatProvider.js';
 import { processPuterPathUploads } from './providers/openai/fileUpload.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
@@ -95,17 +97,16 @@ import { isToolChoice, toolChoiceFromWire } from './utils/openaiParams.js';
 import {
     costKeys,
     isFreeModel,
-    isOutputCostKey,
-    isPerCallCostKey,
     longContextMultipliers,
-    trackedInputTokens,
     trackedOutputTokens,
+    usageCost,
     usageDetailsFromUsage,
 } from './utils/pricing.js';
 import {
     isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
+import { CATALOG_TTL_MS } from './utils/cachedRemoteCatalog.js';
 import { fromFinishReason } from './utils/stopReason.js';
 import { AIChatStream } from './utils/Streaming.js';
 import {
@@ -115,6 +116,36 @@ import {
 } from './utils/usageEstimate.js';
 
 const MAX_ATTEMPTS = 3; // the first attempt plus two fallbacks
+
+/**
+ * Providers built from `config.providers[configKey]` (default: `name`) when it
+ * carries an API key.
+ */
+const KEYED_PROVIDERS: {
+    name: string;
+    configKey?: string;
+    Class: new (
+        config: ChatProviderConfig,
+        metering: MeteringService,
+    ) => IChatProvider;
+}[] = [
+    { name: 'gemini', Class: GeminiChatProvider },
+    { name: 'meta', Class: MetaProvider },
+    { name: 'groq', Class: GroqAIProvider },
+    { name: 'deepseek', Class: DeepSeekProvider },
+    { name: 'mistral', Class: MistralAIProvider },
+    { name: 'xai', Class: XAIProvider },
+    { name: 'moonshotai', configKey: 'moonshot', Class: MoonshotProvider },
+    { name: 'minimax', Class: MiniMaxProvider },
+    { name: 'zai', Class: ZAIProvider },
+    { name: 'alibaba', Class: AlibabaProvider },
+    { name: 'infron', Class: InfronProvider },
+    { name: 'openrouter', Class: OpenRouterProvider },
+    { name: 'together-ai', Class: TogetherAIProvider },
+    { name: 'byteplus', Class: BytePlusProvider },
+    { name: 'neuralwatt', Class: NeuralwattProvider },
+    { name: 'hoonify', Class: HoonifyProvider },
+];
 
 /**
  * Key of the driver's token-count entry point. A symbol rather than a method
@@ -493,6 +524,9 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #providers: Record<string, IChatProvider> = Object.create(null);
     #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
+    /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
+    #catalogEntries = new WeakMap<IChatModel, IChatModel>();
+    #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -503,9 +537,18 @@ export class ChatCompletionDriver extends PuterDriver {
         );
     }
 
-    override onServerStart() {
+    override async onServerStart() {
         this.#registerProviders();
-        this.#buildModelMap();
+        await this.#buildModelMap();
+        // Gateway catalogs change under us; rebuild once they've expired.
+        this.#modelMapRefresh = setInterval(() => {
+            void this.#buildModelMap();
+        }, CATALOG_TTL_MS);
+        this.#modelMapRefresh.unref?.();
+    }
+
+    override onServerShutdown() {
+        clearInterval(this.#modelMapRefresh);
     }
 
     // -- Interface methods -------------------------------------------
@@ -747,11 +790,14 @@ export class ChatCompletionDriver extends PuterDriver {
             if (!useFakeProvider) {
                 await this.#resolvePuterPaths(attemptProvider, args, actor);
             }
-            return attemptProvider.complete({
-                ...args,
-                model: attemptModel.id,
-                provider: attemptModel.provider,
-            });
+            return attemptProvider.complete(
+                {
+                    ...args,
+                    model: attemptModel.id,
+                    provider: attemptModel.provider,
+                },
+                this.#catalogEntries.get(attemptModel),
+            );
         };
 
         try {
@@ -1218,126 +1264,6 @@ export class ChatCompletionDriver extends PuterDriver {
         };
     }
 
-    // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
-    // Shape-agnostic: multiplies every usage key by its matching rate in
-    // `model.costs`. Returns `null` when cost data is unavailable.
-    //
-    // `usageCosts`, when given, carries the provider's own per-key µ¢ cost
-    // (set from `chatStream.usageCosts` / `res.usageCosts`) — used verbatim
-    // for that key so the ledger and the reported cost match exactly instead
-    // of being recomputed off this model's cost table.
-    #computeCost(
-        usage: Record<string, number>,
-        model: IChatModel,
-        usageCosts?: Record<string, number>,
-    ): {
-        inputKey: string;
-        outputKey: string;
-        inputTokens: number;
-        outputTokens: number;
-        inputMicroCents: number;
-        outputMicroCents: number;
-        totalMicroCents: number;
-    } | null {
-        const { inputKey, outputKey } = costKeys(model);
-
-        const costs = model.costs;
-        if (!costs) return null;
-
-        const outputRateRaw = costs[outputKey];
-        const outputRate =
-            typeof outputRateRaw === 'number' && Number.isFinite(outputRateRaw)
-                ? outputRateRaw
-                : undefined;
-
-        const isOutputKey = (key: string) => isOutputCostKey(key, outputKey);
-        const multipliers = longContextMultipliers(
-            model,
-            trackedInputTokens(usage, model),
-        );
-
-        let inputMicroCents = 0;
-        let outputMicroCents = 0;
-        let sawAnyRate = false;
-
-        for (const [key, rawAmount] of Object.entries(usage)) {
-            if (typeof rawAmount !== 'number' || !Number.isFinite(rawAmount)) {
-                continue;
-            }
-
-            if (key === 'usd_cents') continue;
-            if (key === 'tokens') continue;
-
-            const override = usageCosts?.[key];
-            if (typeof override === 'number' && Number.isFinite(override)) {
-                sawAnyRate = true;
-                if (isOutputKey(key)) outputMicroCents += override;
-                else inputMicroCents += override;
-                continue;
-            }
-            // Advisor usage is priced at the advisor model's own rates
-            // (metered separately, under `claude:<advisor>`), never off this
-            // (executor) model's cost table — without an override there is
-            // simply nothing to price it at here.
-            if (key.startsWith('advisor_')) continue;
-
-            // thinking_tokens → output rate fallback
-            let rate = costs[key];
-            if (typeof rate !== 'number' || !Number.isFinite(rate)) {
-                if (isOutputKey(key) && outputRate !== undefined) {
-                    rate = outputRate;
-                } else if (!isOutputKey(key)) {
-                    const inputRateRaw = costs[inputKey];
-                    if (
-                        typeof inputRateRaw === 'number' &&
-                        Number.isFinite(inputRateRaw)
-                    ) {
-                        rate = inputRateRaw;
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            }
-
-            sawAnyRate = true;
-            if (isOutputKey(key)) {
-                outputMicroCents += rawAmount * rate * multipliers.output;
-            } else {
-                inputMicroCents +=
-                    rawAmount *
-                    rate *
-                    (isPerCallCostKey(key) ? 1 : multipliers.input);
-            }
-        }
-
-        if (!sawAnyRate) return null;
-
-        inputMicroCents = Math.max(0, Math.round(inputMicroCents));
-        outputMicroCents = Math.max(0, Math.round(outputMicroCents));
-
-        const inputTokens = Number(
-            usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens ?? 0,
-        );
-        const outputTokens = Number(
-            usage[outputKey] ??
-                usage.completion_tokens ??
-                usage.output_tokens ??
-                0,
-        );
-
-        return {
-            inputKey,
-            outputKey,
-            inputTokens,
-            outputTokens,
-            inputMicroCents,
-            outputMicroCents,
-            totalMicroCents: inputMicroCents + outputMicroCents,
-        };
-    }
-
     /**
      * The credit and subscription gate for one upstream attempt.
      *
@@ -1550,7 +1476,7 @@ export class ChatCompletionDriver extends PuterDriver {
             [outputKey]: outputTokens,
         };
 
-        const cost = this.#computeCost(usage, model);
+        const cost = usageCost(usage, model);
         this.#aiMetering.utilRecordUsageObject(
             {
                 [`estimated_${inputKey}`]: inputTokens,
@@ -1593,12 +1519,13 @@ export class ChatCompletionDriver extends PuterDriver {
         ) {
             return;
         }
-        const cost = this.#computeCost(usage, model, usageCosts);
+        const cost = usageCost(usage, model, usageCosts);
         if (!cost) {
             (usage as Record<string, number | null>).usd_cents = null;
             return;
         }
-        usage.usd_cents = cost.totalMicroCents / 1_000_000;
+        usage.usd_cents =
+            (cost.inputMicroCents + cost.outputMicroCents) / 1_000_000;
     }
 
     // Compute per-token cost in microcents using the model's cost map,
@@ -1621,10 +1548,24 @@ export class ChatCompletionDriver extends PuterDriver {
             usageCosts,
         } = params;
 
-        const cost = this.#computeCost(usage, model, usageCosts);
+        const cost = usageCost(usage, model, usageCosts);
         const { inputKey, outputKey } = costKeys(model);
-        const inputTokens = cost?.inputTokens ?? 0;
-        const outputTokens = cost?.outputTokens ?? 0;
+        const inputTokens = cost
+            ? Number(
+                  usage[inputKey] ??
+                      usage.prompt_tokens ??
+                      usage.input_tokens ??
+                      0,
+              )
+            : 0;
+        const outputTokens = cost
+            ? Number(
+                  usage[outputKey] ??
+                      usage.completion_tokens ??
+                      usage.output_tokens ??
+                      0,
+              )
+            : 0;
         const inputMicroCents = cost?.inputMicroCents ?? 0;
         const outputMicroCents = cost?.outputMicroCents ?? 0;
 
@@ -1717,23 +1658,13 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const openaiKey = readKey(providers['openai-completion']);
         if (openaiKey) {
-            const openaiStores = {
-                fsEntry: this.stores.fsEntry,
-                s3Object: this.stores.s3Object,
-            };
             const openaiCompletions = new OpenAiChatProvider(
+                { apiKey: openaiKey },
                 metering,
-                openaiStores,
-                this.services.fs,
-                {
-                    apiKey: openaiKey,
-                },
             );
             const openaiResponses = new OpenAiResponsesChatProvider(
-                metering,
-                openaiStores,
-                this.services.fs,
                 { apiKey: openaiKey },
+                metering,
             );
             // web_search is Responses-only; let the Completions path delegate
             // to its sibling when users request it.
@@ -1742,101 +1673,14 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['openai-responses'] = openaiResponses;
         }
 
-        const geminiKey = readKey(providers['gemini']);
-        if (geminiKey) {
-            this.#providers['gemini'] = new GeminiChatProvider(metering, {
-                apiKey: geminiKey,
-            });
-        }
-
-        const meta = providers['meta'];
-        const metaKey = readKey(meta);
-        if (metaKey) {
-            this.#providers['meta'] = new MetaProvider(
-                metering,
+        for (const { name, configKey = name, Class } of KEYED_PROVIDERS) {
+            const config = providers[configKey];
+            const apiKey = readKey(config);
+            if (!apiKey) continue;
+            this.#providers[name] = new Class(
                 {
-                    fsEntry: this.stores.fsEntry,
-                    s3Object: this.stores.s3Object,
-                },
-                this.services.fs,
-                {
-                    apiKey: metaKey,
-                    apiBaseUrl: meta?.apiBaseUrl as string | undefined,
-                },
-            );
-        }
-
-        const groqKey = readKey(providers['groq']);
-        if (groqKey) {
-            this.#providers['groq'] = new GroqAIProvider(
-                { apiKey: groqKey },
-                metering,
-            );
-        }
-
-        const deepseekKey = readKey(providers['deepseek']);
-        if (deepseekKey) {
-            this.#providers['deepseek'] = new DeepSeekProvider(
-                { apiKey: deepseekKey },
-                metering,
-            );
-        }
-
-        const mistralKey = readKey(providers['mistral']);
-        if (mistralKey) {
-            this.#providers['mistral'] = new MistralAIProvider(
-                { apiKey: mistralKey },
-                metering,
-            );
-        }
-
-        const xaiKey = readKey(providers['xai']);
-        if (xaiKey) {
-            this.#providers['xai'] = new XAIProvider(
-                { apiKey: xaiKey },
-                metering,
-            );
-        }
-
-        const moonshotKey = readKey(providers['moonshot']);
-        if (moonshotKey) {
-            this.#providers['moonshotai'] = new MoonshotProvider(
-                { apiKey: moonshotKey },
-                metering,
-            );
-        }
-
-        const minimax = providers['minimax'];
-        const minimaxKey = readKey(minimax);
-        if (minimaxKey) {
-            this.#providers['minimax'] = new MiniMaxProvider(
-                {
-                    apiKey: minimaxKey,
-                    apiBaseUrl: minimax?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const zai = providers['zai'];
-        const zaiKey = readKey(zai);
-        if (zaiKey) {
-            this.#providers['zai'] = new ZAIProvider(
-                {
-                    apiKey: zaiKey,
-                    apiBaseUrl: zai?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const alibaba = providers['alibaba'];
-        const alibabaKey = readKey(alibaba);
-        if (alibabaKey) {
-            this.#providers['alibaba'] = new AlibabaProvider(
-                {
-                    apiKey: alibabaKey,
-                    apiBaseUrl: alibaba?.apiBaseUrl as string | undefined,
+                    apiKey,
+                    apiBaseUrl: config?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1848,74 +1692,6 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
-                },
-                metering,
-            );
-        }
-
-        const infron = providers['infron'];
-        const infronKey = readKey(infron);
-        if (infronKey) {
-            this.#providers['infron'] = new InfronProvider(
-                {
-                    apiKey: infronKey,
-                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const openrouter = providers['openrouter'];
-        const openrouterKey = readKey(openrouter);
-        if (openrouterKey) {
-            this.#providers['openrouter'] = new OpenRouterProvider(
-                {
-                    apiKey: openrouterKey,
-                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const togetherKey = readKey(providers['together-ai']);
-        if (togetherKey) {
-            this.#providers['together-ai'] = new TogetherAIProvider(
-                { apiKey: togetherKey },
-                metering,
-            );
-        }
-
-        const byteplus = providers['byteplus'];
-        const byteplusKey = readKey(byteplus);
-        if (byteplusKey) {
-            this.#providers['byteplus'] = new BytePlusProvider(
-                {
-                    apiKey: byteplusKey,
-                    apiBaseUrl: byteplus?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const neuralwatt = providers['neuralwatt'];
-        const neuralwattKey = readKey(neuralwatt);
-        if (neuralwattKey) {
-            this.#providers['neuralwatt'] = new NeuralwattProvider(
-                {
-                    apiKey: neuralwattKey,
-                    apiBaseUrl: neuralwatt?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const hoonify = providers['hoonify'];
-        const hoonifyKey = readKey(hoonify);
-        if (hoonifyKey) {
-            this.#providers['hoonify'] = new HoonifyProvider(
-                {
-                    apiKey: hoonifyKey,
-                    apiBaseUrl: hoonify?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1938,12 +1714,28 @@ export class ChatCompletionDriver extends PuterDriver {
      *
      * Entries join a bucket by identity key (see `isIdentityKey`); display
      * names remain addressable but never merge two providers' entries.
+     *
+     * Built into a fresh map that replaces the old one whole, so a refresh
+     * never serves a half-built map. A provider whose catalog fails is left out
+     * of this build rather than failing it.
      */
     async #buildModelMap() {
-        for (const providerName in this.#providers) {
-            const provider = this.#providers[providerName];
+        const names = Object.keys(this.#providers);
+        const catalogs = await Promise.allSettled(
+            names.map(async (name) => this.#providers[name].models()),
+        );
+        const modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
-            for (const entry of await provider.models()) {
+        names.forEach((providerName, i) => {
+            const catalog = catalogs[i]!;
+            if (catalog.status === 'rejected') {
+                console.warn(
+                    `[ai-chat] ${providerName} catalog unavailable: ${(catalog.reason as Error)?.message ?? catalog.reason}`,
+                );
+                return;
+            }
+
+            for (const entry of catalog.value) {
                 // Catalogs are module-level constants shared by every driver
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
@@ -1981,19 +1773,23 @@ export class ChatCompletionDriver extends PuterDriver {
                 const bucket =
                     keys
                         .filter(isIdentityKey)
-                        .map((key) => this.#modelIdMap[key])
+                        .map((key) => modelIdMap[key])
                         .find(Boolean) ?? [];
-                bucket.push({ ...model, provider: providerName });
+                const routed = { ...model, provider: providerName };
+                this.#catalogEntries.set(routed, entry);
+                bucket.push(routed);
 
                 // First registration owns a key: a name already claimed by
                 // another model keeps pointing where it did.
                 for (const key of keys) {
-                    this.#modelIdMap[key] ??= bucket;
+                    modelIdMap[key] ??= bucket;
                 }
 
                 bucket.sort(compareModelPreference);
             }
-        }
+        });
+
+        this.#modelIdMap = modelIdMap;
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {

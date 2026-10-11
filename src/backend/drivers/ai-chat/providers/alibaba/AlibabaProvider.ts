@@ -18,107 +18,29 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
 import { ALIBABA_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 
-type AlibabaConfig = {
-    apiKey: string;
-    apiBaseUrl?: string;
-};
-
-export class AlibabaProvider implements IChatProvider {
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
-
-    constructor(config: AlibabaConfig, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL:
-                config.apiBaseUrl ??
-                'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+export class AlibabaProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL:
+                    config.apiBaseUrl ??
+                    'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'qwen-plus-latest',
+            models: () => ALIBABA_MODELS,
+            meteringPrefix: 'alibaba',
+            defaultMaxTokens: 1000,
+            passthrough: ['temperature'],
         });
-        this.#meteringService = meteringService;
-    }
-
-    getDefaultModel() {
-        return 'qwen-plus-latest';
-    }
-
-    models() {
-        return ALIBABA_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `alibaba:${modelId}`;
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-
-        const completion = await this.#openai.chat.completions.create(
-            {
-                messages,
-                model: modelUsed.id,
-                ...(tools ? { tools } : {}),
-                max_tokens: max_tokens ?? 1000,
-                temperature,
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor!,
-                    this.meteringModelKey(modelUsed.id),
-                    costsOverride,
-                );
-                return trackedUsage;
-            },
-            stream,
-            completion,
-        });
-    }
-
-    checkModeration(_text: string) {
-        throw new Error('Method not implemented.');
     }
 }

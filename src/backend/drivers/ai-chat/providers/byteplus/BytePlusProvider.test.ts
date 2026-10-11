@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { BytePlusProvider } from './BytePlusProvider.js';
 import { BYTEPLUS_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- OpenAI SDK mock -------------------------------------------------
 //
@@ -157,6 +158,8 @@ describe('BytePlusProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://ark.ap-southeast.bytepluses.com/api/v3',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -167,6 +170,8 @@ describe('BytePlusProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://ark.eu-west.bytepluses.com/api/v3',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -186,7 +191,7 @@ describe('BytePlusProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of BYTEPLUS_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -224,12 +229,12 @@ describe('BytePlusProvider model catalog', () => {
         'gpt-oss-120b-250805',
     ])('drops %s, which ModelArk has deprecated', (id) => {
         const { provider } = makeProvider();
-        expect(provider.list()).not.toContain(id);
+        expect(modelLookupNames(provider.models())).not.toContain(id);
     });
 
     it('never claims the bare deepseek-v4 names owned by the DeepSeek provider', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         expect(names).not.toContain('deepseek-v4-pro');
         expect(names).not.toContain('deepseek-v4-flash');
         expect(names).toContain('byteplus/deepseek-v4-pro');
@@ -472,20 +477,18 @@ describe('BytePlusProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe(
-            'seed-2-0-lite-260428',
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 
@@ -520,7 +523,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -534,14 +537,14 @@ describe('BytePlusProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('byteplus:seed-2-0-mini-260428');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            100 * Number(seed20Mini.costs.prompt_tokens),
+            90 * Number(seed20Mini.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(
@@ -703,7 +706,7 @@ describe('BytePlusProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -715,7 +718,7 @@ describe('BytePlusProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('byteplus:seed-2-0-mini-260428');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            4 * Number(seed20Mini.costs.prompt_tokens),
+            3 * Number(seed20Mini.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(

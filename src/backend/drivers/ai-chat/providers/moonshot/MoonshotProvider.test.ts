@@ -54,6 +54,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { MoonshotProvider } from './MoonshotProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -159,6 +160,8 @@ describe('MoonshotProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.moonshot.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -178,7 +181,7 @@ describe('MoonshotProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases (returned via async)', async () => {
         const { provider } = makeProvider();
-        const names = await provider.list();
+        const names = modelLookupNames(await provider.models());
         for (const m of MOONSHOT_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -259,7 +262,7 @@ describe('MoonshotProvider.complete request shape', () => {
         expect('tools' in args).toBe(false);
     });
 
-    it('passes tool definitions through unchanged when supplied', async () => {
+    it('sends function tools in the OpenAI shape', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -286,7 +289,7 @@ describe('MoonshotProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -472,24 +475,18 @@ describe('MoonshotProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('kimi-k2.6');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'moonshotai:kimi-k2.6',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 
@@ -524,7 +521,7 @@ describe('MoonshotProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -534,14 +531,14 @@ describe('MoonshotProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('moonshotai:kimi-k2.6');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * Number(kimi.costs.prompt_tokens),
+            prompt_tokens: 90 * Number(kimi.costs.prompt_tokens),
             completion_tokens: 50 * Number(kimi.costs.completion_tokens),
             cached_tokens: 10 * Number(kimi.costs.cached_tokens ?? 0),
         });
@@ -665,7 +662,7 @@ describe('MoonshotProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -675,7 +672,7 @@ describe('MoonshotProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('moonshotai:kimi-k2.6');
         expect(overrides).toEqual({
-            prompt_tokens: 4 * Number(kimi.costs.prompt_tokens),
+            prompt_tokens: 3 * Number(kimi.costs.prompt_tokens),
             completion_tokens: 2 * Number(kimi.costs.completion_tokens),
             cached_tokens: 1 * Number(kimi.costs.cached_tokens ?? 0),
         });
@@ -757,11 +754,10 @@ describe('MoonshotProvider.complete streaming', () => {
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('MoonshotProvider.complete error mapping', () => {
-    it('logs and rethrows errors raised by the OpenAI client unchanged', async () => {
+    it('rethrows errors raised by the OpenAI client unchanged', async () => {
         const { provider } = makeProvider();
         const apiError = new Error('Moonshot exploded');
         createMock.mockRejectedValueOnce(apiError);
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -773,7 +769,6 @@ describe('MoonshotProvider.complete error mapping', () => {
         ).rejects.toBe(apiError);
 
         expect(recordSpy).not.toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
     });
 });
 
