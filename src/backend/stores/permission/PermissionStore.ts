@@ -28,7 +28,9 @@ import {
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
-import { openCursor, sealCursor } from '../../util/pagination';
+import { keysetPage, openIdCursor } from '../../util/pagination';
+import { bumpGeneration } from '../../util/redisGeneration';
+import { escapeLike } from '../../util/sqlLike';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -124,17 +126,7 @@ export interface FlatPermRef {
 const subtreeRoot = (prefix: string): string =>
     prefix.endsWith(':') ? prefix.slice(0, -1) : prefix;
 
-/**
- * Match a permission and everything beneath it.
- *
- * `_` and `%` are LIKE wildcards, so an unescaped one would widen the match
- * beyond the intended subtree. `!` as the escape character, matching
- * FSEntryStore: a backslash one would have to be written `ESCAPE '\\'` in the
- * SQL text, and MySQL processes backslash escapes inside string literals, so
- * the `'\'` a JS `'\\'` produces reads as an escaped quote and leaves the
- * literal unterminated. SQLite and Postgres accept it, which is why only MySQL
- * would have seen the parse error.
- */
+/** Match a permission and everything beneath it. */
 const subtreeClause = (
     permissions: string[],
 ): { where: string; params: string[] } => ({
@@ -143,7 +135,7 @@ const subtreeClause = (
         .join(' OR '),
     params: permissions.flatMap((permission) => [
         permission,
-        `${permission.replace(/([!%_])/g, '!$1')}:%`,
+        `${escapeLike(permission)}:%`,
     ]),
 });
 
@@ -303,17 +295,15 @@ export class PermissionStore extends PuterStore {
 
     /** Local half of a flat delete. Never emits, so a remote one can't loop. */
     async #applyFlatUserPermDeletes(entries: FlatPermRef[]): Promise<void> {
-        await Promise.all(
-            entries.map(({ holderUserId, permission }) =>
-                this.stores.kv.del({
-                    key: PermissionUtil.join(
-                        PERM_KEY_PREFIX,
-                        String(holderUserId),
-                        permission,
-                    ),
-                }),
+        await this.stores.kv.batchDel({
+            keys: entries.map(({ holderUserId, permission }) =>
+                PermissionUtil.join(
+                    PERM_KEY_PREFIX,
+                    String(holderUserId),
+                    permission,
+                ),
             ),
-        );
+        });
     }
 
     // -- SQL: user-to-user permissions -------------------------------
@@ -493,39 +483,12 @@ export class PermissionStore extends PuterStore {
         }));
     }
 
-    /**
-     * Delete every user-to-user grant at or beneath `permission`, clearing the
-     * flat KV view too, and return the rows removed so the caller can audit
-     * them and bust caches.
-     *
-     * The subject lives in the permission text rather than a column, so no
-     * foreign key can cascade it — this is how a deleted fsentry's grants get
-     * withdrawn. `permission` has no index, so this is a table scan: fine on
-     * deletion, never on a hot path.
-     */
-    async deleteUserUserPermsByPermissionPrefix(permission: string): Promise<
-        Array<{
-            holder_user_id: number;
-            issuer_user_id: number;
-            permission: string;
-        }>
-    > {
-        return this.deleteUserUserPermsByPermissionPrefixes([permission]);
-    }
-
-    /** As above, for several prefixes in one scan. */
     /** The group analogue: a deleted node's group grants must go with it. */
     async deleteUserGroupPermsByPermissionPrefixes(
         permissions: string[],
     ): Promise<Array<{ group_id: number; permission: string }>> {
         if (permissions.length === 0) return [];
-        const where = permissions
-            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
-            .join(' OR ');
-        const params = permissions.flatMap((permission) => [
-            permission,
-            `${permission.replace(/([!%_])/g, '!$1')}:%`,
-        ]);
+        const { where, params } = subtreeClause(permissions);
 
         const rows = (await this.clients.db.read(
             'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
@@ -541,6 +504,16 @@ export class PermissionStore extends PuterStore {
         return rows;
     }
 
+    /**
+     * Delete every user-to-user grant at or beneath any of `permissions`, in
+     * one scan, clearing the flat KV view too, and return the rows removed so
+     * the caller can audit them and bust caches.
+     *
+     * The subject lives in the permission text rather than a column, so no
+     * foreign key can cascade it — this is how a deleted fsentry's grants get
+     * withdrawn. `permission` has no index, so this is a table scan: fine on
+     * deletion, never on a hot path.
+     */
     async deleteUserUserPermsByPermissionPrefixes(
         permissions: string[],
     ): Promise<
@@ -667,12 +640,10 @@ export class PermissionStore extends PuterStore {
             Math.max(1, Math.floor(Number(opts.limit) || AUDIT_PAGE_SIZE)),
             MAX_AUDIT_PAGE_SIZE,
         );
-        const decoded = openCursor(
-            opts.cursor,
-            this.config.jwt_secret_v2,
-            'audit cursor',
-        );
-        const beforeId = Number(decoded?.id ?? 0) || null;
+        const beforeId =
+            openIdCursor(opts.cursor, this.config.jwt_secret_v2, {
+                label: 'audit cursor',
+            }) || null;
         const { sql, params } = this.#auditWhere(filter);
 
         const rows = await this.clients.db.read(
@@ -683,15 +654,10 @@ export class PermissionStore extends PuterStore {
             [...params, ...(beforeId === null ? [] : [beforeId]), size + 1],
         );
 
-        const hasMore = rows.length > size;
-        const items = rows.slice(0, size).map((row) => this.#auditRow(row));
-        const last = items[items.length - 1];
+        const page = keysetPage(rows, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((row) => this.#auditRow(row)),
+            cursor: page.cursor,
         };
     }
 
@@ -1362,16 +1328,16 @@ export class PermissionStore extends PuterStore {
     async #applyCacheGenerationBump(actorUid: string): Promise<void> {
         const key = this.#cacheGenerationKey(actorUid);
         try {
-            const next = await this.clients.redis.incr(key);
             // Keep the counter alive well past the cache TTL so it can't
             // reset to 0 and revive same-generation stale entries.
-            await this.clients.redis.expire(
+            const next = await bumpGeneration(
+                this.clients.redis,
                 key,
                 PERMISSION_CACHE_GENERATION_TTL_SECONDS,
             );
             // Make this node consistent immediately; other nodes pick up the
             // new value when their local copy expires (≤ local TTL).
-            if (typeof next === 'number') {
+            if (Number.isFinite(next)) {
                 kv.set(this.#localCacheGenerationKey(actorUid), next, {
                     EX: PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS,
                 });
@@ -1423,10 +1389,6 @@ export class PermissionStore extends PuterStore {
             'EX',
             ttlSeconds,
         );
-    }
-
-    async invalidateScanCache(cacheKey: string): Promise<void> {
-        await this.publishCacheKeys({ keys: [cacheKey] });
     }
 
     // -- Per-permission check cache (for `checkMany`) -----------------

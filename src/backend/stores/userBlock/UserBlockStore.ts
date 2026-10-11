@@ -90,11 +90,6 @@ export class UserBlockStore extends PuterStore {
             'DELETE FROM `user_block` WHERE `blocker_user_id` = ? AND `blocked_user_id` = ?',
             [blockerUserId, blockedUserId],
         );
-        return (
-            ((result as { affectedRows?: number; changes?: number })
-                ?.affectedRows ??
-                (result as { changes?: number })?.changes ??
-                0) > 0
-        );
+        return result.anyRowsAffected;
     }
 }

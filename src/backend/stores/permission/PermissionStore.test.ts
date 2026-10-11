@@ -20,7 +20,7 @@
 
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
@@ -81,6 +81,34 @@ describe('PermissionStore', () => {
         it('returns nothing for an empty permission list', async () => {
             const holder = await makeUser();
             expect(await store.getFlatUserPerms(holder.id, [])).toEqual([]);
+        });
+
+        it('drops many flat entries in one batched KV delete', async () => {
+            const holder = await makeUser();
+            const perms = [1, 2, 3].map(() => `fs:${uuidv4()}:read`);
+            for (const perm of perms) {
+                await store.setFlatUserPerm(holder.id, perm, {
+                    permission: perm,
+                });
+            }
+
+            const kv = server.stores.kv;
+            const del = vi.spyOn(kv, 'del');
+            const batchDel = vi.spyOn(kv, 'batchDel');
+            try {
+                await store.delFlatUserPerms(
+                    perms.map((permission) => ({
+                        holderUserId: holder.id,
+                        permission,
+                    })),
+                );
+                expect(batchDel).toHaveBeenCalledTimes(1);
+                expect(del).not.toHaveBeenCalled();
+            } finally {
+                del.mockRestore();
+                batchDel.mockRestore();
+            }
+            expect(await store.getFlatUserPerms(holder.id, perms)).toEqual([]);
         });
 
         it('dedupes repeated permission strings and skips missing keys', async () => {
@@ -879,13 +907,6 @@ describe('PermissionStore', () => {
             ).toHaveLength(1);
         });
 
-        it('drops a scan cache entry on explicit invalidation', async () => {
-            const key = store.buildScanCacheKey(`actor-${uuidv4()}`, ['p'], 0);
-            await store.setScanCache(key, { allowed: false });
-            await store.invalidateScanCache(key);
-            expect(await store.getScanCache(key)).toBeNull();
-        });
-
         it('round-trips a multi-permission check cache, omitting unset entries', async () => {
             const actorUid = `actor-${uuidv4()}`;
             await store.setMultiCheckCache(
@@ -1016,8 +1037,8 @@ describe('PermissionStore', () => {
             const keeper = `fs:${uuidv4()}:read`;
             await store.upsertUserUserPerm(holder.id, issuer.id, keeper, {});
 
-            const removed = await store.deleteUserUserPermsByPermissionPrefix(
-                `fs:${uid}`,
+            const removed = await store.deleteUserUserPermsByPermissionPrefixes(
+                [`fs:${uid}`],
             );
 
             expect(removed).toHaveLength(3);
@@ -1043,10 +1064,10 @@ describe('PermissionStore', () => {
 
             // `_` and `%` are LIKE wildcards; unescaped they would match this.
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix('fs:%'),
+                await store.deleteUserUserPermsByPermissionPrefixes(['fs:%']),
             ).toEqual([]);
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix('fs:_'),
+                await store.deleteUserUserPermsByPermissionPrefixes(['fs:_']),
             ).toEqual([]);
             expect(
                 await store.readLinkedUserUserPerms(holder.id, [victim]),
@@ -1055,9 +1076,9 @@ describe('PermissionStore', () => {
 
         it('returns an empty list when the prefix matches nothing', async () => {
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix(
+                await store.deleteUserUserPermsByPermissionPrefixes([
                     `fs:${uuidv4()}`,
-                ),
+                ]),
             ).toEqual([]);
         });
 

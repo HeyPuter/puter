@@ -200,6 +200,13 @@ const assertLatin1Writable = (fields: Record<string, unknown>): void => {
  *   property to that tuple.
  */
 export class UserStore extends PuterStore {
+    readonly #cache = this.rowCache<UserRow>({
+        prefix: CACHE_KEY_PREFIX,
+        props: USER_ID_PROPERTIES,
+        ttlSeconds: CACHE_TTL_SECONDS,
+        writeKeysFor: (user) => this.#cacheKeysToWrite(user),
+    });
+
     // -- Reads --------------------------------------------------------
 
     async getById(
@@ -291,76 +298,35 @@ export class UserStore extends PuterStore {
      * Missing ids (no DB row) are simply absent from the returned map.
      */
     async getByIds(ids: number[]): Promise<Map<number, UserRow>> {
-        const result = new Map<number, UserRow>();
-        const uniqueIds = [
-            ...new Set(
-                (Array.isArray(ids) ? ids : []).filter(
-                    (id): id is number => typeof id === 'number',
-                ),
-            ),
-        ];
-        if (uniqueIds.length === 0) return result;
-
-        const missingIds: number[] = [];
-        try {
-            const pipeline = this.clients.redis.pipeline();
-            for (const id of uniqueIds) {
-                pipeline.get(this.#cacheKey('id', id));
-            }
-            const cacheResults = (await pipeline.exec()) ?? [];
-            for (let i = 0; i < uniqueIds.length; i++) {
-                const id = uniqueIds[i];
-                const raw = cacheResults[i]?.[1];
-                if (typeof raw === 'string') {
-                    try {
-                        result.set(id, JSON.parse(raw) as UserRow);
-                        continue;
-                    } catch {
-                        // Fall through to DB on any parse failure.
-                    }
-                }
-                missingIds.push(id);
-            }
-        } catch {
-            missingIds.push(...uniqueIds);
-        }
-
-        for (
-            let offset = 0;
-            offset < missingIds.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = missingIds.slice(
-                offset,
-                offset + BULK_QUERY_CHUNK_SIZE,
-            );
-            const placeholders = chunk.map(() => '?').join(', ');
-            const rows = (await this.clients.db.tryHardRead(
-                `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`,
-                chunk,
-            )) as Array<Record<string, unknown>>;
-            for (const row of rows) {
-                const user = this.#normalizeRow(row);
-                // Tombstoned: let the primary say if it's really gone.
-                if (
-                    await this.isCacheKeyTombstoned([
-                        this.#cacheKey('id', user.id),
-                    ])
+        const numericIds = (Array.isArray(ids) ? ids : []).filter(
+            (id): id is number => typeof id === 'number',
+        );
+        return this.#cache.getMany(
+            'id',
+            numericIds,
+            async (missing, primary) => {
+                const users: UserRow[] = [];
+                for (
+                    let offset = 0;
+                    offset < missing.length;
+                    offset += BULK_QUERY_CHUNK_SIZE
                 ) {
-                    const fresh = await this.getByProperty('id', user.id, {
-                        force: true,
-                    });
-                    if (fresh) result.set(fresh.id, fresh);
-                    continue;
+                    const chunk = missing.slice(
+                        offset,
+                        offset + BULK_QUERY_CHUNK_SIZE,
+                    );
+                    const placeholders = chunk.map(() => '?').join(', ');
+                    const sql = `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`;
+                    const rows = (
+                        primary
+                            ? await this.clients.db.pread(sql, chunk)
+                            : await this.clients.db.tryHardRead(sql, chunk)
+                    ) as Array<Record<string, unknown>>;
+                    for (const row of rows) users.push(this.#normalizeRow(row));
                 }
-                result.set(user.id, user);
-                this.#writeCache(user).catch(() => {
-                    // Best-effort cache backfill.
-                });
-            }
-        }
-
-        return result;
+                return users;
+            },
+        );
     }
 
     /**
@@ -454,11 +420,6 @@ export class UserStore extends PuterStore {
         const cached = options.cached ?? true;
         const force = options.force ?? false;
 
-        if (cached && !force) {
-            const hit = await this.#readCache(prop, value);
-            if (hit) return hit;
-        }
-
         // Reject lookup values that can't exist in a latin1 column before
         // the driver turns them into a collation-mix error at MySQL.
         if (
@@ -469,10 +430,10 @@ export class UserStore extends PuterStore {
             return null;
         }
 
-        // Replication-aware read: on `force`, go straight to the primary
-        // (`pread`) to bypass replica lag for hot reads (e.g., immediately
-        // after a signup). Otherwise `tryHardRead` parallels primary +
-        // replica and prefers whichever returns rows.
+        // Replication-aware read: on `force` (or a tombstoned key), go
+        // straight to the primary (`pread`) to bypass replica lag for hot
+        // reads (e.g., immediately after a signup). Otherwise `tryHardRead`
+        // parallels primary + replica and prefers whichever returns rows.
         // `id`, `uuid` and `username` are UNIQUE, so at most one row matches and
         // the optimizer drops the ordering. `email` is not — multiple rows may
         // legitimately hold the same address while unconfirmed, so without an
@@ -483,23 +444,16 @@ export class UserStore extends PuterStore {
             `SELECT * FROM \`user\` WHERE \`${prop}\` = ?` +
             (prop === 'email' ? ` ${EMAIL_OWNER_ORDER}` : '') +
             ' LIMIT 1';
-        // Only the primary reliably knows a tombstoned row is gone.
-        const tombstoned =
-            !force &&
-            (await this.isCacheKeyTombstoned([this.#cacheKey(prop, value)]));
-        const rows =
-            force || tombstoned
-                ? await this.clients.db.pread(sql, [value])
-                : await this.clients.db.tryHardRead(sql, [value]);
-        const row = rows[0];
-        if (!row) return null;
-
-        const user = this.#normalizeRow(row);
-        // Fire-and-forget cache write — don't block the caller on redis.
-        this.#writeCache(user).catch(() => {
-            // Best-effort cache; swallow errors.
-        });
-        return user;
+        return this.#cache.get(
+            this.#cache.key(prop, value),
+            async (primary) => {
+                const rows = primary
+                    ? await this.clients.db.pread(sql, [value])
+                    : await this.clients.db.tryHardRead(sql, [value]);
+                return rows[0] ? this.#normalizeRow(rows[0]) : null;
+            },
+            { skipRead: !cached, primary: force },
+        );
     }
 
     // -- Writes -------------------------------------------------------
@@ -613,14 +567,12 @@ export class UserStore extends PuterStore {
             throw new Error('Failed to create user — no insertId returned');
 
         // A reused username/address retires its predecessor's tombstone.
-        await this.clearCacheTombstones(
-            this.#cacheKeysForUser({
-                id: insertId,
-                uuid: fields.uuid,
-                username: fields.username,
-                email: fields.email,
-            } as UserRow),
-        );
+        await this.#cache.clearTombstones({
+            id: insertId,
+            uuid: fields.uuid,
+            username: fields.username,
+            email: fields.email,
+        } as UserRow);
         const user = await this.getById(insertId, { force: true });
         if (!user) throw new Error('Failed to fetch created user');
         return user;
@@ -759,16 +711,8 @@ export class UserStore extends PuterStore {
             [...values, userId],
         );
 
-        if (guard) {
-            const affected =
-                (result as { affectedRows?: number; changes?: number })
-                    ?.affectedRows ??
-                (result as { affectedRows?: number; changes?: number })
-                    ?.changes ??
-                0;
-            // Nothing was written, so there are no cache keys to retire.
-            if (affected === 0) return false;
-        }
+        // Nothing was written, so there are no cache keys to retire.
+        if (guard && !result.anyRowsAffected) return false;
 
         const fresh = await this.getByProperty('id', userId, { force: true });
 
@@ -778,16 +722,16 @@ export class UserStore extends PuterStore {
             // stopped owning its address keeps the address in its key list but
             // no longer gets cached under it, and the old value would survive.
             const live = new Set(fresh ? this.#cacheKeysToWrite(fresh) : []);
-            const retired = this.#cacheKeysForUser(before).filter(
-                (key) => !live.has(key),
-            );
+            const retired = this.#cache
+                .keysFor(before)
+                .filter((key) => !live.has(key));
             if (retired.length > 0) {
                 await this.publishCacheKeys({ keys: retired, broadcast: true });
             }
         }
 
         if (fresh) {
-            await this.#refreshCache(fresh);
+            await this.#cache.refresh(fresh);
         } else {
             await this.invalidateById(userId);
         }
@@ -808,7 +752,7 @@ export class UserStore extends PuterStore {
         );
         if (user) {
             const refreshed: UserRow = { ...user, metadata: merged };
-            await this.#refreshCache(refreshed);
+            await this.#cache.refresh(refreshed);
         }
     }
 
@@ -877,26 +821,22 @@ export class UserStore extends PuterStore {
     }
 
     async invalidate(user: UserRow): Promise<void> {
-        const keys = this.#cacheKeysForUser(user);
-        await this.publishCacheKeys({ keys, broadcast: true });
+        await this.#cache.invalidate(user);
     }
 
     /** Invalidate by id — fetches the cached row first so we know all its keys. */
     async invalidateById(id: number): Promise<void> {
-        const cached = await this.#readCache('id', id);
+        const cached = await this.#cache.read(this.#cache.key('id', id));
         if (cached) await this.invalidate(cached);
     }
 
-    /** Invalidate a deleted row; pass it as read _before_ the delete. */
+    /**
+     * Invalidate a deleted row; pass it as read _before_ the delete. Only the
+     * keys it owned are tombstoned: an unconfirmed address may be held by
+     * several rows, and the owner still needs to be cacheable.
+     */
     async markDeleted(user: UserRow): Promise<void> {
-        // Only keys this row owned: an unconfirmed address may be held by
-        // several rows, and the owner still needs to be cacheable.
-        const owned = this.#cacheKeysToWrite(user);
-        const rest = this.#cacheKeysForUser(user).filter(
-            (key) => !owned.includes(key),
-        );
-        await this.tombstoneCacheKeys(owned);
-        await this.publishCacheKeys({ keys: rest, broadcast: true });
+        await this.#cache.markDeleted(user);
     }
 
     /**
@@ -904,30 +844,17 @@ export class UserStore extends PuterStore {
      * keys.
      */
     async markDeletedById(id: number): Promise<void> {
-        const cached = await this.#readCache('id', id);
+        const idKey = this.#cache.key('id', id);
+        const cached = await this.#cache.read(idKey);
         if (cached) return this.markDeleted(cached);
         // No cached copy to name the rest, but the id key is always this row's.
-        await this.tombstoneCacheKeys([this.#cacheKey('id', id)]);
+        await this.tombstoneCacheKeys([idKey]);
     }
 
     // -- Internals ----------------------------------------------------
 
-    #cacheKey(prop: UserIdProperty, value: unknown): string {
-        return `${CACHE_KEY_PREFIX}:${prop}:${String(value)}`;
-    }
-
-    #cacheKeysForUser(user: UserRow): string[] {
-        const keys: string[] = [];
-        for (const prop of USER_ID_PROPERTIES) {
-            const value = user[prop];
-            if (value === undefined || value === null || value === '') continue;
-            keys.push(this.#cacheKey(prop, value));
-        }
-        return keys;
-    }
-
     /**
-     * The subset of `#cacheKeysForUser` that may point _at_ this row. Same
+     * The subset of the row's cache keys that may point _at_ this row. Same
      * keys, minus the address when the row doesn't own it: several rows may
      * hold one address, and `EMAIL_OWNER_ORDER` makes SQL resolve it to the
      * owner. Caching a placeholder under the address would shadow that for the
@@ -938,58 +865,10 @@ export class UserStore extends PuterStore {
      * while the row still owned the address is never orphaned.
      */
     #cacheKeysToWrite(user: UserRow): string[] {
-        const keys = this.#cacheKeysForUser(user);
+        const keys = this.#cache.keysFor(user);
         if (user.email_confirmed || user.password != null) return keys;
-        const addressKey = this.#cacheKey('email', user.email);
+        const addressKey = this.#cache.key('email', user.email);
         return keys.filter((key) => key !== addressKey);
-    }
-
-    async #readCache(
-        prop: UserIdProperty,
-        value: unknown,
-    ): Promise<UserRow | null> {
-        try {
-            const raw = await this.clients.redis.get(
-                this.#cacheKey(prop, value),
-            );
-            if (!raw) return null;
-            const parsed = JSON.parse(raw) as UserRow;
-            // Cached rows were normalized on the write path, so booleans are booleans.
-            return parsed;
-        } catch {
-            return null;
-        }
-    }
-
-    async #writeCache(user: UserRow): Promise<void> {
-        const keys = this.#cacheKeysToWrite(user);
-        const serialized = JSON.stringify(user);
-        // A replica behind the delete still returns the row.
-        await this.writeCacheUnlessDeleted(keys, async () => {
-            await Promise.all(
-                keys.map((key) =>
-                    this.clients.redis.set(
-                        key,
-                        serialized,
-                        'EX',
-                        CACHE_TTL_SECONDS,
-                    ),
-                ),
-            );
-        });
-    }
-
-    async #refreshCache(user: UserRow): Promise<void> {
-        const keys = this.#cacheKeysToWrite(user);
-        // `#write` reads the replica, so it can refresh a row already deleted.
-        await this.writeCacheUnlessDeleted(keys, () =>
-            this.publishCacheKeys({
-                keys,
-                serializedData: JSON.stringify(user),
-                ttlSeconds: CACHE_TTL_SECONDS,
-                broadcast: true,
-            }),
-        );
     }
 
     /**

@@ -25,7 +25,7 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     decodeCursor,
-    encodeCursor,
+    keysetPage,
     type PageResult,
 } from '../../util/pagination.js';
 import { isUniqueViolation } from '../../util/dbError.js';
@@ -477,9 +477,12 @@ export class EventHandlerStore extends PuterStore {
             [...params, limit + 1],
         );
 
-        const page = rows.slice(0, limit);
+        // An app uid rather than a sequence position, so it needn't be sealed.
+        const page = keysetPage(rows, limit, undefined, (last) => ({
+            appUid: last.app_uid,
+        }));
         const result: PageResult<EventsWorkerSummary> = {
-            items: page.map((row) => ({
+            items: page.rows.map((row) => ({
                 appUid: String(row.app_uid),
                 appName: String(row.app_name),
                 appTitle: String(row.app_title),
@@ -488,10 +491,7 @@ export class EventHandlerStore extends PuterStore {
                 updatedAt: Number(row.updated_at) || 0,
             })),
         };
-        if (rows.length > limit)
-            result.cursor = encodeCursor({
-                appUid: page[page.length - 1]!.app_uid,
-            });
+        if (page.cursor) result.cursor = page.cursor;
         return result;
     }
 

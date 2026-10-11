@@ -18,6 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
 
 /**
@@ -358,8 +359,8 @@ export class SubdomainStore extends PuterStore {
             values.push(afterId);
         }
         if (excludePrefix) {
-            conditions.push('`subdomain` NOT LIKE ?');
-            values.push(`${excludePrefix}%`);
+            conditions.push("`subdomain` NOT LIKE ? ESCAPE '!'");
+            values.push(`${escapeLike(excludePrefix)}%`);
         }
         const whereClause = conditions.length
             ? `WHERE ${conditions.join(' AND ')}`
@@ -393,8 +394,8 @@ export class SubdomainStore extends PuterStore {
             values.push(appOwner);
         }
         if (excludePrefix) {
-            conditions.push('`subdomain` NOT LIKE ?');
-            values.push(`${excludePrefix}%`);
+            conditions.push("`subdomain` NOT LIKE ? ESCAPE '!'");
+            values.push(`${escapeLike(excludePrefix)}%`);
         }
         const whereClause = conditions.length
             ? `WHERE ${conditions.join(' AND ')}`
@@ -422,21 +423,6 @@ export class SubdomainStore extends PuterStore {
         return rows[0]?.n ?? 0;
     }
 
-    async getByDomain(domain: string) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `subdomains` WHERE `domain` = ? LIMIT 1',
-            [domain],
-        );
-        return rows[0] ?? null;
-    }
-
-    async listByDomain(domain: string) {
-        return this.clients.db.read(
-            'SELECT * FROM `subdomains` WHERE `domain` = ?',
-            [domain],
-        );
-    }
-
     async listByUserIdAndPrefix(
         userId: number,
         prefix: string,
@@ -450,8 +436,8 @@ export class SubdomainStore extends PuterStore {
     ): Promise<SubdomainRow[]> {
         if (!userId || prefix == null) return [];
 
-        const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
-        const values: unknown[] = [userId, `${prefix}%`];
+        const conditions = ['`user_id` = ?', "`subdomain` LIKE ? ESCAPE '!'"];
+        const values: unknown[] = [userId, `${escapeLike(prefix)}%`];
         const appOwnerFilter = appOwnerCondition(extra);
         if (appOwnerFilter) {
             conditions.push(appOwnerFilter.condition);
@@ -493,8 +479,8 @@ export class SubdomainStore extends PuterStore {
     ): Promise<number> {
         if (!userId || prefix == null) return 0;
 
-        const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
-        const values: unknown[] = [userId, `${prefix}%`];
+        const conditions = ['`user_id` = ?', "`subdomain` LIKE ? ESCAPE '!'"];
+        const values: unknown[] = [userId, `${escapeLike(prefix)}%`];
         const appOwnerFilter = appOwnerCondition(extra);
         if (appOwnerFilter) {
             conditions.push(appOwnerFilter.condition);
@@ -572,7 +558,6 @@ export class SubdomainStore extends PuterStore {
             protected: isProtected ? 1 : 0,
         };
         await this.#refreshCache(row);
-        await this.#invalidatePrefixListsForUser(userId);
         await this.#invalidateRootDirEntry(row.root_dir_id);
 
         return row;
@@ -622,16 +607,6 @@ export class SubdomainStore extends PuterStore {
         if (after) {
             await this.#refreshCache({ ...after, ...allowed });
         }
-        // A patched root_dir_id / associated_app_id / domain changes the rows
-        // the prefix-list cache would return, so drop those caches for the
-        // owning user(s). Covers pre- and post-rename owners in case the
-        // caller ever allowed re-assignment (currently we don't, but cheap).
-        const affectedUsers = new Set(
-            [before?.user_id, after?.user_id].filter((v) => v != null),
-        );
-        for (const uid of affectedUsers) {
-            await this.#invalidatePrefixListsForUser(uid);
-        }
         // FSEntry rows embed a `subdomains_agg` JSON of associated subdomains,
         // so any rename / root_dir reassignment must drop the stale entry
         // caches on both the old and new root_dir_id.
@@ -671,9 +646,6 @@ export class SubdomainStore extends PuterStore {
                 ttlSeconds: NEGATIVE_CACHE_TTL_SECONDS,
                 broadcast: true,
             });
-            if (row.user_id != null) {
-                await this.#invalidatePrefixListsForUser(row.user_id);
-            }
             await this.#invalidateRootDirEntry(row.root_dir_id);
         }
     }
@@ -711,12 +683,6 @@ export class SubdomainStore extends PuterStore {
         const after = await this.getByUuid(uuid, { primary: true });
         if (after) await this.#refreshCache(after);
 
-        const affectedUsers = new Set(
-            [before.user_id, after?.user_id].filter((v) => v != null),
-        );
-        for (const uid of affectedUsers) {
-            await this.#invalidatePrefixListsForUser(Number(uid));
-        }
         const affectedRootDirIds = new Set(
             [before.root_dir_id, after?.root_dir_id].filter((v) => v != null),
         );
@@ -745,14 +711,9 @@ export class SubdomainStore extends PuterStore {
             [toAppId, fromAppId],
         );
 
-        const userIds = new Set<number>();
         for (const row of rows) {
             row.app_owner = toAppId;
             await this.#refreshCache(row);
-            if (row.user_id != null) userIds.add(Number(row.user_id));
-        }
-        for (const userId of userIds) {
-            await this.#invalidatePrefixListsForUser(userId);
         }
         return rows;
     }
@@ -761,10 +722,6 @@ export class SubdomainStore extends PuterStore {
 
     #cacheKey(subdomain: string) {
         return `${CACHE_KEY_PREFIX}:name:${subdomain}`;
-    }
-
-    #prefixListTrackerKey(userId: number) {
-        return `${CACHE_KEY_PREFIX}:listByUserPrefixKeys:${userId}`;
     }
 
     /**
@@ -849,22 +806,5 @@ export class SubdomainStore extends PuterStore {
         } catch {
             /* best-effort */
         }
-    }
-
-    async #invalidatePrefixListsForUser(userId: number) {
-        if (userId == null) return;
-        const trackerKey = this.#prefixListTrackerKey(userId);
-        let cacheKeys = [];
-        try {
-            cacheKeys = await this.clients.redis.smembers(trackerKey);
-        } catch {
-            return;
-        }
-        const keysToInvalidate = [...cacheKeys, trackerKey];
-        if (keysToInvalidate.length === 0) return;
-        await this.publishCacheKeys({
-            keys: keysToInvalidate,
-            broadcast: true,
-        });
     }
 }

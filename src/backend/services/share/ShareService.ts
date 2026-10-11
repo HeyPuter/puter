@@ -2357,7 +2357,7 @@ export class ShareService extends PuterService {
 
         const inherited: Array<{ row: ShareIndexRow; via: string }> =
             issuedHere(
-                await this.stores.share.listByFsentries([...viaById.keys()]),
+                await this.stores.share.listReaching([...viaById.keys()]),
             ).map((row: ShareIndexRow) => ({
                 row,
                 via: viaById.get(Number(row.fsentry_id)) as string,

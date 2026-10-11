@@ -19,12 +19,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    decodeCursor,
-    encodeCursor,
-    openCursor,
-    sealCursor,
-} from '../../util/pagination';
+import { decodeCursor, keysetPage, openIdCursor } from '../../util/pagination';
+import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
 
 /** Default page size for the keyset listings. */
@@ -61,22 +57,6 @@ export class ShareStore extends PuterStore {
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
-    async listByRecipientEmail(email) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `recipient_email` = ? ORDER BY `created_at` DESC',
-            [email],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    async listByIssuer(issuerUserId) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `issuer_user_id` = ? ORDER BY `created_at` DESC',
-            [issuerUserId],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
     /**
      * Active shares held by a user, keyset-paginated. `id` is the tiebreaker,
      * so a row added mid-iteration can't shift earlier pages.
@@ -110,17 +90,10 @@ export class ShareStore extends PuterStore {
             [...holderParams, afterId, size + 1],
         );
 
-        const hasMore = rows.length > size;
-        const items = (hasMore ? rows.slice(0, size) : rows).map((r) =>
-            this.#normalizeRow(r),
-        );
-        const last = items[items.length - 1];
+        const page = keysetPage(rows, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((r) => this.#normalizeRow(r)),
+            cursor: page.cursor,
         };
     }
 
@@ -184,15 +157,10 @@ export class ShareStore extends PuterStore {
         const merged = [...issued, ...delegated, ...unrecorded].sort(
             (a, b) => Number(a.id) - Number(b.id),
         );
-        const hasMore = merged.length > size;
-        const items = merged.slice(0, size).map((r) => this.#normalizeRow(r));
-        const last = items[items.length - 1];
+        const page = keysetPage(merged, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((r) => this.#normalizeRow(r)),
+            cursor: page.cursor,
         };
     }
 
@@ -277,18 +245,16 @@ export class ShareStore extends PuterStore {
             ],
         );
 
-        const hasMore = rows.length > size;
-        const items = rows.slice(0, size).map((row) => ({
-            appUid: row.app_uid === '' ? null : String(row.app_uid),
-            count: Number(row.count),
+        // An app uid rather than a sequence position, so it needn't be sealed.
+        const page = keysetPage(rows, size, undefined, (last) => ({
+            appUid: String(last.app_uid),
         }));
-        const last = items[items.length - 1];
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? encodeCursor({ appUid: last.appUid ?? '' })
-                    : undefined,
+            items: page.rows.map((row) => ({
+                appUid: row.app_uid === '' ? null : String(row.app_uid),
+                count: Number(row.count),
+            })),
+            cursor: page.cursor,
         };
     }
 
@@ -305,32 +271,27 @@ export class ShareStore extends PuterStore {
 
     /** Everyone with an active share on one node, whoever issued it. */
     async listByFsentry(fsentryId) {
-        return this.listByFsentries([fsentryId]);
+        return this.listReaching([fsentryId]);
     }
 
-    /** As above, across several nodes in one query. */
-    async listByFsentries(fsentryIds) {
+    /**
+     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
+     * the caller has already resolved to row ids.
+     *
+     * This sits behind every file-write event, so it must stay on
+     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
+     * OR-ing a path match does not, and the optimizer falls back to a scan of
+     * `share`.
+     *
+     * @param {number[]} fsentryIds
+     */
+    async listReaching(fsentryIds) {
         if (fsentryIds.length === 0) return [];
         const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
             `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
                 'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
             fsentryIds,
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    /**
-     * Every active share the holder has on any of `fsentryIds`. Used to find
-     * which shared root an entry was reached through, in one round trip.
-     */
-    async listByHolderAndFsentries(holderUserId, fsentryIds) {
-        if (fsentryIds.length === 0) return [];
-        const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`share\` WHERE \`holder_user_id\` = ? AND ` +
-                `\`fsentry_id\` IN (${placeholders}) ORDER BY \`id\``,
-            [holderUserId, ...fsentryIds],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -387,28 +348,6 @@ export class ShareStore extends PuterStore {
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 'ORDER BY `share`.`id`',
             [fsentryId],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    /**
-     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
-     * the caller has already resolved to row ids.
-     *
-     * This sits behind every file-write event, so it must stay on
-     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
-     * OR-ing a path match does not, and the optimizer falls back to a scan of
-     * `share`.
-     *
-     * @param {number[]} fsentryIds
-     */
-    async listReaching(fsentryIds) {
-        if (fsentryIds.length === 0) return [];
-        const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
-                'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
-            fsentryIds,
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -875,7 +814,7 @@ export class ShareStore extends PuterStore {
                 ? [holderUserId, fsentryId, issuerUserId]
                 : [holderUserId, fsentryId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     /**
@@ -922,7 +861,7 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders})`,
             fsentryIds,
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     /**
@@ -943,12 +882,11 @@ export class ShareStore extends PuterStore {
      * @param {number} newOwnerId @param {string} path
      */
     async reassignEntryOwnerUnder(newOwnerId, path) {
-        const escaped = path.replace(/([!%_])/g, '!$1');
         await this.clients.db.write(
             'UPDATE `share` SET `entry_owner_user_id` = ? WHERE `fsentry_id` ' +
                 'IN (SELECT `id` FROM `fsentries` WHERE `path` = ? OR ' +
                 "`path` LIKE ? ESCAPE '!')",
-            [newOwnerId, path, `${escaped}/%`],
+            [newOwnerId, path, `${escapeLike(path)}/%`],
         );
     }
 
@@ -987,7 +925,7 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`uid\` IN (${placeholders})`,
             retired.map((row) => row.uid),
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     async deleteByUid(uid) {
@@ -995,15 +933,7 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `uid` = ?',
             [uid],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
-    }
-
-    async deleteByRecipientEmail(email) {
-        const result = await this.clients.db.write(
-            'DELETE FROM `share` WHERE `recipient_email` = ?',
-            [email],
-        );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     // -- Anyone with the link -----------------------------------------
@@ -1153,7 +1083,7 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
             [fsentryId],
         );
-        const removed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const removed = result.anyRowsAffected;
         if (removed) await this.#markLinkRevoked();
         return removed;
     }
@@ -1175,15 +1105,6 @@ export class ShareStore extends PuterStore {
     // -- Daily quota --------------------------------------------------
     // Counted in KV, not by querying `share`: the ceiling is on shares
     // *created*, so a COUNT of live rows would let a revoke recycle the slot.
-
-    /** @param {number} userId */
-    async getDailyShareCount(userId) {
-        const { res } = await this.stores.kv.get({
-            key: this.#dailyQuotaKey(userId),
-        });
-        const count = /** @type {{ count?: unknown } | null} */ (res)?.count;
-        return typeof count === 'number' ? count : 0;
-    }
 
     /**
      * @param {number} userId
@@ -1252,25 +1173,17 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * The id a keyset page resumes after; 0 for the first page. A cursor that
-     * decodes but names no usable id — another endpoint's cursor, say — is
-     * refused rather than read as page one, which would silently restart a
-     * client's iteration from the top.
+     * The id a keyset page resumes after; 0 for the first page. A cursor
+     * without a usable id is refused rather than read as page one, which would
+     * silently restart a client's iteration from the top.
      */
     #afterId(cursor) {
-        const decoded = openCursor(
-            cursor,
-            this.config.jwt_secret_v2,
-            'share cursor',
+        return (
+            openIdCursor(cursor, this.config.jwt_secret_v2, {
+                label: 'share cursor',
+                strict: true,
+            }) ?? 0
         );
-        if (decoded === undefined) return 0;
-        const id = Number(decoded.id);
-        if (!Number.isInteger(id) || id < 0) {
-            throw new HttpError(400, 'invalid share cursor', {
-                legacyCode: 'bad_request',
-            });
-        }
-        return id;
     }
 
     /**
