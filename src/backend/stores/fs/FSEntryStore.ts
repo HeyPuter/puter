@@ -102,6 +102,10 @@ const VACATED_HOME_HOLD_SECONDS = 60 * 60;
 const vacatedHomeKey = (username: string) =>
     `prodfsv2:vacated-home:${username.toLowerCase()}`;
 const BULK_QUERY_CHUNK_SIZE = 200;
+// MySQL abandons a statement's index ranges for a full scan once they outgrow
+// `range_optimizer_max_mem_size`, about 1,300 on the path key.
+const SUBTREE_PATTERNS_PER_STATEMENT = 500;
+const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 
 /**
@@ -2754,11 +2758,18 @@ export class FSEntryStore extends PuterStore {
         // the directory above them — orphaned rows, and their S3 objects with
         // them. `idx_fsentries_path` leads on `path`, so the access path is
         // unchanged.
-        const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path LIKE ? ESCAPE '!' ORDER BY path ASC`,
-            [likePattern],
-        )) as unknown as FSEntryRow[];
-        return rows.map((row) => this.#mapFSEntryRow(row));
+        const rows = new Map<number, FSEntryRow>();
+        for (const patterns of await this.#subtreePatterns(
+            pathPrefix,
+            likePattern,
+        )) {
+            const group = (await this.clients.db.read(
+                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE ${this.#pathLikeAny(patterns)} ORDER BY path ASC`,
+                patterns,
+            )) as unknown as FSEntryRow[];
+            for (const row of group) rows.set(Number(row.id), row);
+        }
+        return [...rows.values()].map((row) => this.#mapFSEntryRow(row));
     }
 
     async countDescendantsByPath(
@@ -2768,11 +2779,81 @@ export class FSEntryStore extends PuterStore {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') return 0;
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const [patterns] = await this.#subtreePatterns(
+            normalizedPrefix,
+            likePattern,
+        );
         const rows = (await this.clients.db.read(
-            "SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!'",
-            [userId, likePattern],
+            `SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
+            [userId, ...patterns],
         )) as unknown as { n: number | string }[];
         return Number(rows[0]?.n ?? 0);
+    }
+
+    /**
+     * LIKE patterns for everything under `pathPrefix`, `likePattern` first,
+     * grouped per statement; a query that must stay one statement takes the
+     * first group. MySQL ends a `prefix/%` index range at `prefix/` + U+FFFF,
+     * which utf8mb4_unicode_ci sorts below supplementary characters (most
+     * emoji), so there a child whose name starts with one, and its subtree, get
+     * a pattern of their own. All start with `prefix/`: they widen the ranges
+     * scanned, not the rows matched. `rootPaths` is where the prefix's own row
+     * may sit, as a rename moves it first.
+     */
+    async #subtreePatterns(
+        pathPrefix: string,
+        likePattern: string,
+        options: { rootPaths?: string[]; primary?: boolean } = {},
+    ): Promise<string[][]> {
+        const patterns = [likePattern];
+        // Also true for a name starting with U+FFFF, which costs one redundant
+        // pattern.
+        const pastRange = this.clients.db.case<string | null>({
+            mysql: "name COLLATE utf8mb4_unicode_ci > _utf8mb4 X'EFBFBF'",
+            otherwise: null,
+        });
+        if (pastRange) {
+            const prefix = this.#normalizePath(pathPrefix);
+            const rootPaths = options.rootPaths ?? [prefix];
+            let parents = `(SELECT id FROM fsentries WHERE path IN (${rootPaths.map(() => '?').join(', ')}))`;
+            let parentParams: unknown[] = rootPaths;
+            let parentPaths = new Map<number, string>();
+            // A missed directory's own such children fall outside its pattern's
+            // range in turn, so walk down until none are left.
+            while (patterns.length <= SUBTREE_PATTERNS_MAX) {
+                const sql = `SELECT id, parent_id, name, is_dir FROM fsentries
+                     WHERE parent_id IN ${parents} AND ${pastRange} LIMIT ?`;
+                const params = [
+                    ...parentParams,
+                    SUBTREE_PATTERNS_MAX + 1 - patterns.length,
+                ];
+                const rows = (
+                    options.primary
+                        ? await this.clients.db.pread(sql, params)
+                        : await this.clients.db.read(sql, params)
+                ) as Array<{
+                    id: number;
+                    parent_id: number;
+                    name: string;
+                    is_dir: number | boolean;
+                }>;
+                const dirs = new Map<number, string>();
+                for (const row of rows) {
+                    const path = `${parentPaths.get(Number(row.parent_id)) ?? prefix}/${row.name}`;
+                    patterns.push(`${this.#escapeLikePattern(path)}%`);
+                    if (row.is_dir) dirs.set(Number(row.id), path);
+                }
+                if (dirs.size === 0) break;
+                parents = `(${[...dirs.keys()].map(() => '?').join(', ')})`;
+                parentParams = [...dirs.keys()];
+                parentPaths = dirs;
+            }
+        }
+        return this.#chunk(patterns, SUBTREE_PATTERNS_PER_STATEMENT);
+    }
+
+    #pathLikeAny(patterns: string[]): string {
+        return `(${patterns.map(() => "path LIKE ? ESCAPE '!'").join(' OR ')})`;
     }
 
     // Slashes in a path — the depth marker. Paths are absolute and carry no
@@ -2864,9 +2945,13 @@ export class FSEntryStore extends PuterStore {
             : tiebreak && Number.isFinite(seekId)
               ? [payload.v, payload.v, seekId]
               : [payload.v];
+        const [patterns] = await this.#subtreePatterns(
+            normalizedPrefix,
+            likePattern,
+        );
         const params: unknown[] = [
             userId,
-            likePattern,
+            ...patterns,
             maxSlashes,
             ...seekParams,
             limit + 1,
@@ -2875,7 +2960,7 @@ export class FSEntryStore extends PuterStore {
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()}
              FROM fsentries
-             WHERE user_id = ? AND path LIKE ? ESCAPE '!'
+             WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
              ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
              LIMIT ?`,
@@ -2913,11 +2998,15 @@ export class FSEntryStore extends PuterStore {
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
         const maxSlashes =
             this.#slashCount(normalizedPrefix) + Math.max(1, maxDepth);
+        const [patterns] = await this.#subtreePatterns(
+            normalizedPrefix,
+            likePattern,
+        );
         const rows = (await this.clients.db.read(
             `SELECT COUNT(*) AS n FROM fsentries
-             WHERE user_id = ? AND path LIKE ? ESCAPE '!'
+             WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ?`,
-            [userId, likePattern, maxSlashes],
+            [userId, ...patterns, maxSlashes],
         )) as unknown as { n: number | string }[];
         return Number(rows[0]?.n ?? 0);
     }
@@ -2931,9 +3020,13 @@ export class FSEntryStore extends PuterStore {
             normalizedPrefix === '/'
                 ? '/%'
                 : `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const [patterns] = await this.#subtreePatterns(
+            normalizedPrefix,
+            likePattern,
+        );
         const rows = (await this.clients.db.read(
-            "SELECT COALESCE(SUM(size), 0) AS total FROM fsentries WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '!')",
-            [userId, normalizedPrefix, likePattern],
+            `SELECT COALESCE(SUM(size), 0) AS total FROM fsentries WHERE user_id = ? AND (path = ? OR ${this.#pathLikeAny(patterns)})`,
+            [userId, normalizedPrefix, ...patterns],
         )) as unknown as { total: number | string }[];
         return Number(rows[0]?.total ?? 0);
     }
@@ -2955,9 +3048,12 @@ export class FSEntryStore extends PuterStore {
         const params: unknown[] = [userId, likePattern];
         let scopeClause = '';
         if (pathScope) {
-            scopeClause = ` AND (path = ? OR path LIKE ? ESCAPE '!')`;
-            params.push(pathScope);
-            params.push(`${this.#escapeLikePattern(pathScope)}/%`);
+            const [patterns] = await this.#subtreePatterns(
+                pathScope,
+                `${this.#escapeLikePattern(pathScope)}/%`,
+            );
+            scopeClause = ` AND (path = ? OR ${this.#pathLikeAny(patterns)})`;
+            params.push(pathScope, ...patterns);
         }
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
@@ -3144,11 +3240,14 @@ export class FSEntryStore extends PuterStore {
         // One read for both. No ORDER BY, so the planner stays on the path
         // index.
         const likePattern = `${this.#escapeLikePattern(path)}/%`;
-        const params: unknown[] = [path, likePattern];
+        const [patterns] = await this.#subtreePatterns(path, likePattern, {
+            primary: true,
+        });
+        const params: unknown[] = [path, ...patterns];
         if (ownerUserId !== undefined) params.push(ownerUserId);
         const rows = (await this.clients.db.pread(
             `SELECT id FROM fsentries
-             WHERE (path = ? OR path LIKE ? ESCAPE '!')${ownerUserId !== undefined ? ' AND user_id <> ?' : ''}
+             WHERE (path = ? OR ${this.#pathLikeAny(patterns)})${ownerUserId !== undefined ? ' AND user_id <> ?' : ''}
              LIMIT 1`,
             params,
         )) as unknown as Array<{ id: number }>;
@@ -3219,18 +3318,25 @@ export class FSEntryStore extends PuterStore {
 
         if (oldPath && oldPath !== '/' && oldPath !== newPath) {
             const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
-            const oldLen = oldPath.length;
+            // SUBSTR counts characters, not UTF-16 code units.
+            const oldLen = [...oldPath].length;
             const rewrittenPath = this.clients.db.case({
                 postgres: '? || SUBSTR(path, ?)',
                 otherwise: 'CONCAT(?, SUBSTR(path, ?))',
             });
-            await this.clients.db.write(
-                `UPDATE fsentries
-                 SET path = ${rewrittenPath},
-                     modified = ?
-                 WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
-                [newPath, oldLen + 1, now, userId, likePattern],
-            );
+            for (const patterns of await this.#subtreePatterns(
+                oldPath,
+                likePattern,
+                { rootPaths: [oldPath, newPath], primary: true },
+            )) {
+                await this.clients.db.write(
+                    `UPDATE fsentries
+                     SET path = ${rewrittenPath},
+                         modified = ?
+                     WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
+                    [newPath, oldLen + 1, now, userId, ...patterns],
+                );
+            }
         }
 
         // Invalidate root cache under both old and new keys; descendants
@@ -3276,7 +3382,8 @@ export class FSEntryStore extends PuterStore {
         const now = Math.floor(Date.now() / 1000);
 
         // CONCAT(?, SUBSTR(path, ? + 1)) to rewrite just the prefix portion.
-        const oldPrefixLen = normalizedOld.length;
+        // SUBSTR counts characters, not UTF-16 code units.
+        const oldPrefixLen = [...normalizedOld].length;
         const rewrittenPath = this.clients.db.case({
             postgres: '? || SUBSTR(path, ?)',
             otherwise: 'CONCAT(?, SUBSTR(path, ?))',
@@ -3288,21 +3395,28 @@ export class FSEntryStore extends PuterStore {
         // user_id = ?` would walk straight past them, leaving descendants
         // pointing at a path their parent no longer has. `idx_fsentries_path`
         // leads on `path`, so this is the same index range either way.
-        const result = await this.clients.db.write(
-            `UPDATE fsentries
-             SET path = ${rewrittenPath},
-                 ${reowning ? 'user_id = ?,' : ''}
-                 modified = ?
-             WHERE path LIKE ? ESCAPE '!'`,
-            [
-                normalizedNew,
-                oldPrefixLen + 1,
-                ...(reowning ? [newUserId] : []),
-                now,
-                likePattern,
-            ],
-        );
-        const affected = this.#affectedRows(result);
+        let affected = 0;
+        for (const patterns of await this.#subtreePatterns(
+            normalizedOld,
+            likePattern,
+            { rootPaths: [normalizedOld, normalizedNew], primary: true },
+        )) {
+            const result = await this.clients.db.write(
+                `UPDATE fsentries
+                 SET path = ${rewrittenPath},
+                     ${reowning ? 'user_id = ?,' : ''}
+                     modified = ?
+                 WHERE ${this.#pathLikeAny(patterns)}`,
+                [
+                    normalizedNew,
+                    oldPrefixLen + 1,
+                    ...(reowning ? [newUserId] : []),
+                    now,
+                    ...patterns,
+                ],
+            );
+            affected += this.#affectedRows(result);
+        }
         return affected;
     }
 

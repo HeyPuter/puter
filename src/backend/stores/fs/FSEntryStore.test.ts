@@ -19,6 +19,10 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    AbstractDatabaseClient,
+    type WriteResult,
+} from '../../clients/database/DatabaseClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { configContainer } from '../../exports.js';
 import { PuterServer } from '../../server.js';
@@ -1633,6 +1637,263 @@ describe('FSEntryStore home and prefix rewrites', () => {
         await expect(
             store.updatePathPrefixForUser(user.userId, user.home, user.home),
         ).resolves.toBe(0);
+    });
+});
+
+describe('FSEntryStore subtrees under names starting with a supplementary character', () => {
+    // `🔥 a/🔥 b/c.txt` under a fresh directory.
+    const seed = async (user: StoreUser, parent: string) => {
+        await store.ensureDirectoriesForUser(user.userId, [
+            { path: `${parent}/🔥 a/🔥 b`, createPaths: true },
+        ]);
+        return createFile(user, `${parent}/🔥 a/🔥 b/c.txt`);
+    };
+
+    it('lists, counts, sizes and searches the whole subtree', async () => {
+        const user = await makeUser();
+        const parent = `${user.home}/Documents/emoji-list`;
+        await seed(user, parent);
+        const expected = [
+            `${parent}/🔥 a`,
+            `${parent}/🔥 a/🔥 b`,
+            `${parent}/🔥 a/🔥 b/c.txt`,
+        ];
+
+        const listed = await store.listDescendantsByPath(parent);
+        expect(listed.map((entry) => entry.path).sort()).toEqual(expected);
+        const page = await store.listDescendantsPage(user.userId, parent, {
+            maxDepth: 5,
+        });
+        expect(page.entries.map((entry) => entry.path).sort()).toEqual(
+            expected,
+        );
+        await expect(
+            store.countDescendantsByPath(user.userId, parent),
+        ).resolves.toBe(3);
+        await expect(
+            store.countDescendantsToDepth(user.userId, parent, 5),
+        ).resolves.toBe(3);
+        await expect(store.getSubtreeSize(user.userId, parent)).resolves.toBe(
+            1,
+        );
+        const found = await store.searchByNameForUser(
+            user.userId,
+            'c.txt',
+            10,
+            parent,
+        );
+        expect(found.map((entry) => entry.path)).toEqual([expected[2]]);
+    });
+
+    it('rewrites every path under a prefix that holds one', async () => {
+        const user = await makeUser();
+        const parent = `${user.home}/Documents/emoji-rewrite`;
+        const file = await seed(user, parent);
+
+        const affected = await store.updatePathPrefixForUser(
+            user.userId,
+            `${parent}/🔥 a`,
+            `${parent}/🔥 z`,
+        );
+
+        expect(affected).toBe(2);
+        expect(await pathOf(file.uuid)).toBe(`${parent}/🔥 z/🔥 b/c.txt`);
+    });
+});
+
+describe('FSEntryStore subtree patterns on MySQL', () => {
+    interface FixtureRow {
+        id: number;
+        parent_id: number | null;
+        name: string;
+        path: string;
+        is_dir: number;
+    }
+
+    /**
+     * MySQL's `path LIKE 'p/%'` index range stops short of names that start
+     * with a supplementary character. This client answers the store's lookup
+     * for those children from fixture rows and records every other statement.
+     */
+    class FixtureClient extends AbstractDatabaseClient {
+        readonly statements: {
+            method: string;
+            query: string;
+            params: unknown[];
+        }[] = [];
+        readonly lookups: { method: string; params: unknown[] }[] = [];
+
+        constructor(
+            private readonly rows: FixtureRow[],
+            override readonly engineName: string = 'mysql',
+        ) {
+            super({ port: 0, extensions: [] } as IConfig);
+        }
+
+        override async read(query: string, params: unknown[] = []) {
+            return this.#answer('read', query, params);
+        }
+
+        override async pread(query: string, params: unknown[] = []) {
+            return this.#answer('pread', query, params);
+        }
+
+        override async write(
+            query: string,
+            params: unknown[] = [],
+        ): Promise<WriteResult> {
+            this.statements.push({ method: 'write', query, params });
+            return { insertId: 0, affectedRows: 0, anyRowsAffected: false };
+        }
+
+        #answer(method: string, query: string, params: unknown[]) {
+            if (!query.includes('COLLATE utf8mb4_unicode_ci')) {
+                this.statements.push({ method, query, params });
+                return [];
+            }
+            this.lookups.push({ method, params });
+            const keys = params.slice(0, -1);
+            const limit = Number(params[params.length - 1]);
+            const parentIds = query.includes('WHERE path IN')
+                ? this.rows
+                      .filter((row) => keys.includes(row.path))
+                      .map((row) => row.id)
+                : keys.map(Number);
+            return this.rows
+                .filter(
+                    (row) =>
+                        row.parent_id !== null &&
+                        parentIds.includes(row.parent_id) &&
+                        row.name.codePointAt(0)! > 0xffff,
+                )
+                .slice(0, limit)
+                .map(({ id, parent_id, name, is_dir }) => ({
+                    id,
+                    parent_id,
+                    name,
+                    is_dir,
+                }));
+        }
+    }
+
+    const row = (
+        id: number,
+        parentId: number | null,
+        path: string,
+        isDir = true,
+    ): FixtureRow => ({
+        id,
+        parent_id: parentId,
+        name: path.slice(path.lastIndexOf('/') + 1),
+        path,
+        is_dir: isDir ? 1 : 0,
+    });
+
+    const tree = [
+        row(1, null, '/u/tree'),
+        row(2, 1, '/u/tree/🔥 a'),
+        row(3, 2, '/u/tree/🔥 a/🔥 b'),
+        row(4, 3, '/u/tree/🔥 a/🔥 b/c.txt', false),
+        row(5, 1, '/u/tree/plain'),
+        // Under a name the range does cover: no pattern of its own.
+        row(6, 5, '/u/tree/plain/😀 deep'),
+        row(7, 1, '/u/tree/😀 50%_off!.png', false),
+    ];
+
+    const storeOver = (rows: FixtureRow[], engineName = 'mysql') => {
+        const db = new FixtureClient(rows, engineName);
+        const fixtureStore = new FSEntryStore(
+            { port: 0, extensions: [] } as IConfig,
+            { db } as unknown as ConstructorParameters<typeof FSEntryStore>[1],
+            {} as ConstructorParameters<typeof FSEntryStore>[2],
+        );
+        return { db, store: fixtureStore };
+    };
+
+    it('ORs a pattern for each missed child onto the prefix, recursing into directories', async () => {
+        const { db, store: mysqlStore } = storeOver(tree);
+
+        await mysqlStore.listDescendantsByPath('/u/tree');
+
+        expect(db.statements).toHaveLength(1);
+        expect(db.statements[0]!.query).toContain(
+            "(path LIKE ? ESCAPE '!' OR path LIKE ? ESCAPE '!' OR path LIKE ? ESCAPE '!' OR path LIKE ? ESCAPE '!')",
+        );
+        expect(db.statements[0]!.params).toEqual([
+            '/u/tree/%',
+            '/u/tree/🔥 a%',
+            '/u/tree/😀 50!%!_off!!.png%',
+            '/u/tree/🔥 a/🔥 b%',
+        ]);
+        // The root by path, then the one missed directory below it, then the
+        // one below that.
+        expect(db.lookups.map((lookup) => lookup.params.slice(0, -1))).toEqual([
+            ['/u/tree'],
+            [2],
+            [3],
+        ]);
+    });
+
+    it('looks for the moved root at both paths and reads the primary when rewriting', async () => {
+        const moved = tree.map((fixture) =>
+            fixture.id === 1 ? { ...fixture, path: '/u/renamed' } : fixture,
+        );
+        const { db, store: mysqlStore } = storeOver(moved);
+
+        await mysqlStore.updatePathPrefixForUser(1, '/u/tree', '/u/renamed');
+
+        expect(db.lookups[0]).toEqual({
+            method: 'pread',
+            params: ['/u/tree', '/u/renamed', expect.any(Number)],
+        });
+        expect(db.statements).toHaveLength(1);
+        expect(db.statements[0]!.params.slice(-4)).toEqual([
+            '/u/tree/%',
+            '/u/tree/🔥 a%',
+            '/u/tree/😀 50!%!_off!!.png%',
+            '/u/tree/🔥 a/🔥 b%',
+        ]);
+    });
+
+    it('splits a rewrite across statements once the patterns outgrow one, and caps single statements', async () => {
+        const crowded = [
+            row(1, null, '/u/tree'),
+            ...Array.from({ length: 1200 }, (_, i) =>
+                row(i + 2, 1, `/u/tree/🔥${i}`, false),
+            ),
+        ];
+        const { db, store: mysqlStore } = storeOver(crowded);
+
+        await mysqlStore.updatePathPrefixForUser(1, '/u/tree', '/u/renamed');
+
+        const patternsPer = db.statements.map(
+            (statement) =>
+                statement.params.filter(
+                    (param) =>
+                        typeof param === 'string' &&
+                        param.startsWith('/u/tree/'),
+                ).length,
+        );
+        expect(patternsPer).toEqual([500, 500, 201]);
+
+        db.statements.length = 0;
+        await mysqlStore.countDescendantsToDepth(1, '/u/tree', 3);
+        expect(db.statements).toHaveLength(1);
+        expect(
+            db.statements[0]!.params.filter(
+                (param) =>
+                    typeof param === 'string' && param.startsWith('/u/tree/'),
+            ),
+        ).toHaveLength(500);
+    });
+
+    it('adds nothing on other engines', async () => {
+        const { db, store: sqliteStore } = storeOver(tree, 'sqlite');
+
+        await sqliteStore.listDescendantsByPath('/u/tree');
+
+        expect(db.lookups).toHaveLength(0);
+        expect(db.statements[0]!.params).toEqual(['/u/tree/%']);
     });
 });
 

@@ -3878,6 +3878,92 @@ describe('FSService home directory guard', () => {
     });
 });
 
+describe('FSService names starting with a supplementary character', () => {
+    let user: TestUser;
+    beforeAll(async () => {
+        user = await makeUser();
+    });
+
+    // `<top>/🔥 b/c.txt` under Documents.
+    const seed = async (top: string) => {
+        const inner = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/${top}/🔥 b`,
+            createMissingParents: true,
+        });
+        const file = await writeFile(
+            user,
+            `${user.home}/Documents/${top}/🔥 b/c.txt`,
+            'c',
+        );
+        const dir = (await entryAt(user, `/Documents/${top}`))!;
+        return { dir, inner, file };
+    };
+
+    // The column itself: a path lookup would heal a stale row on the way.
+    const storedPaths = async (...entries: FSEntry[]) => {
+        const rows = (await server.clients.db.read(
+            `SELECT uuid, path FROM fsentries WHERE uuid IN (${entries.map(() => '?').join(', ')})`,
+            entries.map((entry) => entry.uuid),
+        )) as Array<{ uuid: string; path: string }>;
+        const byUuid = new Map(rows.map((row) => [row.uuid, row.path]));
+        return entries.map((entry) => byUuid.get(entry.uuid) ?? null);
+    };
+
+    it('rewrites the subtree when the directory is renamed', async () => {
+        const { dir, inner, file } = await seed('🔥 rename');
+
+        await fs.rename(user.userId, dir, '🔥 renamed');
+
+        expect(await storedPaths(inner, file)).toEqual([
+            `${user.home}/Documents/🔥 renamed/🔥 b`,
+            `${user.home}/Documents/🔥 renamed/🔥 b/c.txt`,
+        ]);
+    });
+
+    it('rewrites the subtree when the directory is moved', async () => {
+        const { dir, inner, file } = await seed('🔥 move');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.move(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        expect(await storedPaths(inner, file)).toEqual([
+            `${user.home}/Desktop/🔥 move/🔥 b`,
+            `${user.home}/Desktop/🔥 move/🔥 b/c.txt`,
+        ]);
+    });
+
+    it('copies the whole subtree', async () => {
+        const { dir } = await seed('🔥 copy');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.copy(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        const copied = await entryAt(user, '/Desktop/🔥 copy/🔥 b/c.txt');
+        expect(copied).not.toBeNull();
+        expect(await readBack(copied!)).toBe('c');
+    });
+
+    it('removes the whole subtree and its objects', async () => {
+        const { dir, inner, file } = await seed('🔥 remove');
+
+        await fs.remove(user.userId, { entry: dir, recursive: true });
+
+        expect(await storedPaths(dir, inner, file)).toEqual([null, null, null]);
+        await expect(
+            server.stores.s3Object.getObjectStream(
+                { bucket: file.bucket!, objectKey: file.uuid },
+                file.bucketRegion!,
+            ),
+        ).rejects.toMatchObject({ name: 'NoSuchKey' });
+    });
+});
+
 describe('FSService move', () => {
     let user: TestUser;
     beforeAll(async () => {
