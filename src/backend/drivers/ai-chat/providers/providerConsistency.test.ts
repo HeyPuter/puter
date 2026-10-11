@@ -233,7 +233,7 @@ const PROVIDERS: ProviderCase[] = [
     {
         name: 'gemini',
         dialect: 'chat',
-        make: () => new GeminiChatProvider(metering(), { apiKey: 'k' }),
+        make: () => new GeminiChatProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'groq',

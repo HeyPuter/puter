@@ -25,6 +25,7 @@ import { Context } from '../../core/context.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import { isFreeSubscription } from '../../services/metering/consts.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
 import type { DriverStreamResult } from '../meta.js';
@@ -56,6 +57,7 @@ import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import type { ChatProviderConfig } from './providers/OpenAICompatProvider.js';
 import { processPuterPathUploads } from './providers/openai/fileUpload.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
@@ -114,6 +116,36 @@ import {
 } from './utils/usageEstimate.js';
 
 const MAX_ATTEMPTS = 3; // the first attempt plus two fallbacks
+
+/**
+ * Providers built from `config.providers[configKey]` (default: `name`) when it
+ * carries an API key.
+ */
+const KEYED_PROVIDERS: {
+    name: string;
+    configKey?: string;
+    Class: new (
+        config: ChatProviderConfig,
+        metering: MeteringService,
+    ) => IChatProvider;
+}[] = [
+    { name: 'gemini', Class: GeminiChatProvider },
+    { name: 'meta', Class: MetaProvider },
+    { name: 'groq', Class: GroqAIProvider },
+    { name: 'deepseek', Class: DeepSeekProvider },
+    { name: 'mistral', Class: MistralAIProvider },
+    { name: 'xai', Class: XAIProvider },
+    { name: 'moonshotai', configKey: 'moonshot', Class: MoonshotProvider },
+    { name: 'minimax', Class: MiniMaxProvider },
+    { name: 'zai', Class: ZAIProvider },
+    { name: 'alibaba', Class: AlibabaProvider },
+    { name: 'infron', Class: InfronProvider },
+    { name: 'openrouter', Class: OpenRouterProvider },
+    { name: 'together-ai', Class: TogetherAIProvider },
+    { name: 'byteplus', Class: BytePlusProvider },
+    { name: 'neuralwatt', Class: NeuralwattProvider },
+    { name: 'hoonify', Class: HoonifyProvider },
+];
 
 /**
  * Key of the driver's token-count entry point. A symbol rather than a method
@@ -1641,96 +1673,14 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['openai-responses'] = openaiResponses;
         }
 
-        const geminiKey = readKey(providers['gemini']);
-        if (geminiKey) {
-            this.#providers['gemini'] = new GeminiChatProvider(metering, {
-                apiKey: geminiKey,
-            });
-        }
-
-        const meta = providers['meta'];
-        const metaKey = readKey(meta);
-        if (metaKey) {
-            this.#providers['meta'] = new MetaProvider(
+        for (const { name, configKey = name, Class } of KEYED_PROVIDERS) {
+            const config = providers[configKey];
+            const apiKey = readKey(config);
+            if (!apiKey) continue;
+            this.#providers[name] = new Class(
                 {
-                    apiKey: metaKey,
-                    apiBaseUrl: meta?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const groqKey = readKey(providers['groq']);
-        if (groqKey) {
-            this.#providers['groq'] = new GroqAIProvider(
-                { apiKey: groqKey },
-                metering,
-            );
-        }
-
-        const deepseekKey = readKey(providers['deepseek']);
-        if (deepseekKey) {
-            this.#providers['deepseek'] = new DeepSeekProvider(
-                { apiKey: deepseekKey },
-                metering,
-            );
-        }
-
-        const mistralKey = readKey(providers['mistral']);
-        if (mistralKey) {
-            this.#providers['mistral'] = new MistralAIProvider(
-                { apiKey: mistralKey },
-                metering,
-            );
-        }
-
-        const xaiKey = readKey(providers['xai']);
-        if (xaiKey) {
-            this.#providers['xai'] = new XAIProvider(
-                { apiKey: xaiKey },
-                metering,
-            );
-        }
-
-        const moonshotKey = readKey(providers['moonshot']);
-        if (moonshotKey) {
-            this.#providers['moonshotai'] = new MoonshotProvider(
-                { apiKey: moonshotKey },
-                metering,
-            );
-        }
-
-        const minimax = providers['minimax'];
-        const minimaxKey = readKey(minimax);
-        if (minimaxKey) {
-            this.#providers['minimax'] = new MiniMaxProvider(
-                {
-                    apiKey: minimaxKey,
-                    apiBaseUrl: minimax?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const zai = providers['zai'];
-        const zaiKey = readKey(zai);
-        if (zaiKey) {
-            this.#providers['zai'] = new ZAIProvider(
-                {
-                    apiKey: zaiKey,
-                    apiBaseUrl: zai?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const alibaba = providers['alibaba'];
-        const alibabaKey = readKey(alibaba);
-        if (alibabaKey) {
-            this.#providers['alibaba'] = new AlibabaProvider(
-                {
-                    apiKey: alibabaKey,
-                    apiBaseUrl: alibaba?.apiBaseUrl as string | undefined,
+                    apiKey,
+                    apiBaseUrl: config?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1742,74 +1692,6 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
-                },
-                metering,
-            );
-        }
-
-        const infron = providers['infron'];
-        const infronKey = readKey(infron);
-        if (infronKey) {
-            this.#providers['infron'] = new InfronProvider(
-                {
-                    apiKey: infronKey,
-                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const openrouter = providers['openrouter'];
-        const openrouterKey = readKey(openrouter);
-        if (openrouterKey) {
-            this.#providers['openrouter'] = new OpenRouterProvider(
-                {
-                    apiKey: openrouterKey,
-                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const togetherKey = readKey(providers['together-ai']);
-        if (togetherKey) {
-            this.#providers['together-ai'] = new TogetherAIProvider(
-                { apiKey: togetherKey },
-                metering,
-            );
-        }
-
-        const byteplus = providers['byteplus'];
-        const byteplusKey = readKey(byteplus);
-        if (byteplusKey) {
-            this.#providers['byteplus'] = new BytePlusProvider(
-                {
-                    apiKey: byteplusKey,
-                    apiBaseUrl: byteplus?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const neuralwatt = providers['neuralwatt'];
-        const neuralwattKey = readKey(neuralwatt);
-        if (neuralwattKey) {
-            this.#providers['neuralwatt'] = new NeuralwattProvider(
-                {
-                    apiKey: neuralwattKey,
-                    apiBaseUrl: neuralwatt?.apiBaseUrl as string | undefined,
-                },
-                metering,
-            );
-        }
-
-        const hoonify = providers['hoonify'];
-        const hoonifyKey = readKey(hoonify);
-        if (hoonifyKey) {
-            this.#providers['hoonify'] = new HoonifyProvider(
-                {
-                    apiKey: hoonifyKey,
-                    apiBaseUrl: hoonify?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );

@@ -33,7 +33,7 @@ import { GEMINI_MODELS } from './models.js';
 type GroundingContent = { grounding_metadata?: unknown };
 
 export class GeminiChatProvider extends OpenAICompatProvider {
-    constructor(meteringService: MeteringService, config: ChatProviderConfig) {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
         super(meteringService, {
             client: new OpenAI({
                 apiKey: config.apiKey,

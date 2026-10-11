@@ -98,9 +98,10 @@ afterAll(async () => {
 });
 
 const makeProvider = () => {
-    const provider = new GeminiChatProvider(server.services.metering, {
-        apiKey: 'test-key',
-    });
+    const provider = new GeminiChatProvider(
+        { apiKey: 'test-key' },
+        server.services.metering,
+    );
     return { provider };
 };
 

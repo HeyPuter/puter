@@ -185,6 +185,22 @@ describe('ChatCompletionDriver model map', () => {
             server.services,
         );
 
+    it('registers a keyed provider under its name, read from its config key', async () => {
+        const d = newDriver({
+            gemini: { apiKey: 'k' },
+            // Registered as `moonshotai`, configured as `moonshot`.
+            moonshot: { apiKey: 'k' },
+            xai: { secret_key: 'k' },
+            ollama: { enabled: false },
+        });
+        await d.onServerStart();
+        const providers = new Set((await d.models()).map((m) => m.provider));
+        expect(providers).toEqual(
+            new Set(['gemini', 'moonshotai', 'xai', 'fake-chat']),
+        );
+        d.onServerShutdown();
+    });
+
     it('is built by the time onServerStart resolves', async () => {
         const d = newDriver({ ollama: { enabled: false } });
         await d.onServerStart();
