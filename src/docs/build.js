@@ -491,6 +491,9 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<a href="https://github.com/HeyPuter" target="_blank">GitHub</a>';
     html += '<span class="bull">&bull;</span>';
 
+    html += '<a href="https://dsc.gg/puter" target="_blank">Discord</a>';
+    html += '<span class="bull">&bull;</span>';
+
     html += '<a href="/llms.txt" class="skip-insta-load" target="_blank">llms.txt</a>';
     html += '</div>';
     html += '<p class="copyright-notice">&copy; 2026 Puter Technologies Inc.</p>';
