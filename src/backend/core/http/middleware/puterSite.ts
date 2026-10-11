@@ -191,6 +191,7 @@ export const createPuterSiteMiddleware = (
     if (hostingDomains.length === 0) {
         return (_req, _res, next) => next();
     }
+    const hostingCfg = buildHostingConfig(config);
 
     // Longest-first so `foo.bar.puter.site` matches `bar.puter.site` before
     // falling back to `puter.site`.
@@ -252,8 +253,6 @@ export const createPuterSiteMiddleware = (
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         }
-
-        const hostingCfg = buildHostingConfig(config);
 
         // The subdomain row's `associated_app_id` column is intentionally
         // not consulted — it was previously user-writable without an

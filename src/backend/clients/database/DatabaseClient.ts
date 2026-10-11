@@ -17,8 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readdirSync, readFileSync } from 'fs';
+import { isAbsolute, resolve as resolvePath } from 'path';
 import type { IConfig } from '../../types';
+import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
+import { compareMigrationFilenames } from './migrationFilenames.js';
 
 export interface WriteResult {
     insertId: number | bigint;
@@ -32,6 +36,12 @@ export interface BatchEntry {
 }
 
 type SqlJsonPath = readonly [string, ...string[]];
+
+/** The slice of a pooled connection that migrations need. */
+export interface MigrationConnection {
+    query(sql: string): Promise<unknown>;
+    release(): void;
+}
 
 /**
  * Base database client. Subclasses must override every method that throws here.
@@ -104,39 +114,133 @@ export class AbstractDatabaseClient extends PuterClient {
         return this.write(sql, values);
     }
 
+    /** Whether `read()` goes to a separate replica rather than the primary. */
+    protected hasReadReplica(): boolean {
+        return false;
+    }
+
     /**
-     * Like `read()` but falls back to the primary when read-replicas are in
-     * use. Subclasses may override with replica-aware logic; the default
-     * delegates to `pread()`.
+     * The replica leg of `tryHardRead`. Override when `read()` falls back to
+     * the primary by itself, or a replica failure reads the primary twice.
      */
+    protected replicaRead(
+        query: string,
+        params: unknown[],
+    ): Promise<Record<string, unknown>[]> {
+        return this.read(query, params);
+    }
+
+    /**
+     * Like `read()`, but an empty or failed replica read falls back to the
+     * primary, so replication lag can't hide a row that was just written. The
+     * primary read starts alongside the replica one rather than after it.
+     * Without a replica this is a single `read()`.
+     */
+    @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
     async tryHardRead(
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
-        const primary = this.pread(query, params);
-        primary.catch(() => {});
+        if (!this.hasReadReplica()) return this.read(query, params);
 
+        const primary = settle(this.pread(query, params));
         try {
-            const rows = await this.read(query, params);
-            if (rows.length > 0) {
-                return rows;
-            }
+            const rows = await this.replicaRead(query, params);
+            if (rows.length > 0) return rows;
         } catch {
             // replica failed — fall through to primary
         }
-        return primary;
+        const result = await primary;
+        if ('error' in result) throw result.error;
+        return result.value;
     }
 
-    /** Like `tryHardRead()` but throws when the result set is empty. */
-    async requireRead(
-        query: string,
-        params: unknown[] = [],
-    ): Promise<Record<string, unknown>[]> {
-        const rows = await this.tryHardRead(query, params);
-        if (rows.length === 0) {
-            throw new Error(`required read returned no rows: ${query}`);
+    /**
+     * Apply the `.sql` files named `<engineName>*` in each configured migration
+     * directory, in filename order. Files must be idempotent: nothing records
+     * which ones already ran. A failure aborts startup. `transactional` wraps
+     * each file in BEGIN/COMMIT, for engines whose DDL can roll back.
+     */
+    protected async applyMigrationPaths(
+        connect: () => Promise<MigrationConnection>,
+        splitStatements: (contents: string) => string[],
+        { transactional }: { transactional: boolean },
+    ): Promise<void> {
+        const paths = this.config.database?.migrationPaths;
+        if (!paths || paths.length === 0) return;
+
+        const tag = `[${this.engineName}]`;
+        const conn = await connect();
+        try {
+            for (const rawPath of paths) {
+                const dir = isAbsolute(rawPath)
+                    ? rawPath
+                    : resolvePath(process.cwd(), rawPath);
+
+                let files: string[];
+                try {
+                    files = readdirSync(dir)
+                        .filter(
+                            (f) =>
+                                f.endsWith('.sql') &&
+                                f.startsWith(this.engineName),
+                        )
+                        .sort(compareMigrationFilenames);
+                } catch (e) {
+                    throw new Error(
+                        `${tag} migration path is unreadable: ${dir}`,
+                        {
+                            cause: e,
+                        },
+                    );
+                }
+
+                if (files.length === 0) {
+                    console.log(`${tag} no migrations in ${dir}`);
+                    continue;
+                }
+
+                console.log(
+                    `${tag} running migrations from ${dir}: ${files.length} file(s)`,
+                );
+
+                for (const file of files) {
+                    const contents = readFileSync(
+                        resolvePath(dir, file),
+                        'utf8',
+                    );
+                    const statements = splitStatements(contents);
+                    if (transactional) await conn.query('BEGIN');
+                    try {
+                        for (let i = 0; i < statements.length; i++) {
+                            try {
+                                await conn.query(statements[i]);
+                            } catch (e) {
+                                throw new Error(
+                                    `${tag} failed to apply ${file} at statement ${i}`,
+                                    { cause: e },
+                                );
+                            }
+                        }
+                        if (transactional) await conn.query('COMMIT');
+                    } catch (e) {
+                        if (transactional) {
+                            try {
+                                await conn.query('ROLLBACK');
+                            } catch {
+                                // the original failure is the one worth surfacing
+                            }
+                        }
+                        throw e;
+                    }
+                    console.log(
+                        `${tag} applied ${file} (${statements.length} statements)`,
+                    );
+                }
+            }
+        } finally {
+            conn.release();
         }
-        return rows;
     }
 
     /**
@@ -244,3 +348,14 @@ export class AbstractDatabaseClient extends PuterClient {
         return `'${value.replaceAll("'", "''")}'`;
     }
 }
+
+/** Await later without an unhandled rejection in the meantime. */
+const settle = async <T>(
+    promise: Promise<T>,
+): Promise<{ value: T } | { error: unknown }> => {
+    try {
+        return { value: await promise };
+    } catch (error) {
+        return { error };
+    }
+};

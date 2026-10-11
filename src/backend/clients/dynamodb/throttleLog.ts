@@ -18,6 +18,7 @@
  */
 
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 
 const THROTTLE_ERROR_NAMES = new Set([
     'ProvisionedThroughputExceededException',
@@ -39,7 +40,10 @@ interface Target {
     keys: string;
 }
 
-const lastLogged = new Map<string, { at: number; folded: number }>();
+// No TTL: an entry past its interval still carries the count to report.
+const lastLogged = new BoundedTtlMap<string, { at: number; folded: number }>({
+    maxEntries: MAX_TRACKED_TARGETS,
+});
 
 const logOnce = (target: string, detail?: string): void => {
     const now = Date.now();
@@ -47,13 +51,6 @@ const logOnce = (target: string, detail?: string): void => {
     if (previous && now - previous.at < LOG_INTERVAL_MS) {
         previous.folded += 1;
         return;
-    }
-
-    if (!previous && lastLogged.size >= MAX_TRACKED_TARGETS) {
-        for (const [key, entry] of lastLogged) {
-            if (now - entry.at >= LOG_INTERVAL_MS) lastLogged.delete(key);
-        }
-        if (lastLogged.size >= MAX_TRACKED_TARGETS) lastLogged.clear();
     }
     lastLogged.set(target, { at: now, folded: 0 });
 

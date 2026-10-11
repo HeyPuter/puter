@@ -136,6 +136,30 @@ describe('EventClient', () => {
         });
     });
 
+    describe('repeat emits', () => {
+        it('reaches listeners added after the key was first emitted', () => {
+            target.emit(`${key}.a.b`, {}, {});
+            const wildcard = vi.fn();
+            const exact = vi.fn();
+            target.on(`${key}.a.*`, wildcard);
+            target.on(`${key}.a.b`, exact);
+            target.emit(`${key}.a.b`, {}, {});
+            expect(wildcard).toHaveBeenCalledTimes(1);
+            expect(exact).toHaveBeenCalledTimes(1);
+            expect(target.hasListeners(`${key}.a.b`)).toBe(true);
+        });
+
+        it('does not skip a listener when an earlier one unsubscribes mid-dispatch', () => {
+            const second = vi.fn();
+            const first = vi.fn(() => target.off(key, first));
+            target.on(key, first);
+            target.on(key, second);
+            target.emit(key, {}, {});
+            expect(first).toHaveBeenCalledTimes(1);
+            expect(second).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('emitAndWait', () => {
         it('awaits async listeners before resolving', async () => {
             let resolved = false;

@@ -17,9 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import { lookup as lookupMime } from 'mime-types';
 import { HttpError } from '../core/http/HttpError.js';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
+import { BoundedTtlMap } from './boundedTtlMap.js';
+import { secretsEqual } from './secureCompare.js';
 
 /**
  * File URL signing. A signed URL carries `uid`, `expires` and `signature`; that
@@ -73,6 +76,24 @@ function computeLegacySignature(
     return sha256(`${uid}/${action}/${secret}/${expires}`);
 }
 
+// Derived keys by secret; deployments sign with one secret, rarely a few.
+const purposeKeys = new BoundedTtlMap<string, Buffer>({ maxEntries: 8 });
+
+/**
+ * Purpose-labelled key, so no other token signed with the platform secret can
+ * be replayed as a file signature.
+ */
+function purposeKey(secret: string): Buffer {
+    let key = purposeKeys.get(secret);
+    if (!key) {
+        key = createHmac('sha256', secret)
+            .update('puter-fs:signed-url')
+            .digest();
+        purposeKeys.set(secret, key);
+    }
+    return key;
+}
+
 function computeOwnerBoundSignature(
     uid: string,
     action: SignAction,
@@ -80,31 +101,21 @@ function computeOwnerBoundSignature(
     secret: string,
     expires: number,
 ): string {
-    // Purpose-labelled key, so no other token signed with the platform secret
-    // can be replayed as a file signature.
-    const key = createHmac('sha256', secret)
-        .update('puter-fs:signed-url')
-        .digest();
-    return createHmac('sha256', key)
+    return createHmac('sha256', purposeKey(secret))
         .update(`${uid}/${action}/${ownerUserId}/${expires}`)
         .digest('hex');
 }
 
 /**
- * Constant-time equality for the hex signature strings. A plain `===`
- * short-circuits on the first differing character, leaking a byte-by-byte
- * timing oracle on the one value an attacker controls and submits repeatedly.
- * Length mismatch (or non-hex input) returns false without a timing-variable
- * compare.
+ * Constant-time equality for the hex signature strings; compares the decoded
+ * bytes, so hex case doesn't matter.
  */
 function signaturesEqual(provided: string, expected: string): boolean {
     if (provided.length !== expected.length) return false;
-    const a = Buffer.from(provided, 'hex');
-    const b = Buffer.from(expected, 'hex');
-    // Malformed hex yields a shorter buffer than the hex length implies;
-    // timingSafeEqual requires equal lengths, so guard before comparing.
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
+    return secretsEqual(
+        Buffer.from(provided, 'hex'),
+        Buffer.from(expected, 'hex'),
+    );
 }
 
 /**
@@ -300,47 +311,16 @@ export function isSignatureValid(
     }
 }
 
-// Minimal MIME type inference from file extension. Uses a small inline map
-// to avoid pulling in `mime-types`. Callers that need complete coverage
-// should import `mime-types` directly.
-const MIME_BY_EXT: Record<string, string> = {
-    txt: 'text/plain',
-    html: 'text/html',
-    htm: 'text/html',
-    css: 'text/css',
-    js: 'application/javascript',
-    mjs: 'application/javascript',
-    json: 'application/json',
-    xml: 'application/xml',
-    pdf: 'application/pdf',
-    zip: 'application/zip',
-    gz: 'application/gzip',
-    tar: 'application/x-tar',
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    svg: 'image/svg+xml',
+// Where mime-types' preferred type differs from what this has always reported.
+const MIME_OVERRIDES: Record<string, string> = {
     ico: 'image/x-icon',
-    bmp: 'image/bmp',
-    tiff: 'image/tiff',
-    tif: 'image/tiff',
-    mp3: 'audio/mpeg',
     wav: 'audio/wav',
-    ogg: 'audio/ogg',
-    m4a: 'audio/mp4',
-    mp4: 'video/mp4',
-    webm: 'video/webm',
-    mov: 'video/quicktime',
-    md: 'text/markdown',
-    markdown: 'text/markdown',
-    csv: 'text/csv',
 };
 
+/** MIME type for a file name by its extension, or null when unknown. */
 export function mimeFromName(name: string): string | null {
     const dot = name.lastIndexOf('.');
     if (dot <= 0) return null;
     const ext = name.slice(dot + 1).toLowerCase();
-    return MIME_BY_EXT[ext] ?? null;
+    return MIME_OVERRIDES[ext] ?? (lookupMime(ext) || null);
 }

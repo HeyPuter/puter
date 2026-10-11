@@ -18,6 +18,7 @@
  */
 
 import type { ISlackAlertConfig, PagerSeverity } from '../../types';
+import { BoundedTtlMap } from '../../util/boundedTtlMap';
 import type { AlertHandler, AlertPayload } from './types';
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -123,30 +124,14 @@ export function createSlackAlertHandler(
 ): AlertHandler {
     const webhookUrl = conf.webhookUrl as string;
     const throttleMs = conf.repeatThrottleMs ?? DEFAULT_REPEAT_THROTTLE_MS;
-    const lastPosted = new Map<string, number>();
-
-    const shouldPost = (alert: AlertPayload): boolean => {
-        if (throttleMs <= 0) return true;
-        const now = Date.now();
-        const previous = lastPosted.get(alert.id);
-        if (previous !== undefined && now - previous < throttleMs) return false;
-
-        if (lastPosted.size >= MAX_THROTTLE_ENTRIES) {
-            for (const [id, at] of lastPosted) {
-                if (now - at >= throttleMs) lastPosted.delete(id);
-            }
-            // Still full of live entries — drop the oldest to stay bounded.
-            if (lastPosted.size >= MAX_THROTTLE_ENTRIES) {
-                const oldest = lastPosted.keys().next().value;
-                if (oldest !== undefined) lastPosted.delete(oldest);
-            }
-        }
-        lastPosted.set(alert.id, now);
-        return true;
-    };
+    // A zero or negative throttle expires every entry on arrival.
+    const lastPosted = new BoundedTtlMap<string, true>({
+        maxEntries: MAX_THROTTLE_ENTRIES,
+        ttlMs: throttleMs,
+    });
 
     return async (alert) => {
-        if (!shouldPost(alert)) return;
+        if (!lastPosted.shouldEmit(alert.id)) return;
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
