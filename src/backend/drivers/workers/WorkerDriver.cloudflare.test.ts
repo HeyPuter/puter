@@ -719,6 +719,37 @@ describe('WorkerDriver hot reload', () => {
         expect(path).toContain(user.username);
     });
 
+    it('tears the worker down when the delete nulls its root_dir_id', async () => {
+        // MySQL and Postgres null `subdomains.root_dir_id` when its fsentry row
+        // is deleted (FK ON DELETE SET NULL). SQLite's schema has no such FK,
+        // so a trigger stands in for it.
+        await server.clients.db.write(
+            'CREATE TRIGGER test_subdomain_root_set_null AFTER DELETE ON fsentries ' +
+                'BEGIN UPDATE subdomains SET root_dir_id = NULL WHERE root_dir_id = OLD.id; END',
+        );
+        try {
+            const { user, actor, path, name } = await deployWorker();
+            fetchSpy.mockClear();
+            const entry = await server.stores.fsEntry.getEntryByPath(path);
+
+            await inCtx(actor, () =>
+                server.services.fs.remove(user.id, { entry: entry! }),
+            );
+
+            await waitFor(
+                () => deleteCalls().length > 0,
+                'edge delete after source delete',
+            );
+            expect(deleteCalls().map((call) => call[0])).toContain(
+                `${SCRIPTS_BASE}/${name}/`,
+            );
+        } finally {
+            await server.clients.db.write(
+                'DROP TRIGGER IF EXISTS test_subdomain_root_set_null',
+            );
+        }
+    });
+
     it('tears the worker down when its source file is moved to Trash', async () => {
         const { user, actor, entry, name } = await deployWorker();
         fetchSpy.mockClear();
