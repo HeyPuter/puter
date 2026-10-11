@@ -27,7 +27,7 @@ import type { IConfig } from '../../types';
 import { decodeCursor, encodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSEntry, FSEntryCreateInput } from './FSEntry.js';
-import { FSEntryStore } from './FSEntryStore.js';
+import { ENTRY_BROADCAST_CAP, FSEntryStore } from './FSEntryStore.js';
 
 describe('FSEntryStore', () => {
     it('quotes camelCase storage allowance aliases for Postgres', async () => {
@@ -444,6 +444,125 @@ describe('FSEntryStore cache invalidation', () => {
         await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
         await expect(store.getEntryByUuid(file.uuid)).resolves.toBeNull();
         await expect(store.getEntryById(file.id)).resolves.toBeNull();
+    });
+});
+
+describe('FSEntryStore broadcast budget', () => {
+    // Its own store, so spending the budget can't starve the shared store's
+    // broadcasts that other tests assert on.
+    const budgetedStore = (outboundFlushMs?: number): FSEntryStore =>
+        new FSEntryStore(
+            {
+                ...(configContainer as IConfig),
+                broadcast: { outbound_flush_ms: outboundFlushMs },
+            },
+            server.clients as ConstructorParameters<typeof FSEntryStore>[1],
+            server.stores as ConstructorParameters<typeof FSEntryStore>[2],
+        );
+
+    /** `count` files in a fresh directory, each cached under all its keys. */
+    const cachedFiles = async (count: number): Promise<FSEntry[]> => {
+        const user = await makeUser();
+        const dir = `${user.home}/bulk-${uuidv4()}`;
+        const entries = await store.batchCreateEntries(
+            Array.from({ length: count }, (_, i) => ({
+                userId: user.userId,
+                uuid: uuidv4(),
+                path: `${dir}/f${i}`,
+                size: 1,
+                bucket: 'puter-local',
+                bucketRegion: 'us-west-2',
+            })),
+        );
+        await store.getEntriesByIds(entries.map((entry) => entry.id));
+        return entries;
+    };
+
+    const cachedKeyCount = async (entries: FSEntry[]): Promise<number> => {
+        const values = await server.clients.redis.mget(
+            entries.flatMap(entryCacheKeys),
+        );
+        return values.filter((value) => value !== null).length;
+    };
+
+    const broadcastEntryCount = (updates: CacheUpdate[]): number =>
+        updates
+            .flatMap((update) => update.cacheKey)
+            .filter((key) => key.startsWith('prodfsv2:fsentry:uuid:')).length;
+
+    it('broadcasts at most the cap in one window and invalidates the rest locally', async () => {
+        const entries = await cachedFiles(ENTRY_BROADCAST_CAP + 50);
+        expect(await cachedKeyCount(entries)).toBe(entries.length * 3);
+        const budgeted = budgetedStore();
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const updates = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(entries),
+            );
+            expect(broadcastEntryCount(updates)).toBe(ENTRY_BROADCAST_CAP);
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(await cachedKeyCount(entries)).toBe(0);
+    });
+
+    it('caps a delete that arrives page by page, warning once', async () => {
+        const entries = await cachedFiles(ENTRY_BROADCAST_CAP + 50);
+        const budgeted = budgetedStore();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const updates = await captureCacheUpdates(async () => {
+                for (let i = 0; i < entries.length; i += 150) {
+                    await budgeted.deleteEntries(entries.slice(i, i + 150));
+                }
+            });
+            expect(broadcastEntryCount(updates)).toBe(ENTRY_BROADCAST_CAP);
+            const capWarnings = warn.mock.calls.filter(([message]) =>
+                String(message).startsWith('[FSEntryStore]'),
+            );
+            expect(capWarnings).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+            warn.mockRestore();
+        }
+        expect(await cachedKeyCount(entries)).toBe(0);
+    });
+
+    it('starts a fresh budget once the configured flush window passes', async () => {
+        const entries = await cachedFiles(ENTRY_BROADCAST_CAP + 6);
+        const spend = entries.slice(0, ENTRY_BROADCAST_CAP);
+        const late = entries.slice(ENTRY_BROADCAST_CAP, -3);
+        const next = entries.slice(-3);
+        const budgeted = budgetedStore(5_000);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const start = Date.now();
+            const spent = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(spend),
+            );
+            expect(broadcastEntryCount(spent)).toBe(ENTRY_BROADCAST_CAP);
+
+            vi.setSystemTime(start + 4_999);
+            const capped = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(late),
+            );
+            expect(broadcastEntryCount(capped)).toBe(0);
+            expect(await cachedKeyCount(late)).toBe(0);
+
+            vi.setSystemTime(start + 5_000);
+            const fresh = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(next),
+            );
+            expect(fresh.flatMap((update) => update.cacheKey)).toEqual(
+                expect.arrayContaining(next.flatMap(entryCacheKeys)),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
