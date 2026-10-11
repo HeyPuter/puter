@@ -18,7 +18,14 @@
  */
 
 import { pipeline, type Readable } from 'node:stream';
-import type { ServerResponse } from 'node:http';
+
+// Only what's used here, so callers on another @types/node (or express's
+// Response) still fit.
+type ResponseSink = NodeJS.WritableStream & {
+    readonly closed: boolean;
+    readonly destroyed: boolean;
+    destroy(error?: Error): unknown;
+};
 
 /**
  * Pipes a driver's stream result to the HTTP response. A source that fails
@@ -28,7 +35,7 @@ import type { ServerResponse } from 'node:http';
  */
 export function pipeStreamResult(
     stream: Readable,
-    res: ServerResponse,
+    res: ResponseSink,
     label: string,
 ): void {
     // The caller hung up while the driver ran; `pipeline` throws on a closed
