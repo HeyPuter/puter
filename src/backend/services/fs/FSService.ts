@@ -192,6 +192,9 @@ const assertSessionCompletable = (session: PendingUploadSession): void => {
  */
 type PendingUploadBytes = { activeBytes: number; settledBytes: number };
 
+/** Whose allowance a copy draws on, and the override it is judged against. */
+type CopyAllowance = { ownerId: number; max: number | undefined };
+
 /**
  * A storage lease taken for one signed-upload session, ready to release or
  * settle.
@@ -2866,7 +2869,7 @@ export class FSService extends PuterService {
 
     // Object size once landed, 'missing' when the store says it isn't there,
     // null when the check failed or gave no length.
-    async #probeSignedUpload(
+    async #probeObjectSize(
         bucket: string,
         objectKey: string,
         region: string,
@@ -2880,7 +2883,7 @@ export class FSService extends PuterService {
         } catch (error) {
             if (isMissingObjectError(error)) return 'missing';
             console.warn(
-                `[fs] signed upload size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
+                `[fs] object size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
             );
             return null;
         }
@@ -2931,7 +2934,7 @@ export class FSService extends PuterService {
                     item.session.bucketRegion ??
                     item.finalData.bucketRegion ??
                     this.#resolveBucketRegion();
-                const uploaded = await this.#probeSignedUpload(
+                const uploaded = await this.#probeObjectSize(
                     bucket,
                     item.session.objectKey,
                     region,
@@ -3076,7 +3079,7 @@ export class FSService extends PuterService {
                 session.bucketRegion ??
                 createInput.bucketRegion ??
                 this.#resolveBucketRegion();
-            const uploaded = await this.#probeSignedUpload(
+            const uploaded = await this.#probeObjectSize(
                 reconcileBucket,
                 session.objectKey,
                 reconcileRegion,
@@ -4981,17 +4984,21 @@ export class FSService extends PuterService {
         // A copy duplicates the bytes for real, so it costs the same against
         // the allowance as writing them. Check before the overwrite below
         // removes anything, and credit what that removal frees.
-        await this.#assertStorageAllowance(
-            destinationParent.userId,
-            await this.#entryStorageSize(source),
-            collision && input.overwrite
-                ? await this.#entryStorageSize(collision)
-                : 0,
-            this.#allowanceOverrideFor(
+        const allowance: CopyAllowance = {
+            ownerId: destinationParent.userId,
+            max: this.#allowanceOverrideFor(
                 destinationParent.userId,
                 userId,
                 input.storageAllowanceMax,
             ),
+        };
+        await this.#assertStorageAllowance(
+            allowance.ownerId,
+            await this.#entryStorageSize(source),
+            collision && input.overwrite
+                ? await this.#entryStorageSize(collision)
+                : 0,
+            allowance.max,
         );
 
         if (collision) {
@@ -5015,11 +5022,6 @@ export class FSService extends PuterService {
             }
         }
 
-        const finalPath =
-            destinationParent.path === '/'
-                ? `/${name}`
-                : `${destinationParent.path}/${name}`;
-
         // One ancestor walk for the whole copy, run only if something needs
         // it — the destination parent's own chain is the same for every
         // entry the copy creates.
@@ -5038,7 +5040,7 @@ export class FSService extends PuterService {
                 source,
                 destinationParent,
                 name,
-                finalPath,
+                allowance,
             );
             this.#publishCopiedEntry(copied, [], destinationChain);
             return copied;
@@ -5098,9 +5100,7 @@ export class FSService extends PuterService {
                       descendant,
                       newParent,
                       descendant.name,
-                      newParent.path === '/'
-                          ? `/${descendant.name}`
-                          : `${newParent.path}/${descendant.name}`,
+                      allowance,
                   );
             const above: AncestorChain = [
                 { uid: newParent.uid, path: newParent.path },
@@ -5122,7 +5122,7 @@ export class FSService extends PuterService {
         source: FSEntry,
         destinationParent: FSEntry,
         newName: string,
-        _newPath: string,
+        allowance: CopyAllowance,
     ): Promise<FSEntry> {
         if (source.isSymlink) {
             return this.stores.fsEntry.createNonFileEntry({
@@ -5167,6 +5167,9 @@ export class FSService extends PuterService {
         const resolvedBucket = this.stores.s3Object.resolveBucket(
             source.bucket,
         );
+        const resolvedRegion = this.stores.s3Object.resolveRegion(
+            source.bucketRegion,
+        );
         // A ghost file — DB row present with a non-null bucket but its backing
         // S3 object gone — would make CopyObject throw NoSuchKey and bubble up
         // as a 500. Mirror `readContent`: clean up the orphan and surface a
@@ -5180,7 +5183,7 @@ export class FSService extends PuterService {
                     destinationBucket: resolvedBucket,
                     destinationKey: newUuid,
                 },
-                this.stores.s3Object.resolveRegion(source.bucketRegion),
+                resolvedRegion,
             );
         } catch (err) {
             if (isNoSuchKeyError(err)) {
@@ -5197,6 +5200,40 @@ export class FSService extends PuterService {
             throw err;
         }
 
+        // The source row can predate an overwrite whose bytes CopyObject
+        // picked up, so record the size actually copied and charge any excess.
+        const recordedSize = source.size ?? 0;
+        const probedSize = await this.#probeObjectSize(
+            resolvedBucket,
+            newUuid,
+            resolvedRegion,
+        );
+        const copiedSize =
+            typeof probedSize === 'number' ? probedSize : recordedSize;
+        if (copiedSize > recordedSize) {
+            try {
+                await this.#assertStorageAllowance(
+                    allowance.ownerId,
+                    copiedSize,
+                    0,
+                    allowance.max,
+                );
+            } catch (error) {
+                try {
+                    await this.stores.s3Object.deleteObject(
+                        resolvedBucket,
+                        newUuid,
+                        resolvedRegion,
+                    );
+                } catch (deleteError) {
+                    console.warn(
+                        `[fs] failed to delete rejected copy ${newUuid}: ${this.#toErrorMessage(deleteError)}`,
+                    );
+                }
+                throw error;
+            }
+        }
+
         const nextMetadata = this.#sanitizeClientMetadata(source.metadata);
 
         const [created] = await this.stores.fsEntry.batchCreateEntries(
@@ -5208,7 +5245,7 @@ export class FSService extends PuterService {
                         destinationParent.path === '/'
                             ? `/${newName}`
                             : `${destinationParent.path}/${newName}`,
-                    size: source.size ?? 0,
+                    size: copiedSize,
                     contentType: undefined,
                     metadata: nextMetadata,
                     thumbnail: source.thumbnail,
