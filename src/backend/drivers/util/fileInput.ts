@@ -279,7 +279,7 @@ export async function openFileInputStream(
     };
 }
 
-async function collectStream(
+export async function collectStream(
     body: Readable,
     maxBytes: number | undefined,
 ): Promise<Buffer> {
@@ -309,14 +309,14 @@ function requireActorUser(actor: Actor): void {
 
 function tooLarge(maxBytes: number): HttpError {
     return new HttpError(413, `File exceeds max size (${maxBytes} bytes)`, {
-        legacyCode: 'storage_limit_reached',
+        legacyCode: 'input_too_large',
     });
 }
 
 function assertMax(buffer: Buffer, maxBytes?: number): void {
     if (maxBytes && buffer.byteLength > maxBytes) {
         throw new HttpError(413, `Input exceeds max size (${maxBytes} bytes)`, {
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
     }
 }

@@ -24,7 +24,7 @@ vi.mock('../../../util/secureHttp.js', () => ({
 }));
 
 import { secureFetch } from '../../../util/secureHttp.js';
-import { inlineHttpImageUrls, MAX_IMAGE_BYTES } from './inlineImages.js';
+import { inlineHttpImageUrls, MAX_IMAGE_BYTES, MAX_INLINE_IMAGES } from './inlineImages.js';
 
 const mockedSecureFetch = vi.mocked(secureFetch);
 
@@ -44,13 +44,7 @@ const buildResponse = (
     const headers = new Headers();
     if (contentType) headers.set('content-type', contentType);
     if (contentLength) headers.set('content-length', contentLength);
-    return {
-        ok: status >= 200 && status < 300,
-        status,
-        headers,
-        arrayBuffer: async () =>
-            buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
-    } as unknown as Response;
+    return new Response(buf, { status, headers });
 };
 
 describe('inlineHttpImageUrls', () => {
@@ -78,6 +72,7 @@ describe('inlineHttpImageUrls', () => {
 
         expect(mockedSecureFetch).toHaveBeenCalledWith(
             'https://example.com/cat.png',
+            { signal: expect.any(AbortSignal) },
         );
         const part = messages[0].content[1] as {
             type?: string;
@@ -186,7 +181,8 @@ describe('inlineHttpImageUrls', () => {
             text?: string;
         };
         expect(part.type).toBe('text');
-        expect(part.text).toContain('boom');
+        expect(part.text).toContain('failed to fetch image');
+        expect(part.text).not.toContain('boom');
     });
 
     it('skips a non-string image url instead of throwing', async () => {
@@ -217,5 +213,63 @@ describe('inlineHttpImageUrls', () => {
         await inlineHttpImageUrls(messages);
 
         expect(mockedSecureFetch).not.toHaveBeenCalled();
+    });
+});
+
+
+describe('remote image bounds', () => {
+    afterEach(() => mockedSecureFetch.mockReset());
+
+    it('caps remote image count and limits concurrent fetches', async () => {
+        let active = 0;
+        let peak = 0;
+        mockedSecureFetch.mockImplementation(async () => {
+            active++;
+            peak = Math.max(peak, active);
+            await new Promise(resolve => setTimeout(resolve, 1));
+            active--;
+            return buildResponse(Buffer.from('image'));
+        });
+        const parts = Array.from({ length: MAX_INLINE_IMAGES + 2 }, () => ({
+            image_url: { url: 'https://example.com/image.png' },
+        }));
+        await inlineHttpImageUrls([{ content: parts }]);
+        expect(mockedSecureFetch).toHaveBeenCalledTimes(MAX_INLINE_IMAGES);
+        expect(peak).toBe(4);
+        expect(parts[MAX_INLINE_IMAGES]).toMatchObject({ type: 'text' });
+    });
+
+    it('cancels a chunked body as soon as it exceeds the byte cap', async () => {
+        const cancel = vi.fn();
+        let pulls = 0;
+        const body = new ReadableStream({
+            pull(controller) {
+                pulls++;
+                controller.enqueue(new Uint8Array(1_000_000));
+            },
+            cancel,
+        }, { highWaterMark: 0 });
+        mockedSecureFetch.mockResolvedValue(new Response(body, {
+            headers: { 'content-type': 'image/png' },
+        }));
+        const part = { image_url: { url: 'https://example.com/image.png' } };
+        await inlineHttpImageUrls([{ content: [part] }]);
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(pulls).toBeLessThanOrEqual(7);
+        expect(part).toMatchObject({ type: 'text', text: expect.stringContaining('exceeds maximum') });
+    });
+
+    it('cancels bodies rejected by declared size or MIME type before reading', async () => {
+        for (const headers of [
+            { 'content-type': 'image/png', 'content-length': String(MAX_IMAGE_BYTES + 1) },
+            { 'content-type': 'text/html' },
+        ]) {
+            const cancel = vi.fn();
+            const pull = vi.fn();
+            mockedSecureFetch.mockResolvedValueOnce(new Response(new ReadableStream({ cancel, pull }, { highWaterMark: 0 }), { headers }));
+            await inlineHttpImageUrls([{ content: [{ image_url: { url: 'https://example.com/image' } }] }]);
+            expect(cancel).toHaveBeenCalledOnce();
+            expect(pull).not.toHaveBeenCalled();
+        }
     });
 });

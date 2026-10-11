@@ -584,6 +584,7 @@ export const create_chat_stream_handler =
         let last_extra_content = null;
         let finish_reason = null;
         for await (let chunk of completion) {
+            await chatStream.waitForDrain();
             chunk = deviations.chunk_but_like_actually(chunk);
             const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
             if (chunk_usage) last_usage = chunk_usage;
@@ -723,6 +724,7 @@ export const create_chat_stream_handler_responses_api =
         let webSearchCalls = 0;
         let toolUsage = null;
         for await (const chunk of completion) {
+            await chatStream.waitForDrain();
             if (chunk.type === 'response.failed' || chunk.type === 'error') {
                 throw new Error(
                     chunk.response?.error?.message ??

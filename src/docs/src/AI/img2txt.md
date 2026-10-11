@@ -76,7 +76,7 @@ For more details about each option, see the [Mistral OCR documentation](https://
 | AWS Textract | JPEG, PNG, TIFF, and **single-page** PDF | 10 MB |
 | Mistral | PDF (up to 1,000 pages), images (JPEG, PNG, AVIF, TIFF, GIF, HEIC, BMP, WebP), and documents such as DOCX, PPTX, XLSX, EPUB and RTF | 50 MB |
 
-The SDK checks the decoded size of data URI inputs against the selected model's limit before upload: 10 MB for Textract and 36 MB when a Mistral model or provider is specified (a data URI is a third larger than the file, and a request body is capped at 50 MB). URLs and Puter paths are limited by the backend. When neither model nor provider is specified, the SDK checks against 10 MB; explicitly select Mistral for larger inline inputs. SDK size failures use `input_too_large`; backend size failures use `storage_limit_reached`. Textract rejects multi-page PDFs and other formats with `bad_request`; use a Mistral model for those.
+The SDK checks the decoded size of data URI inputs against the selected model's limit before upload: 10 MB for Textract and 36 MB when a Mistral model or provider is specified (a data URI is a third larger than the file, and a request body is capped at 50 MB). URLs and Puter paths are limited by the backend. When neither model nor provider is specified, the SDK checks against 10 MB; explicitly select Mistral for larger inline inputs. Size failures use `input_too_large`. Textract rejects multi-page PDFs and other formats with `bad_request`; use a Mistral model for those.
 
 ## Return value
 
@@ -95,7 +95,7 @@ A rejection carries the error body as the backend sent it: `{ message, code }`.
 | --- | --- |
 | `arguments_required`, `source_required` | Raised by the SDK before any request is made: the call had no arguments, or no source. |
 | `input_too_large` | Raised by the SDK before any request is made: a `File`, `Blob` or data URI input exceeds the selected model's limit. |
-| `storage_limit_reached` | The input is larger than the model accepts (HTTP 413). |
+| `input_too_large` | The input is larger than the model accepts (HTTP 413). |
 | `bad_request` | The provider or model is unknown or retired, the model does not belong to the named provider, an option is invalid, or Textract cannot read the document. |
 | `insufficient_funds` | Your balance cannot cover the whole document, checked before the provider runs. Arrives as HTTP 402. See [OCR limits](/rate-limits-and-quotas#ocr) for how pages are counted. |
 

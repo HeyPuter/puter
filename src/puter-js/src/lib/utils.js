@@ -249,6 +249,7 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
  *   puter?: unknown,
  *   testMode?: boolean,
  *   readonly?: boolean,
+ *   signal?: AbortSignal,
  *   responseType?: '' | 'text' | 'blob',
  *   preprocess?: (args: Record<string, unknown>) => Record<string, unknown>,
  *   transform?: (result: unknown) => unknown,
@@ -298,7 +299,7 @@ function makeDriverMethod (spec) {
 
         return await driverCall(
             { iface, driver, method, args: driverArgs, testMode, puter },
-            { readonly, responseType, transform, onError, upgradePrompt },
+            { readonly, responseType, transform, onError, upgradePrompt, signal: spec.signal },
         );
     };
 }

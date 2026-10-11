@@ -270,7 +270,7 @@ describe('loadFileInput data URL', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects an oversize data URL with 413 + storage_limit_reached', async () => {
+    it('rejects an oversize data URL with 413 + input_too_large', async () => {
         const { actor } = await makeUser();
         const payload = Buffer.alloc(64);
         const dataUrl = `data:application/octet-stream;base64,${payload.toString('base64')}`;
@@ -279,7 +279,7 @@ describe('loadFileInput data URL', () => {
             callLoadFileInput(actor, dataUrl, { maxBytes: 32 }),
         ).rejects.toMatchObject({
             statusCode: 413,
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
     });
 
@@ -413,7 +413,7 @@ describe('loadFileInput FS path', () => {
             callLoadFileInput(actor, path, { maxBytes: 64 }),
         ).rejects.toMatchObject({
             statusCode: 413,
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
     });
 });
@@ -471,7 +471,7 @@ describe('loadFileInput web URL', () => {
             }),
         ).rejects.toMatchObject({
             statusCode: 413,
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
         expect(state.cancelled).toBe(true);
     });

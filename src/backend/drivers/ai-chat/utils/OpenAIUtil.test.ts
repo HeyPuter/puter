@@ -1827,3 +1827,44 @@ describe('Responses stream failure events', () => {
         },
     );
 });
+
+
+describe('provider stream backpressure', () => {
+    it('stops consuming a completion while its output is buffered', async () => {
+        let reads = 0;
+        const chunks: string[] = [];
+        let release: (() => void) | undefined;
+        let firstWrite!: () => void;
+        const wrote = new Promise<void>(resolve => { firstWrite = resolve; });
+        let slow = true;
+        const sink = new Writable({
+            highWaterMark: 1,
+            write(chunk, _encoding, callback) {
+                chunks.push(chunk.toString());
+                if (slow) { release = callback; firstWrite(); }
+                else callback();
+            },
+        });
+        const chatStream = new AIChatStream({ stream: sink });
+        const completion = {
+            async *[Symbol.asyncIterator]() {
+                for (let i = 0; i < 100; i++) {
+                    reads++;
+                    yield { choices: [{ delta: { content: 'hello' }, finish_reason: i === 99 ? 'stop' : null }] };
+                }
+            },
+        };
+        const pumping = create_chat_stream_handler({
+            completion, deviations: undefined, usage_calculator: () => ({}),
+        })({ chatStream });
+        await wrote;
+        await new Promise(resolve => setImmediate(resolve));
+        expect(reads).toBeLessThanOrEqual(2);
+        expect(chunks).toHaveLength(1);
+        slow = false;
+        release!();
+        await pumping;
+        expect(reads).toBe(100);
+        expect(chunks.filter(chunk => JSON.parse(chunk).type === 'text')).toHaveLength(100);
+    });
+});

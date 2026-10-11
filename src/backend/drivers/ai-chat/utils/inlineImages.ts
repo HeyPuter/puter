@@ -17,10 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Readable } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+import { Context } from '../../../core/context.js';
+import { runWithConcurrencyLimit } from '../../../util/concurrency.js';
+import { collectStream } from '../../util/fileInput.js';
 import { secureFetch } from '../../../util/secureHttp.js';
 
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
+export const MAX_INLINE_IMAGES = 20;
+const IMAGE_FETCH_CONCURRENCY = 4;
 
 interface ImageContentPart {
     type?: string;
@@ -38,7 +45,7 @@ interface MessageWithContent {
 export async function inlineHttpImageUrls(
     messages: MessageWithContent[],
 ): Promise<void> {
-    const tasks: Array<Promise<void>> = [];
+    const tasks: Array<{ part: ImageContentPart; url: string }> = [];
     for (const message of messages) {
         if (!Array.isArray(message.content)) continue;
         for (const part of message.content as ImageContentPart[]) {
@@ -47,16 +54,33 @@ export async function inlineHttpImageUrls(
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 continue;
             }
-            tasks.push(inlineOne(part, url));
+            if (tasks.length >= MAX_INLINE_IMAGES) {
+                setTextError(
+                    part,
+                    `maximum of ${MAX_INLINE_IMAGES} remote images per request`,
+                );
+                continue;
+            }
+            tasks.push({ part, url });
         }
     }
-    await Promise.all(tasks);
+    await runWithConcurrencyLimit(
+        tasks,
+        IMAGE_FETCH_CONCURRENCY,
+        ({ part, url }) => inlineOne(part, url),
+    );
 }
 
 async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
     try {
-        const response = await secureFetch(url);
+        const requestSignal = Context.get('abortSignal');
+        const timeoutSignal = AbortSignal.timeout(30_000);
+        const signal = requestSignal
+            ? AbortSignal.any([requestSignal, timeoutSignal])
+            : timeoutSignal;
+        const response = await secureFetch(url, { signal });
         if (!response.ok) {
+            await response.body?.cancel();
             setTextError(
                 part,
                 `failed to fetch image (status ${response.status})`,
@@ -67,15 +91,7 @@ async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
             response.headers.get('content-length') ?? NaN,
         );
         if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
-            setTextError(
-                part,
-                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
-            );
-            return;
-        }
-
-        const arrayBuf = await response.arrayBuffer();
-        if (arrayBuf.byteLength > MAX_IMAGE_BYTES) {
+            await response.body?.cancel();
             setTextError(
                 part,
                 `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
@@ -87,6 +103,7 @@ async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
             .split(';')[0]
             ?.trim();
         if (!mimeType || !mimeType.startsWith('image/')) {
+            await response.body?.cancel();
             setTextError(
                 part,
                 `expected an image, got ${mimeType || 'unknown MIME type'}`,
@@ -94,11 +111,20 @@ async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
             return;
         }
 
-        const base64 = Buffer.from(arrayBuf).toString('base64');
+        const buffer = response.body
+            ? await collectStream(
+                  Readable.fromWeb(response.body as WebReadableStream),
+                  MAX_IMAGE_BYTES,
+              )
+            : Buffer.alloc(0);
+        const base64 = buffer.toString('base64');
         part.type = 'image_url';
         part.image_url = { url: `data:${mimeType};base64,${base64}` };
     } catch (err) {
-        const message = (err as Error)?.message || 'failed to fetch image';
+        const message =
+            (err as { legacyCode?: string })?.legacyCode === 'input_too_large'
+                ? `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`
+                : 'failed to fetch image';
         setTextError(part, message);
     }
 }
