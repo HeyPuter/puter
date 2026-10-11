@@ -417,7 +417,7 @@ export class ShareService extends PuterService {
                     ownerUserId?: number;
                 };
                 if (typeof ownerUserId === 'number')
-                    this.#ownerShares.bump(ownerUserId);
+                    this.#markShared(ownerUserId);
             },
         );
 
@@ -911,7 +911,7 @@ export class ShareService extends PuterService {
 
     /** `ownerUserId` now has a share: drop "nothing shared" everywhere. */
     #ownerShared(ownerUserId: number): void {
-        this.#ownerShares.bump(ownerUserId);
+        this.#markShared(ownerUserId);
         try {
             this.clients.event.emit(
                 'outer.pubsub.share.ownerShared',
@@ -921,6 +921,19 @@ export class ShareService extends PuterService {
         } catch {
             // The cache's TTL covers a process the bump misses.
         }
+    }
+
+    /**
+     * Cache "shared" outright rather than only dropping the old answer: the
+     * next lookup could read a replica that hasn't seen the new row yet.
+     */
+    #markShared(ownerUserId: number): void {
+        this.#ownerShares.bump(ownerUserId);
+        this.#ownerShares.write(
+            ownerUserId,
+            this.#ownerShares.generationOf(ownerUserId),
+            true,
+        );
     }
 
     async #emitGui(

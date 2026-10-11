@@ -5793,6 +5793,10 @@ describe('ShareService', () => {
                 if (payload.user_id_list?.includes(recipient.user.id))
                     seen.push(data);
             };
+            // A replica that hasn't seen the share yet.
+            const stale = vi
+                .spyOn(server.stores.share, 'ownerHasShares')
+                .mockResolvedValue(false);
             server.clients.event.on('outer.gui.item.added', listener);
             try {
                 await server.services.fs.touch(owner.user.id, {
@@ -5802,15 +5806,18 @@ describe('ShareService', () => {
                     await settle();
             } finally {
                 server.clients.event.off('outer.gui.item.added', listener);
+                stale.mockRestore();
             }
             expect(seen).toHaveLength(1);
         });
 
-        it('asks again when another node says the owner shared something', async () => {
+        it('treats the owner as shared when another node says so', async () => {
             const owner = await makeUser();
             const { dir } = await makeDirWithFile(owner.user);
             const asked = vi.spyOn(server.stores.share, 'ownerHasShares');
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
             let calls = -1;
+            let reachingCalls = -1;
             try {
                 await server.services.fs.touch(owner.user.id, {
                     path: `${dir.path}/one.txt`,
@@ -5833,10 +5840,13 @@ describe('ShareService', () => {
                 });
                 await settle();
                 calls = asked.mock.calls.length;
+                reachingCalls = reaching.mock.calls.length;
             } finally {
                 asked.mockRestore();
+                reaching.mockRestore();
             }
-            expect(calls).toBe(2);
+            expect(calls).toBe(1);
+            expect(reachingCalls).toBeGreaterThan(0);
         });
     });
 });
