@@ -29,6 +29,7 @@ import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { FSController } from './FSController.js';
+import type { LegacyFSController } from './LegacyFSController.js';
 import type {
     ClientSignedWriteResponse,
     CompleteWriteRequest,
@@ -1516,6 +1517,268 @@ describe('FSController.copyEntry', () => {
         );
         const body = captured.body as { path: string };
         expect(body.path).toBe(`/${username}/Pictures/c-orig`);
+    });
+});
+
+// ── outer.gui.item.* events ─────────────────────────────────────────
+//
+// The desktop renders these, so the v2 routes must send what the legacy routes
+// send for the same operation.
+
+describe('FSController GUI item events', () => {
+    type GuiResponse = Record<string, unknown>;
+
+    // The v2 routes don't await their emits, so wait for each expected event
+    // about `uid` to land. They must also land in the order given.
+    const captureGuiEvents = async (
+        expected: Array<[eventName: string, uid: string]>,
+        run: () => Promise<unknown>,
+    ): Promise<GuiResponse[]> => {
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        const indexOf = ([eventName, uid]: [string, string]) =>
+            emitSpy.mock.calls.findIndex(
+                ([name, data]) =>
+                    name === eventName &&
+                    (data as { response: GuiResponse }).response.uuid === uid,
+            );
+        try {
+            await run();
+            await vi.waitFor(() => {
+                for (const event of expected)
+                    expect(indexOf(event)).toBeGreaterThanOrEqual(0);
+            });
+            const order = expected.map(indexOf);
+            expect(order).toEqual([...order].sort((a, b) => a - b));
+            return order.map(
+                (i) =>
+                    (emitSpy.mock.calls[i]![1] as { response: GuiResponse })
+                        .response,
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+    };
+
+    const legacyController = () =>
+        server.controllers.legacyFs as unknown as LegacyFSController;
+
+    const mkdir = async (actor: Actor, path: string) => {
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path }, actor }),
+                makeRes().res,
+            ),
+        );
+        return (await server.stores.fsEntry.getEntryByPath(path))!;
+    };
+
+    const touch = async (actor: Actor, path: string) => {
+        await withActor(actor, () =>
+            controller.touchEntry(
+                makeReq({ body: { path }, actor }),
+                makeRes().res,
+            ),
+        );
+        return (await server.stores.fsEntry.getEntryByPath(path))!;
+    };
+
+    it('sends item.moved in the same shape as the legacy /move, with old_path', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const viaLegacy = await mkdir(actor, `/${username}/Documents/a`);
+        const viaV2 = await mkdir(actor, `/${username}/Documents/b`);
+
+        const [legacyMoved] = await captureGuiEvents(
+            [['outer.gui.item.moved', viaLegacy.uuid]],
+            () =>
+                withActor(actor, () =>
+                    legacyController().move(
+                        makeReq({
+                            body: {
+                                source: viaLegacy.path,
+                                destination: `/${username}/Pictures`,
+                            },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+        );
+        const [v2Moved] = await captureGuiEvents(
+            [['outer.gui.item.moved', viaV2.uuid]],
+            () =>
+                withActor(actor, () =>
+                    controller.moveEntry(
+                        makeReq({
+                            body: {
+                                source: { path: viaV2.path },
+                                destination: { path: `/${username}/Pictures` },
+                            },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+        );
+
+        expect(Object.keys(v2Moved!).sort()).toEqual(
+            Object.keys(legacyMoved!).sort(),
+        );
+        expect(v2Moved).toMatchObject({
+            uid: viaV2.uuid,
+            path: `/${username}/Pictures/b`,
+            old_path: `/${username}/Documents/b`,
+            is_dir: true,
+        });
+    });
+
+    it('sends item.removed in the same shape as the legacy /delete', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const viaLegacy = await mkdir(actor, `/${username}/Documents/a`);
+        const viaV2 = await mkdir(actor, `/${username}/Documents/b`);
+
+        const [legacyRemoved] = await captureGuiEvents(
+            [['outer.gui.item.removed', viaLegacy.uuid]],
+            () =>
+                withActor(actor, () =>
+                    legacyController().delete(
+                        makeReq({ body: { path: viaLegacy.path }, actor }),
+                        makeRes().res,
+                    ),
+                ),
+        );
+        const [v2Removed] = await captureGuiEvents(
+            [['outer.gui.item.removed', viaV2.uuid]],
+            () =>
+                withActor(actor, () =>
+                    controller.deleteEntry(
+                        makeReq({
+                            body: { path: viaV2.path, recursive: true },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+        );
+
+        expect(Object.keys(v2Removed!).sort()).toEqual(
+            Object.keys(legacyRemoved!).sort(),
+        );
+        expect(v2Removed).toMatchObject({
+            path: viaV2.path,
+            descendants_only: false,
+        });
+    });
+
+    it('sends item.removed for the entry an overwriting move replaces', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const source = await touch(actor, `/${username}/Documents/clash.txt`);
+        const replaced = await touch(actor, `/${username}/Pictures/clash.txt`);
+
+        // Removal first: the desktop hides rows by path.
+        const [removed] = await captureGuiEvents(
+            [
+                ['outer.gui.item.removed', replaced.uuid],
+                ['outer.gui.item.moved', source.uuid],
+            ],
+            () =>
+                withActor(actor, () =>
+                    controller.moveEntry(
+                        makeReq({
+                            body: {
+                                source: { path: source.path },
+                                destination: { path: `/${username}/Pictures` },
+                                overwrite: true,
+                            },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+        );
+        expect(removed!.path).toBe(replaced.path);
+    });
+
+    it('sends item.removed for the entry an overwriting copy replaces, first', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const source = await touch(actor, `/${username}/Documents/dup.txt`);
+        const replaced = await touch(actor, `/${username}/Pictures/dup.txt`);
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        // GUI item events about the destination path, in emit order.
+        const atPath = () =>
+            emitSpy.mock.calls.flatMap(([name, data]) => {
+                const response = (data as { response?: GuiResponse })?.response;
+                return String(name).startsWith('outer.gui.item.') &&
+                    response?.path === replaced.path
+                    ? [[name, response.uuid]]
+                    : [];
+            });
+        try {
+            await withActor(actor, () =>
+                controller.copyEntry(
+                    makeReq({
+                        body: {
+                            source: { path: source.path },
+                            destination: { path: `/${username}/Pictures` },
+                            overwrite: true,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            await vi.waitFor(() => expect(atPath()).toHaveLength(2));
+            // Removal first: the desktop hides rows by path.
+            expect(atPath()[0]).toEqual([
+                'outer.gui.item.removed',
+                replaced.uuid,
+            ]);
+            expect(atPath()[1]?.[0]).toBe('outer.gui.item.added');
+        } finally {
+            emitSpy.mockRestore();
+        }
+    });
+
+    it('applies new_metadata on move, as trashing does', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const source = await mkdir(actor, `/${username}/Documents/trashed`);
+        const trashMetadata = {
+            original_name: 'trashed',
+            original_path: source.path,
+            trashed_ts: 1700000000,
+        };
+
+        const [moved] = await captureGuiEvents(
+            [['outer.gui.item.moved', source.uuid]],
+            () =>
+                withActor(actor, () =>
+                    controller.moveEntry(
+                        makeReq({
+                            body: {
+                                source: { path: source.path },
+                                destination: { path: `/${username}/Trash` },
+                                new_name: source.uuid,
+                                new_metadata: trashMetadata,
+                            },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+        );
+
+        const stored = await server.stores.fsEntry.getEntryByUuidFromPrimary(
+            source.uuid,
+        );
+        expect(JSON.parse(stored!.metadata!)).toMatchObject(trashMetadata);
+        expect(JSON.parse(String(moved!.metadata))).toMatchObject(
+            trashMetadata,
+        );
     });
 });
 

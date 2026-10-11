@@ -90,9 +90,12 @@ import {
     assertAccess,
     assertCanCreate,
     assertCanMoveInto,
+    emitGuiItemEvent,
     expandClientPath,
+    findOverwriteTarget,
     getBoolean,
     getString,
+    type GuiItemEventName,
     loadLegacyAssociatedApps,
     resolveV1Selector,
     signEntry,
@@ -828,16 +831,13 @@ export class LegacyFSController extends PuterController {
         // (`overwritten`) so clients can drop its stale row/icon. The copy
         // deletes that entry, so resolve it beforehand.
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
-        let overwrittenEntry = null;
-        if (overwriteRequested) {
-            const targetName = getString(body, 'new_name') ?? source.name;
-            const targetPath =
-                destinationParent.path === '/'
-                    ? `/${targetName}`
-                    : `${destinationParent.path}/${targetName}`;
-            overwrittenEntry =
-                await this.stores.fsEntry.getEntryByPath(targetPath);
-        }
+        const overwrittenEntry = overwriteRequested
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  getString(body, 'new_name') ?? source.name,
+              )
+            : null;
 
         const copy = await this.services.fs.copy(userId, {
             source,
@@ -846,15 +846,14 @@ export class LegacyFSController extends PuterController {
             overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
-        await this.#emitGuiEvent('outer.gui.item.added', copy);
-        // Without this, every other client keeps a ghost row for the
-        // replaced entry until the directory is re-listed.
-        if (overwrittenEntry) {
-            await this.#emitGuiEvent(
-                'outer.gui.item.removed',
-                overwrittenEntry,
-            );
-        }
+        // Announcing the replaced entry's removal keeps other clients from
+        // showing a ghost row for it until the directory is re-listed.
+        await this.#emitGuiEvent(
+            'outer.gui.item.added',
+            copy,
+            undefined,
+            overwrittenEntry,
+        );
 
         // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
         // Array is historical — originally supported bulk copy.
@@ -916,13 +915,11 @@ export class LegacyFSController extends PuterController {
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
         let overwrittenEntry = null;
         if (overwriteRequested) {
-            const targetName = getString(body, 'new_name') ?? source.name;
-            const targetPath =
-                destinationParent.path === '/'
-                    ? `/${targetName}`
-                    : `${destinationParent.path}/${targetName}`;
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(targetPath);
+            const existing = await findOverwriteTarget(
+                this.stores.fsEntry,
+                destinationParent,
+                getString(body, 'new_name') ?? source.name,
+            );
             // Moving an entry onto its own path is not an overwrite.
             if (existing && existing.uuid !== source.uuid) {
                 overwrittenEntry = existing;
@@ -943,17 +940,14 @@ export class LegacyFSController extends PuterController {
                 Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
-        await this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: oldPath,
-        });
-        // Without this, every other client keeps a ghost row for the
-        // replaced entry until the directory is re-listed.
-        if (overwrittenEntry) {
-            await this.#emitGuiEvent(
-                'outer.gui.item.removed',
-                overwrittenEntry,
-            );
-        }
+        // Announcing the replaced entry's removal keeps other clients from
+        // showing a ghost row for it until the directory is re-listed.
+        await this.#emitGuiEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: oldPath },
+            overwrittenEntry,
+        );
 
         // Legacy response shape: `{moved: fsentry, old_path, overwritten?}`.
         const legacyEntryOpts = {
@@ -2119,35 +2113,18 @@ export class LegacyFSController extends PuterController {
     };
 
     async #emitGuiEvent(
-        eventName:
-            | 'outer.gui.item.added'
-            | 'outer.gui.item.updated'
-            | 'outer.gui.item.removed'
-            | 'outer.gui.item.moved',
+        eventName: GuiItemEventName,
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: import('../../stores/fs/FSEntry.js').FSEntry | null,
     ): Promise<void> {
-        // GUI consumes snake_case fields (`user_id`, `parent_uid`, `is_dir`,
-        // …) — spreading the raw FSEntry ships camelCase, which the client
-        // silently ignores. Run the entry through `toLegacyEntry` first so
-        // the event payload matches what /stat et al. return, then overlay
-        // per-op extras (e.g. `old_path` for moves).
-        // `forOwner` — the audience is the owner, who can't read the actor's mask.
         try {
-            const response = {
-                ...(await toLegacyEntry(this.clients.event, entry, {
-                    forOwner: true,
-                })),
-                ...extra,
-                from_new_service: true,
-            };
-            await this.clients.event.emit(
+            await emitGuiItemEvent(
+                this.clients.event,
                 eventName,
-                {
-                    user_id_list: [entry.userId],
-                    response,
-                },
-                {},
+                entry,
+                extra,
+                replaced,
             );
         } catch {
             // Non-critical — GUI event failure must never break the HTTP response.

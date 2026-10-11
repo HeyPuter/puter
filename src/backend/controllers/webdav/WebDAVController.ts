@@ -21,7 +21,6 @@ import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { EventMap } from '../../clients/event/types.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -56,7 +55,10 @@ import {
 } from '../../services/fs/sharePathMask.js';
 import { Context } from '../../core/context.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import { toLegacyEntry } from '../fs/legacyFsHelpers.js';
+import {
+    emitGuiItemEvent,
+    type GuiItemEventName,
+} from '../fs/legacyFsHelpers.js';
 import { PuterController } from '../types.js';
 import {
     createLock,
@@ -947,7 +949,8 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.added', copy);
+        // Announcing what the copy replaced keeps a ghost row off other clients.
+        this.#emitGuiEvent('outer.gui.item.added', copy, undefined, destExists);
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -998,9 +1001,12 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: davPath,
-        });
+        this.#emitGuiEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: davPath },
+            destExists,
+        );
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -1176,33 +1182,25 @@ export class WebDAVController extends PuterController {
 
     // -- Event emission ----------------------------------------------
 
-    #emitGuiEvent<T extends keyof EventMap>(
-        eventName: T,
+    #emitGuiEvent(
+        eventName: GuiItemEventName,
         entry: FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: FSEntry | null,
     ): void {
-        const meta = {};
-        void Promise.resolve()
-            .then(async () => {
-                const response = {
-                    ...(await toLegacyEntry(this.clients.event, entry, {
-                        forOwner: true,
-                    })),
-                    ...extra,
-                    from_new_service: true,
-                };
-                this.clients.event.emit(
+        void (async () => {
+            try {
+                await emitGuiItemEvent(
+                    this.clients.event,
                     eventName,
-                    {
-                        user_id_list: [entry.userId],
-                        response,
-                    } as unknown as EventMap[T],
-                    meta,
+                    entry,
+                    extra,
+                    replaced,
                 );
-            })
-            .catch(() => {
+            } catch {
                 // non-critical
-            });
+            }
+        })();
     }
 
     // -- Misc helpers ------------------------------------------------
