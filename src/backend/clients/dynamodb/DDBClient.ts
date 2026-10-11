@@ -44,7 +44,7 @@ import { Agent as httpsAgent } from 'node:https';
 import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
-import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
 import {
@@ -367,10 +367,12 @@ export class DDBClient extends PuterClient {
 
         const client = await this.#getDocumentClient();
         const capacity = new ConsumedCapacityTally();
-        // Once a chunk fails, the rest aren't started.
+        // Once a chunk fails, the rest aren't started. Those in flight settle
+        // before the error is thrown, so no write lands after the caller's
+        // cleanup.
         let failed = false;
 
-        await runWithConcurrencyLimit(
+        const outcomes = await runWithConcurrencyLimitSettled(
             chunkValues(params, MAX_BATCH_WRITE_ITEMS),
             BATCH_WRITE_CONCURRENCY,
             async (chunk) => {
@@ -414,6 +416,11 @@ export class DDBClient extends PuterClient {
                 }
             },
         );
+        const rejected = outcomes.find(
+            (outcome): outcome is PromiseRejectedResult =>
+                outcome.status === 'rejected',
+        );
+        if (rejected) throw rejected.reason;
 
         return { ConsumedCapacity: capacity.entries() };
     }

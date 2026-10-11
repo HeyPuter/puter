@@ -871,6 +871,42 @@ describe('DDBClient — batch write chunks and TTL sweep', () => {
         expect(calls.length).toBeLessThanOrEqual(4);
     });
 
+    it('lets chunks already in flight finish before rejecting', async () => {
+        let replies = 0;
+        handlers = {
+            BatchWriteItem: (body) => {
+                replies += 1;
+                if (replies === 1) {
+                    return {
+                        status: 400,
+                        __type: 'com.amazon.coral.validate#ValidationException',
+                        message: 'bad item',
+                    };
+                }
+                // The rest need one retry, so they are still writing when the
+                // failure comes back.
+                return replies <= 4
+                    ? { UnprocessedItems: body.RequestItems }
+                    : { UnprocessedItems: {} };
+            },
+        };
+
+        await expect(
+            stubClient().batchPut(
+                Array.from({ length: 100 }, (_, i) => ({
+                    table: TABLE,
+                    item: { pk: `item-${i}` },
+                })),
+            ),
+        ).rejects.toThrow('bad item');
+        const sentBeforeReject = calls.length;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // Nothing is written after the caller has seen the error.
+        expect(calls.length).toBe(sentBeforeReject);
+        expect(inFlight).toBe(0);
+    });
+
     it('retries the unprocessed deletes of the TTL sweep', async () => {
         const expired = [{ pk: { S: 'old' } }];
         let batchWrites = 0;
