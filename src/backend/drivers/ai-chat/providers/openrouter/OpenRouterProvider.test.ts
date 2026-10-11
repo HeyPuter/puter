@@ -50,6 +50,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -251,7 +252,7 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('list() prefixes ids with openrouter: and filters out openrouter/auto', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('openrouter:openai/gpt-6-luna');
         expect(ids).toContain('openrouter:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('openrouter:openrouter/auto');
@@ -259,7 +260,7 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('filters out models OpenRouter has scheduled for expiration', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('openrouter:qwen/qwen3-max');
         expect(ids).not.toContain('qwen/qwen3-max');
     });

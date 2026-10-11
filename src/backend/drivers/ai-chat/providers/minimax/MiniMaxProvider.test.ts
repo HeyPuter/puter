@@ -36,6 +36,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { MINIMAX_MODELS } from './models.js';
 import { MiniMaxProvider } from './MiniMaxProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 const { createMock, openAICtor } = vi.hoisted(() => {
     const createMock = vi.fn();
@@ -133,7 +134,7 @@ describe('MiniMaxProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const ids = provider.list();
+        const ids = modelLookupNames(provider.models());
         for (const model of MINIMAX_MODELS) {
             expect(ids).toContain(model.id);
             for (const alias of model.aliases ?? []) {

@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { GEMINI_MODELS } from './models.js';
 import { GeminiChatProvider } from './GeminiChatProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -172,7 +173,7 @@ describe('GeminiChatProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of GEMINI_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -192,7 +193,7 @@ describe('GeminiChatProvider model catalog', () => {
     // flattening the catalog itself.
     it('list() emits every id exactly once', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toHaveLength(new Set(ids).size);
     });
 });
@@ -413,7 +414,7 @@ describe('GeminiChatProvider model resolution', () => {
         'gemini-3-flash-preview',
     ])('drops the deprecated %s instead of redirecting it', async (model) => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain(model);
         expect(ids).not.toContain(`google/${model}`);
     });

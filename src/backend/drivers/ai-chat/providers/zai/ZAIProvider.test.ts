@@ -50,6 +50,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { ZAI_MODELS } from './models.js';
 import { ZAIProvider } from './ZAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -186,7 +187,7 @@ describe('ZAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of ZAI_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {

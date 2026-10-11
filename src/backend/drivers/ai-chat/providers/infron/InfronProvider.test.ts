@@ -50,6 +50,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { InfronProvider } from './InfronProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -331,7 +332,7 @@ describe('InfronProvider model catalog', () => {
 
     it('list() prefixes ids with infron: and filters non-chat, display-only, and deprecated entries', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('infron:deepseek/deepseek-v4-flash');
         expect(ids).toContain(provider.getDefaultModel());
         expect(ids).toContain('infron:anthropic/claude-haiku-4.5');
@@ -417,7 +418,7 @@ describe('InfronProvider model catalog', () => {
 
     it('still offers an explicit tier id when no default tier is sold', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         // The plain id leaves routing to Infron; the :flex id pins the one
         // tier on offer. Same price, different routing guarantee.
         expect(ids).toContain('infron:example/flex-only-model');

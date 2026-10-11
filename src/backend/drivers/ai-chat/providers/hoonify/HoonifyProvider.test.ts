@@ -52,6 +52,7 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { usdPerMToken } from '../../utils/pricing.js';
 import { HOONIFY_MODELS } from './models.js';
 import { HoonifyProvider } from './HoonifyProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -191,7 +192,7 @@ describe('HoonifyProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of HOONIFY_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -216,7 +217,7 @@ describe('HoonifyProvider model catalog', () => {
         // `AGGREGATOR_PROVIDERS` ranks Hoonify behind the vendor so it only
         // serves once Alibaba's route fails.
         const { provider } = makeProvider();
-        expect(provider.list()).toContain('qwen/qwen3.6-27b');
+        expect(modelLookupNames(provider.models())).toContain('qwen/qwen3.6-27b');
     });
 
     it('exposes Inkling Small at its list pricing and sends its exact-case wire id', async () => {

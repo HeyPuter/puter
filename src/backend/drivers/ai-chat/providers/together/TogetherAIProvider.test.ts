@@ -51,6 +51,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { TogetherAIProvider } from './TogetherAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Together SDK mock ───────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ describe('TogetherAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases for chat models only', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         // Embedding-typed models are filtered out.
         expect(ids).not.toContain('togetherai:some/embedding-model');
         // Canonical id is prefixed with togetherai:

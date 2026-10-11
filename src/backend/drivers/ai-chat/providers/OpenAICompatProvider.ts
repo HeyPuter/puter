@@ -40,7 +40,7 @@ import {
     meterChatUsage,
     type MeterChatUsageOptions,
 } from '../utils/meterChatUsage.js';
-import { modelLookupNames, normalizeModelKey } from '../utils/modelRouting.js';
+import { normalizeModelKey } from '../utils/modelRouting.js';
 import * as OpenAIUtil from '../utils/OpenAIUtil.js';
 import {
     openAICompatParams,
@@ -138,17 +138,6 @@ export class OpenAICompatProvider implements IChatProvider {
 
     models(): IChatModel[] | Promise<IChatModel[]> {
         return this.#options.models?.() ?? [];
-    }
-
-    list(): string[] | Promise<string[]> {
-        const models = this.models();
-        return Array.isArray(models)
-            ? modelLookupNames(models)
-            : this.#listAsync(models);
-    }
-
-    async #listAsync(models: Promise<IChatModel[]>) {
-        return modelLookupNames(await models);
     }
 
     /** The model key this provider records usage under. */

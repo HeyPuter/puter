@@ -259,9 +259,7 @@ const PROVIDERS: ProviderCase[] = [
         name: 'meta',
         dialect: 'chat',
         make: () =>
-            new MetaProvider(metering(), stores, fsService, {
-                apiKey: 'k',
-            } as never),
+            new MetaProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'minimax',
@@ -301,17 +299,13 @@ const PROVIDERS: ProviderCase[] = [
         name: 'openai-chat',
         dialect: 'chat',
         make: () =>
-            new OpenAiChatProvider(metering(), stores, fsService, {
-                apiKey: 'k',
-            }),
+            new OpenAiChatProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'openai-responses',
         dialect: 'responses',
         make: () =>
-            new OpenAiResponsesChatProvider(metering(), stores, fsService, {
-                apiKey: 'k',
-            }),
+            new OpenAiResponsesChatProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'openrouter',

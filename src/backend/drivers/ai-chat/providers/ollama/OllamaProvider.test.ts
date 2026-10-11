@@ -46,6 +46,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OllamaChatProvider } from './OllamaProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- External boundaries ---------------------------------------------
 
@@ -233,7 +234,7 @@ describe('OllamaChatProvider model discovery', () => {
         axiosRequestMock.mockResolvedValueOnce({
             data: { models: [{ name: 'llama3.2' }, { name: 'qwen3' }] },
         });
-        expect(await makeProvider().list()).toEqual([
+        expect(modelLookupNames(await makeProvider().models())).toEqual([
             'ollama:ollama/llama3.2',
             'ollama:ollama/qwen3',
         ]);

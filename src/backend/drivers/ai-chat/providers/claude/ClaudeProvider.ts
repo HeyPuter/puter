@@ -48,7 +48,6 @@ import type {
     AIChatTextStream,
     AIChatToolUseStream,
 } from '../../utils/Streaming.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import {
     allowlistedFromHeader,
     applySafeguardsPolicy,
@@ -292,10 +291,6 @@ export class ClaudeProvider implements IChatProvider {
 
     models() {
         return CLAUDE_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
     }
 
     /** The model key this provider records usage under. */

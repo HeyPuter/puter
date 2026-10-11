@@ -56,6 +56,7 @@ import {
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiChatProvider } from './OpenAiChatCompletionsProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -92,13 +93,8 @@ afterAll(async () => {
 
 const makeProvider = () => {
     const provider = new OpenAiChatProvider(
-        server.services.metering,
-        {
-            fsEntry: server.stores.fsEntry,
-            s3Object: server.stores.s3Object,
-        },
-        server.services.fs,
         { apiKey: 'test-key' },
+        server.services.metering,
     );
     return { provider };
 };
@@ -187,7 +183,7 @@ describe('OpenAiChatProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const ids = provider.list();
+        const ids = modelLookupNames(provider.models());
         expect(ids).toContain('gpt-5.2-2025-12-11');
         expect(ids).toContain('gpt-5.2');
         expect(ids).toContain('openai/gpt-5.2');

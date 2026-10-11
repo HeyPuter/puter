@@ -27,9 +27,6 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { FSService } from '../../../../services/fs/FSService.js';
-import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
-import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
@@ -41,21 +38,14 @@ import { MetaProvider } from './MetaProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_META_API_KEY';
 
-// Only `puter_path` content parts reach the filesystem, and this test sends
-// plain text, so the stores stay untouched.
-const UNUSED_STORES = {} as { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
-const UNUSED_FS_SERVICE = {} as FSService;
-
 describe.skipIf(skipUnlessEnv(ENV_VAR))('MetaProvider (integration)', () => {
     it(
         'returns a non-empty completion from muse-spark-1.2',
         { timeout: INTEGRATION_TEST_TIMEOUT_MS },
         async () => {
             const provider = new MetaProvider(
-                makeMeteringStub(),
-                UNUSED_STORES,
-                UNUSED_FS_SERVICE,
                 { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
             );
 
             const result = await withTestActor(() =>

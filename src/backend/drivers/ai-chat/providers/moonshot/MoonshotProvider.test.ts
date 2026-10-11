@@ -54,6 +54,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { MoonshotProvider } from './MoonshotProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ describe('MoonshotProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases (returned via async)', async () => {
         const { provider } = makeProvider();
-        const names = await provider.list();
+        const names = modelLookupNames(await provider.models());
         for (const m of MOONSHOT_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {

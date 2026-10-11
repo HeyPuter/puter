@@ -291,7 +291,6 @@ export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
-    list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
     /**
      * `model` is this provider's own catalog entry for `arg.model`, as the

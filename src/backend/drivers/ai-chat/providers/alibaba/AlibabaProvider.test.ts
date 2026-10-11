@@ -50,6 +50,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { ALIBABA_MODELS } from './models.js';
 import { AlibabaProvider } from './AlibabaProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -170,7 +171,7 @@ describe('AlibabaProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of ALIBABA_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -209,7 +210,7 @@ describe('AlibabaProvider model catalog', () => {
         'deepseek-v4-flash',
     ])('drops %s, which Model Studio is retiring', async (id) => {
         const { provider } = makeProvider();
-        expect(await provider.list()).not.toContain(id);
+        expect(modelLookupNames(await provider.models())).not.toContain(id);
     });
 });
 

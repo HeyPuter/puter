@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { BytePlusProvider } from './BytePlusProvider.js';
 import { BYTEPLUS_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- OpenAI SDK mock -------------------------------------------------
 //
@@ -190,7 +191,7 @@ describe('BytePlusProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of BYTEPLUS_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -228,12 +229,12 @@ describe('BytePlusProvider model catalog', () => {
         'gpt-oss-120b-250805',
     ])('drops %s, which ModelArk has deprecated', (id) => {
         const { provider } = makeProvider();
-        expect(provider.list()).not.toContain(id);
+        expect(modelLookupNames(provider.models())).not.toContain(id);
     });
 
     it('never claims the bare deepseek-v4 names owned by the DeepSeek provider', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         expect(names).not.toContain('deepseek-v4-pro');
         expect(names).not.toContain('deepseek-v4-flash');
         expect(names).toContain('byteplus/deepseek-v4-pro');

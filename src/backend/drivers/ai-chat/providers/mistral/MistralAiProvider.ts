@@ -36,7 +36,6 @@ import {
 } from '../../utils/mediaParts.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { shouldPresentAsOpenAI } from '../../utils/normalizeToOpenAI.js';
 import { withSdkTimeout } from '../../utils/sdkClient.js';
 import { meterChatUsage } from '../../utils/meterChatUsage.js';
@@ -128,10 +127,6 @@ export class MistralAIProvider implements IChatProvider {
 
     async models() {
         return MISTRAL_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(await this.models());
     }
 
     /**

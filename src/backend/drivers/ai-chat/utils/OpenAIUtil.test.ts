@@ -25,7 +25,6 @@ import { withTestActor } from '../../integrationTestUtil.js';
 import {
     create_chat_stream_handler,
     create_chat_stream_handler_responses_api,
-    create_usage_calculator,
     extractMeteredUsage,
     handle_completion_output,
     handle_completion_output_responses_api,
@@ -775,36 +774,6 @@ describe('process_input_messages_responses_api', () => {
             name: 'weather',
             arguments: JSON.stringify({ city: 'nyc' }),
         });
-    });
-});
-
-// ── create_usage_calculator ─────────────────────────────────────────
-
-describe('create_usage_calculator', () => {
-    it('emits prompt + completion token rows priced by model_details.cost', () => {
-        const calc = create_usage_calculator({
-            model_details: {
-                id: 'gpt-test',
-                cost: { input: 0.01, output: 0.02 },
-            },
-        });
-        const tokens = calc({
-            usage: { prompt_tokens: 100, completion_tokens: 50 },
-        });
-        expect(tokens).toEqual([
-            {
-                type: 'prompt',
-                model: 'gpt-test',
-                amount: 100,
-                cost: 100 * 0.01,
-            },
-            {
-                type: 'completion',
-                model: 'gpt-test',
-                amount: 50,
-                cost: 50 * 0.02,
-            },
-        ]);
     });
 });
 

@@ -1626,23 +1626,13 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const openaiKey = readKey(providers['openai-completion']);
         if (openaiKey) {
-            const openaiStores = {
-                fsEntry: this.stores.fsEntry,
-                s3Object: this.stores.s3Object,
-            };
             const openaiCompletions = new OpenAiChatProvider(
+                { apiKey: openaiKey },
                 metering,
-                openaiStores,
-                this.services.fs,
-                {
-                    apiKey: openaiKey,
-                },
             );
             const openaiResponses = new OpenAiResponsesChatProvider(
-                metering,
-                openaiStores,
-                this.services.fs,
                 { apiKey: openaiKey },
+                metering,
             );
             // web_search is Responses-only; let the Completions path delegate
             // to its sibling when users request it.
@@ -1662,16 +1652,11 @@ export class ChatCompletionDriver extends PuterDriver {
         const metaKey = readKey(meta);
         if (metaKey) {
             this.#providers['meta'] = new MetaProvider(
-                metering,
-                {
-                    fsEntry: this.stores.fsEntry,
-                    s3Object: this.stores.s3Object,
-                },
-                this.services.fs,
                 {
                     apiKey: metaKey,
                     apiBaseUrl: meta?.apiBaseUrl as string | undefined,
                 },
+                metering,
             );
         }
 

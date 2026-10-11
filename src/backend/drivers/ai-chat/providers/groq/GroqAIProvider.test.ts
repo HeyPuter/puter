@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { GROQ_MODELS } from './models.js';
 import { GroqAIProvider } from './GroqAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Groq SDK mock ───────────────────────────────────────────────────
 
@@ -163,7 +164,7 @@ describe('GroqAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of GROQ_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -195,7 +196,7 @@ describe('GroqAIProvider model catalog', () => {
         'meta-llama/llama-guard-4-12b',
     ])('drops the deprecated %s', async (id) => {
         const { provider } = makeProvider();
-        expect(await provider.list()).not.toContain(id);
+        expect(modelLookupNames(await provider.models())).not.toContain(id);
     });
 });
 

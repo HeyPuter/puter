@@ -50,6 +50,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { DEEPSEEK_MODELS } from './models.js';
 import { DeepSeekProvider } from './DeepSeekProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -159,7 +160,7 @@ describe('DeepSeekProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of DEEPSEEK_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -489,7 +490,7 @@ describe('DeepSeekProvider model resolution', () => {
         'deepseek:deepseek/deepseek-reasoner',
     ])('drops the discontinued %s instead of redirecting it', async (alias) => {
         const { provider } = makeProvider();
-        expect(await provider.list()).not.toContain(alias);
+        expect(modelLookupNames(await provider.models())).not.toContain(alias);
     });
 });
 

@@ -49,6 +49,7 @@ import {
     stripNeuralwattPrefix,
 } from './models.js';
 import { NeuralwattProvider } from './NeuralwattProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -336,7 +337,7 @@ describe('NeuralwattProvider model catalog', () => {
 
     it('list() prefixes ids and skips deprecated / pricing_tbd entries', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('neuralwatt:deepseek-v4-flash');
         expect(ids).toContain('neuralwatt:zai-org/GLM-5.1-FP8');
         expect(ids).toContain('GLM-5.1-FP8');

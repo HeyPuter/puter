@@ -54,6 +54,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { MISTRAL_MODELS } from './models.js';
 import { MistralAIProvider } from './MistralAiProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Mistral SDK mock ────────────────────────────────────────────────
 //
@@ -166,7 +167,7 @@ describe('MistralAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of MISTRAL_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -180,14 +181,14 @@ describe('MistralAIProvider model catalog', () => {
 
     it('does not redirect the retired Magistral ids to another model', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('magistral-small-latest');
         expect(ids).not.toContain('magistral-medium-latest');
     });
 
     it('keeps mistral-large-2512, which Mistral still serves as active', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('mistral-large-2512');
         expect(ids).toContain('mistral-large-latest');
     });

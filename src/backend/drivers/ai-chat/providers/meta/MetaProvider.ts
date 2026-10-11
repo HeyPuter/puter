@@ -19,12 +19,8 @@
 
 import { OpenAI } from 'openai';
 import type { Actor } from '../../../../core/actor.js';
-import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
-import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
@@ -32,7 +28,6 @@ import {
     type ChatProviderConfig,
     OpenAICompatProvider,
 } from '../OpenAICompatProvider.js';
-import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
@@ -61,16 +56,7 @@ const asRecord = (value: unknown): Record<string, unknown> =>
  * models behind Responses- and Anthropic-Messages-shaped endpoints.
  */
 export class MetaProvider extends OpenAICompatProvider {
-    #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
-
-    #fsService: FSService;
-
-    constructor(
-        meteringService: MeteringService,
-        stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-        fsService: FSService,
-        config: ChatProviderConfig,
-    ) {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
         super(meteringService, {
             client: new OpenAI({
                 apiKey: config.apiKey,
@@ -89,8 +75,6 @@ export class MetaProvider extends OpenAICompatProvider {
             stripAnthropicShape: true,
             compatParams: { toolChoiceAutoOnly: true },
         });
-        this.#stores = stores;
-        this.#fsService = fsService;
     }
 
     override async complete(args: ICompleteArguments, resolved?: IChatModel) {
@@ -99,14 +83,6 @@ export class MetaProvider extends OpenAICompatProvider {
                 legacyCode: 'bad_request',
             });
         }
-        // Muse Spark reads images, video, PDFs and audio, but Chat Completions
-        // takes them inline only — resolve `puter_path` parts to data URLs.
-        await processPuterPathUploads(
-            args.messages,
-            this.#stores,
-            this.#fsService,
-            Context.get('actor'),
-        );
         return super.complete(args, resolved);
     }
 
