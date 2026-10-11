@@ -31,7 +31,6 @@ import {
     ORG_SEAT_RESOLVER_PRIORITY,
 } from '../metering/consts.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
-import { withRedisLock } from '../../util/redisLock.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 3;
@@ -46,6 +45,7 @@ import type {
     TeamBillingEvent,
 } from '../../clients/event/types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { withRedisLock } from '../../util/redisLock.js';
 import {
     AUDIT_PAGE_CAP,
     AUDIT_PAGE_SIZE,
