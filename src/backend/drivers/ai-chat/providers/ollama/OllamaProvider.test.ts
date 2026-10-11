@@ -244,16 +244,16 @@ describe('OllamaChatProvider model discovery', () => {
 // -- Completion ------------------------------------------------------
 
 describe('OllamaChatProvider.complete', () => {
-    it('strips the `ollama:` namespace before calling the local server', async () => {
+    it('sends the local server the model name it listed', async () => {
         axiosRequestMock.mockResolvedValue({
-            data: { models: [{ name: 'llama3.2' }] },
+            data: { models: [{ name: 'llama3.2:latest' }] },
         });
         createMock.mockResolvedValueOnce(okCompletion);
         const provider = makeProvider();
 
         await withTestActor(() =>
             provider.complete({
-                model: 'ollama:ollama/llama3.2',
+                model: 'ollama:ollama/llama3.2:latest',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 64,
                 temperature: 0.5,
@@ -261,7 +261,9 @@ describe('OllamaChatProvider.complete', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('ollama/llama3.2');
+        // `/api/tags` names the model `llama3.2:latest`; `ollama:ollama/` is
+        // Puter's namespace and means nothing to the local server.
+        expect(args.model).toBe('llama3.2:latest');
         expect(args.messages).toEqual([{ role: 'user', content: 'hi' }]);
         expect(args.max_tokens).toBe(64);
         expect(args.temperature).toBe(0.5);

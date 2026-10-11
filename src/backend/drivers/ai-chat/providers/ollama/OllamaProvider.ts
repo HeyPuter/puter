@@ -45,7 +45,8 @@ export class OllamaChatProvider extends OpenAICompatProvider {
                 ...sdkClientOptions(),
             }),
             defaultModel: 'gpt-oss:20b',
-            idPrefix: 'ollama:',
+            // Catalog ids are `ollama:ollama/<name>`; the server knows `<name>`.
+            idPrefix: 'ollama:ollama/',
             passthrough: ['temperature'],
         });
         this.#apiBaseUrl = apiBaseUrl;
