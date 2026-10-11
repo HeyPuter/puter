@@ -160,7 +160,7 @@ export class XAITTSProvider implements ITTSProvider {
                         },
                         body: JSON.stringify(body),
                     },
-                    { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
+                    { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS, stream: true },
                 );
                 return {
                     dataType: 'stream',

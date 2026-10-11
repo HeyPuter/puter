@@ -217,28 +217,53 @@ const upstreamResponseError = async (
 
 /**
  * `fetch` against a provider's own API, bounded by `timeoutMs` (body included).
- * A non-2xx answer throws {@link UpstreamResponseError}; a timeout rejects with
+ * With `stream`, the bound ends once the response is returned: the body drains
+ * at the client's pace, and undici's body idle timeout catches a stall. A
+ * non-2xx answer throws {@link UpstreamResponseError}; a timeout rejects with
  * `TimeoutError`, which the driver boundary maps to a 504.
  */
 export async function upstreamFetch(
     provider: string,
     url: string | URL,
     init: RequestInit,
-    { timeoutMs }: { timeoutMs: number },
+    { timeoutMs, stream = false }: { timeoutMs: number; stream?: boolean },
 ): Promise<Response> {
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const response = await fetch(url, {
-        ...init,
-        signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
-    });
-    if (response.ok) return response;
-    throw await upstreamResponseError(provider, response);
+    let timeout: AbortSignal;
+    let streamDeadline: NodeJS.Timeout | undefined;
+    if (stream) {
+        const deadline = new AbortController();
+        streamDeadline = setTimeout(
+            () =>
+                deadline.abort(
+                    new DOMException(
+                        'The operation was aborted due to timeout',
+                        'TimeoutError',
+                    ),
+                ),
+            timeoutMs,
+        );
+        timeout = deadline.signal;
+    } else {
+        timeout = AbortSignal.timeout(timeoutMs);
+    }
+    try {
+        const response = await fetch(url, {
+            ...init,
+            signal: init.signal
+                ? AbortSignal.any([init.signal, timeout])
+                : timeout,
+        });
+        if (response.ok) return response;
+        throw await upstreamResponseError(provider, response);
+    } finally {
+        clearTimeout(streamDeadline);
+    }
 }
 
 /**
  * A provider's response body as a stream to hand straight to the caller. A
- * failure mid-body (a reset, or {@link upstreamFetch}'s timeout) errors the
- * stream, which the driver response path turns into an aborted transfer.
+ * failure mid-body (a reset, or undici's body timeout) errors the stream, which
+ * the driver response path turns into an aborted transfer.
  */
 export function upstreamBodyStream(response: Response): Readable {
     return response.body

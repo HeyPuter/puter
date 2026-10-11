@@ -24,7 +24,10 @@ import {
 } from '../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../meta.js';
 
-/** Bounds a synthesis call, audio download included. */
+/**
+ * Bounds a synthesis call: the whole reply, or until headers when the audio is
+ * streamed on.
+ */
 export const TTS_UPSTREAM_TIMEOUT_MS = 120_000;
 
 /**

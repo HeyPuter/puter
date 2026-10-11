@@ -277,7 +277,7 @@ export class VoiceChangerDriver extends PuterDriver {
                         headers: { 'xi-api-key': elevenlabs.apiKey },
                         body: formData,
                     },
-                    { timeoutMs: CONVERT_TIMEOUT_MS },
+                    { timeoutMs: CONVERT_TIMEOUT_MS, stream: true },
                 );
                 metering.incrementUsage(
                     actor,

@@ -203,12 +203,27 @@ describe('sanitizeUpstreamMessage', () => {
 
 describe('upstreamFetch', () => {
     // A provider stand-in: `/status/<n>` answers with that status and the
-    // request body echoed back as the response body; `/hang` never answers.
+    // request body echoed back as the response body; `/hang` never answers;
+    // `/trickle` sends headers at once, then the body over ~500 ms.
+    const trickleChunks = Array.from({ length: 10 }, (_, i) => `chunk${i};`);
     let server: Server;
     let base: string;
     beforeAll(async () => {
         server = createServer((req, res) => {
             if (req.url === '/hang') return;
+            if (req.url === '/trickle') {
+                res.writeHead(200, { 'content-type': 'audio/mpeg' });
+                let sent = 0;
+                const tick = setInterval(() => {
+                    res.write(trickleChunks[sent++]);
+                    if (sent === trickleChunks.length) {
+                        clearInterval(tick);
+                        res.end();
+                    }
+                }, 50);
+                res.on('close', () => clearInterval(tick));
+                return;
+            }
             const status = Number(req.url?.split('/')[2] ?? 200);
             const chunks: Buffer[] = [];
             req.on('data', (c: Buffer) => chunks.push(c));
@@ -338,6 +353,67 @@ describe('upstreamFetch', () => {
         );
         controller.abort();
         await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
+    it('lets a streamed body keep flowing past timeoutMs once headers arrive', async () => {
+        const res = await upstreamFetch(
+            'Vendor',
+            `${base}/trickle`,
+            {},
+            { timeoutMs: 250, stream: true },
+        );
+        expect(await res.text()).toBe(trickleChunks.join(''));
+    });
+
+    it('times out a streamed call whose headers never arrive as a 504 upstream_timeout', async () => {
+        let err: unknown;
+        try {
+            await upstreamFetch(
+                'Vendor',
+                `${base}/hang`,
+                {},
+                { timeoutMs: 50, stream: true },
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+    });
+
+    it('bounds a non-streamed call by the whole body', async () => {
+        const res = await upstreamFetch(
+            'Vendor',
+            `${base}/trickle`,
+            {},
+            { timeoutMs: 250 },
+        );
+        let err: unknown;
+        try {
+            await res.text();
+        } catch (e) {
+            err = e;
+        }
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+    });
+
+    it('aborts a streamed body when the caller aborts mid-stream', async () => {
+        const controller = new AbortController();
+        const res = await upstreamFetch(
+            'Vendor',
+            `${base}/trickle`,
+            { signal: controller.signal },
+            { timeoutMs: 5000, stream: true },
+        );
+        const reader = upstreamBodyStream(res)[Symbol.asyncIterator]();
+        await reader.next();
+        controller.abort();
+        await expect(reader.next()).rejects.toMatchObject({
+            name: 'AbortError',
+        });
     });
 });
 

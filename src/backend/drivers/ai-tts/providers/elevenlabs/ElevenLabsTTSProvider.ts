@@ -88,9 +88,10 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             method?: string;
             body?: unknown;
             headers?: Record<string, string>;
+            stream?: boolean;
         } = {},
     ): Promise<Response> {
-        const { method = 'GET', body, headers = {} } = opts;
+        const { method = 'GET', body, headers = {}, stream } = opts;
         return upstreamFetch(
             'ElevenLabs',
             `${this.baseUrl}${path}`,
@@ -103,7 +104,7 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
                 },
                 body: body ? JSON.stringify(body) : undefined,
             },
-            { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
+            { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS, stream },
         );
     }
 
@@ -225,7 +226,7 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             async () => {
                 const response = await this.request(
                     `/v1/text-to-speech/${voiceId}`,
-                    { method: 'POST', body: payload },
+                    { method: 'POST', body: payload, stream: true },
                 );
                 return {
                     dataType: 'stream',
