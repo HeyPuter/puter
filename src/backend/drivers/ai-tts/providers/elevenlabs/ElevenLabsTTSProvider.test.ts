@@ -411,6 +411,108 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
     });
 });
 
+describe('ElevenLabsTTSProvider.synthesize voice resolution', () => {
+    const catalogResponse = (
+        voices = [
+            { voice_id: 'bella-id', name: 'Bella' },
+            { voice_id: 'elli-id', name: 'Elli' },
+        ],
+    ) => new Response(JSON.stringify({ voices }));
+
+    it.each(['Bella', 'Elli'])('resolves %s to its voice ID', async (voice) => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(catalogResponse());
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice }),
+        );
+
+        expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+            'https://api.elevenlabs.io/v1/voices',
+            `https://api.elevenlabs.io/v1/text-to-speech/${voice.toLowerCase()}-id`,
+        ]);
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('prefers an exact ID over a matching voice name', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                { voice_id: 'other-id', name: 'bella-id' },
+                { voice_id: 'bella-id', name: 'Bella' },
+            ]),
+        );
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'bella-id' }),
+        );
+
+        expect(String(fetchSpy.mock.calls[1]![0])).toBe(
+            'https://api.elevenlabs.io/v1/text-to-speech/bella-id',
+        );
+    });
+
+    it.each(['Unknown', 'bella', '../voices'])(
+        'rejects unknown voice %s before synthesis',
+        async (voice) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(catalogResponse());
+
+            await expect(
+                withTestActor(() => provider.synthesize({ text: 'hi', voice })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'field_invalid',
+                message:
+                    'Unknown ElevenLabs voice. Use a voice ID or exact name from listVoices.',
+                fields: { key: 'voice' },
+            });
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('requires an ID when a name matches multiple voices', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                { voice_id: 'first-id', name: 'Bella' },
+                { voice_id: 'second-id', name: 'Bella' },
+            ]),
+        );
+
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice: 'Bella' }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'field_invalid',
+            message:
+                'Ambiguous ElevenLabs voice name. Use a voice ID from listVoices.',
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('propagates catalog failure without attempting synthesis or metering', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice: 'Bella' }),
+            ),
+        ).rejects.toMatchObject({
+            legacyCode: 'upstream_provider_unavailable',
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
 // ── Streaming output ────────────────────────────────────────────────
 
 describe('ElevenLabsTTSProvider.synthesize streaming output', () => {
@@ -503,6 +605,26 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
             legacyCode: 'upstream_bad_request',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [404, 'warn'],
+        [401, 'error'],
+        [503, 'error'],
+    ] as const)('logs upstream %s at %s', async (status, level) => {
+        const provider = makeProvider();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        fetchSpy.mockResolvedValueOnce(new Response('{}', { status }));
+
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi' })),
+        ).rejects.toMatchObject({ statusCode: status === 401 ? 500 : 400 });
+        expect(level === 'warn' ? warnSpy : errorSpy).toHaveBeenCalledWith(
+            '[ElevenLabsTTSProvider] request failed',
+            expect.objectContaining({ status }),
+        );
+        expect(level === 'warn' ? errorSpy : warnSpy).not.toHaveBeenCalled();
     });
 
     it('propagates fetch rejection without metering', async () => {

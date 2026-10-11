@@ -68,9 +68,11 @@ Available when `provider: 'elevenlabs'`:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_v4'`, `'eleven_v4_turbo'`, `'eleven_v3'`, `'eleven_v3_conversational'`, `'eleven_flash_v2_5'`, `'eleven_flash_v2'` |
-| `voice` | `String` | Voice ID. Defaults to `'21m00Tcm4TlvDq8ikWAM'` (Rachel sample voice) |
+| `voice` | `String` | Voice ID or exact, case-sensitive name from `listVoices({ provider: 'elevenlabs' })`. Defaults to `'21m00Tcm4TlvDq8ikWAM'` (Rachel sample voice) |
 | `output_format` | `String` | Output format. Defaults to `'mp3_44100_128'` |
 | `voice_settings` | `Object` | Voice tuning options (stability, similarity boost, speed) |
+
+Unknown voices and names matching multiple voices are rejected with HTTP 400 (`field_invalid`). Use a voice ID when names are ambiguous.
 
 For more details about each option, see the [ElevenLabs API reference](https://elevenlabs.io/docs/api-reference/text-to-speech).
 

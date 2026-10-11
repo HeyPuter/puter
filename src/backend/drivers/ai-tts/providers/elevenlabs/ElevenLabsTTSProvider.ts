@@ -99,7 +99,14 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             // ignore
         }
 
-        console.error('[ElevenLabsTTSProvider] request failed', {
+        const logFailure =
+            response.status >= 400 &&
+            response.status < 500 &&
+            response.status !== 401 &&
+            response.status !== 403
+                ? console.warn
+                : console.error;
+        logFailure('[ElevenLabsTTSProvider] request failed', {
             path,
             status: response.status,
             detail,
@@ -173,6 +180,23 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         );
     }
 
+    private async resolveVoiceId(voice: string): Promise<string> {
+        const voices = await this.listVoices();
+        const byId = voices.find((entry) => entry.id === voice);
+        if (byId) return byId.id;
+
+        const byName = voices.filter((entry) => entry.name === voice);
+        if (byName.length === 1) return byName[0].id;
+
+        throw new HttpError(
+            400,
+            byName.length > 1
+                ? 'Ambiguous ElevenLabs voice name. Use a voice ID from listVoices.'
+                : 'Unknown ElevenLabs voice. Use a voice ID or exact name from listVoices.',
+            { legacyCode: 'field_invalid', fields: { key: 'voice' } },
+        );
+    }
+
     async listEngines(): Promise<ITTSEngine[]> {
         return ELEVENLABS_TTS_MODELS.map((model) => ({
             id: model.id,
@@ -218,7 +242,6 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             });
         }
 
-        const voiceId = voiceArg || this.defaultVoiceId;
         const modelId = modelArg || DEFAULT_MODEL;
 
         // Gate on the cost table rather than the advertised model list: an id
@@ -254,6 +277,9 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         }
 
         try {
+            const voiceId = voiceArg
+                ? await this.resolveVoiceId(voiceArg)
+                : this.defaultVoiceId;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const payload: any = {
                 text,
@@ -267,7 +293,7 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             }
 
             const response = await this.request(
-                `/v1/text-to-speech/${voiceId}`,
+                `/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
                 {
                     method: 'POST',
                     body: payload,
