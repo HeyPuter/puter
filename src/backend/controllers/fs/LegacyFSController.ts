@@ -846,15 +846,14 @@ export class LegacyFSController extends PuterController {
             overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
-        await this.#emitGuiEvent('outer.gui.item.added', copy);
-        // Without this, every other client keeps a ghost row for the
-        // replaced entry until the directory is re-listed.
-        if (overwrittenEntry) {
-            await this.#emitGuiEvent(
-                'outer.gui.item.removed',
-                overwrittenEntry,
-            );
-        }
+        // Announcing the replaced entry's removal keeps other clients from
+        // showing a ghost row for it until the directory is re-listed.
+        await this.#emitGuiEvent(
+            'outer.gui.item.added',
+            copy,
+            undefined,
+            overwrittenEntry,
+        );
 
         // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
         // Array is historical — originally supported bulk copy.
@@ -941,17 +940,14 @@ export class LegacyFSController extends PuterController {
                 Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
-        await this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: oldPath,
-        });
-        // Without this, every other client keeps a ghost row for the
-        // replaced entry until the directory is re-listed.
-        if (overwrittenEntry) {
-            await this.#emitGuiEvent(
-                'outer.gui.item.removed',
-                overwrittenEntry,
-            );
-        }
+        // Announcing the replaced entry's removal keeps other clients from
+        // showing a ghost row for it until the directory is re-listed.
+        await this.#emitGuiEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: oldPath },
+            overwrittenEntry,
+        );
 
         // Legacy response shape: `{moved: fsentry, old_path, overwritten?}`.
         const legacyEntryOpts = {
@@ -2120,9 +2116,16 @@ export class LegacyFSController extends PuterController {
         eventName: GuiItemEventName,
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: import('../../stores/fs/FSEntry.js').FSEntry | null,
     ): Promise<void> {
         try {
-            await emitGuiItemEvent(this.clients.event, eventName, entry, extra);
+            await emitGuiItemEvent(
+                this.clients.event,
+                eventName,
+                entry,
+                extra,
+                replaced,
+            );
         } catch {
             // Non-critical — GUI event failure must never break the HTTP response.
         }

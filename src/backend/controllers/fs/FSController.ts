@@ -1675,13 +1675,12 @@ export class FSController extends PuterController {
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? false,
             newMetadata,
         });
-        this.#emitGuiItemEvent('outer.gui.item.moved', moved, {
-            old_path: source.path,
-        });
-        // Moving an entry onto its own path is not an overwrite.
-        if (replaced && replaced.uuid !== source.uuid) {
-            this.#emitGuiItemEvent('outer.gui.item.removed', replaced);
-        }
+        this.#emitGuiItemEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: source.path },
+            replaced,
+        );
         res.json(this.#toClientEntry(moved));
     }
 
@@ -1727,9 +1726,12 @@ export class FSController extends PuterController {
                 ? { storageAllowanceMax }
                 : {}),
         });
-        this.#emitGuiItemEvent('outer.gui.item.added', copy);
-        if (replaced)
-            this.#emitGuiItemEvent('outer.gui.item.removed', replaced);
+        this.#emitGuiItemEvent(
+            'outer.gui.item.added',
+            copy,
+            undefined,
+            replaced,
+        );
         res.json(this.#toClientEntry(copy));
     }
 
@@ -1961,6 +1963,7 @@ export class FSController extends PuterController {
         eventName: GuiItemEventName,
         entry: FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: FSEntry | null,
     ): void {
         void (async () => {
             try {
@@ -1969,6 +1972,7 @@ export class FSController extends PuterController {
                     eventName,
                     entry,
                     extra,
+                    replaced,
                 );
             } catch {
                 // ignore — non-critical.

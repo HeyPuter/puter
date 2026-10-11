@@ -586,13 +586,22 @@ export type GuiItemEventName =
  * Tell the entry's owner's open clients about a change. The desktop reads the
  * legacy entry shape plus per-event `extra` fields: `old_path` on moves,
  * `descendants_only` on removes.
+ *
+ * `replaced` is what an overwriting copy or move took the place of. Its
+ * `removed` goes out first: the desktop hides rows by path, so arriving second
+ * it would hide the new row too.
  */
 export async function emitGuiItemEvent(
     eventClient: EventClient,
     eventName: GuiItemEventName,
     entry: FSEntry,
     extra?: Record<string, unknown>,
+    replaced?: FSEntry | null,
 ): Promise<void> {
+    // Moving an entry onto its own path replaces nothing.
+    if (replaced && replaced.uuid !== entry.uuid) {
+        await emitGuiItemEvent(eventClient, 'outer.gui.item.removed', replaced);
+    }
     // `forOwner`: the audience is the owner, who can't read the actor's mask.
     const response = {
         ...(await toLegacyEntry(eventClient, entry, { forOwner: true })),

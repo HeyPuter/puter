@@ -1529,23 +1529,31 @@ describe('FSController GUI item events', () => {
     type GuiResponse = Record<string, unknown>;
 
     // The v2 routes don't await their emits, so wait for each expected event
-    // about `uid` to land.
+    // about `uid` to land. They must also land in the order given.
     const captureGuiEvents = async (
         expected: Array<[eventName: string, uid: string]>,
         run: () => Promise<unknown>,
     ): Promise<GuiResponse[]> => {
         const emitSpy = vi.spyOn(server.clients.event, 'emit');
-        const find = ([eventName, uid]: [string, string]) =>
-            emitSpy.mock.calls
-                .filter(([name]) => name === eventName)
-                .map(([, data]) => (data as { response: GuiResponse }).response)
-                .find((response) => response.uuid === uid);
+        const indexOf = ([eventName, uid]: [string, string]) =>
+            emitSpy.mock.calls.findIndex(
+                ([name, data]) =>
+                    name === eventName &&
+                    (data as { response: GuiResponse }).response.uuid === uid,
+            );
         try {
             await run();
             await vi.waitFor(() => {
-                for (const event of expected) expect(find(event)).toBeTruthy();
+                for (const event of expected)
+                    expect(indexOf(event)).toBeGreaterThanOrEqual(0);
             });
-            return expected.map((event) => find(event)!);
+            const order = expected.map(indexOf);
+            expect(order).toEqual([...order].sort((a, b) => a - b));
+            return order.map(
+                (i) =>
+                    (emitSpy.mock.calls[i]![1] as { response: GuiResponse })
+                        .response,
+            );
         } finally {
             emitSpy.mockRestore();
         }
@@ -1669,10 +1677,11 @@ describe('FSController GUI item events', () => {
         const source = await touch(actor, `/${username}/Documents/clash.txt`);
         const replaced = await touch(actor, `/${username}/Pictures/clash.txt`);
 
-        const [, removed] = await captureGuiEvents(
+        // Removal first: the desktop hides rows by path.
+        const [removed] = await captureGuiEvents(
             [
-                ['outer.gui.item.moved', source.uuid],
                 ['outer.gui.item.removed', replaced.uuid],
+                ['outer.gui.item.moved', source.uuid],
             ],
             () =>
                 withActor(actor, () =>
@@ -1692,30 +1701,46 @@ describe('FSController GUI item events', () => {
         expect(removed!.path).toBe(replaced.path);
     });
 
-    it('sends item.removed for the entry an overwriting copy replaces', async () => {
+    it('sends item.removed for the entry an overwriting copy replaces, first', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         const source = await touch(actor, `/${username}/Documents/dup.txt`);
         const replaced = await touch(actor, `/${username}/Pictures/dup.txt`);
 
-        const [removed] = await captureGuiEvents(
-            [['outer.gui.item.removed', replaced.uuid]],
-            () =>
-                withActor(actor, () =>
-                    controller.copyEntry(
-                        makeReq({
-                            body: {
-                                source: { path: source.path },
-                                destination: { path: `/${username}/Pictures` },
-                                overwrite: true,
-                            },
-                            actor,
-                        }),
-                        makeRes().res,
-                    ),
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        // GUI item events about the destination path, in emit order.
+        const atPath = () =>
+            emitSpy.mock.calls.flatMap(([name, data]) => {
+                const response = (data as { response?: GuiResponse })?.response;
+                return String(name).startsWith('outer.gui.item.') &&
+                    response?.path === replaced.path
+                    ? [[name, response.uuid]]
+                    : [];
+            });
+        try {
+            await withActor(actor, () =>
+                controller.copyEntry(
+                    makeReq({
+                        body: {
+                            source: { path: source.path },
+                            destination: { path: `/${username}/Pictures` },
+                            overwrite: true,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
                 ),
-        );
-        expect(removed!.path).toBe(replaced.path);
+            );
+            await vi.waitFor(() => expect(atPath()).toHaveLength(2));
+            // Removal first: the desktop hides rows by path.
+            expect(atPath()[0]).toEqual([
+                'outer.gui.item.removed',
+                replaced.uuid,
+            ]);
+            expect(atPath()[1]?.[0]).toBe('outer.gui.item.added');
+        } finally {
+            emitSpy.mockRestore();
+        }
     });
 
     it('applies new_metadata on move, as trashing does', async () => {
