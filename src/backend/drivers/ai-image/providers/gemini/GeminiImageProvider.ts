@@ -25,6 +25,7 @@ import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import {
     GEMINI_DEFAULT_RATIO,
     GEMINI_ESTIMATED_IMAGE_TOKENS,
+    GEMINI_ESTIMATED_TEXT_OUTPUT_TOKENS,
     GEMINI_IMAGE_GENERATION_MODELS,
 } from './models.js';
 import type {
@@ -188,9 +189,9 @@ export class GeminiImageProvider implements IImageProvider {
             selectedModel.costs.output_image,
         );
         const estimatedOutputTextCostInCents = this.#calculateTokenCostInCents(
-            50,
+            GEMINI_ESTIMATED_TEXT_OUTPUT_TOKENS[selectedModel.id] ?? 50,
             selectedModel.costs.output,
-        ); // small text overhead estimate
+        );
         const estimatedOutputCostInCents =
             estimatedOutputImageCostInCents + estimatedOutputTextCostInCents;
 
