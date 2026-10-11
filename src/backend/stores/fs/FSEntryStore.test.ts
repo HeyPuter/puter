@@ -988,6 +988,106 @@ describe('FSEntryStore timestamps and updates', () => {
         });
     });
 
+    it('updates a thumbnail by uuid and refreshes every cached key', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/th-any.txt`,
+        );
+        await store.getEntryByUuid(file.uuid);
+
+        await expect(
+            store.updateEntryThumbnailByUuid(
+                file.uuid,
+                'data:image/png;base64,CC',
+            ),
+        ).resolves.toBe(true);
+
+        await expect(store.getEntryByUuid(file.uuid)).resolves.toMatchObject({
+            modified: file.modified,
+        });
+        for (const cached of [
+            await store.getEntryByUuid(file.uuid),
+            await store.getEntryById(file.id),
+            await store.getEntryByPath(file.path),
+        ]) {
+            expect(cached?.thumbnail).toBe('data:image/png;base64,CC');
+        }
+    });
+
+    it('updates a thumbnail by uuid only while it holds the expected one', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/th-cas.txt`,
+            { thumbnail: 'data:image/png;base64,OLD' },
+        );
+
+        await expect(
+            store.updateEntryThumbnailByUuid(
+                file.uuid,
+                's3://puter-local/x',
+                'data:image/png;base64,OTHER',
+            ),
+        ).resolves.toBe(false);
+        expect(
+            (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
+        ).toBe('data:image/png;base64,OLD');
+
+        await expect(
+            store.updateEntryThumbnailByUuid(
+                file.uuid,
+                's3://puter-local/x',
+                'data:image/png;base64,OLD',
+            ),
+        ).resolves.toBe(true);
+        expect(
+            (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
+        ).toBe('s3://puter-local/x');
+    });
+
+    it('reports a thumbnail update even when the replica has not seen the row', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/th-lag.txt`,
+            { thumbnail: 'data:image/png;base64,OLD' },
+        );
+        await store.invalidateEntryCacheByUuid(file.uuid);
+
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const readSpy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(
+                async (query: string, params: unknown[] = []) =>
+                    query.includes('WHERE uuid = ? LIMIT 1') &&
+                    params[0] === file.uuid
+                        ? []
+                        : originalRead.call(db, query, params),
+            );
+        try {
+            await expect(
+                store.updateEntryThumbnailByUuid(
+                    file.uuid,
+                    's3://puter-local/lag',
+                    'data:image/png;base64,OLD',
+                ),
+            ).resolves.toBe(true);
+        } finally {
+            readSpy.mockRestore();
+        }
+        expect(
+            (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
+        ).toBe('s3://puter-local/lag');
+    });
+
+    it('updates no thumbnail for an unknown uuid', async () => {
+        await expect(
+            store.updateEntryThumbnailByUuid(uuidv4(), 'data:x'),
+        ).resolves.toBe(false);
+    });
+
     it('updateEntry returns and caches the primary row when the replica lags', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/stale.txt`);

@@ -1206,9 +1206,10 @@ export class LegacyFSController extends PuterController {
         const event = { url: thumbnail, uuid: entry.uuid };
         await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
-        await this.clients.db.write(
-            'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-            [event.url, uid],
+        // Not the owner-scoped update: a shared writer passed the check above.
+        await this.stores.fsEntry.updateEntryThumbnailByUuid(
+            entry.uuid,
+            event.url,
         );
         res.json({ thumbnail: event.url });
     };

@@ -1427,6 +1427,28 @@ export class FSEntryStore extends PuterStore {
         return result;
     }
 
+    /**
+     * Set an entry's thumbnail with no owner check; the caller authorizes. With
+     * `expectedThumbnail`, only a row still holding it changes. Whether a row
+     * changed, whatever the cache refresh after it finds.
+     */
+    async updateEntryThumbnailByUuid(
+        uuid: string,
+        thumbnail: string | null,
+        expectedThumbnail?: string,
+    ): Promise<boolean> {
+        const compare = expectedThumbnail !== undefined;
+        const writeResult = await this.clients.db.write(
+            `UPDATE fsentries SET thumbnail = ? WHERE uuid = ?${
+                compare ? ' AND thumbnail = ?' : ''
+            }`,
+            compare ? [thumbnail, uuid, expectedThumbnail] : [thumbnail, uuid],
+        );
+        if (this.#affectedRows(writeResult) === 0) return false;
+        await this.#entryAfterPatch(uuid, { thumbnail });
+        return true;
+    }
+
     async updateEntryThumbnailByUuidForUser(
         userId: number,
         uuid: string,

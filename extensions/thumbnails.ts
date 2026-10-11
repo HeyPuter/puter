@@ -7,11 +7,15 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extension } from '@heyputer/backend/src/extensions';
+import type { FSEntryStore } from '@heyputer/backend/src/stores/fs/FSEntryStore';
 import { isMissingObjectError } from '@heyputer/backend/src/stores/fs/S3ObjectStore';
 import crypto from 'node:crypto';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
 const clients = extension.import('client');
+const stores = extension.import('store');
+
+type ThumbnailEntryStore = Pick<FSEntryStore, 'updateEntryThumbnailByUuid'>;
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 const MAX_THUMBNAIL_PIXELS = 64e6;
@@ -133,13 +137,6 @@ function getClient(): S3Client {
 
 function getPresignClient(): S3Client {
     return resolveClients().presign;
-}
-
-function base64ParseDataUrl(dataURL: string) {
-    dataURL = dataURL.slice(5);
-    const mimeType = dataURL.split(';')[0];
-    const data = Buffer.from(dataURL.split(',')[1], 'base64');
-    return { mimeType, data };
 }
 
 // Strictly decode a data: URL and validate the decoded image. Encoded-string
@@ -304,7 +301,7 @@ export const handleThumbnailRead = async (
         s3Presign: S3Client;
         bucketName: string;
         bucketEndpoint: string;
-        db: { write: (sql: string, params: unknown[]) => Promise<unknown> };
+        fsEntry: ThumbnailEntryStore;
     },
 ): Promise<void> => {
     const thumb = entry.thumbnail;
@@ -325,32 +322,52 @@ export const handleThumbnailRead = async (
             { expiresIn: 604800 },
         );
     } else if (thumb.startsWith('data')) {
-        // Inline data-URL migration: upload to S3 and update the DB entry.
+        // Move an inline thumbnail into storage. The row only takes the new
+        // pointer while it still holds this data URL, so of concurrent reads
+        // one wins and the rest discard their upload.
         const uuid = entry.uuid ?? entry.uid;
         if (!isUuid(uuid)) return;
+        // Same bar as an upload; anything else stays inline, unmigrated.
+        const decoded = await decodeAndValidateThumbnail(thumb);
+        if (!decoded) return;
         const key = mintThumbnailKey(uuid);
-        const { mimeType, data } = base64ParseDataUrl(thumb);
-        const newUrl = `s3://${deps.bucketName}/${key}`;
 
         await deps.s3.send(
             new PutObjectCommand({
                 Bucket: deps.bucketName,
                 Key: key,
-                Body: data,
-                ContentType: mimeType,
+                Body: decoded.data,
+                ContentType: decoded.mimeType,
             }),
         );
 
-        // Best-effort async DB update
-        if (uuid) {
-            deps.db
-                .write(
-                    'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-                    [newUrl, uuid],
-                )
-                .catch((err: unknown) =>
-                    console.warn('[thumbnails] inline migration failed', err),
+        let migrated: boolean;
+        try {
+            migrated = await deps.fsEntry.updateEntryThumbnailByUuid(
+                uuid,
+                `s3://${deps.bucketName}/${key}`,
+                thumb,
+            );
+        } catch (err) {
+            // The row may or may not point at the object now, so keep it.
+            console.warn('[thumbnails] inline migration failed', err);
+            return;
+        }
+        if (!migrated) {
+            try {
+                await deps.s3.send(
+                    new DeleteObjectCommand({
+                        Bucket: deps.bucketName,
+                        Key: key,
+                    }),
                 );
+            } catch (err) {
+                console.warn(
+                    '[thumbnails] failed to remove unused thumbnail',
+                    err,
+                );
+            }
+            return;
         }
 
         entry.thumbnail = await getSignedUrl(
@@ -367,7 +384,7 @@ export const handleFsCopyNodeThumbnail = async (
         s3: S3Client;
         bucketName: string;
         bucketEndpoint: string;
-        db: { write: (sql: string, params: unknown[]) => Promise<unknown> };
+        fsEntry: ThumbnailEntryStore;
     },
 ): Promise<void> => {
     const copy = payload.copy;
@@ -419,17 +436,14 @@ export const handleFsCopyNodeThumbnail = async (
     } catch (err) {
         // The shared object is gone or oversized — drop the pointer rather
         // than leave the row advertising a thumbnail it doesn't have.
-        await deps.db.write(
-            'UPDATE `fsentries` SET `thumbnail` = NULL WHERE `uuid` = ?',
-            [copy.uuid],
-        );
+        await deps.fsEntry.updateEntryThumbnailByUuid(copy.uuid, null);
         console.warn('[thumbnails] failed to duplicate thumbnail on copy', err);
         return;
     }
 
-    await deps.db.write(
-        'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-        [`s3://${deps.bucketName}/${newKey}`, copy.uuid],
+    await deps.fsEntry.updateEntryThumbnailByUuid(
+        copy.uuid,
+        `s3://${deps.bucketName}/${newKey}`,
     );
 };
 
@@ -485,7 +499,7 @@ extension.on('thumbnail.read', async (_key, entry: Record<string, unknown>) => {
         s3Presign: getPresignClient(),
         bucketName: thumbnailBucketName,
         bucketEndpoint: extensionBucketEndpoint,
-        db: clients.db,
+        fsEntry: stores.fsEntry,
     });
 });
 
@@ -502,7 +516,7 @@ extension.on('fs.copy.node', async (_key, payload) => {
             s3: getClient(),
             bucketName: thumbnailBucketName,
             bucketEndpoint: extensionBucketEndpoint,
-            db: clients.db,
+            fsEntry: stores.fsEntry,
         },
     );
 });
