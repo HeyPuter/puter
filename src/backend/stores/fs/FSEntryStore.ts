@@ -2794,12 +2794,14 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * One page of a subtree in path order. A descendant's path sorts after its
-     * ancestor's, so `asc` reaches every parent before its children (a copy can
-     * create them in that order) and `desc` every child before its parent (a
-     * delete can go page by page without the `parent_id` cascade taking a row
-     * it has not seen). Pass the previous page's last row as `after`.
-     * Owner-blind, like `listDescendantsByPath`.
+     * One page of a subtree by depth, then id. `asc` reaches every parent
+     * before its children (a copy can create them in that order) and `desc`
+     * every child before its parent (a delete can go page by page without the
+     * `parent_id` cascade taking a row it has not seen). Pass the previous
+     * page's last row as `after`. Owner-blind, like `listDescendantsByPath`.
+     *
+     * Not path order: MySQL sorts only the first `max_sort_length` bytes of a
+     * PAD SPACE key, so long paths tie and a child can sort past its parent.
      */
     async listDescendantsInOrder(
         pathPrefix: string,
@@ -2813,17 +2815,20 @@ export class FSEntryStore extends PuterStore {
         const { after } = options;
         const dir = options.order === 'desc' ? 'DESC' : 'ASC';
         const cmp = options.order === 'desc' ? '<' : '>';
-        // `id` breaks ties between paths the collation treats as equal.
+        // Segment count: a name can't contain `/`, which is one byte and one
+        // character in every engine.
+        const depth = "(LENGTH(path) - LENGTH(REPLACE(path, '/', '')))";
+        const afterDepth = after ? after.path.split('/').length - 1 : 0;
         const seek = after
-            ? `AND (path ${cmp} ? OR (path = ? AND id ${cmp} ?))`
+            ? `AND (${depth} ${cmp} ? OR (${depth} = ? AND id ${cmp} ?))`
             : '';
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
              WHERE path LIKE ? ESCAPE '!' ${seek}
-             ORDER BY path ${dir}, id ${dir} LIMIT ?`,
+             ORDER BY ${depth} ${dir}, id ${dir} LIMIT ?`,
             [
                 likePattern,
-                ...(after ? [after.path, after.path, after.id] : []),
+                ...(after ? [afterDepth, afterDepth, after.id] : []),
                 Math.max(1, options.limit),
             ],
         )) as unknown as FSEntryRow[];
