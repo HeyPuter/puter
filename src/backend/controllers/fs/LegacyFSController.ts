@@ -49,7 +49,8 @@ import {
     parseSignedQuery,
     verifySignature,
 } from '../../util/fileSigning.js';
-import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
+import { APP_ICON_SIZES } from '../../util/appIcon.js';
+import { toAppSummary } from '../../util/appView.js';
 import {
     joinChildPath,
     normalizeAbsolutePath,
@@ -59,7 +60,7 @@ import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     buildHostedBackingDenial,
-    hostedIndexUrlBackingIsUnavailable,
+    hostedIndexUrlBackingsAreUnavailable,
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { listClientShares } from '../share/clientShare.js';
@@ -346,13 +347,8 @@ export class LegacyFSController extends PuterController {
             '/get-launch-apps',
             { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
             async (req, res) => {
-                const recommendedSvc = this.services
-                    .recommendedApps as unknown as
-                    | { getRecommendedApps?: () => Promise<unknown[]> }
-                    | undefined;
-                const recommended = recommendedSvc?.getRecommendedApps
-                    ? await recommendedSvc.getRecommendedApps()
-                    : [];
+                const recommended =
+                    await this.services.recommendedApps.getRecommendedApps();
 
                 // The direct icon URL names a size; honour the one the
                 // caller asked for so the client isn't handed a 256px PNG for
@@ -365,32 +361,18 @@ export class LegacyFSController extends PuterController {
                 let recent: unknown[] = [];
                 const userId = req.actor?.user?.id;
                 if (userId) {
-                    const recentUids =
-                        (await (
-                            this.stores.app as unknown as {
-                                getRecentAppOpens?: (
-                                    id: number,
-                                    opts?: { limit?: number },
-                                ) => Promise<string[]>;
-                            }
-                        ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
-                    // One batched read for the rows, then the backing checks
-                    // concurrently. Serially awaiting a lookup per uid put ~2
-                    // round trips of latency on every desktop boot.
-                    const appsByUid = await (
-                        this.stores.app as unknown as {
-                            getByUids: (
-                                uids: string[],
-                            ) => Promise<Map<string, Record<string, unknown>>>;
-                        }
-                    ).getByUids(recentUids);
+                    const recentUids = await this.stores.app.getRecentAppOpens(
+                        userId,
+                        { limit: 10 },
+                    );
+                    const appsByUid =
+                        await this.stores.app.getByUids(recentUids);
 
                     // `recentUids` is ordered most-recent-first; preserve it.
-                    const orderedApps = recentUids
-                        .map((uid) => appsByUid.get(uid))
-                        .filter((app): app is Record<string, unknown> =>
-                            Boolean(app),
-                        );
+                    const orderedApps: Array<Record<string, unknown>> =
+                        recentUids
+                            .map((uid: string) => appsByUid.get(uid))
+                            .filter(Boolean);
 
                     // Don't hand out an index_url whose puter-hosted backing is
                     // gone or reclaimed. The taskbar launches recents by name (so
@@ -398,41 +380,30 @@ export class LegacyFSController extends PuterController {
                     // launch-metadata producer like any other — a future consumer
                     // reading index_url straight off it shouldn't inherit a stale
                     // origin.
-                    const backingGoneFlags = await Promise.all(
-                        orderedApps.map((app) =>
-                            hostedIndexUrlBackingIsUnavailable({
-                                app,
+                    let backingGoneFlags: boolean[];
+                    try {
+                        backingGoneFlags =
+                            await hostedIndexUrlBackingsAreUnavailable({
+                                apps: orderedApps,
                                 subdomainStore: this.stores.subdomain,
                                 config: this.config,
-                            }).catch(() => true),
-                        ),
-                    );
+                            });
+                    } catch {
+                        backingGoneFlags = orderedApps.map(() => true);
+                    }
 
                     recent = orderedApps.map((app, index) => {
                         const backingGone = backingGoneFlags[index];
                         return {
-                            uuid: app.uid,
-                            name: app.name,
-                            title: app.title,
-                            icon: app.icon ?? null,
-                            // Direct subdomain URL for the client to try
-                            // before `icon`.
-                            iconCdnUrl: getAppIconCdnUrl(
-                                app,
-                                this.config,
+                            ...toAppSummary(app, {
+                                config: this.config,
                                 iconSize,
-                            ),
-                            godmode: Boolean(app.godmode),
-                            maximize_on_start: Boolean(app.maximize_on_start),
+                            }),
+                            icon: app.icon ?? null,
                             index_url: backingGone ? null : app.index_url,
                             ...(backingGone
                                 ? { privateAccess: buildHostedBackingDenial() }
                                 : {}),
-                            // An app with no owner isn't owned by a Puter user —
-                            // it's an "external" (origin-bootstrapped) app.
-                            external:
-                                app.owner_user_id == null ||
-                                app.owner_user_id === '',
                         };
                     });
                 }

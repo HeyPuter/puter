@@ -31,7 +31,6 @@ import { SubdomainDriver } from './subdomain/SubdomainDriver';
 import type { IPuterDriverRegistry } from './types';
 import { WorkerDriver } from './workers/WorkerDriver';
 
-export { Driver } from './decorators';
 export { resolveDriverMeta } from './meta';
 
 export const puterDrivers = {

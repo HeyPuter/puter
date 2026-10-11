@@ -4975,7 +4975,7 @@ describe('LegacyFSController GET /get-launch-apps', () => {
         await recordOpen(userId, app.uid);
 
         const spy = vi
-            .spyOn(server.stores.subdomain, 'getBySubdomain')
+            .spyOn(server.stores.subdomain, 'getBySubdomains')
             .mockRejectedValue(new Error('db down'));
         try {
             const entry = (await fetchRecent(actor)).find(

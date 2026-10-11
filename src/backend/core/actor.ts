@@ -18,6 +18,9 @@
  */
 
 import { UserRow } from '../stores/user/UserStore';
+import { Context } from './context';
+import { HttpError } from './http/HttpError';
+import { assertVerifiedEmail } from './http/verifiedEmail';
 
 export interface ActorApp {
     uid: string;
@@ -114,6 +117,60 @@ export const assertResolvedActor = (actor: Actor): Actor => {
         );
     }
     return actor;
+};
+
+/** An actor acting for a user, as most driver methods require. */
+export type UserActor = Actor & {
+    user: { id: number; uuid: string; username: string };
+};
+
+const authenticationRequired = () =>
+    new HttpError(401, 'Authentication required', {
+        legacyCode: 'unauthorized',
+    });
+
+/** The request's actor; 401 when the request carries none. */
+export const requireContextActor = (): Actor => {
+    const actor = Context.get('actor');
+    if (!actor) throw authenticationRequired();
+    return actor;
+};
+
+/** The request's actor, which must act for a user; 401 otherwise. */
+export const requireContextUserActor = (): UserActor => {
+    const actor = Context.get('actor');
+    if (!actor?.user?.id) throw authenticationRequired();
+    return actor as UserActor;
+};
+
+/**
+ * The driver-level twin of the HTTP `requireVerified` gate, so `/drivers/call`
+ * can't bypass it. Inert unless `strict_email_verification_required` is set:
+ * installs without SMTP must not be bricked.
+ */
+export const assertActorEmailVerified = (
+    actor: Actor,
+    config: { strict_email_verification_required?: unknown },
+): void => {
+    assertVerifiedEmail(
+        Boolean(config.strict_email_verification_required),
+        actor.user,
+        400,
+    );
+};
+
+/**
+ * Whether `actor` owns a row: its user is the row's owner, and an app actor is
+ * also the app that created it. Both halves matter, since `app_owner` alone is
+ * shared by every user of that app.
+ */
+export const actorOwnsRow = (
+    actor: Actor,
+    row: { ownerUserId: unknown; appOwnerId: unknown },
+): boolean => {
+    const app = actor.effectiveApp;
+    if (app?.id && app.id !== row.appOwnerId) return false;
+    return actor.user?.id === row.ownerUserId;
 };
 
 export const isSystemActor = (actor: Actor | undefined | null): boolean => {

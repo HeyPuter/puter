@@ -618,6 +618,48 @@ describe('AppController GET /apps/:name', () => {
         expect(body.index_url).toBeUndefined();
         expect(body.privateAccess).toMatchObject({ hasAccess: false });
     });
+
+    it('asks the private-access hook once per private app and withholds its index_url', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const app = await createApp(owner.actor, { name: uniqueName('priv') });
+        const other = await createApp(owner.actor, { name: uniqueName('pub') });
+        await server.clients.db.write(
+            'UPDATE `apps` SET `is_private` = 1 WHERE `uid` = ?',
+            [app.uid],
+        );
+        await server.stores.app.invalidateByUid(app.uid as string);
+        const emit = vi.spyOn(server.clients.event, 'emitAndWait');
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(stranger.actor, () =>
+                callRoute(
+                    'get',
+                    '/apps/:name',
+                    makeReq({
+                        params: { name: `${app.name}|${other.name}` },
+                        actor: stranger.actor,
+                    }),
+                    res,
+                ),
+            );
+            const [priv, pub] = captured.body as Array<Record<string, unknown>>;
+            expect(priv!.index_url).toBeUndefined();
+            expect(priv!.privateAccess).toMatchObject({ hasAccess: false });
+            expect(pub!.privateAccess).toEqual({
+                hasAccess: true,
+                checkedBy: 'core/public-app',
+            });
+            expect(
+                emit.mock.calls.filter(
+                    (call) => call[0] === 'app.privateAccess.resolveLaunch',
+                ),
+            ).toHaveLength(1);
+        } finally {
+            emit.mockRestore();
+        }
+    });
 });
 
 // ── POST /query/app ─────────────────────────────────────────────────
@@ -791,6 +833,61 @@ describe('AppController POST /query/app', () => {
         const body = captured.body as Array<Record<string, unknown>>;
         expect(body).toHaveLength(1);
         expect(body[0]?.name).toBe(app.name);
+    });
+
+    it('resolves every selector with batched lookups, not one per selector', async () => {
+        const owner = await makeUser();
+        const apps = await Promise.all(
+            [0, 1, 2].map(() =>
+                createApp(owner.actor, {
+                    name: uniqueName('batch'),
+                    filetype_associations: ['.batchq'],
+                }),
+            ),
+        );
+        const appStore = server.stores.app;
+        const spies = {
+            getByName: vi.spyOn(appStore, 'getByName'),
+            getByUid: vi.spyOn(appStore, 'getByUid'),
+            getFiletypeAssociations: vi.spyOn(
+                appStore,
+                'getFiletypeAssociations',
+            ),
+            getByNames: vi.spyOn(appStore, 'getByNames'),
+            getByUids: vi.spyOn(appStore, 'getByUids'),
+            getFiletypeAssociationsByIds: vi.spyOn(
+                appStore,
+                'getFiletypeAssociationsByIds',
+            ),
+        };
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(owner.actor, () =>
+                callRoute(
+                    'post',
+                    '/query/app',
+                    makeReq({
+                        body: [apps[0]!.name, apps[1]!.name, apps[2]!.uid],
+                        actor: owner.actor,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Array<Record<string, unknown>>;
+            expect(body.map((item) => item.uuid)).toEqual(
+                apps.map((app) => app.uid),
+            );
+            expect(body[2]!.associations).toEqual(['batchq']);
+            expect(spies.getByName).not.toHaveBeenCalled();
+            expect(spies.getByUid).not.toHaveBeenCalled();
+            expect(spies.getFiletypeAssociations).not.toHaveBeenCalled();
+            expect(spies.getByNames).toHaveBeenCalledTimes(1);
+            expect(spies.getByUids).toHaveBeenCalledTimes(1);
+            expect(spies.getFiletypeAssociationsByIds).toHaveBeenCalledTimes(1);
+        } finally {
+            for (const spy of Object.values(spies)) spy.mockRestore();
+        }
     });
 });
 

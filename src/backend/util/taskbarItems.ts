@@ -18,7 +18,7 @@
  */
 
 import type { AppIconHostConfig } from './appIcon.js';
-import { getAppIconCdnUrl, getAppIconUrl } from './appIcon.js';
+import { toAppSummary, type AppRow } from './appView.js';
 
 interface TaskbarEntry {
     name?: string;
@@ -35,21 +35,17 @@ interface TaskbarOptions {
 interface TaskbarDeps {
     apiBaseUrl?: string;
     config?: AppIconHostConfig;
-    clients: {
-        db: {
-            write: (query: string, params?: unknown[]) => Promise<unknown>;
-        };
-    };
     stores: {
         app: {
-            getByName: (
-                name: string,
-            ) => Promise<Record<string, unknown> | null>;
-            getByUid: (uid: string) => Promise<Record<string, unknown> | null>;
-            getById: (id: number) => Promise<Record<string, unknown> | null>;
+            getByNames: (names: string[]) => Promise<Map<string, AppRow>>;
+            getByUids: (uids: string[]) => Promise<Map<string, AppRow>>;
+            getByIds: (ids: number[]) => Promise<Map<number, AppRow>>;
         };
         user: {
-            invalidateById: (id: number) => Promise<unknown>;
+            update: (
+                id: number,
+                patch: Record<string, unknown>,
+            ) => Promise<unknown>;
         };
     };
 }
@@ -74,11 +70,9 @@ export async function getTaskbarItems(
 
     if (!user.taskbar_items) {
         raw = DEFAULT_TASKBAR_ITEMS;
-        await deps.clients.db.write(
-            'UPDATE `user` SET `taskbar_items` = ? WHERE `id` = ?',
-            [JSON.stringify(raw), user.id],
-        );
-        await deps.stores.user.invalidateById(user.id as number);
+        await deps.stores.user.update(user.id as number, {
+            taskbar_items: JSON.stringify(raw),
+        });
     } else {
         try {
             raw =
@@ -90,41 +84,49 @@ export async function getTaskbarItems(
         }
     }
 
+    const entries = raw.filter(
+        (entry) => entry.type === 'app' && entry.name !== 'explorer',
+    );
+    const [byName, byUid, byId] = await Promise.all([
+        deps.stores.app.getByNames(
+            entries.flatMap((entry) => (entry.name ? [entry.name] : [])),
+        ),
+        deps.stores.app.getByUids(
+            entries.flatMap((entry) =>
+                !entry.name && entry.uid ? [entry.uid] : [],
+            ),
+        ),
+        deps.stores.app.getByIds(
+            entries.flatMap((entry) =>
+                !entry.name && !entry.uid && entry.id ? [entry.id] : [],
+            ),
+        ),
+    ]);
+
     const items: Array<Record<string, unknown>> = [];
-
-    for (const entry of raw) {
-        if (entry.type !== 'app') continue;
-        if (entry.name === 'explorer') continue;
-
-        let app: Record<string, unknown> | null = null;
-        if (entry.name) app = await deps.stores.app.getByName(entry.name);
-        else if (entry.uid) app = await deps.stores.app.getByUid(entry.uid);
-        else if (entry.id) app = await deps.stores.app.getById(entry.id);
+    for (const entry of entries) {
+        const app = entry.name
+            ? byName.get(entry.name)
+            : entry.uid
+              ? byUid.get(entry.uid)
+              : entry.id
+                ? byId.get(entry.id)
+                : undefined;
         if (!app) continue;
 
         const item: Record<string, unknown> = {
             uid: app.uid,
-            uuid: app.uid,
-            name: app.name,
-            title: app.title,
-            icon: app.icon ?? null,
-            godmode: Boolean(app.godmode),
-            maximize_on_start: Boolean(app.maximize_on_start),
-            index_url: app.index_url,
+            ...toAppSummary(app, {
+                apiBaseUrl: deps.apiBaseUrl,
+                config: deps.config,
+                iconSize: options.iconSize,
+            }),
             description: app.description,
         };
-
         if (options.noIcons) {
             delete item.icon;
-        } else {
-            item.icon =
-                getAppIconUrl(app, deps, options.iconSize) ?? app.icon ?? null;
-            // Direct subdomain URL for the client to try before `icon`.
-            item.iconCdnUrl = deps.config
-                ? getAppIconCdnUrl(app, deps.config, options.iconSize)
-                : null;
+            delete item.iconCdnUrl;
         }
-
         items.push(item);
     }
 
