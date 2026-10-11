@@ -1429,14 +1429,14 @@ export class FSEntryStore extends PuterStore {
 
     /**
      * Set an entry's thumbnail with no owner check; the caller authorizes. With
-     * `expectedThumbnail`, only a row still holding it changes. Null when no
-     * row was changed.
+     * `expectedThumbnail`, only a row still holding it changes. Whether a row
+     * changed, whatever the cache refresh after it finds.
      */
     async updateEntryThumbnailByUuid(
         uuid: string,
         thumbnail: string | null,
         expectedThumbnail?: string,
-    ): Promise<FSEntry | null> {
+    ): Promise<boolean> {
         const compare = expectedThumbnail !== undefined;
         const writeResult = await this.clients.db.write(
             `UPDATE fsentries SET thumbnail = ? WHERE uuid = ?${
@@ -1444,8 +1444,9 @@ export class FSEntryStore extends PuterStore {
             }`,
             compare ? [thumbnail, uuid, expectedThumbnail] : [thumbnail, uuid],
         );
-        if (this.#affectedRows(writeResult) === 0) return null;
-        return this.#entryAfterPatch(uuid, { thumbnail });
+        if (this.#affectedRows(writeResult) === 0) return false;
+        await this.#entryAfterPatch(uuid, { thumbnail });
+        return true;
     }
 
     async updateEntryThumbnailByUuidForUser(

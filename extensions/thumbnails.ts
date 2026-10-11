@@ -343,12 +343,11 @@ export const handleThumbnailRead = async (
 
         let migrated: boolean;
         try {
-            migrated =
-                (await deps.fsEntry.updateEntryThumbnailByUuid(
-                    uuid,
-                    `s3://${deps.bucketName}/${key}`,
-                    thumb,
-                )) !== null;
+            migrated = await deps.fsEntry.updateEntryThumbnailByUuid(
+                uuid,
+                `s3://${deps.bucketName}/${key}`,
+                thumb,
+            );
         } catch (err) {
             // The row may or may not point at the object now, so keep it.
             console.warn('[thumbnails] inline migration failed', err);

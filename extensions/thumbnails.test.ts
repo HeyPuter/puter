@@ -681,7 +681,7 @@ describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
         client: S3Client = s3,
     ) => {
         const fsEntry = {
-            updateEntryThumbnailByUuid: vi.fn().mockResolvedValue(null),
+            updateEntryThumbnailByUuid: vi.fn().mockResolvedValue(true),
         };
         await handleFsCopyNodeThumbnail(
             { copy: { thumbnail, uuid: copyUuid } },
