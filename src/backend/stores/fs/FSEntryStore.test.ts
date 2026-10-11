@@ -2062,6 +2062,8 @@ describe('FSEntryStore subtree walks', () => {
         await createFile(user, `${root.path}/b.txt`);
         await createFile(user, `${sub.path}/c.txt`);
         await createFile(user, `${sub.path}/d.txt`);
+        // Sorts after `sub/*` by path, so path order would interleave depths.
+        await createFile(user, `${root.path}/z.txt`);
     });
 
     it('reads the chain above a path deepest first, skipping missing levels', async () => {
@@ -2117,6 +2119,10 @@ describe('FSEntryStore subtree walks', () => {
         expect([...paths(down)].sort()).toEqual([...paths(all)].sort());
         expect(new Set(paths(down)).size).toBe(all.length);
         expect(paths(up)).toEqual([...paths(down)].reverse());
+
+        // Shallowest first, whatever the names sort as.
+        const depths = down.map((e) => e.path.split('/').length);
+        expect(depths).toEqual([...depths].sort((a, b) => a - b));
 
         // Each directory comes before everything under it on the way down.
         const position = new Map(down.map((e, i) => [e.path, i]));

@@ -5084,9 +5084,8 @@ export class FSService extends PuterService {
             { uid: newRoot.uid, path: newRoot.path },
         ]);
 
-        // Parents sort before their children, so a page read in path order
-        // finds every parent already copied once it is taken a depth at a
-        // time: each depth is one batch of inserts and S3 copies.
+        // Pages come shallowest first, so every parent is copied before its
+        // children; each depth in a page is one batch of inserts and S3 copies.
         const newByOldPath = new Map<string, FSEntry>([[source.path, newRoot]]);
         const limit = FSService.SUBTREE_PAGE_SIZE;
         let after: FSEntry | undefined;
