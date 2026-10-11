@@ -38,7 +38,7 @@ import { responseSamplingParams } from '../../utils/responseSampling.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
-import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { sdkClientOptions, sdkRetryOptions } from '../../utils/sdkClient.js';
 import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const ANTHROPIC_WEB_SEARCH_TYPE = (type: unknown): boolean =>
@@ -366,10 +366,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
     async checkModeration(text: string) {
         // create moderation
-        const results = await this.#openAi.moderations.create({
-            model: 'omni-moderation-latest',
-            input: text,
-        });
+        const results = await this.#openAi.moderations.create(
+            { model: 'omni-moderation-latest', input: text },
+            sdkRetryOptions,
+        );
 
         let flagged = false;
 

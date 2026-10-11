@@ -35,6 +35,12 @@ export const sdkClientOptions = (timeoutMs = SDK_TIMEOUT_MS) => ({
 });
 
 /**
+ * Request options for a call the driver can't fall back from, like a moderation
+ * check: the SDK's default two retries stay on.
+ */
+export const sdkRetryOptions = { maxRetries: 2 };
+
+/**
  * `signal` bounded by the SDK timeout, for an SDK with no timeout of its own
  * once a caller's signal is passed (Mistral's). It bounds the whole response,
  * so it's for non-streaming calls only.

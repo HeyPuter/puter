@@ -40,7 +40,7 @@ import {
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
-import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { sdkClientOptions, sdkRetryOptions } from '../../utils/sdkClient.js';
 import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
@@ -295,10 +295,10 @@ export class OpenAiChatProvider implements IChatProvider {
 
     async checkModeration(text: string) {
         // create moderation
-        const results = await this.#openAi.moderations.create({
-            model: 'omni-moderation-latest',
-            input: text,
-        });
+        const results = await this.#openAi.moderations.create(
+            { model: 'omni-moderation-latest', input: text },
+            sdkRetryOptions,
+        );
 
         let flagged = false;
 

@@ -879,10 +879,12 @@ describe('OpenAiChatProvider.checkModeration', () => {
 
         const result = await provider.checkModeration('something risky');
 
-        expect(moderationsCreateMock).toHaveBeenCalledWith({
-            model: 'omni-moderation-latest',
-            input: 'something risky',
-        });
+        // The driver can't fall back from a moderation check, so it keeps
+        // the SDK retries the completion clients turn off.
+        expect(moderationsCreateMock).toHaveBeenCalledWith(
+            { model: 'omni-moderation-latest', input: 'something risky' },
+            { maxRetries: 2 },
+        );
         expect(result.flagged).toBe(true);
     });
 
