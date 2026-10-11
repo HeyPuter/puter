@@ -179,6 +179,7 @@ export class NotificationDriver extends PuterDriver {
                 legacyCode: 'internal_error',
             });
         }
+        // `notify` hands back only the uid; the primary has the rest.
         return this.#toClient(
             await this.stores.notification.getByUid(uid, {
                 userId: actor.user.id,

@@ -167,17 +167,9 @@ export class NotificationStore extends PuterStore {
     // -- Writes -------------------------------------------------------
 
     /**
-     * Write a notification and return the stored row, read from the primary.
-     *
-     * @param {NotificationInsert} args
-     */
-    async create(args) {
-        const uid = await this.insert(args);
-        return this.getByUid(uid, { userId: args.userId, primary: true });
-    }
-
-    /**
-     * `create` without the read-back; returns the uid only.
+     * Write a notification and return its row, built from what was written:
+     * `created_at` is stamped here rather than defaulted, so nothing needs
+     * reading back.
      *
      * `uid` lets the caller name the row up front — NotificationService pushes
      * the uid to the socket after this insert lands, and the ack / mark-shown
@@ -188,9 +180,8 @@ export class NotificationStore extends PuterStore {
      * the empty `type` written by a caller that names none reads as legacy.
      *
      * @param {NotificationInsert} args
-     * @returns {Promise<string>}
      */
-    async insert({
+    async create({
         userId,
         value,
         uid = uuidv4(),
@@ -198,14 +189,39 @@ export class NotificationStore extends PuterStore {
         audience = 'account',
         appUid = null,
     }) {
-        if (!userId) throw new Error('insert: userId is required');
+        if (!userId) throw new Error('create: userId is required');
+        const db = this.clients.db;
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
-        await this.clients.db.write(
-            'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, `audience`, `app_uid`) VALUES (?, ?, ?, ?, ?, ?)',
-            [uid, userId, serialized, type, audience, appUid],
+        const createdAt = Math.floor(Date.now() / 1000);
+        const { insertId } = await db.write(
+            'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, ' +
+                '`audience`, `app_uid`, `created_at`) VALUES ' +
+                `(?, ?, ?, ?, ?, ?, ${db.timestampFromUnixSql()})${db.returningIdClause()}`,
+            [uid, userId, serialized, type, audience, appUid, createdAt],
         );
-        return uid;
+        return this.#normalizeRow({
+            id: Number(insertId),
+            uid,
+            user_id: userId,
+            value: serialized,
+            acknowledged: null,
+            shown: null,
+            created_at: db.timestampValue(createdAt),
+            app_uid: appUid,
+            audience,
+            type,
+        });
+    }
+
+    /**
+     * `create` for a caller that needs only the uid.
+     *
+     * @param {NotificationInsert} args
+     * @returns {Promise<string>}
+     */
+    async insert(args) {
+        return (await this.create(args)).uid;
     }
 
     /**

@@ -240,6 +240,31 @@ export class AbstractDatabaseClient extends PuterClient {
         });
     }
 
+    /**
+     * A timestamp column value from one bound parameter in unix seconds, stored
+     * the way `CURRENT_TIMESTAMP` would store that instant.
+     */
+    timestampFromUnixSql(): string {
+        return this.case({
+            sqlite: "datetime(?, 'unixepoch')",
+            postgres: 'to_timestamp(?)',
+            otherwise: 'FROM_UNIXTIME(?)',
+        });
+    }
+
+    /**
+     * What a read of a timestamp column holding `seconds` returns: sqlite gives
+     * back the UTC text it stored, mysql2 and pg a `Date` read in node's time
+     * zone (so this matches when node and the database session share one).
+     */
+    timestampValue(seconds: number): Date | string {
+        const date = new Date(seconds * 1000);
+        return this.case<Date | string>({
+            sqlite: date.toISOString().slice(0, 19).replace('T', ' '),
+            otherwise: date,
+        });
+    }
+
     protected sqlStringLiteral(value: string): string {
         return `'${value.replaceAll("'", "''")}'`;
     }

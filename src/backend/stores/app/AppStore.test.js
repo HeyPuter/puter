@@ -1215,6 +1215,46 @@ describe('AppStore CRUD and cache invalidation', () => {
         const cached = await cachedByUid(stale.uid);
         expect(cached === null || cached.owner_user_id === OWNER).toBe(true);
     });
+
+    it('returns and caches a created app as the table holds it, without reading it back', async () => {
+        const origin = `https://${freshName()}.built.test`;
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        let created;
+        let reads;
+        try {
+            created = [
+                await createApp({
+                    title: 'Built',
+                    description: 'every column',
+                    icon: 'data:image/png;base64,AA==',
+                    maximize_on_start: true,
+                    metadata: JSON.stringify({ category: 'tools' }),
+                }),
+                await appStore.createFromOrigin(uid, origin),
+            ];
+        } finally {
+            reads = [...read.mock.calls, ...pread.mock.calls].filter(([q]) =>
+                /FROM `apps`/u.test(q),
+            );
+            read.mockRestore();
+            pread.mockRestore();
+        }
+        expect(reads).toEqual([]);
+
+        for (const app of created) {
+            expect(await cachedByUid(app.uid)).toEqual(
+                JSON.parse(JSON.stringify(app)),
+            );
+            await redis.del(
+                `apps:id:${app.id}`,
+                `apps:uid:${app.uid}`,
+                `apps:name:${app.name}`,
+            );
+            expect(app).toEqual(await appStore.getById(app.id));
+        }
+    });
 });
 
 describe('AppStore detailed stats', () => {
