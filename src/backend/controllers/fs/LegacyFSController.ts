@@ -69,6 +69,7 @@ import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
     FS_BATCH_LIMIT,
+    FS_BATCH_WRITE_MAX_ITEMS,
     FS_DF_LIMIT,
     FS_HELPER_LIMIT,
     FS_MUTATE_LIMIT,
@@ -122,6 +123,9 @@ const BATCH_MAX_FIELD_SIZE = 1 * 1024 * 1024; // 1 MiB per operation/fileinfo JS
 // Multipart carries at most one op per part, so JSON mode gets the same bound.
 const BATCH_MAX_OPS = BATCH_MAX_PARTS;
 const BATCH_MUTATING_OPS = new Set(['mkdir', 'shortcut', 'move', 'delete']);
+
+/** Rows per `readdir-subdomains` read; the response pages until done. */
+const SUBDOMAIN_PAGE_SIZE = 500;
 
 // An op's `as` names the path it produced; later ops in the same batch refer
 // to it as `$name` or `$name/rest`, since a deduped mkdir can land elsewhere.
@@ -992,6 +996,13 @@ export class LegacyFSController extends PuterController {
         const descendantsOnly = getBoolean(body, 'descendants_only') ?? false;
         const pathsArray = Array.isArray(body.paths) ? body.paths : null;
         if (pathsArray) {
+            if (pathsArray.length > FS_BATCH_WRITE_MAX_ITEMS) {
+                throw new HttpError(
+                    400,
+                    `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
             const removedEntries: unknown[] = [];
             for (const raw of pathsArray) {
                 const entry = await resolveV1Selector(this.stores.fsEntry, raw);
@@ -1154,11 +1165,25 @@ export class LegacyFSController extends PuterController {
             return;
         }
         const userId = this.#getActorUserId(req);
-        const rows = await this.clients.db.read(
-            'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
-            [userId],
-        );
-        res.json(rows);
+        const sites: Array<Record<string, unknown>> = [];
+        let afterId: number | undefined;
+        for (;;) {
+            const page = (await this.stores.subdomain.listByUserId(userId, {
+                afterId,
+                limit: SUBDOMAIN_PAGE_SIZE,
+            })) as Array<Record<string, unknown>>;
+            for (const row of page) {
+                sites.push({
+                    subdomain: row.subdomain,
+                    root_dir_id: row.root_dir_id,
+                    uuid: row.uuid,
+                    ts: row.ts,
+                });
+            }
+            if (page.length < SUBDOMAIN_PAGE_SIZE) break;
+            afterId = Number(page[page.length - 1]!.id);
+        }
+        res.json(sites);
     };
 
     updateFsentryThumbnail = async (

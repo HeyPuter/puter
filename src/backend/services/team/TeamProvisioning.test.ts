@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { configContainer } from '../../exports.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { generateDefaultFsentries } from '../../util/userProvisioning.ts';
@@ -112,6 +113,25 @@ describe('team account provisioning: home path conflicts', () => {
         await expect(
             server.stores.user.getByUsername(username, { force: true }),
         ).resolves.toBeNull();
+    });
+
+    it('puts a provisioned seat in the default user group, as signup does', async () => {
+        const owner = await makeUser();
+        const team = await makeTeam(owner.id);
+        const username = `tp_${Math.random().toString(36).slice(2, 10)}`;
+        const group = configContainer.default_user_group as string;
+        expect(group).toBeTruthy();
+
+        const { userId } = await service.provisionAccount(team.uid, owner.id, {
+            username,
+        });
+
+        const rows = (await server.clients.db.read(
+            'SELECT 1 FROM jct_user_group j JOIN `group` g ON g.id = j.group_id ' +
+                'WHERE j.user_id = ? AND g.uid = ?',
+            [userId, group],
+        )) as unknown[];
+        expect(rows).toHaveLength(1);
     });
 
     it('does not suggest a name whose home path is occupied', async () => {

@@ -172,21 +172,17 @@ describe('PeerController', () => {
             ingestHandler = route!.handler;
         });
 
-        it('rejects requests without valid internal auth secret', async () => {
-            const req = makeReq({
-                body: { records: [] },
-                headers: { 'x-puter-internal-auth': 'wrong-secret' },
-            });
-            await expect(
-                ingestHandler(req, makeRes().res),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        });
-
-        it('rejects requests with missing auth header', async () => {
-            const req = makeReq({ body: { records: [] } });
-            await expect(
-                ingestHandler(req, makeRes().res),
-            ).rejects.toMatchObject({ statusCode: 403 });
+        it('is gated on the configured internal auth secret', () => {
+            const router = new PuterRouter();
+            controller.registerRoutes(router);
+            const route = router.routes.find(
+                (r) => r.path === '/turn/ingest-usage',
+            )!;
+            expect(
+                route.options.internalAuth?.({
+                    peers: { internal_auth_secret: 'test-secret' },
+                } as never),
+            ).toBe('test-secret');
         });
 
         it('rejects when records is not an array', async () => {
@@ -535,30 +531,6 @@ describe('PeerController TURN', () => {
         } finally {
             meterSpy.mockRestore();
             warnSpy.mockRestore();
-        }
-    });
-
-    it('rejects usage ingest when no internal secret is configured', async () => {
-        const openServer = await setupTestServer();
-        try {
-            const router = new PuterRouter();
-            (
-                openServer.controllers.peer as unknown as PeerController
-            ).registerRoutes(router);
-            const handler = router.routes.find(
-                (r) => r.path === '/turn/ingest-usage',
-            )!.handler;
-            await expect(
-                handler(
-                    makeReq({
-                        body: { records: [] },
-                        headers: { 'x-puter-internal-auth': 'anything' },
-                    }),
-                    makeRes().res,
-                ),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        } finally {
-            await openServer.shutdown();
         }
     });
 });

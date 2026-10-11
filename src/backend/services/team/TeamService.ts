@@ -22,9 +22,9 @@ import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import {
     USERNAME_MAX_LENGTH,
-    USERNAME_REGEX,
-} from '../../controllers/auth/AuthController.js';
-import { isReservedUsername } from '../../util/reservedUsernames.js';
+    usernameConflict,
+    usernameRejection,
+} from '../../util/username.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
 import {
     ORG_SEAT_FREE_SUBSCRIPTION,
@@ -68,7 +68,7 @@ import {
     generateTemporaryPassword,
     temporaryPasswordExpiry,
 } from '../../util/temporaryPassword.js';
-import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { provisionUser } from '../../util/userProvisioning.js';
 import { PuterService } from '../types';
 
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
@@ -910,16 +910,8 @@ export class TeamService extends PuterService {
     // -- Provisioning ---- usernames come from the global pool ----------
 
     /** Provisioning must not mint accounts signup itself would refuse. */
-    #usernameRejection(username: string): boolean {
-        return (
-            !USERNAME_REGEX.test(username) ||
-            username.length > USERNAME_MAX_LENGTH ||
-            isReservedUsername(username)
-        );
-    }
-
     #assertUsableUsername(username: string): void {
-        if (this.#usernameRejection(username)) {
+        if (usernameRejection(username)) {
             throw new HttpError(400, 'Invalid username', {
                 legacyCode: 'bad_request',
             });
@@ -933,16 +925,8 @@ export class TeamService extends PuterService {
         const found: string[] = [];
         for (let n = 1; n <= 40 && found.length < count; n++) {
             const candidate = `${base}${n}`;
-            if (this.#usernameRejection(candidate)) continue;
-            if (await this.stores.user.getByUsername(candidate)) continue;
-            if (
-                await this.stores.fsEntry.findHomePathConflict(
-                    candidate,
-                    undefined,
-                    { includeDescendants: true },
-                )
-            )
-                continue;
+            if (usernameRejection(candidate)) continue;
+            if (await usernameConflict(this.stores, candidate)) continue;
             found.push(candidate);
         }
         return found;
@@ -997,14 +981,7 @@ export class TeamService extends PuterService {
         // Before any write, so a taken name fails cleanly. Also taken if free
         // in the users table, but another account's rows still sit at or
         // under its home path.
-        if (
-            (await this.stores.user.getByUsername(input.username)) ||
-            (await this.stores.fsEntry.findHomePathConflict(
-                input.username,
-                undefined,
-                { includeDescendants: true },
-            ))
-        ) {
+        if (await usernameConflict(this.stores, input.username)) {
             throw new HttpError(409, 'That username is taken', {
                 legacyCode: 'username_already_in_use',
                 fields: {
@@ -1025,23 +1002,29 @@ export class TeamService extends PuterService {
             email && this.clients.email
                 ? String(crypto.randomInt(100000, 1000000))
                 : null;
-        const user = await this.stores.user.create({
-            username: input.username,
-            uuid: uuidv4(),
-            password: null,
-            email: email || null,
-            clean_email: email ? cleanEmail(email) : null,
-            requires_email_confirmation: Boolean(confirmCode),
-            email_confirmed: false,
-            ...(confirmCode
-                ? {
-                      email_confirm_code: confirmCode,
-                      email_confirm_token: uuidv4(),
-                  }
-                : {}),
-        });
-
-        await generateDefaultFsentries(this.clients.db, this.stores.user, user);
+        const user = await provisionUser(
+            {
+                db: this.clients.db,
+                userStore: this.stores.user,
+                groupStore: this.stores.group,
+            },
+            {
+                username: input.username,
+                uuid: uuidv4(),
+                password: null,
+                email: email || null,
+                clean_email: email ? cleanEmail(email) : null,
+                requires_email_confirmation: Boolean(confirmCode),
+                email_confirmed: false,
+                ...(confirmCode
+                    ? {
+                          email_confirm_code: confirmCode,
+                          email_confirm_token: uuidv4(),
+                      }
+                    : {}),
+            },
+            this.config.default_user_group,
+        );
 
         // Otherwise a vanished team leaves a real account nobody owns.
         const admitted = await this.stores.team.addMember(teamUid, user.id, {

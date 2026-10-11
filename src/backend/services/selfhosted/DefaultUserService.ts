@@ -22,7 +22,7 @@ import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { provisionUser } from '../../util/userProvisioning.js';
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { UNLIMITED_SUBSCRIPTION } from '../metering/consts.js';
 
@@ -95,41 +95,26 @@ export class DefaultUserService extends PuterService {
     async #createAdminUser(tmpPassword: string): Promise<UserRow> {
         const passwordHash = await bcrypt.hash(tmpPassword, 8);
 
-        const created = await this.stores.user.create({
-            username: USERNAME,
-            uuid: uuidv4(),
-            password: passwordHash,
-            email: null,
-            free_storage: ADMIN_STORAGE_BYTES,
-            requires_email_confirmation: false,
-        });
+        const created = await provisionUser(
+            {
+                db: this.clients.db,
+                userStore: this.stores.user,
+                groupStore: this.stores.group,
+            },
+            {
+                username: USERNAME,
+                uuid: uuidv4(),
+                password: passwordHash,
+                email: null,
+                free_storage: ADMIN_STORAGE_BYTES,
+                requires_email_confirmation: false,
+            },
+            ADMIN_GROUP_UID,
+        );
 
         await this.stores.user.updateMetadata(created.id, {
             tmp_password: tmpPassword,
         });
-
-        try {
-            await this.stores.group.addUsers(ADMIN_GROUP_UID, [USERNAME]);
-        } catch (e) {
-            console.warn(
-                '[default-user] failed to add admin to admin group',
-                e,
-            );
-        }
-
-        try {
-            await generateDefaultFsentries(
-                this.clients.db,
-                this.stores.user,
-                created,
-            );
-        } catch (e) {
-            console.warn(
-                '[default-user] failed to provision admin home directory',
-                e,
-            );
-        }
-
         return (await this.stores.user.getById(created.id)) ?? created;
     }
 

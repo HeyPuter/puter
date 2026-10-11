@@ -34,7 +34,11 @@ import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
-import { FS_MUTATE_LIMIT, FS_SIGN_MAX_ITEMS } from './limits.js';
+import {
+    FS_BATCH_WRITE_MAX_ITEMS,
+    FS_MUTATE_LIMIT,
+    FS_SIGN_MAX_ITEMS,
+} from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -692,6 +696,36 @@ describe('LegacyFSController.delete', () => {
         expect(responseBody[1]?.path).toBe(b);
         expect(await server.stores.fsEntry.getEntryByPath(a)).toBeNull();
         expect(await server.stores.fsEntry.getEntryByPath(b)).toBeNull();
+    });
+
+    it('refuses more `paths` than one batch may hold, before deleting any', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const keep = `/${username}/Documents/keep`;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: keep }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                controller.delete(
+                    makeReq({
+                        body: {
+                            paths: [
+                                keep,
+                                ...Array(FS_BATCH_WRITE_MAX_ITEMS).fill(keep),
+                            ],
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await server.stores.fsEntry.getEntryByPath(keep)).not.toBeNull();
     });
 });
 
@@ -4716,6 +4750,33 @@ describe('LegacyFSController.readdirSubdomains', () => {
         );
         const rows = captured.body as Array<{ subdomain: string }>;
         expect(rows.some((r) => r.subdomain === sd)).toBe(true);
+    });
+
+    it('returns every site past one store page, with only the listing columns', async () => {
+        const { actor, userId } = await makeUser();
+        const names = Array.from(
+            { length: 501 },
+            (_, i) => `sdp-${i}-${uuidv4().slice(0, 8)}`,
+        );
+        for (const name of names) {
+            await server.clients.db.write(
+                'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+                [uuidv4(), name, userId],
+            );
+        }
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirSubdomains(makeReq({ body: {}, actor }), res),
+        );
+        const rows = captured.body as Array<Record<string, unknown>>;
+        expect(rows.map((r) => r.subdomain)).toEqual(names);
+        expect(Object.keys(rows[0]!).sort()).toEqual([
+            'root_dir_id',
+            'subdomain',
+            'ts',
+            'uuid',
+        ]);
     });
 });
 

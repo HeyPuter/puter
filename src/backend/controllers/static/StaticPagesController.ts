@@ -19,7 +19,7 @@
 
 import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
-import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
+import { HttpError } from '../../core/http/HttpError.js';
 
 /**
  * One-off user-facing pages.
@@ -274,83 +274,12 @@ export class StaticPagesController extends PuterController {
                     return;
                 }
 
-                // v2 writes `clean_email` at signup (lowercased email). Older rows
-                // that predate that may be null — fall back to email.lower().
-                const cleanEmail =
-                    (user.clean_email as string | null | undefined) ??
-                    String(user.email ?? '').toLowerCase();
-
-                // An account that already confirmed this address proved access
-                // to the inbox. The strip below would take it away from them,
-                // so refuse here instead. Password-less accounts count: an
-                // identity provider verified the address for those, and they
-                // are exactly what the old `password IS NOT NULL` clause let
-                // through.
-                const confirmedRival =
-                    await this.stores.user.findConfirmedOtherByEmail(
-                        user.id as number,
-                        user.email as string,
-                        cleanEmail,
-                    );
-                if (confirmedRival) {
-                    res.send(
-                        err('This email was confirmed on a different account.'),
-                    );
+                try {
+                    await this.services.signup.confirmEmail(user);
+                } catch (e) {
+                    if (!(e instanceof HttpError)) throw e;
+                    res.send(err(e.message));
                     return;
-                }
-
-                // Revoke any other accounts' pending change-email slots targeting
-                // this address — they're no longer valid once someone confirms it.
-                await this.clients.db.write(
-                    'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
-                    [user.email],
-                );
-
-                // Take the address off every remaining row before confirming
-                // this one. The check above leaves only unconfirmed rows, and
-                // only one row may own an address once this one is confirmed.
-                await this.stores.user.unconfirmOthersByEmail(
-                    user.id,
-                    user.email as string,
-                    cleanEmail,
-                );
-
-                await this.stores.user.update(user.id, {
-                    email_confirmed: 1,
-                    requires_email_confirmation: 0,
-                    email_confirm_code: null,
-                    email_confirm_token: null,
-                });
-
-                await promoteToVerifiedGroup(
-                    this.stores.group,
-                    this.config,
-                    user,
-                );
-
-                // Best-effort side-channels — don't fail the user-visible response
-                // if sockets or the event bus are unavailable.
-                try {
-                    await this.services.socket.send(
-                        { room: user.id },
-                        'user.email_confirmed',
-                        {},
-                    );
-                } catch {
-                    /* ignore */
-                }
-                try {
-                    this.clients.event?.emit(
-                        'user.email-confirmed',
-                        {
-                            user_id: user.id,
-                            user_uid: user.uuid,
-                            email: user.email,
-                        },
-                        {},
-                    );
-                } catch {
-                    /* ignore */
                 }
 
                 res.send(ok('Your email has been successfully confirmed.'));

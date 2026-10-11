@@ -1093,7 +1093,7 @@ interface IConfigOptional {
      * are coerced before use.
      *
      * Server-only by default. Flags are surfaced to clients via `/whoami` only
-     * if their key is on the allowlist in `extensions/whoami.ts`
+     * if their key is on the allowlist in `util/userDetails.ts`
      * (`CLIENT_VISIBLE_FEATURE_FLAGS`). New flags should be assumed internal —
      * add them to the allowlist explicitly if (and only if) the client needs to
      * read them.
