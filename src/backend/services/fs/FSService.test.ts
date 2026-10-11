@@ -6594,7 +6594,7 @@ describe('FSService subtree paging', () => {
 
     it('refuses a non-empty directory with one probe, never listing it', async () => {
         const { root } = await makeTree('page-probe');
-        const probe = vi.spyOn(server.stores.fsEntry, 'hasDescendants');
+        const probe = vi.spyOn(server.stores.fsEntry, 'hasChildren');
         const pages = vi.spyOn(server.stores.fsEntry, 'listDescendantsInOrder');
         const listAll = vi.spyOn(
             server.stores.fsEntry,

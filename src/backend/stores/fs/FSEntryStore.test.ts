@@ -2085,14 +2085,20 @@ describe('FSEntryStore subtree walks', () => {
         await expect(store.getAncestorChain('/')).resolves.toEqual([]);
     });
 
-    it('probes for descendants without listing them', async () => {
-        await expect(store.hasDescendants(root.path)).resolves.toBe(true);
-        await expect(store.hasDescendants(`${root.path}/empty`)).resolves.toBe(
-            false,
-        );
-        expect((await caught(() => store.hasDescendants('/'))).statusCode).toBe(
-            400,
-        );
+    it('probes for children without listing them', async () => {
+        await expect(store.hasChildren(root.id)).resolves.toBe(true);
+        const empty = await store.getEntryByPath(`${root.path}/empty`);
+        await expect(store.hasChildren(empty!.id)).resolves.toBe(false);
+    });
+
+    it('sees a child whose name starts outside the BMP', async () => {
+        const holder = await store.createNonFileEntry({
+            parent: documents,
+            name: 'emoji-only',
+            kind: 'directory',
+        });
+        await createFile(user, `${holder.path}/🔥 notes.txt`);
+        await expect(store.hasChildren(holder.id)).resolves.toBe(true);
     });
 
     const walk = async (order: 'asc' | 'desc', limit: number) => {
@@ -2164,6 +2170,6 @@ describe('FSEntryStore subtree walks', () => {
         }
 
         expect(deleted.sort()).toEqual(['inner', 'x.txt', 'y.txt', 'z.txt']);
-        await expect(store.hasDescendants(doomed.path)).resolves.toBe(false);
+        await expect(store.hasChildren(doomed.id)).resolves.toBe(false);
     });
 });

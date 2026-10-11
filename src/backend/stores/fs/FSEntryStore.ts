@@ -2783,12 +2783,15 @@ export class FSEntryStore extends PuterStore {
         return rows.map((row) => this.#mapFSEntryRow(row));
     }
 
-    /** Whether anything at all sits under `pathPrefix`; one indexed probe. */
-    async hasDescendants(pathPrefix: string): Promise<boolean> {
-        const likePattern = this.#descendantsPattern(pathPrefix);
-        const rows = await this.clients.db.read(
-            "SELECT 1 AS present FROM fsentries WHERE path LIKE ? ESCAPE '!' LIMIT 1",
-            [likePattern],
+    /**
+     * Whether a directory has any child. Keyed by `parent_id`, so no path
+     * collation can hide one, and read from the primary because a missed child
+     * would be cascade-deleted with its parent.
+     */
+    async hasChildren(entryId: number): Promise<boolean> {
+        const rows = await this.clients.db.pread(
+            'SELECT 1 AS present FROM fsentries WHERE parent_id = ? LIMIT 1',
+            [entryId],
         );
         return rows.length > 0;
     }
