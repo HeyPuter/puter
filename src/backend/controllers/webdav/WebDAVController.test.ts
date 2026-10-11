@@ -1296,19 +1296,20 @@ describe('WebDAVController verbs', () => {
         }
     };
 
-    /** The `eventName` GUI payload about `uid` among recorded emit calls. */
-    const findGuiResponse = (
+    /** Index of the `eventName` GUI emit about `uid` among recorded calls. */
+    const guiEventIndex = (
         calls: unknown[][],
         eventName: string,
         uid: string,
-    ): Record<string, unknown> | undefined =>
-        calls
-            .filter(([name]) => name === eventName)
-            .map(
-                ([, data]) =>
-                    (data as { response: Record<string, unknown> }).response,
-            )
-            .find((response) => response.uid === uid);
+    ): number =>
+        calls.findIndex(
+            ([name, data]) =>
+                name === eventName &&
+                (data as { response: Record<string, unknown> }).response.uid ===
+                    uid,
+        );
+    const guiResponse = (calls: unknown[][], index: number) =>
+        (calls[index]?.[1] as { response: Record<string, unknown> }).response;
 
     describe('GET / HEAD', () => {
         it('streams file bytes with a strong ETag and Last-Modified', async () => {
@@ -1931,11 +1932,23 @@ describe('WebDAVController verbs', () => {
                     actor,
                     headers: { destination, host: 'dav.puter.localhost' },
                 });
-                removed = findGuiResponse(
-                    emitSpy.mock.calls,
+                const calls = emitSpy.mock.calls;
+                const added = () =>
+                    calls.findIndex(
+                        ([name]) => name === 'outer.gui.item.added',
+                    );
+                await vi.waitFor(() =>
+                    expect(added()).toBeGreaterThanOrEqual(0),
+                );
+                const removedAt = guiEventIndex(
+                    calls,
                     'outer.gui.item.removed',
                     replaced.uuid,
                 );
+                // Removal first: the desktop hides rows by path.
+                expect(removedAt).toBeGreaterThanOrEqual(0);
+                expect(removedAt).toBeLessThan(added());
+                removed = guiResponse(calls, removedAt);
             } finally {
                 emitSpy.mockRestore();
             }
@@ -2044,16 +2057,22 @@ describe('WebDAVController verbs', () => {
                     actor,
                     headers: { destination, host: 'dav.puter.localhost' },
                 });
-                moved = findGuiResponse(
-                    emitSpy.mock.calls,
-                    'outer.gui.item.moved',
-                    moving.uuid,
+                const calls = emitSpy.mock.calls;
+                const movedAt = () =>
+                    guiEventIndex(calls, 'outer.gui.item.moved', moving.uuid);
+                await vi.waitFor(() =>
+                    expect(movedAt()).toBeGreaterThanOrEqual(0),
                 );
-                removed = findGuiResponse(
-                    emitSpy.mock.calls,
+                const removedAt = guiEventIndex(
+                    calls,
                     'outer.gui.item.removed',
                     replaced.uuid,
                 );
+                // Removal first: the desktop hides rows by path.
+                expect(removedAt).toBeGreaterThanOrEqual(0);
+                expect(removedAt).toBeLessThan(movedAt());
+                moved = guiResponse(calls, movedAt());
+                removed = guiResponse(calls, removedAt);
             } finally {
                 emitSpy.mockRestore();
             }

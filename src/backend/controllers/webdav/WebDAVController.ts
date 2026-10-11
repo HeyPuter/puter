@@ -949,10 +949,8 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.added', copy);
-        // The copy replaced it; without this other clients keep a ghost row.
-        if (destExists)
-            this.#emitGuiEvent('outer.gui.item.removed', destExists);
+        // Announcing what the copy replaced keeps a ghost row off other clients.
+        this.#emitGuiEvent('outer.gui.item.added', copy, undefined, destExists);
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -1003,13 +1001,12 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: davPath,
-        });
-        // Moving an entry onto its own path is not an overwrite.
-        if (destExists && destExists.uuid !== source.uuid) {
-            this.#emitGuiEvent('outer.gui.item.removed', destExists);
-        }
+        this.#emitGuiEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: davPath },
+            destExists,
+        );
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -1189,6 +1186,7 @@ export class WebDAVController extends PuterController {
         eventName: GuiItemEventName,
         entry: FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: FSEntry | null,
     ): void {
         void (async () => {
             try {
@@ -1197,6 +1195,7 @@ export class WebDAVController extends PuterController {
                     eventName,
                     entry,
                     extra,
+                    replaced,
                 );
             } catch {
                 // non-critical
