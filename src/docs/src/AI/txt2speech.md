@@ -68,11 +68,11 @@ Available when `provider: 'elevenlabs'`:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_v4'`, `'eleven_v4_turbo'`, `'eleven_v3'`, `'eleven_v3_conversational'`, `'eleven_flash_v2_5'`, `'eleven_flash_v2'` |
-| `voice` | `String` | Voice ID or exact, case-sensitive name from `listVoices({ provider: 'elevenlabs' })`. Defaults to `'21m00Tcm4TlvDq8ikWAM'` (Rachel sample voice) |
-| `output_format` | `String` | Output format. Defaults to `'mp3_44100_128'` |
+| `voice` | `String` | Voice ID, or a case-sensitive voice name from `listVoices({ provider: 'elevenlabs' })`. Premade voices also match their short name, so `'Bella'` selects `'Bella - Professional, Bright, Warm'`. Defaults to `'21m00Tcm4TlvDq8ikWAM'` |
+| `output_format` | `String` | Output format as `codec_samplerate[_bitrate]`: `'mp3_22050_32'`, `'mp3_24000_48'`, `'mp3_44100_32'`, `'mp3_44100_64'`, `'mp3_44100_96'`, `'mp3_44100_128'` (default), `'mp3_44100_192'`, `'opus_48000_32'` through `'opus_48000_192'`, `'pcm_8000'` through `'pcm_48000'`, `'wav_8000'` through `'wav_48000'`, `'ulaw_8000'`, or `'alaw_8000'`. `response_format` is accepted as a fallback; the short names `'mp3'`, `'opus'`, `'pcm'`, and `'wav'` map to `'mp3_44100_128'`, `'opus_48000_128'`, `'pcm_24000'`, and `'wav_24000'`. See [ElevenLabs output formats](https://elevenlabs.io/docs/api-reference/text-to-speech/convert). |
 | `voice_settings` | `Object` | Voice tuning options (stability, similarity boost, speed) |
 
-Unknown voices and names matching multiple voices are rejected with HTTP 400 (`field_invalid`). Use a voice ID when names are ambiguous.
+Unknown voices and names matching multiple voices are rejected with HTTP 400 (`field_invalid`). Use a voice ID when names are ambiguous. An unsupported `output_format` is also rejected with HTTP 400 (`field_invalid`) before any credits are reserved.
 
 For more details about each option, see the [ElevenLabs API reference](https://elevenlabs.io/docs/api-reference/text-to-speech).
 

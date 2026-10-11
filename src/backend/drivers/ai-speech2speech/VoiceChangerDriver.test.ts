@@ -24,9 +24,8 @@
  * redis) configured with an ElevenLabs API key, then drives
  * `server.drivers.aiSpeech2Speech` directly. ElevenLabs is reached
  * over plain `fetch` rather than an SDK, so we stub the global fetch
- * — that's the real network egress point. Inputs use `data:` URLs
- * through the live `loadFileInput`. Aligns with AGENTS.md: "Prefer
- * test server over mocking deps."
+ * for provider calls. Web inputs use the live `loadFileInput` and
+ * `secureFetch`, with undici mocked at the network boundary.
  */
 
 import {
@@ -52,6 +51,12 @@ import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
 import { callerError, readStreamResult } from '../integrationTestUtil.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
+const { webFetchMock } = vi.hoisted(() => ({ webFetchMock: vi.fn() }));
+vi.mock('undici', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('undici')>()),
+    fetch: webFetchMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -74,6 +79,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+    webFetchMock.mockReset();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
@@ -271,7 +277,7 @@ describe('VoiceChangerDriver.convert success path', () => {
                 voice_settings: { stability: 0.5 },
                 seed: 42,
                 remove_background_noise: true,
-                file_format: 'pcm_s16le',
+                file_format: 'pcm_s16le_16',
                 optimize_streaming_latency: 3,
                 enable_logging: false,
             }),
@@ -284,7 +290,7 @@ describe('VoiceChangerDriver.convert success path', () => {
         );
         expect(form.get('seed')).toBe('42');
         expect(form.get('remove_background_noise')).toBe('true');
-        expect(form.get('file_format')).toBe('pcm_s16le');
+        expect(form.get('file_format')).toBe('pcm_s16le_16');
         expect(String(calledUrl)).toMatch(/optimize_streaming_latency=3/);
         expect(String(calledUrl)).toMatch(/enable_logging=false/);
     });
@@ -430,4 +436,159 @@ describe('VoiceChangerDriver.convert error mapping', () => {
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
+});
+
+describe('VoiceChangerDriver.convert file inputs', () => {
+    it.each([
+        ['audio/wav; charset=binary', undefined, 'audio/wav'],
+        ['application/octet-stream', 'pcm_s16le_16', 'application/octet-stream'],
+    ])(
+        'loads HTTPS audio with MIME %s through secureFetch',
+        async (contentType, fileFormat, expectedMime) => {
+            const { actor } = await makeUser();
+            const bytes = Buffer.from('remote-audio');
+            webFetchMock.mockResolvedValueOnce(
+                new Response(bytes, {
+                    headers: { 'content-type': contentType },
+                }),
+            );
+            fetchSpy.mockResolvedValueOnce(okResponse(new ArrayBuffer(0)));
+
+            await withActor(actor, () =>
+                driver.convert({
+                    audio: 'https://audio.example/sample.wav',
+                    file_format: fileFormat,
+                }),
+            );
+
+            expect(webFetchMock).toHaveBeenCalledExactlyOnceWith(
+                'https://audio.example/sample.wav',
+                expect.objectContaining({
+                    redirect: 'manual',
+                    dispatcher: expect.anything(),
+                }),
+            );
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            const form = fetchSpy.mock.calls[0]![1]?.body as FormData;
+            const audio = form.get('audio') as File;
+            expect(audio.name).toBe('sample.wav');
+            expect(audio.type).toBe(expectedMime);
+            expect(Buffer.from(await audio.arrayBuffer())).toEqual(bytes);
+            expect(form.get('file_format')).toBe(fileFormat ?? null);
+        },
+    );
+
+    it.each(['declared', 'streamed'])(
+        'rejects %s HTTPS audio over 25 MiB before calling the provider',
+        async (sizeSource) => {
+            const { actor } = await makeUser();
+            const maxBytes = 25 * 1024 * 1024;
+            const cancel = vi.fn();
+            let chunk = 0;
+            const body = new ReadableStream<Uint8Array>({
+                pull(controller) {
+                    controller.enqueue(
+                        new Uint8Array(chunk++ === 0 ? maxBytes : 1),
+                    );
+                },
+                cancel,
+            });
+            webFetchMock.mockResolvedValueOnce(
+                new Response(body, {
+                    headers:
+                        sizeSource === 'declared'
+                            ? { 'content-length': String(maxBytes + 1) }
+                            : {},
+                }),
+            );
+
+            await expect(
+                withActor(actor, () =>
+                    driver.convert({
+                        audio: 'https://audio.example/oversized.wav',
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 413,
+                legacyCode: 'input_too_large',
+            });
+
+            expect(cancel).toHaveBeenCalled();
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['https://127.0.0.1/audio.wav', 'https://localhost/audio.wav'])(
+        'rejects blocked URL %s before any network call',
+        async (audio) => {
+            const { actor } = await makeUser();
+            await expect(
+                withActor(actor, () => driver.convert({ audio })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(webFetchMock).not.toHaveBeenCalled();
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('rejects HTTPS redirects without calling the provider', async () => {
+        const { actor } = await makeUser();
+        webFetchMock.mockResolvedValueOnce(
+            new Response(null, {
+                status: 302,
+                headers: { location: 'https://127.0.0.1/audio.wav' },
+            }),
+        );
+        await expect(
+            withActor(actor, () =>
+                driver.convert({
+                    audio: 'https://audio.example/redirect',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        expect(webFetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(['path', 'data URL'])(
+        'preserves %s audio inputs',
+        async (inputType) => {
+            const { actor, userId } = await makeUser();
+            const bytes = Buffer.from('existing-audio');
+            const path = `/${actor.user.username}/Documents/sample.wav`;
+            if (inputType === 'path') {
+                await withActor(actor, () =>
+                    server.services.fs.write(userId, {
+                        fileMetadata: {
+                            path,
+                            size: bytes.byteLength,
+                            contentType: 'audio/wav',
+                        },
+                        fileContent: bytes,
+                    }),
+                );
+            }
+            fetchSpy.mockResolvedValueOnce(okResponse(new ArrayBuffer(0)));
+            await withActor(actor, () =>
+                driver.convert({
+                    audio:
+                        inputType === 'path'
+                            ? path
+                            : dataUrl(bytes, 'audio/wav'),
+                }),
+            );
+
+            expect(webFetchMock).not.toHaveBeenCalled();
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            const form = fetchSpy.mock.calls[0]![1]?.body as FormData;
+            const audio = form.get('audio') as File;
+            expect(audio.type).toBe('audio/wav');
+            expect(Buffer.from(await audio.arrayBuffer())).toEqual(bytes);
+        },
+    );
 });
