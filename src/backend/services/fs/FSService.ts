@@ -5080,6 +5080,7 @@ export class FSService extends PuterService {
             userId,
             [{ source, parent: destinationParent, name }],
             publish,
+            allowance,
         );
         if (!newRoot) {
             throw new HttpError(500, 'Failed to copy entry', {
@@ -5120,7 +5121,12 @@ export class FSService extends PuterService {
                         name: descendant.name,
                     });
                 }
-                const copied = await this.#copyEntries(userId, items, publish);
+                const copied = await this.#copyEntries(
+                    userId,
+                    items,
+                    publish,
+                    allowance,
+                );
                 items.forEach((item, index) => {
                     const entry = copied[index];
                     if (!entry?.isDir) return;
@@ -5151,6 +5157,7 @@ export class FSService extends PuterService {
         userId: number,
         items: CopyItem[],
         publish: (copied: FSEntry[]) => void,
+        allowance: CopyAllowance,
     ): Promise<FSEntry[]> {
         const copied = new Array<FSEntry>(items.length);
         const files: Array<{ item: CopyItem; index: number; key: string }> = [];
@@ -5184,6 +5191,9 @@ export class FSService extends PuterService {
                 const bucket = this.stores.s3Object.resolveBucket(
                     item.source.bucket,
                 );
+                const region = this.stores.s3Object.resolveRegion(
+                    item.source.bucketRegion,
+                );
                 await this.stores.s3Object.copyObject(
                     {
                         sourceBucket: bucket,
@@ -5191,15 +5201,27 @@ export class FSService extends PuterService {
                         destinationBucket: bucket,
                         destinationKey: key,
                     },
-                    this.stores.s3Object.resolveRegion(
-                        item.source.bucketRegion,
-                    ),
+                    region,
+                );
+                return this.#settleCopiedSize(
+                    item.source,
+                    bucket,
+                    key,
+                    region,
+                    allowance,
                 );
             },
         );
         const landed = files.filter(
             (_, i) => results[i]?.status === 'fulfilled',
         );
+        const copiedSizes = new Map<string, number>();
+        files.forEach(({ key }, i) => {
+            const result = results[i];
+            if (result?.status === 'fulfilled') {
+                copiedSizes.set(key, result.value);
+            }
+        });
 
         const created = await this.stores.fsEntry.batchCreateEntries(
             landed.map(
@@ -5208,7 +5230,7 @@ export class FSService extends PuterService {
                         userId,
                         uuid: key,
                         path: childPath(parent.path, name),
-                        size: source.size ?? 0,
+                        size: copiedSizes.get(key) ?? source.size ?? 0,
                         contentType: undefined,
                         metadata: this.#sanitizeClientMetadata(source.metadata),
                         thumbnail: source.thumbnail,
@@ -5276,6 +5298,42 @@ export class FSService extends PuterService {
      * with an object to copy. Empty files have no backing object — `bucket` is
      * null — so a CopyObject for one would throw NoSuchKey.
      */
+    /**
+     * The size a just-copied object really has. The source row can predate an
+     * overwrite whose bytes CopyObject picked up, so record what was copied and
+     * charge any excess; a copy that no longer fits is deleted and refused.
+     */
+    async #settleCopiedSize(
+        source: FSEntry,
+        bucket: string,
+        key: string,
+        region: string,
+        allowance: CopyAllowance,
+    ): Promise<number> {
+        const recordedSize = source.size ?? 0;
+        const probed = await this.#probeObjectSize(bucket, key, region);
+        const copiedSize = typeof probed === 'number' ? probed : recordedSize;
+        if (copiedSize <= recordedSize) return copiedSize;
+        try {
+            await this.#assertStorageAllowance(
+                allowance.ownerId,
+                copiedSize,
+                0,
+                allowance.max,
+            );
+        } catch (error) {
+            try {
+                await this.stores.s3Object.deleteObject(bucket, key, region);
+            } catch (deleteError) {
+                console.warn(
+                    `[fs] failed to delete rejected copy ${key}: ${this.#toErrorMessage(deleteError)}`,
+                );
+            }
+            throw error;
+        }
+        return copiedSize;
+    }
+
     #rowCopyInput({
         source,
         parent,
