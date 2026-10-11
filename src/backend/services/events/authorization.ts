@@ -30,10 +30,12 @@ import type {
     SubscriptionPermission,
     SubscriptionTarget,
 } from '../../stores/events/types.js';
-import type {
-    AclError,
-    AclMode,
-    ResourceDescriptor,
+import {
+    aclRefusal,
+    memoizedDescriptor,
+    type AclError,
+    type AclMode,
+    type ResourceDescriptor,
 } from '../acl/ACLService.js';
 import {
     appDataPermission,
@@ -107,24 +109,13 @@ export interface EventAclDeps {
 export const nodeDescriptor = (
     node: AuthorizedNode,
     deps: Pick<EventAclDeps, 'getAncestorChain'>,
-): ResourceDescriptor => {
-    let ancestors: Promise<
-        ReadonlyArray<{ uid: string; path: string }>
-    > | null = null;
-    return {
-        path: node.path,
-        resolveAncestors: () => {
-            ancestors ??= deps
-                .getAncestorChain(node.path)
-                .then((chain) =>
-                    chain[0]?.uid === node.uid
-                        ? chain
-                        : [{ uid: node.uid, path: node.path }, ...chain],
-                );
-            return ancestors;
-        },
-    };
-};
+): ResourceDescriptor =>
+    memoizedDescriptor(node.path, async () => {
+        const chain = await deps.getAncestorChain(node.path);
+        return chain[0]?.uid === node.uid
+            ? chain
+            : [{ uid: node.uid, path: node.path }, ...chain];
+    });
 
 /**
  * The identity a stored subscription acts as when its access is re-checked. An
@@ -178,18 +169,10 @@ export const assertSubscribeAuthorized = async (
     if (await deps.acl.check(actor, resource, SUBSCRIBE_MODE))
         return SUBSCRIBE_MODE;
 
-    const safe = await deps.acl.getSafeAclError(
-        actor,
-        resource,
-        SUBSCRIBE_MODE,
+    throw aclRefusal(
+        await deps.acl.getSafeAclError(actor, resource, SUBSCRIBE_MODE),
+        { notFoundMessage: `No such entry: ${subject}` },
     );
-    if (safe.status === 404)
-        throw new HttpError(404, `No such entry: ${subject}`, {
-            legacyCode: 'subject_does_not_exist',
-        });
-    throw new HttpError(403, safe.message, {
-        legacyCode: safe.fields.code,
-    });
 };
 
 /**

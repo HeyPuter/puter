@@ -535,6 +535,50 @@ describe('PermissionStore', () => {
             const user = await makeUser();
             expect(await store.readUserGroupPerms(user.id, [])).toEqual([]);
         });
+
+        it('reads many issuer/group pairs under many prefixes at once', async () => {
+            const issuer = await makeUser();
+            const rival = await makeUser();
+            const [g1, g2] = [
+                await seedGroup(issuer.id),
+                await seedGroup(issuer.id),
+            ];
+            await seedGroupPerm(issuer.id, g1, 'fs:one:read');
+            await seedGroupPerm(issuer.id, g2, 'manage:fs:two');
+            await seedGroupPerm(issuer.id, g2, 'fs:twofold:read');
+            await seedGroupPerm(rival.id, g1, 'fs:one:write');
+
+            const rows = await store.queryIssuerGroupPermsByPrefixes(
+                [
+                    { issuerUserId: issuer.id, groupId: g1 },
+                    { issuerUserId: issuer.id, groupId: g2 },
+                ],
+                ['fs:one', 'manage:fs:two', 'fs:two'],
+            );
+            expect(rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        issuerUserId: issuer.id,
+                        groupId: g1,
+                        permission: 'fs:one:read',
+                    },
+                    {
+                        issuerUserId: issuer.id,
+                        groupId: g2,
+                        permission: 'manage:fs:two',
+                    },
+                ]),
+            );
+            // Not the rival's grant, and `fs:two` stops at a segment boundary.
+            expect(rows).toHaveLength(2);
+            expect(
+                await store.queryIssuerGroupPermsByPrefix(
+                    issuer.id,
+                    g1,
+                    'fs:one',
+                ),
+            ).toEqual(['fs:one:read']);
+        });
     });
 
     // -- issuer-prefix discovery queries ---------------------------------

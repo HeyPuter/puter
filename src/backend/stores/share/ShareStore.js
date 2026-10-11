@@ -441,6 +441,33 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * Whether any share row sits on one of `userId`'s entries. A write to an
+     * owner with none has no audience to look for, and nearly every owner has
+     * none. Rows from before `entry_owner_user_id` existed are matched through
+     * their entry, as `listOutbound` does.
+     *
+     * @param {number} userId
+     * @returns {Promise<boolean>}
+     */
+    async ownerHasShares(userId) {
+        const [recorded, unrecorded] = await Promise.all([
+            this.clients.db.read(
+                'SELECT 1 AS `found` FROM `share` WHERE ' +
+                    '`entry_owner_user_id` = ? LIMIT 1',
+                [userId],
+            ),
+            this.clients.db.read(
+                'SELECT 1 AS `found` FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
+                    '`fsentries`.`user_id` = ? LIMIT 1',
+                [userId],
+            ),
+        ]);
+        return recorded.length > 0 || unrecorded.length > 0;
+    }
+
+    /**
      * Everyone who issued any share row (active, pending or team-held) on a
      * directory or anything beneath it.
      *
@@ -526,20 +553,22 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Team shares on one node. Neither `listByFsentry` (holder rows) nor the
+     * Team shares on these nodes. Neither `listByFsentry` (holder rows) nor the
      * invite feed matches them, so without this the share dialog shows nothing
      * for a file shared with a team.
      *
-     * @param {number} fsentryId
+     * @param {number[]} fsentryIds
      */
-    async listGroupOnFsentry(fsentryId) {
+    async listGroupOnFsentries(fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
             'SELECT `share`.* FROM `share` ' +
                 'JOIN `group` `g` ON `g`.`id` = `share`.`holder_group_id` ' +
-                'WHERE `share`.`fsentry_id` = ? ' +
+                `WHERE \`share\`.\`fsentry_id\` IN (${placeholders}) ` +
                 'AND `share`.`holder_group_id` IS NOT NULL ' +
                 'AND `g`.`deleted_at` IS NULL ORDER BY `share`.`id`',
-            [fsentryId],
+            fsentryIds,
         );
         return rows.map((r) => this.#normalizeRow(r));
     }

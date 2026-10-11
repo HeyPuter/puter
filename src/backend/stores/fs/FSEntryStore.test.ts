@@ -2034,3 +2034,136 @@ describe('FSEntryStore lost-insert recovery', () => {
         ).resolves.toMatchObject({ size: 77, uuid: entry?.uuid });
     });
 });
+
+describe('FSEntryStore subtree walks', () => {
+    let user: StoreUser;
+    let root: FSEntry;
+    let documents: FSEntry;
+
+    beforeAll(async () => {
+        user = await makeUser();
+        documents = (await store.getEntryByPath(`${user.home}/Documents`))!;
+        root = await store.createNonFileEntry({
+            parent: documents,
+            name: 'walk',
+            kind: 'directory',
+        });
+        const sub = await store.createNonFileEntry({
+            parent: root,
+            name: 'sub',
+            kind: 'directory',
+        });
+        await store.createNonFileEntry({
+            parent: root,
+            name: 'empty',
+            kind: 'directory',
+        });
+        await createFile(user, `${root.path}/a.txt`);
+        await createFile(user, `${root.path}/b.txt`);
+        await createFile(user, `${sub.path}/c.txt`);
+        await createFile(user, `${sub.path}/d.txt`);
+        // Sorts after `sub/*` by path, so path order would interleave depths.
+        await createFile(user, `${root.path}/z.txt`);
+    });
+
+    it('reads the chain above a path deepest first, skipping missing levels', async () => {
+        const file = `${root.path}/sub/c.txt`;
+        const ancestors = await store.getAncestors(file);
+        expect(ancestors.map((e) => e.path)).toEqual([
+            file,
+            `${root.path}/sub`,
+            root.path,
+            documents.path,
+            user.home,
+        ]);
+        await expect(store.getAncestorChain(file)).resolves.toEqual(
+            ancestors.map((e) => ({ uid: e.uid, path: e.path })),
+        );
+        // A path that isn't there yet still reports what is above it.
+        const missing = await store.getAncestorChain(`${root.path}/nope/x`);
+        expect(missing[0]?.path).toBe(root.path);
+        await expect(store.getAncestorChain('/')).resolves.toEqual([]);
+    });
+
+    it('probes for descendants without listing them', async () => {
+        await expect(store.hasDescendants(root.path)).resolves.toBe(true);
+        await expect(store.hasDescendants(`${root.path}/empty`)).resolves.toBe(
+            false,
+        );
+        expect((await caught(() => store.hasDescendants('/'))).statusCode).toBe(
+            400,
+        );
+    });
+
+    const walk = async (order: 'asc' | 'desc', limit: number) => {
+        const seen: FSEntry[] = [];
+        let after: FSEntry | undefined;
+        for (;;) {
+            const page = await store.listDescendantsInOrder(root.path, {
+                order,
+                limit,
+                after,
+            });
+            seen.push(...page);
+            if (page.length < limit) return seen;
+            after = page[page.length - 1];
+        }
+    };
+
+    it('pages a subtree with parents before children, or children first', async () => {
+        const all = await store.listDescendantsByPath(root.path);
+        const down = await walk('asc', 2);
+        const up = await walk('desc', 2);
+
+        const paths = (entries: FSEntry[]) => entries.map((e) => e.path);
+        expect([...paths(down)].sort()).toEqual([...paths(all)].sort());
+        expect(new Set(paths(down)).size).toBe(all.length);
+        expect(paths(up)).toEqual([...paths(down)].reverse());
+
+        // Shallowest first, whatever the names sort as.
+        const depths = down.map((e) => e.path.split('/').length);
+        expect(depths).toEqual([...depths].sort((a, b) => a - b));
+
+        // Each directory comes before everything under it on the way down.
+        const position = new Map(down.map((e, i) => [e.path, i]));
+        for (const entry of down) {
+            const parent = position.get(entry.path.replace(/\/[^/]+$/, ''));
+            if (parent !== undefined)
+                expect(parent).toBeLessThan(position.get(entry.path)!);
+        }
+    });
+
+    it('lets a bottom-up delete go page by page without orphaning rows', async () => {
+        const doomed = await store.createNonFileEntry({
+            parent: documents,
+            name: 'walk-delete',
+            kind: 'directory',
+        });
+        const inner = await store.createNonFileEntry({
+            parent: doomed,
+            name: 'inner',
+            kind: 'directory',
+        });
+        await createFile(user, `${inner.path}/x.txt`);
+        await createFile(user, `${inner.path}/y.txt`);
+        await createFile(user, `${doomed.path}/z.txt`);
+
+        const deleted: string[] = [];
+        let after: FSEntry | undefined;
+        for (;;) {
+            const page = await store.listDescendantsInOrder(doomed.path, {
+                order: 'desc',
+                limit: 2,
+                after,
+            });
+            if (page.length === 0) break;
+            await store.deleteEntries(page);
+            deleted.push(...page.map((e) => e.name));
+            if (page.length < 2) break;
+            after = page[page.length - 1];
+        }
+
+        expect(deleted.sort()).toEqual(['inner', 'x.txt', 'y.txt', 'z.txt']);
+        await expect(store.hasDescendants(doomed.path)).resolves.toBe(false);
+    });
+});

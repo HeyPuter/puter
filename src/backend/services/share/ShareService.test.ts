@@ -3924,6 +3924,8 @@ describe('ShareService', () => {
             );
 
             const masked = `/${owner.user.username}/${dir.uuid}/${dir.name}`;
+            // The desktop reads `old_path`; older dashboards `from_path`.
+            expect(payload?.old_path).toBe(`${masked}/${file.name}`);
             expect(payload?.from_path).toBe(`${masked}/${file.name}`);
             expect(payload?.path).toBe(`${masked}/renamed-${file.name}`);
         });
@@ -5736,6 +5738,115 @@ describe('ShareService', () => {
             const listed = await listOf(asApp(owner, app), file.uuid);
             expect(listed.some((row) => row.pending)).toBe(false);
             expect(JSON.stringify(listed)).not.toContain(email);
+        });
+    });
+
+    describe('owners with nothing shared', () => {
+        /** Let fire-and-forget fan-out land. */
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+        it('skips the audience lookup, asking whether anything is shared once', async () => {
+            const owner = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const asked = vi.spyOn(server.stores.share, 'ownerHasShares');
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
+            let askedCalls = -1;
+            let reachingCalls = -1;
+            try {
+                await Promise.all(
+                    Array.from({ length: 5 }, (_, i) =>
+                        server.services.fs.touch(owner.user.id, {
+                            path: `${dir.path}/quiet-${i}.txt`,
+                        }),
+                    ),
+                );
+                await settle();
+                askedCalls = asked.mock.calls.length;
+                reachingCalls = reaching.mock.calls.length;
+            } finally {
+                asked.mockRestore();
+                reaching.mockRestore();
+            }
+            expect(askedCalls).toBe(1);
+            expect(reachingCalls).toBe(0);
+        });
+
+        it('fans out on the next write once something is shared', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            // Cache "nothing shared" first.
+            await server.services.fs.touch(owner.user.id, {
+                path: `${dir.path}/before.txt`,
+            });
+            await settle();
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (payload.user_id_list?.includes(recipient.user.id))
+                    seen.push(data);
+            };
+            // A replica that hasn't seen the share yet.
+            const stale = vi
+                .spyOn(server.stores.share, 'ownerHasShares')
+                .mockResolvedValue(false);
+            server.clients.event.on('outer.gui.item.added', listener);
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/after.txt`,
+                });
+                for (let i = 0; i < 50 && seen.length === 0; i++)
+                    await settle();
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                stale.mockRestore();
+            }
+            expect(seen).toHaveLength(1);
+        });
+
+        it('treats the owner as shared when another node says so', async () => {
+            const owner = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const asked = vi.spyOn(server.stores.share, 'ownerHasShares');
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
+            let calls = -1;
+            let reachingCalls = -1;
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/one.txt`,
+                });
+                await settle();
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/two.txt`,
+                });
+                await settle();
+                // Cached: the second write did not ask.
+                expect(asked).toHaveBeenCalledTimes(1);
+
+                server.clients.event.emit(
+                    'outer.pubsub.share.ownerShared',
+                    { ownerUserId: owner.user.id },
+                    { from_outside: true },
+                );
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/three.txt`,
+                });
+                await settle();
+                calls = asked.mock.calls.length;
+                reachingCalls = reaching.mock.calls.length;
+            } finally {
+                asked.mockRestore();
+                reaching.mockRestore();
+            }
+            expect(calls).toBe(1);
+            expect(reachingCalls).toBeGreaterThan(0);
         });
     });
 });

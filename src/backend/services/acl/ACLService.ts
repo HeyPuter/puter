@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { posix as pathPosix } from 'node:path';
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
@@ -55,6 +56,52 @@ export interface AclError {
     message: string;
     fields: { code: string };
 }
+
+/**
+ * How a route words a refusal. The safe 404/403 split is fixed; these are the
+ * parts routes have always answered differently.
+ */
+export interface AclRefusalOptions {
+    /** `legacyCode` of a 403. The filesystem routes answer `access_denied`. */
+    forbiddenCode?: string;
+    /** Message of a 404. */
+    notFoundMessage?: string;
+    /**
+     * Refuse an app actor with the 404 whatever it can see, so another app's or
+     * user's files never show up as merely forbidden.
+     */
+    hideFromApps?: boolean;
+}
+
+/** How the filesystem routes word a refusal. */
+export const FS_ROUTE_REFUSAL: AclRefusalOptions = {
+    forbiddenCode: 'access_denied',
+};
+
+/** A descriptor whose chain is read at most once, however many checks share it. */
+export const memoizedDescriptor = (
+    path: string,
+    readChain: () => Promise<ReadonlyArray<{ uid: string; path: string }>>,
+): ResourceDescriptor => {
+    let chain: Promise<ReadonlyArray<{ uid: string; path: string }>> | null =
+        null;
+    return { path, resolveAncestors: () => (chain ??= readChain()) };
+};
+
+/** The response for a refusal `getSafeAclError` described. */
+export const aclRefusal = (
+    safe: AclError,
+    options: AclRefusalOptions = {},
+): HttpError => {
+    if (safe.status === 404) {
+        return new HttpError(404, options.notFoundMessage ?? safe.message, {
+            legacyCode: safe.fields.code,
+        });
+    }
+    return new HttpError(403, safe.message, {
+        legacyCode: options.forbiddenCode ?? safe.fields.code,
+    });
+};
 
 interface StatPermissionsResult {
     [path: string]: string[];
@@ -315,6 +362,67 @@ export class ACLService extends PuterService {
             message: 'Forbidden',
             fields: { code: 'forbidden' },
         };
+    }
+
+    /** Descriptor for a filesystem path, its chain read from the store. */
+    fsDescriptor(path: string): ResourceDescriptor {
+        const fsEntry = this.stores.fsEntry;
+        return memoizedDescriptor(path, () => fsEntry.getAncestorChain(path));
+    }
+
+    /** `check`, throwing the safe refusal (see `refusal`) when it fails. */
+    async assertFsAccess(
+        actor: Actor,
+        resource: string | ResourceDescriptor,
+        mode: AclMode,
+        options: AclRefusalOptions = {},
+    ): Promise<void> {
+        const descriptor =
+            typeof resource === 'string'
+                ? this.fsDescriptor(resource)
+                : resource;
+        if (await this.check(actor, descriptor, mode)) return;
+        throw await this.refusal(actor, descriptor, mode, options);
+    }
+
+    /**
+     * Creating at `targetPath` takes `write` on the parent, or on the target
+     * itself: that is what lets an app create its own
+     * `/<user>/AppData/<app_uid>` (the parent is off-limits, the target is its
+     * own subtree) and a recipient materialize a share granted on a path that
+     * doesn't exist yet. Refused as a parent `write` would be.
+     */
+    async assertFsCreate(
+        actor: Actor,
+        targetPath: string,
+        options: AclRefusalOptions = {},
+    ): Promise<void> {
+        const parent = pathPosix.dirname(targetPath);
+        const parentDescriptor = this.fsDescriptor(
+            parent === '/' ? targetPath : parent,
+        );
+        if (await this.check(actor, parentDescriptor, 'write')) return;
+        if (await this.check(actor, this.fsDescriptor(targetPath), 'write'))
+            return;
+        throw await this.refusal(actor, parentDescriptor, 'write', options);
+    }
+
+    /** The error to answer a failed `check` with. */
+    async refusal(
+        actor: Actor,
+        resource: ResourceDescriptor,
+        mode: AclMode,
+        options: AclRefusalOptions = {},
+    ): Promise<HttpError> {
+        if (options.hideFromApps && isAppActor(actor)) {
+            return new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+        }
+        return aclRefusal(
+            await this.getSafeAclError(actor, resource, mode),
+            options,
+        );
     }
 
     /**

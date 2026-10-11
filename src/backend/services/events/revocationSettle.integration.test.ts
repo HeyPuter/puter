@@ -719,6 +719,37 @@ describe('what a revoked grant settles', () => {
         expect((await rowOf(foreground.subId)).suspended_at).toBeFalsy();
     });
 
+    it('asks an app about its background consent once, not once per row', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/settle-consent-once`);
+        const appActor = await makeApp(path);
+        const subs = [];
+        for (let i = 0; i < 3; i++)
+            subs.push(
+                (
+                    await events().subscribeDurable(appActor, {
+                        subject: `fs:${path}`,
+                    })
+                ).sub,
+            );
+
+        const check = vi.spyOn(env.server.services.permission, 'check');
+        try {
+            await env.server.services.permission.revokeUserAppPermission(
+                owner.actor,
+                appActor.app!.uid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+            for (const sub of subs) await suspendedRow(sub.subId);
+            const asked = check.mock.calls.filter(
+                ([, permission]) => permission === EVENTS_BACKGROUND_PERMISSION,
+            );
+            expect(asked).toHaveLength(1);
+        } finally {
+            check.mockRestore();
+        }
+    });
+
     it('settles a subscription when one app permission is revoked, not just all of them', async () => {
         await clearRows();
         const path = await folder(`/${owner.username}/settle-app-single`);

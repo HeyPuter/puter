@@ -264,6 +264,37 @@ describe('ShareStore', () => {
             holder = await makeUser();
         });
 
+        it('says whether an owner has anything shared, legacy rows included', async () => {
+            const owner = await makeUser();
+            await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
+
+            const entry = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await expect(store.ownerHasShares(owner.id)).resolves.toBe(true);
+
+            // A row written before the owner column existed.
+            const legacyOwner = await makeUser();
+            const legacy = await makeEntry(legacyOwner);
+            await store.upsertActive({
+                issuerUserId: legacyOwner.id,
+                holderUserId: holder.id,
+                fsentryId: legacy.id,
+                mode: 'read',
+            });
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `fsentry_id` = ?',
+                [legacy.id],
+            );
+            await expect(store.ownerHasShares(legacyOwner.id)).resolves.toBe(
+                true,
+            );
+        });
+
         it('finds a subtree share even when the descendant has no path yet', async () => {
             const now = Math.floor(Date.now() / 1000);
             const dirUuid = uuidv4();

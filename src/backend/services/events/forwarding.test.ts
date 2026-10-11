@@ -386,7 +386,6 @@ const makeRegion = (
     const services: Record<string, unknown> = {
         broadcast,
         socket,
-        fs: { getAncestorChain: async () => ancestors() },
         acl: {
             check: async () => true,
             getSafeAclError: async () => ({
@@ -481,6 +480,7 @@ const makeRegion = (
                     : null,
             getEntryByPath: async () => null,
             getEntryById: async () => null,
+            getAncestorChain: async () => ancestors(),
         },
         user: { getById: async (id: number) => ({ id, uuid: `user-${id}` }) },
         app: { getByUid: async (uid: string) => ({ uid, id: 1 }) },
