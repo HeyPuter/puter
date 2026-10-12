@@ -103,6 +103,21 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
 
+### Remote chat image inlining
+
+For chat providers that require remote image URLs to be inlined (currently Moonshot):
+
+| Limit | Value |
+|-------|-------|
+| Remote images per request | 20 |
+| Concurrent image fetches per request | 4 |
+| Image bytes | 5,000,000 bytes per image |
+| Fetch timeout, including the body | 30 seconds per image |
+
+Excess images and failed fetches become text error parts. Remote bodies are stopped
+as soon as the byte cap is exceeded. Oversized AI file inputs return
+`413 input_too_large`; this does not indicate a storage quota failure.
+
 ### OCR
 
 `puter.ai.img2txt()` input limits apply in addition to the shared AI limits above:
@@ -112,7 +127,7 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 | AWS Textract | 10 MB per input. JPEG, PNG, TIFF, or a single-page PDF. |
 | Mistral | 50 MB per input. PDFs up to 1,000 pages. |
 
-`File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
+`File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 input_too_large` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
 
 Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. An image, and any Textract input, counts as one page. Other documents, and PDFs whose pages can't be read, count 20 pages per MB, up to 1,000. That amount is reserved while the call runs; the charge is for the pages actually processed.
 
@@ -512,7 +527,7 @@ Every driver call also counts toward **8,000 calls/min**, before the per-API lim
 
 ## Storage quota
 
-Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
+Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 

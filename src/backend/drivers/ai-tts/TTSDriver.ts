@@ -238,8 +238,7 @@ export class TTSDriver extends PuterDriver {
 
         const polly = providers['aws-polly'];
         const pollyAws = (polly?.aws ?? polly) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const pollyAccessKey = pollyAws?.access_key as string | undefined;
         const pollySecretKey = pollyAws?.secret_key as string | undefined;
         if (pollyAccessKey && pollySecretKey) {
@@ -250,8 +249,7 @@ export class TTSDriver extends PuterDriver {
                         access_key: pollyAccessKey,
                         secret_key: pollySecretKey,
                         region: (pollyAws?.region ?? polly?.region) as
-                            | string
-                            | undefined,
+                            string | undefined,
                     }),
             );
         }

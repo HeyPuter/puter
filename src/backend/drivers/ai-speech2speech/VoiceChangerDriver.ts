@@ -168,7 +168,7 @@ export class VoiceChangerDriver extends PuterDriver {
             this.services.fs,
             actor,
             args.audio,
-            { maxBytes: MAX_AUDIO_FILE_SIZE },
+            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
         );
 
         const modelId =

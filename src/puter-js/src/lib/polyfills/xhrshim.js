@@ -21,10 +21,11 @@ function mergeUint8Arrays (...arrays) {
     const totalSize = arrays.reduce((acc, e) => acc + e.length, 0);
     const merged = new Uint8Array(totalSize);
 
-    arrays.forEach((array, i, arrays) => {
-        const offset = arrays.slice(0, i).reduce((acc, e) => acc + e.length, 0);
+    let offset = 0;
+    for (const array of arrays) {
         merged.set(array, offset);
-    });
+        offset += array.length;
+    }
 
     return merged;
 }
@@ -192,15 +193,16 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
             // to iterate.
             const body = resp.body ?? [];
 
-            if ( (resp.headers.get('content-type') ?? '').includes('application/x-ndjson') || this.streamRequestBadForPerformance ) {
-                let bytes = new Uint8Array();
+            if ( responseType === 'text' && ((resp.headers.get('content-type') ?? '').includes('application/x-ndjson') || this.streamRequestBadForPerformance) ) {
+                const decoder = new TextDecoder();
+                this.response = '';
                 for await ( const chunk of body ) {
                     this.readyState = this.constructor.LOADING;
 
-                    bytes = mergeUint8Arrays(bytes, chunk);
-                    await parseBody.call(this, bytes);
+                    this.response += decoder.decode(chunk, { stream: true });
                     this[sDispatch](new CustomEvent('progress'));
                 }
+                this.response += decoder.decode();
             } else {
                 const bytesChunks = [];
                 for await ( const chunk of body ) {

@@ -17,11 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Context } from '../../../core/context.js';
 import { isHttpError } from '../../../core/http/HttpError.js';
+import { runWithConcurrencyLimit } from '../../../util/concurrency.js';
 import { fetchImageBytes } from '../../util/imageInput.js';
 
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
+export const MAX_INLINE_IMAGES = 20;
+const IMAGE_FETCH_CONCURRENCY = 4;
 
 interface ImageContentPart {
     type?: string;
@@ -39,7 +43,7 @@ interface MessageWithContent {
 export async function inlineHttpImageUrls(
     messages: MessageWithContent[],
 ): Promise<void> {
-    const tasks: Array<Promise<void>> = [];
+    const tasks: Array<{ part: ImageContentPart; url: string }> = [];
     for (const message of messages) {
         if (!Array.isArray(message.content)) continue;
         for (const part of message.content as ImageContentPart[]) {
@@ -48,27 +52,33 @@ export async function inlineHttpImageUrls(
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 continue;
             }
-            tasks.push(inlineOne(part, url));
+            if (tasks.length >= MAX_INLINE_IMAGES) {
+                setTextError(
+                    part,
+                    `maximum of ${MAX_INLINE_IMAGES} remote images per request`,
+                );
+                continue;
+            }
+            tasks.push({ part, url });
         }
     }
-    await Promise.all(tasks);
+    await runWithConcurrencyLimit(
+        tasks,
+        IMAGE_FETCH_CONCURRENCY,
+        ({ part, url }) => inlineOne(part, url),
+    );
 }
 
 async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
     try {
-        const { bytes, declaredMime } = await fetchImageBytes(url, {
+        const { bytes, mime } = await fetchImageBytes(url, {
             maxBytes: MAX_IMAGE_BYTES,
+            signal: Context.get('abortSignal'),
+            requireImageMime: true,
         });
-        if (!declaredMime?.startsWith('image/')) {
-            setTextError(
-                part,
-                `expected an image, got ${declaredMime || 'unknown MIME type'}`,
-            );
-            return;
-        }
         part.type = 'image_url';
         part.image_url = {
-            url: `data:${declaredMime};base64,${bytes.toString('base64')}`,
+            url: `data:${mime};base64,${bytes.toString('base64')}`,
         };
     } catch (err) {
         if (isHttpError(err) && err.code === 'input_too_large') {
@@ -78,7 +88,11 @@ async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
             );
             return;
         }
-        const message = (err as Error)?.message || 'failed to fetch image';
+        // fetchImageBytes' own errors are safe to show; anything else (DNS,
+        // socket, SSRF guard) stays generic.
+        const message = isHttpError(err)
+            ? err.message
+            : 'failed to fetch image';
         setTextError(part, message);
     }
 }

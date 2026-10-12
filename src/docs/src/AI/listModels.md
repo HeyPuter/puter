@@ -43,6 +43,13 @@ Example model entry:
 ]
 ```
 
+Network and server failures reject the promise; they do not resolve to an empty
+catalogue. Network failures use `{ message, code: "network_error" }`, invalid
+catalogue responses use `invalid_response`, idle timeouts use `request_timeout`,
+and server errors pass through unchanged.
+
+<div class="info">Successful results are cached for 60 seconds per provider.</div>
+
 ## Model variants
 
 Some models have variants. A variant is the same model with a different price, rate limit, or speed. The variant is a suffix on the model ID, separated by a colon.

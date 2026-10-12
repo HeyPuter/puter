@@ -1190,6 +1190,7 @@ export class ClaudeProvider implements IChatProvider {
         let finalUsage: any = null;
 
         for await (const event of { [Symbol.asyncIterator]: () => events }) {
+            await chatStream.waitForDrain();
             switch (event.type) {
                 case 'message_start': {
                     message = chatStream.message();

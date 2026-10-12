@@ -40,9 +40,53 @@ import {
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
-const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" sample voice
+const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
 const VOICES_TTL_MS = 10 * 60 * 1000;
+// ElevenLabs voice IDs are 20 alphanumeric characters.
+const VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
+const VOICE_SEARCH_MAX_PAGES = 5;
+// https://elevenlabs.io/docs/api-reference/text-to-speech/convert
+// mp3_44100_192 needs the Creator tier; pcm/wav at 44.1 kHz need Pro.
+const OUTPUT_FORMATS = new Set([
+    'alaw_8000',
+    'mp3_22050_32',
+    'mp3_24000_48',
+    'mp3_44100_32',
+    'mp3_44100_64',
+    'mp3_44100_96',
+    'mp3_44100_128',
+    'mp3_44100_192',
+    'opus_48000_32',
+    'opus_48000_64',
+    'opus_48000_96',
+    'opus_48000_128',
+    'opus_48000_192',
+    'pcm_8000',
+    'pcm_16000',
+    'pcm_22050',
+    'pcm_24000',
+    'pcm_32000',
+    'pcm_44100',
+    'pcm_48000',
+    'ulaw_8000',
+    'wav_8000',
+    'wav_16000',
+    'wav_22050',
+    'wav_24000',
+    'wav_32000',
+    'wav_44100',
+    'wav_48000',
+]);
+// OpenAI-style `response_format` names. ElevenLabs ignored the body field
+// these used to travel in, so callers passing them always got MP3; map them to
+// the closest native format instead of letting the vendor reject them.
+const OUTPUT_FORMAT_SHORTHANDS: Record<string, string> = {
+    mp3: DEFAULT_OUTPUT_FORMAT,
+    opus: 'opus_48000_128',
+    pcm: 'pcm_24000',
+    wav: 'wav_24000',
+};
 
 const ELEVENLABS_TTS_MODELS = [
     { id: DEFAULT_MODEL, name: 'Eleven Multilingual v2' },
@@ -156,6 +200,72 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
         );
     }
 
+    private async resolveVoiceId(voice: string): Promise<string> {
+        // Voice IDs go straight to synthesis: the account's library listing
+        // omits voices that still synthesize (the default voice among them)
+        // and runs to megabytes, so it can't gate IDs.
+        if (VOICE_ID_PATTERN.test(voice)) return voice;
+
+        const voices = await this.searchVoices(voice);
+        const byId = voices.find((entry) => entry.voice_id === voice);
+        if (byId) return byId.voice_id;
+
+        // Exact full names first; premade voices are named "Bella - Professional,
+        // Bright, Warm", so their short name before " - " also resolves. Library
+        // voices don't get the short form: "Rachel" would land on whichever
+        // community voice happens to share it.
+        let matches = voices.filter((entry) => entry.name === voice);
+        if (matches.length === 0) {
+            matches = voices.filter(
+                (entry) =>
+                    entry.category === 'premade' &&
+                    entry.name.split(' - ')[0].trim() === voice,
+            );
+        }
+        if (matches.length === 1) return matches[0].voice_id;
+
+        throw new HttpError(
+            400,
+            matches.length > 1
+                ? 'Ambiguous ElevenLabs voice name. Use a voice ID from listVoices.'
+                : 'Unknown ElevenLabs voice. Use a voice ID or exact name from listVoices.',
+            { legacyCode: 'field_invalid', fields: { key: 'voice' } },
+        );
+    }
+
+    private async searchVoices(
+        search: string,
+    ): Promise<{ voice_id: string; name: string; category?: string }[]> {
+        const voices: { voice_id: string; name: string; category?: string }[] =
+            [];
+        let pageToken: string | undefined;
+        for (let page = 0; page < VOICE_SEARCH_MAX_PAGES; page++) {
+            const params = new URLSearchParams({
+                search,
+                page_size: '100',
+                include_total_count: 'false',
+            });
+            if (pageToken) params.set('next_page_token', pageToken);
+            const res = await this.request(`/v2/voices?${params}`);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const data: any = await res.json();
+            for (const entry of Array.isArray(data?.voices)
+                ? data.voices
+                : []) {
+                if (
+                    typeof entry?.voice_id === 'string' &&
+                    typeof entry?.name === 'string'
+                ) {
+                    voices.push(entry);
+                }
+            }
+            if (!data?.has_more || typeof data?.next_page_token !== 'string')
+                break;
+            pageToken = data.next_page_token;
+        }
+        return voices;
+    }
+
     async listEngines(): Promise<ITTSEngine[]> {
         return ELEVENLABS_TTS_MODELS.map((model) => ({
             id: model.id,
@@ -194,7 +304,6 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             });
         }
 
-        const voiceId = voiceArg || this.defaultVoiceId;
         const modelId = modelArg || DEFAULT_MODEL;
 
         // Gate on the cost table rather than the advertised model list: an id
@@ -212,14 +321,41 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             );
         }
 
+        const requestedFormat =
+            output_format || response_format || DEFAULT_OUTPUT_FORMAT;
+        const desiredFormat = Object.hasOwn(
+            OUTPUT_FORMAT_SHORTHANDS,
+            requestedFormat,
+        )
+            ? OUTPUT_FORMAT_SHORTHANDS[requestedFormat]
+            : requestedFormat;
+        if (!OUTPUT_FORMATS.has(desiredFormat)) {
+            const expected = [...OUTPUT_FORMATS];
+            throw new HttpError(
+                400,
+                `Invalid output_format: ${requestedFormat}. Expected: ${expected.join(', ')}`,
+                {
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: output_format
+                            ? 'output_format'
+                            : 'response_format',
+                        expected,
+                        got: requestedFormat,
+                    },
+                },
+            );
+        }
+
         const payload: Record<string, unknown> = {
             text,
             model_id: modelId,
-            output_format:
-                output_format || response_format || DEFAULT_OUTPUT_FORMAT,
         };
         const finalVoiceSettings = voice_settings ?? voiceSettings;
         if (finalVoiceSettings) payload.voice_settings = finalVoiceSettings;
+        const searchParams = new URLSearchParams({
+            output_format: desiredFormat,
+        });
 
         return meterPerCharacter(
             this.meteringService,
@@ -228,8 +364,11 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             ELEVENLABS_TTS_COSTS[modelId],
             text,
             async () => {
+                const voiceId = voiceArg
+                    ? await this.resolveVoiceId(voiceArg)
+                    : this.defaultVoiceId;
                 const response = await this.request(
-                    `/v1/text-to-speech/${voiceId}`,
+                    `/v1/text-to-speech/${encodeURIComponent(voiceId)}?${searchParams}`,
                     { method: 'POST', body: payload, stream: true },
                 );
                 return {

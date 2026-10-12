@@ -90,17 +90,28 @@ export function parseDataUri(
 /**
  * Fetch image bytes and MIME type with SSRF protection, bounded in size and
  * time. The MIME type is the declared one, or image/png when none is declared.
+ * With `requireImageMime`, a body not declared as image/* is cancelled unread.
  */
 export async function fetchImageBytes(
     url: string,
     {
         maxBytes = MAX_INPUT_IMAGE_BYTES,
         timeoutMs = INPUT_IMAGE_TIMEOUT_MS,
-    }: { maxBytes?: number; timeoutMs?: number } = {},
+        signal,
+        requireImageMime = false,
+    }: {
+        maxBytes?: number;
+        timeoutMs?: number;
+        signal?: AbortSignal;
+        requireImageMime?: boolean;
+    } = {},
 ): Promise<{ bytes: Buffer; mime: string; declaredMime?: string }> {
     try {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
         const res = await secureFetch(url, {
-            signal: AbortSignal.timeout(timeoutMs),
+            signal: signal
+                ? AbortSignal.any([signal, timeoutSignal])
+                : timeoutSignal,
         });
         if (!res.ok) {
             await res.body?.cancel();
@@ -110,10 +121,17 @@ export async function fetchImageBytes(
                 { legacyCode: 'bad_request' },
             );
         }
-        const bytes = await readBoundedBody(res, maxBytes, inputImageTooLarge);
         const declaredMime =
-            res.headers.get('content-type')?.split(';')[0]?.trim() ||
-            undefined;
+            res.headers.get('content-type')?.split(';')[0]?.trim() || undefined;
+        if (requireImageMime && !declaredMime?.startsWith('image/')) {
+            await res.body?.cancel();
+            throw new HttpError(
+                400,
+                `expected an image, got ${declaredMime || 'unknown MIME type'}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const bytes = await readBoundedBody(res, maxBytes, inputImageTooLarge);
         return { bytes, mime: declaredMime ?? 'image/png', declaredMime };
     } catch (err) {
         if (isUpstreamTimeoutError(err)) {

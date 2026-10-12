@@ -29,6 +29,7 @@ An object containing the following properties:
 
 - `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
 - `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
+- `signal` (AbortSignal) (Optional) - Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`).
 - `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
 - `temperature` (Number) - A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the specific model's temperature is used. OpenAI and Azure Responses calls omit unsupported sampling options. GPT-5.6 and GPT-6 Sol/Luna only receive `temperature` and `top_p` when the reasoning effort sent upstream is `none`; GPT-6 Astra, GPT-6.1 Sol, and GPT-5.3 Codex omit them. The `message.output_text.logprobs` include option is also omitted when sampling is unsupported.
@@ -123,7 +124,8 @@ if the provider stops sending the response before it is complete. Check for
 error chunks in your `for await...of` loop before treating the response as complete.
 
 If the network connection fails after streaming starts, the loop throws
-`{ message, code: "network_error" }`. If the stream sends nothing for 15
+`{ message, code: "network_error" }`. Malformed or truncated JSON throws
+`{ message, code: "invalid_stream_response" }`. If the stream sends nothing for 15
 minutes, it throws `{ message, code: "request_timeout" }`; a call that gets no
 response at all for 15 minutes rejects the same way. Neither is retried, since
 the model may already have run (see
@@ -135,7 +137,34 @@ the model may already have run (see
 Break out of the `for await...of` loop to stop a chat stream. When using
 `new ReadableStream(response)`, call `reader.cancel()` to stop it.
 
-Output generated before the stream stops may still be billed.
+You can also pass an `AbortSignal` to stop generation before output arrives:
+
+```js
+const controller = new AbortController();
+const stopButton = document.createElement('button');
+stopButton.textContent = 'Stop';
+stopButton.onclick = () => controller.abort();
+document.body.append(stopButton);
+try {
+    const response = await puter.ai.chat('Write a long story', {
+        stream: true,
+        signal: controller.signal,
+    });
+    for await (const part of response) {
+        if (part.type === 'text') console.log(part.text);
+    }
+} catch (error) {
+    if (error.name !== 'AbortError') throw error;
+} finally {
+    stopButton.remove();
+}
+```
+
+Output generated before the provider processes cancellation may still be billed.
+
+The `ReadableStream` adapter emits text chunks as UTF-8 text. Other chunk types
+(including usage, tool calls, reasoning and errors) are serialized as JSON followed
+by a newline. Use the async iterator to receive every chunk as an object.
 
 ## Vendors
 

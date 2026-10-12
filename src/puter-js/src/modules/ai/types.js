@@ -58,6 +58,7 @@
  * Options for a chat completion request.
  *
  * @typedef {Object} ChatOptions
+ * @property {AbortSignal} [signal] Cancel the request and stop generation when aborted.
  * @property {string} [model] The model to use for the completion. Defaults to `gpt-5.4-nano` if not
  * specified.
  * @property {number} [temperature] Sampling temperature between 0 and 2. Lower values are more focused
@@ -542,6 +543,7 @@ export {};
 /**
  * Parsed chat chunks, with a byte-stream adapter for `new ReadableStream(response)`.
  * Stopping iteration or cancelling the byte stream cancels the HTTP request.
+ * Text chunks become UTF-8 text; other chunks become newline-terminated JSON.
  * @typedef {AsyncGenerator<ChatResponseChunk, void, unknown> & {
  *     start: (controller: ReadableStreamDefaultController<Uint8Array>) => Promise<void>;
  *     cancel: () => Promise<IteratorResult<ChatResponseChunk, void>>;

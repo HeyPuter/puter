@@ -105,6 +105,7 @@ export class FakeChatProvider implements IChatProvider {
                     });
                     const response = await resp;
                     if (chatStream.aborted) return;
+                    await chatStream.waitForDrain();
                     chatStream.stream.write(
                         `${JSON.stringify({
                             type: 'text',

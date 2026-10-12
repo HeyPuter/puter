@@ -32,9 +32,9 @@ import { secretsEqual } from './secureCompare.js';
  * signed, and verify only while the entry still has that owner. Signatures
  * issued before owner binding, `sha256(<uid>/<action>/<secret>/<expires>)`,
  * still verify without the owner check by default — `allowLegacySignatures`
- * (config `legacy_file_signatures`) turns that off. Both formats are hex in
- * the same param, so the verifier tries each. A `write` signature also
- * satisfies `read`.
+ * (config `legacy_file_signatures`) turns that off. Both formats are hex in the
+ * same param, so the verifier tries each. A `write` signature also satisfies
+ * `read`.
  */
 
 export type SignAction = 'read' | 'write';

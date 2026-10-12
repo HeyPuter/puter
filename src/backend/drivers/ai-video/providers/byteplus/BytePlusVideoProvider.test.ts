@@ -191,10 +191,11 @@ describe('BytePlusVideoProvider.generate gates', () => {
     });
 
     it('throws 402 BEFORE creating a task when even the shortest clip is unaffordable', async () => {
-        remainingUsageSpy.mockResolvedValue(0);
-        await expect(
-            withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 402 });
+        remainingUsageSpy.mockResolvedValue(12345);
+        const error = await withTestActor(() => makeProvider().generate({ prompt: 'hi' })).catch(error => error);
+        expect(error).toMatchObject({ statusCode: 402, legacyCode: 'insufficient_funds' });
+        expect(JSON.stringify(error)).not.toContain('12345');
+        expect(error.message).not.toContain('12345');
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });

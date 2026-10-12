@@ -69,14 +69,6 @@ See the [AI model directory](https://developer.puter.com/ai/models/) for the inc
 
 `puter.ai.listModels()` lists chat models. The image catalog above describes configured integrations; upstream account access and availability can still vary.
 
-**Availability notes (September 30, 2026):**
-
-- Gemini `gemini-3-pro-image` and `gemini-3.1-flash-image` use stable endpoints. Their previous `-preview` spellings remain aliases. Google deprecated `gemini-2.5-flash-image` (shutdown October 2, 2026); Puter no longer offers it, and requests for `gemini-2.5-flash-image` or `nano-banana` fail as unknown models. Use `gemini-3.1-flash-image`, the default here. See [Google's deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations).
-- OpenAI has deprecated `gpt-image-1`, `gpt-image-1-mini`, and `gpt-image-1.5`. Puter no longer offers them through any provider; requests for them fail with `Model not found`. Use `gpt-image-2` or a `gpt-image-2.5-*` model. `chatgpt-image-latest` was never offered. See [OpenAI's deprecation schedule](https://developers.openai.com/api/docs/deprecations).
-- All cataloged Together image routes are excluded because they require a third-party data-sharing opt-in. This includes Imagen 4; its retirement through Together has not been confirmed. Excluded routes reject generation before contacting the provider. Previously retired Together aliases still fail as unavailable. To use Cloudflare Schnell, select `@cf/black-forest-labs/flux-1-schnell` or `workers-ai:black-forest-labs/flux.1-schnell`.
-- Cloudflare `@cf/black-forest-labs/flux-2-dev` timed out on every live request on September 16, 2026, including 512×512 at 4 steps, while the Klein variants respond normally. It stays listed pending a Cloudflare-side fix.
-- xAI `grok-imagine-image-2.0` is available. xAI retires `grok-imagine-image-quality` on November 2, 2026; Puter no longer offers it, and requests for it fail as an unknown model. Use `grok-imagine-image-2.0`. The original `grok-imagine-image` remains available. See [xAI's release notes](https://docs.x.ai/developers/release-notes).
-
 #### Output dimensions
 
 Use `ratio: { w: 16, h: 9 }`, `aspect_ratio: '16:9'`, or a pair of pixel dimensions (`width`, `height`). `ratio` takes precedence, followed by `width`/`height`, then `aspect_ratio`. `aspect_ratio` always denotes a shape. Legacy dimension pairs with both sides at most 32 also denote shapes; BytePlus retains its pixel-threshold rule described below. Invalid, non-positive, or non-finite dimensions fail with `bad_request`.
@@ -118,9 +110,9 @@ Available when `provider: 'gemini'` or inferred from model:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-3.1-flash-lite-image'`, or `'gemini-3-pro-image'`. |
+| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-nano-banana-2.1'` (Nano Banana 2.1), `'gemini-3.1-flash-lite-image'`, or `'gemini-3-pro-image'`. |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
-| `quality` | `String` | 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on 3 Pro and 3.1 Flash Lite. |
+| `quality` | `String` | Nano Banana 2.1 and 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on Nano Banana 2.1, 3 Pro, and 3.1 Flash Lite. |
 | `input_images` | `Array<String>` | Input images for image-to-image — a URL or base64/data-URI (URLs are fetched server-side). |
 
 #### xAI (Grok) Options

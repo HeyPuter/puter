@@ -179,6 +179,28 @@ export default suite('ai', {
         );
     },
 
+    'chat accepts an AbortSignal before sending and while waiting for output': async (t) => {
+        useApiToken(t);
+        for (const alreadyAborted of [true, false]) {
+            const controller = new AbortController();
+            if (alreadyAborted) controller.abort();
+            const request = t.puter.ai.chat('Stream this', {
+                model: 'fake', stream: true, signal: controller.signal,
+            });
+            if (!alreadyAborted) controller.abort();
+            const error = await t.assert.rejects(() => request) as { name?: string };
+            t.assert.equal(error.name, 'AbortError');
+        }
+    },
+
+    'chat ReadableStream response preserves structured usage': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        const body = await new Response(new ReadableStream(stream)).text();
+        t.assert.ok(body.includes('"type":"usage"'));
+        t.assert.ok(!body.includes('[object Object]'));
+    },
+
     'chat stream supports stopping iteration': async (t) => {
         useApiToken(t);
         const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });

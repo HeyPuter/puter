@@ -550,3 +550,131 @@ describe('Gemini image standard pricing', () => {
         ]));
     });
 });
+
+describe('Gemini Nano Banana image generation', () => {
+    it.each([
+        ['gemini-nano-banana-2.1', '1K', 1200],
+        ['google/gemini-nano-banana-2.1', '2K', 1680],
+        ['nano-banana-2.1', '4K', 3780],
+    ])(
+        'routes %s and meters %s image output',
+        async (model, quality, imageTokens) => {
+            generateContentMock.mockResolvedValueOnce({
+                candidates: [
+                    {
+                        content: {
+                            parts: [
+                                {
+                                    inlineData: {
+                                        mimeType: 'image/png',
+                                        data: 'AAAA',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+                usageMetadata: {
+                    promptTokenCount: 100,
+                    candidatesTokenCount: imageTokens + 80,
+                    candidatesTokensDetails: [
+                        { modality: 'IMAGE', tokenCount: imageTokens },
+                        { modality: 'TEXT', tokenCount: 80 },
+                    ],
+                    thoughtsTokenCount: 20,
+                },
+            });
+            const result = await withTestActor(() =>
+                makeProvider().generate({ model, quality, prompt: 'A cup' }),
+            );
+            expect(result).toBe('data:image/png;base64,AAAA');
+            expect(generateContentMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    model: 'gemini-nano-banana-2.1',
+                    config: expect.objectContaining({
+                        imageConfig: { aspectRatio: '1:1', imageSize: quality },
+                    }),
+                }),
+            );
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        usageType: 'gemini:gemini-nano-banana-2.1:input',
+                        costOverride: 15000,
+                    }),
+                    expect.objectContaining({
+                        usageType: 'gemini:gemini-nano-banana-2.1:output:text',
+                        costOverride: 75000,
+                    }),
+                    expect.objectContaining({
+                        usageType: 'gemini:gemini-nano-banana-2.1:output:image',
+                        costOverride: imageTokens * 3000,
+                    }),
+                ]),
+            );
+        },
+    );
+
+    it('defaults to 1K and preserves input image editing', async () => {
+        generateContentMock.mockResolvedValueOnce({
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: 'image/png',
+                                    data: 'AAAA',
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'gemini-nano-banana-2.1',
+                prompt: 'Make it blue',
+                input_image: 'data:image/png;base64,AAAA',
+            }),
+        );
+        const request = generateContentMock.mock.calls[0][0];
+        expect(request.config.imageConfig.imageSize).toBe('1K');
+        // Input + 1120 image tokens at $30/1M + 1000 text tokens at $7.50/1M.
+        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 4_194_450);
+        expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    usageType: 'gemini:gemini-nano-banana-2.1:output:image',
+                    usageAmount: 1120,
+                    costOverride: 3_360_000,
+                }),
+            ]),
+        );
+        expect(request.contents).toContainEqual({
+            inlineData: { mimeType: 'image/png', data: 'AAAA' },
+        });
+    });
+
+    it('rejects 512px output before making a provider request', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'gemini-nano-banana-2.1',
+                    prompt: 'A cup',
+                    quality: '512',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            message: expect.stringContaining('Unsupported quality tier'),
+        });
+        expect(generateContentMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the existing provider default', () => {
+        expect(makeProvider().getDefaultModel()).toBe('gemini-3.1-flash-image');
+    });
+});
