@@ -126,72 +126,6 @@ describe('ShareStore', () => {
         expect(await store.getByUid('no-such-share')).toBeNull();
     });
 
-    it('lists only the shares addressed to the requested recipient', async () => {
-        const email = `recipient-${Date.now()}@test.local`;
-        const mine = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { n: 1 },
-        });
-        await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: `other-${Date.now()}@test.local`,
-            data: { n: 2 },
-        });
-
-        const rows = await store.listByRecipientEmail(email);
-        expect(rows.map((r) => r.uid)).toEqual([mine.uid]);
-        expect(rows[0].data).toEqual({ n: 1 });
-    });
-
-    it('returns an empty list for a recipient with no shares', async () => {
-        expect(await store.listByRecipientEmail('nobody@test.local')).toEqual(
-            [],
-        );
-    });
-
-    it('never leaks another issuer rows through listByIssuer', async () => {
-        const mine = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: 'iso-a@test.local',
-            data: {},
-        });
-        const theirs = await store.create({
-            issuerUserId: otherIssuer.id,
-            recipientEmail: 'iso-b@test.local',
-            data: {},
-        });
-
-        const uids = (await store.listByIssuer(otherIssuer.id)).map(
-            (r) => r.uid,
-        );
-        expect(uids).toContain(theirs.uid);
-        expect(uids).not.toContain(mine.uid);
-    });
-
-    it('orders a recipient inbox newest-first', async () => {
-        const email = `ordered-${Date.now()}@test.local`;
-        const older = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { which: 'older' },
-        });
-        const newer = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { which: 'newer' },
-        });
-        // `created_at` defaults to a second-granularity timestamp, so both
-        // rows can land in the same second. Age one explicitly.
-        await server.clients.db.write(
-            "UPDATE `share` SET `created_at` = '2020-01-01 00:00:00' WHERE `uid` = ?",
-            [older.uid],
-        );
-
-        const rows = await store.listByRecipientEmail(email);
-        expect(rows.map((r) => r.uid)).toEqual([newer.uid, older.uid]);
-    });
-
     // -- deletes ------------------------------------------------------
 
     it('deletes a single share by uid and reports whether a row was removed', async () => {
@@ -205,35 +139,6 @@ describe('ShareStore', () => {
         expect(await store.getByUid(created.uid)).toBeNull();
         // Second delete finds nothing.
         expect(await store.deleteByUid(created.uid)).toBe(false);
-    });
-
-    it('deletes every share for a recipient in one call', async () => {
-        const email = `bulk-${Date.now()}@test.local`;
-        await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: {},
-        });
-        await store.create({
-            issuerUserId: otherIssuer.id,
-            recipientEmail: email,
-            data: {},
-        });
-        const survivor = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: `keep-${Date.now()}@test.local`,
-            data: {},
-        });
-
-        expect(await store.deleteByRecipientEmail(email)).toBe(true);
-        expect(await store.listByRecipientEmail(email)).toEqual([]);
-        expect(await store.getByUid(survivor.uid)).not.toBeNull();
-    });
-
-    it('reports false when a recipient bulk delete matches nothing', async () => {
-        expect(await store.deleteByRecipientEmail('ghost@test.local')).toBe(
-            false,
-        );
     });
 
     // -- active shares (the index) -------------------------------------

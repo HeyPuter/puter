@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
     decodeCursor,
     encodeCursor,
+    keysetPage,
     normalizeLimit,
     normalizeOffset,
     openCursor,
+    openIdCursor,
     sealCursor,
 } from './pagination';
 import { HttpError } from '../core/http';
@@ -137,6 +139,67 @@ describe('pagination util', () => {
                 HttpError,
             );
             expect(normalizeOffset(5000, { cap: 5000 })).toBe(5000);
+        });
+    });
+
+    describe('openIdCursor', () => {
+        const secret = 'keyset-secret';
+
+        it('returns null without a cursor', () => {
+            expect(openIdCursor(undefined, secret)).toBeNull();
+            expect(openIdCursor('', secret)).toBeNull();
+        });
+
+        it('reads the id from a sealed or plain cursor', () => {
+            expect(openIdCursor(sealCursor({ id: 41 }, secret), secret)).toBe(
+                41,
+            );
+            expect(openIdCursor(encodeCursor({ id: 7 }), secret)).toBe(7);
+        });
+
+        it('reads a cursor without a usable id as the first page', () => {
+            expect(
+                openIdCursor(encodeCursor({ appUid: 'app-1' }), secret),
+            ).toBeNull();
+            expect(openIdCursor(encodeCursor({ id: -3 }), secret)).toBeNull();
+        });
+
+        it('refuses a cursor without a usable id when strict', () => {
+            expect(() =>
+                openIdCursor(encodeCursor({ id: 'x' }), secret, {
+                    label: 'share cursor',
+                    strict: true,
+                }),
+            ).toThrowError('invalid share cursor');
+        });
+
+        it('refuses an unreadable cursor either way', () => {
+            expect(() => openIdCursor('!!!', secret)).toThrowError(HttpError);
+        });
+    });
+
+    describe('keysetPage', () => {
+        const secret = 'keyset-secret';
+        const rows = [{ id: 3 }, { id: 5 }, { id: 9 }];
+
+        it('returns every row and no cursor when nothing follows', () => {
+            expect(keysetPage(rows, 3, secret)).toEqual({ rows });
+        });
+
+        it('cuts to the limit and points the cursor at the last row kept', () => {
+            const page = keysetPage(rows, 2, secret);
+            expect(page.rows).toEqual([{ id: 3 }, { id: 5 }]);
+            expect(openIdCursor(page.cursor, secret)).toBe(5);
+        });
+
+        it('takes a custom position, plain without a secret', () => {
+            const page = keysetPage(
+                [{ app: 'a' }, { app: 'b' }],
+                1,
+                undefined,
+                (last) => ({ appUid: last.app }),
+            );
+            expect(decodeCursor(page.cursor)).toEqual({ appUid: 'a' });
         });
     });
 });

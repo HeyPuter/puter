@@ -241,7 +241,7 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `value` = ?, `shown` = NULL WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [serialized, uid, userId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     async markAcknowledged(uid, userId) {
@@ -250,7 +250,7 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [now, uid, userId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     async markShown(uid, userId) {
@@ -259,7 +259,7 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `shown` = ? WHERE `uid` = ? AND `user_id` = ? AND `shown` IS NULL',
             [now, uid, userId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     /**
@@ -279,7 +279,7 @@ export class NotificationStore extends PuterStore {
                 `WHERE \`user_id\` = ? AND \`shown\` IS NULL AND \`uid\` IN (${placeholders})`,
             [now, userId, ...unique],
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     async deleteByUid(uid, userId) {
@@ -287,7 +287,7 @@ export class NotificationStore extends PuterStore {
             'DELETE FROM `notification` WHERE `uid` = ? AND `user_id` = ?',
             [uid, userId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     /**
@@ -322,7 +322,7 @@ export class NotificationStore extends PuterStore {
         });
 
         const result = await this.clients.db.write(statement, [batch]);
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     // -- Internals ----------------------------------------------------
