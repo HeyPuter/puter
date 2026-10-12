@@ -3771,6 +3771,32 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         expect(await entryAt(user, '/Documents/olddir/inner.txt')).toBeNull();
     });
 
+    it('leaves nothing resolvable under the old path of a renamed directory', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cachedir`,
+        });
+        const sub = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cachedir/sub`,
+        });
+        // Cached the way a client browsing the folder caches it.
+        await server.stores.fsEntry.getEntryByPath(sub.path);
+
+        await fs.rename(user.userId, dir, 'cachedir-renamed');
+
+        await expect(
+            server.stores.fsEntry.getEntryByPath(sub.path),
+        ).resolves.toBeNull();
+        expect(
+            (await server.stores.fsEntry.getEntryByUuid(sub.uuid))?.path,
+        ).toBe(`${user.home}/Documents/cachedir-renamed/sub`);
+        // A write under the old path finds no parent rather than landing at a
+        // path the renamed parent no longer has.
+        await caught(() => writeFile(user, `${sub.path}/late.txt`, 'x'));
+        expect(
+            await entryAt(user, '/Documents/cachedir/sub/late.txt'),
+        ).toBeNull();
+    });
+
     it('rejects an invalid rename and a colliding one', async () => {
         const entry = await writeFile(
             user,
@@ -4338,6 +4364,30 @@ describe('FSService move', () => {
 
         expect(moved.path).toBe(`${user.home}/Desktop/moveddir`);
         expect(await entryAt(user, '/Desktop/moveddir/in.txt')).not.toBeNull();
+    });
+
+    it('leaves nothing resolvable under the old path of a moved directory', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/mvcache`,
+        });
+        const sub = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/mvcache/sub`,
+        });
+        await server.stores.fsEntry.getEntryByPath(sub.path);
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.move(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        await expect(
+            server.stores.fsEntry.getEntryByPath(sub.path),
+        ).resolves.toBeNull();
+        await caught(() => writeFile(user, `${sub.path}/late.txt`, 'x'));
+        expect(
+            await entryAt(user, '/Documents/mvcache/sub/late.txt'),
+        ).toBeNull();
     });
 
     it('re-points the owner recorded on a share when a move re-owns the subtree', async () => {
