@@ -18,6 +18,7 @@
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
+import { isBlockedEmail } from '../../util/email.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -299,7 +300,8 @@ export class AppFeedbackService extends PuterService {
         ) {
             return;
         }
-        if (!(await this.clients.email.validate(owner.email))) return;
+        if (isBlockedEmail(owner.email, this.config.blockedEmailDomains))
+            return;
 
         // Claim an email-cap slot *before* sending: flip email_sent, recount
         // with the claim included, and release the slot if a concurrent

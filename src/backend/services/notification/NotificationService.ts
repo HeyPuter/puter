@@ -149,7 +149,7 @@ export class NotificationService extends PuterService {
             userIds.map(async (userId) => {
                 const uid = uuidv4();
                 try {
-                    await this.stores.notification.create({
+                    await this.stores.notification.insert({
                         userId,
                         value: payload,
                         uid,

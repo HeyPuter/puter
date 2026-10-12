@@ -45,6 +45,7 @@ import {
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
+    AncestorChain,
     FSEntry,
     FSEntryCreateInput,
     FSEntryWriteInput,
@@ -63,9 +64,11 @@ import type {
     ServerUploadInput,
     SignedUploadResult,
 } from '../../stores/fs/s3Types.js';
+import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { puterStores } from '../../stores/index.js';
 import type { LayerInstances } from '../../types.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import { AclMode } from '../acl/ACLService.js';
 import type { puterServices } from '../index.js';
 import {
@@ -76,7 +79,6 @@ import {
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
-import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
 import {
     isOwnersTrash,
     isTildePath,
@@ -94,9 +96,10 @@ import type {
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
-
-/** What `getAncestorChain` returns: a node and every directory above it. */
-type AncestorChain = Array<{ uid: string; path: string }>;
+/** Events-API dispatches one batch of changes runs at once. */
+const EVENT_DISPATCH_CONCURRENCY = 8;
+/** Inserts and S3 copies one level of a copy runs at once. */
+const COPY_CONCURRENCY = 8;
 
 /**
  * Storage-allowance sentinel meaning "don't enforce a quota on this write".
@@ -148,6 +151,10 @@ const foreignAppDataOwner = (
     return appUid;
 };
 
+/** `name` under `parentPath` as stored: no trimming or normalizing. */
+const childPath = (parentPath: string, name: string): string =>
+    parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
+
 /** `/<username>/AppData/<appUid>`: the directory an app's launch provisions. */
 const isAppDataRootPath = (path: string): boolean => {
     const segments = path.split('/');
@@ -191,6 +198,9 @@ const assertSessionCompletable = (session: PendingUploadSession): void => {
  * committed.
  */
 type PendingUploadBytes = { activeBytes: number; settledBytes: number };
+
+/** Whose allowance a copy draws on, and the override it is judged against. */
+type CopyAllowance = { ownerId: number; max: number | undefined };
 
 /**
  * A storage lease taken for one signed-upload session, ready to release or
@@ -236,6 +246,9 @@ const heldFromSession = (
     };
 };
 
+/** One entry a copy makes: `source` copied into `parent` as `name`. */
+type CopyItem = { source: FSEntry; parent: FSEntry; name: string };
+
 interface WriteTargetResolutionInput {
     index: number;
     normalizedInput: NormalizedWriteInput;
@@ -268,18 +281,16 @@ interface BatchStartSignedWriteResult {
 export class FSService extends PuterService {
     /** Overridable so tests can reach the cap without filling it. */
     static MAX_PENDING_UPLOADS_PER_OWNER = MAX_PENDING_UPLOADS_PER_OWNER;
+    /**
+     * Rows a subtree walk (delete, copy) reads and handles at a time.
+     * Overridable so tests can cross a page boundary.
+     */
+    static SUBTREE_PAGE_SIZE = 1000;
 
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
 
     override onServerStart(): void {
-        // Wire cache invalidation: listens to events emitted by FS
-        // mutations and invalidates Redis-cached fsentries.
-        new FSEntryCacheInvalidationEventHandler(
-            this.stores.fsEntry,
-            this.clients.event,
-        );
-
         this.#registerPermissionRules();
     }
 
@@ -290,8 +301,8 @@ export class FSService extends PuterService {
      * only pulls the stores it actually needs.
      *
      * The path rewriter relies on `FSEntryStore.getEntryByPath`'s Redis cache
-     * (60s TTL), which is invalidated on every rename/move/delete through the
-     * existing event wiring.
+     * (60s TTL), which the store invalidates, in every region, on each
+     * rename/move/delete.
      */
     #registerPermissionRules(): void {
         const permissions = this.services.permission;
@@ -399,7 +410,7 @@ export class FSService extends PuterService {
                 if (!entry || entry.userId === actor.user.id) return undefined;
 
                 const ancestors = (
-                    await this.getAncestorChain(entry.path)
+                    await fsEntryStore.getAncestorChain(entry.path)
                 ).slice(1);
                 if (ancestors.length === 0) return undefined;
                 const wanted = ancestors.map((ancestor) =>
@@ -716,7 +727,7 @@ export class FSService extends PuterService {
 
     async #findDedupedPath(
         targetPath: string,
-        reservedPaths: Set<string>,
+        isReserved: (path: string) => boolean,
         loadExistingEntry: (path: string) => Promise<FSEntry | null>,
     ): Promise<string> {
         const parentPath = pathPosix.dirname(targetPath);
@@ -728,7 +739,7 @@ export class FSService extends PuterService {
                 parentPath,
                 `${fileName} (${suffix})${extension}`,
             );
-            if (reservedPaths.has(dedupedPath)) {
+            if (isReserved(dedupedPath)) {
                 continue;
             }
             const existingEntry = await loadExistingEntry(dedupedPath);
@@ -742,9 +753,14 @@ export class FSService extends PuterService {
         });
     }
 
+    /**
+     * `pendingDirectoryPaths` are directories the caller will create before
+     * these files land; a target collides with them as with an existing one.
+     */
     async #resolveWriteTargets(
         userId: number,
         inputs: WriteTargetResolutionInput[],
+        pendingDirectoryPaths: ReadonlySet<string> = new Set(),
     ): Promise<WriteTargetResolutionResult[]> {
         const reservedPaths = new Set<string>();
         const existingEntryCache = new Map<string, Promise<FSEntry | null>>();
@@ -797,8 +813,11 @@ export class FSService extends PuterService {
             let normalizedInput = input.normalizedInput;
             let existingEntry = await loadExistingEntry(normalizedInput.path);
             const pathReservedInBatch = reservedPaths.has(normalizedInput.path);
+            let pendingDirectory =
+                !existingEntry &&
+                pendingDirectoryPaths.has(normalizedInput.path);
 
-            if (pathReservedInBatch || existingEntry) {
+            if (pathReservedInBatch || existingEntry || pendingDirectory) {
                 if (normalizedInput.overwrite) {
                     if (pathReservedInBatch) {
                         throw new HttpError(
@@ -810,7 +829,9 @@ export class FSService extends PuterService {
                 } else if (normalizedInput.dedupeName) {
                     const dedupedPath = await this.#findDedupedPath(
                         normalizedInput.path,
-                        reservedPaths,
+                        (path) =>
+                            reservedPaths.has(path) ||
+                            pendingDirectoryPaths.has(path),
                         loadExistingEntry,
                     );
                     normalizedInput = {
@@ -818,6 +839,7 @@ export class FSService extends PuterService {
                         path: dedupedPath,
                     };
                     existingEntry = await loadExistingEntry(dedupedPath);
+                    pendingDirectory = false;
                 } else if (pathReservedInBatch) {
                     throw new HttpError(
                         409,
@@ -827,7 +849,7 @@ export class FSService extends PuterService {
                 }
             }
 
-            if (existingEntry && existingEntry.isDir) {
+            if (pendingDirectory || existingEntry?.isDir) {
                 throw new HttpError(
                     409,
                     'Cannot overwrite an existing directory',
@@ -1775,32 +1797,12 @@ export class FSService extends PuterService {
         };
     }
 
-    async entryExistsByPath(path: string): Promise<boolean> {
-        const entry = await this.stores.fsEntry.getEntryByPath(path);
-        return entry !== null;
-    }
-
-    async getAncestorChain(
-        path: string,
-    ): Promise<Array<{ uid: string; path: string }>> {
-        const paths: string[] = [];
-        let cursor = this.#normalizePath(path);
-        while (cursor !== '/') {
-            paths.push(cursor);
-            cursor = pathPosix.dirname(cursor);
-        }
-
-        const entriesByPath =
-            await this.stores.fsEntry.getEntriesByPaths(paths);
-
-        const ancestors: Array<{ uid: string; path: string }> = [];
-        for (const p of paths) {
-            const entry = entriesByPath.get(p);
-            if (entry) {
-                ancestors.push({ uid: entry.uid, path: entry.path });
-            }
-        }
-        return ancestors;
+    /**
+     * For drivers and extensions building an ACL descriptor by hand; services
+     * use `ACLService.fsDescriptor`, which reads the store directly.
+     */
+    async getAncestorChain(path: string): Promise<AncestorChain> {
+        return this.stores.fsEntry.getAncestorChain(this.#normalizePath(path));
     }
 
     async prepareBatchWrites(
@@ -2147,45 +2149,33 @@ export class FSService extends PuterService {
             signedWriteRequest.expiresInSeconds ??
             DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
 
-        const [reserveResult, parentResult] = await Promise.allSettled([
-            this.#reserveUploadStorage(
-                userId,
-                [
-                    {
-                        sessionId,
-                        path: normalizedInput.path,
-                        incomingSize: normalizedInput.size,
-                        existingSize,
-                        expiresInSeconds,
-                    },
-                ],
-                storageAllowanceMax,
-            ),
-            this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                userId,
-                [
-                    {
-                        parentPath,
-                        createPaths: normalizedInput.createMissingParents,
-                    },
-                ],
-            ),
-        ]);
-
-        if (reserveResult.status === 'rejected') {
-            throw reserveResult.reason;
-        }
-        // Parent resolution failed but the reservation succeeded: any
-        // directories parent resolution already created are left in place
-        // (unchanged from a plain rejection), and the lease is given back.
-        if (parentResult.status === 'rejected') {
-            await this.#releaseUploadReservations(reserveResult.value);
-            throw parentResult.reason;
-        }
-        const reservedLeases = reserveResult.value;
-        const { parentEntries, createdDirectoryEntries } = parentResult.value;
+        // Reserve before creating any parent, so an over-quota start writes
+        // nothing.
+        const reservedLeases = await this.#reserveUploadStorage(
+            userId,
+            [
+                {
+                    sessionId,
+                    path: normalizedInput.path,
+                    incomingSize: normalizedInput.size,
+                    existingSize,
+                    expiresInSeconds,
+                },
+            ],
+            storageAllowanceMax,
+        );
 
         try {
+            const { parentEntries, createdDirectoryEntries } =
+                await this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                    userId,
+                    [
+                        {
+                            parentPath,
+                            createPaths: normalizedInput.createMissingParents,
+                        },
+                    ],
+                );
             const [parentEntry] = parentEntries;
             if (!parentEntry) {
                 throw new Error(
@@ -2331,128 +2321,143 @@ export class FSService extends PuterService {
             }
             directoryPathSet.add(targetPath);
         }
-        if (directoryItems.length > 0) {
-            const {
-                entries: ensuredDirectoryEntries,
-                createdDirectoryEntries,
-            } = await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
-                userId,
-                directoryItems.map((item) => ({
-                    path: item.normalizedInput.path,
-                    createPaths: item.normalizedInput.createMissingParents,
-                })),
-            );
-            for (const createdDirectoryEntry of createdDirectoryEntries) {
-                createdDirectoryEntriesByPath.set(
-                    createdDirectoryEntry.path,
-                    createdDirectoryEntry,
-                );
+        // Directories this batch will create, which file targets are resolved
+        // against before they exist.
+        const pendingDirectoryPaths = new Set<string>();
+        for (const directoryItem of directoryItems) {
+            if (!directoryItem.normalizedInput.createMissingParents) {
+                continue;
             }
-
-            for (let index = 0; index < directoryItems.length; index++) {
-                const item = directoryItems[index];
-                const directoryEntry = ensuredDirectoryEntries[index];
-                if (!item || !directoryEntry) {
-                    throw new Error(
-                        'Failed to build directory response from batch start data',
-                    );
-                }
-                responsesByIndex.set(
-                    item.index,
-                    this.#toDirectorySignedWriteResponse(
-                        directoryEntry,
-                        createdDirectoryEntriesByPath.has(
-                            item.normalizedInput.path,
-                        ),
-                    ),
-                );
+            for (
+                let path = directoryItem.normalizedInput.path;
+                path !== '/';
+                path = pathPosix.dirname(path)
+            ) {
+                pendingDirectoryPaths.add(path);
             }
         }
 
         const fileItems = normalizedRequests.filter(
             (item) => !item.isDirectory,
         );
-        if (fileItems.length > 0) {
-            const resolvedTargets = await this.#resolveWriteTargets(
-                userId,
-                fileItems.map((item) => ({
-                    index: item.index,
-                    normalizedInput: item.normalizedInput,
-                })),
-            );
-            const resolvedTargetMap = new Map<
-                number,
-                WriteTargetResolutionResult
-            >(
-                resolvedTargets.map((resolvedTarget) => [
-                    resolvedTarget.index,
-                    resolvedTarget,
-                ]),
-            );
-            const resolvedFileItems = fileItems.map((item) => {
-                const resolvedTarget = resolvedTargetMap.get(item.index);
-                if (!resolvedTarget) {
-                    throw new Error(
-                        `Failed to resolve write target for batch index ${item.index}`,
-                    );
-                }
-
-                return {
-                    ...item,
-                    normalizedInput: resolvedTarget.normalizedInput,
-                    existingEntry: resolvedTarget.existingEntry,
-                };
-            });
-
-            const sessionIds = resolvedFileItems.map(() => uuidv4());
-            const claims: UploadReservationClaim[] = resolvedFileItems.map(
-                (item, index) => ({
-                    sessionId: sessionIds[index] as string,
-                    path: item.normalizedInput.path,
-                    incomingSize: item.normalizedInput.size,
-                    existingSize: item.existingEntry?.size ?? 0,
-                    expiresInSeconds:
-                        item.request.expiresInSeconds ??
-                        DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
-                }),
-            );
-
-            const [reserveResult, parentResult] = await Promise.allSettled([
-                this.#reserveUploadStorage(userId, claims, storageAllowanceMax),
-                this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                    userId,
-                    resolvedFileItems.map((item) => ({
-                        parentPath: pathPosix.dirname(
-                            item.normalizedInput.path,
-                        ),
-                        createPaths: item.normalizedInput.createMissingParents,
-                    })),
-                ),
-            ]);
-
-            if (reserveResult.status === 'rejected') {
-                throw reserveResult.reason;
-            }
-            if (parentResult.status === 'rejected') {
-                await this.#releaseUploadReservations(reserveResult.value);
-                throw parentResult.reason;
-            }
-            const reservedLeases = reserveResult.value;
-            const reservationBySessionId = new Map(
-                reservedLeases.map((lease) => [lease.sessionId, lease]),
-            );
-            const {
-                parentEntries,
-                createdDirectoryEntries: createdParentDirectoryEntries,
-            } = parentResult.value;
-            for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
-                createdDirectoryEntriesByPath.set(
-                    createdParentDirectoryEntry.path,
-                    createdParentDirectoryEntry,
+        const resolvedTargets =
+            fileItems.length > 0
+                ? await this.#resolveWriteTargets(
+                      userId,
+                      fileItems.map((item) => ({
+                          index: item.index,
+                          normalizedInput: item.normalizedInput,
+                      })),
+                      pendingDirectoryPaths,
+                  )
+                : [];
+        const resolvedTargetMap = new Map<number, WriteTargetResolutionResult>(
+            resolvedTargets.map((resolvedTarget) => [
+                resolvedTarget.index,
+                resolvedTarget,
+            ]),
+        );
+        const resolvedFileItems = fileItems.map((item) => {
+            const resolvedTarget = resolvedTargetMap.get(item.index);
+            if (!resolvedTarget) {
+                throw new Error(
+                    `Failed to resolve write target for batch index ${item.index}`,
                 );
             }
 
-            try {
+            return {
+                ...item,
+                normalizedInput: resolvedTarget.normalizedInput,
+                existingEntry: resolvedTarget.existingEntry,
+            };
+        });
+
+        const sessionIds = resolvedFileItems.map(() => uuidv4());
+        const claims: UploadReservationClaim[] = resolvedFileItems.map(
+            (item, index) => ({
+                sessionId: sessionIds[index] as string,
+                path: item.normalizedInput.path,
+                incomingSize: item.normalizedInput.size,
+                existingSize: item.existingEntry?.size ?? 0,
+                expiresInSeconds:
+                    item.request.expiresInSeconds ??
+                    DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+            }),
+        );
+
+        // Reserve before creating any directory, so an over-quota batch writes
+        // nothing. A directory-only batch has no claims and reserves nothing.
+        const reservedLeases = await this.#reserveUploadStorage(
+            userId,
+            claims,
+            storageAllowanceMax,
+        );
+        try {
+            if (directoryItems.length > 0) {
+                const {
+                    entries: ensuredDirectoryEntries,
+                    createdDirectoryEntries,
+                } =
+                    await this.stores.fsEntry.ensureDirectoriesForUserWithCreated(
+                        userId,
+                        directoryItems.map((item) => ({
+                            path: item.normalizedInput.path,
+                            createPaths:
+                                item.normalizedInput.createMissingParents,
+                        })),
+                    );
+                for (const createdDirectoryEntry of createdDirectoryEntries) {
+                    createdDirectoryEntriesByPath.set(
+                        createdDirectoryEntry.path,
+                        createdDirectoryEntry,
+                    );
+                }
+
+                for (let index = 0; index < directoryItems.length; index++) {
+                    const item = directoryItems[index];
+                    const directoryEntry = ensuredDirectoryEntries[index];
+                    if (!item || !directoryEntry) {
+                        throw new Error(
+                            'Failed to build directory response from batch start data',
+                        );
+                    }
+                    responsesByIndex.set(
+                        item.index,
+                        this.#toDirectorySignedWriteResponse(
+                            directoryEntry,
+                            createdDirectoryEntriesByPath.has(
+                                item.normalizedInput.path,
+                            ),
+                        ),
+                    );
+                }
+            }
+
+            if (resolvedFileItems.length > 0) {
+                const reservationBySessionId = new Map(
+                    reservedLeases.map((lease) => [lease.sessionId, lease]),
+                );
+                const {
+                    parentEntries,
+                    createdDirectoryEntries: createdParentDirectoryEntries,
+                } =
+                    await this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                        userId,
+                        resolvedFileItems.map((item) => ({
+                            parentPath: pathPosix.dirname(
+                                item.normalizedInput.path,
+                            ),
+                            createPaths:
+                                item.normalizedInput.createMissingParents,
+                        })),
+                    );
+                for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
+                    createdDirectoryEntriesByPath.set(
+                        createdParentDirectoryEntry.path,
+                        createdParentDirectoryEntry,
+                    );
+                }
+
                 // Staged, as the single path.
                 const objectKeys = resolvedFileItems.map(() => uuidv4());
                 const uploadModes = resolvedFileItems.map((item) => {
@@ -2677,10 +2682,10 @@ export class FSService extends PuterService {
                     );
                     throw error;
                 }
-            } catch (error) {
-                await this.#releaseUploadReservations(reservedLeases);
-                throw error;
             }
+        } catch (error) {
+            await this.#releaseUploadReservations(reservedLeases);
+            throw error;
         }
 
         const responses = normalizedRequests.map((request) => {
@@ -2866,7 +2871,7 @@ export class FSService extends PuterService {
 
     // Object size once landed, 'missing' when the store says it isn't there,
     // null when the check failed or gave no length.
-    async #probeSignedUpload(
+    async #probeObjectSize(
         bucket: string,
         objectKey: string,
         region: string,
@@ -2880,7 +2885,7 @@ export class FSService extends PuterService {
         } catch (error) {
             if (isMissingObjectError(error)) return 'missing';
             console.warn(
-                `[fs] signed upload size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
+                `[fs] object size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
             );
             return null;
         }
@@ -2931,7 +2936,7 @@ export class FSService extends PuterService {
                     item.session.bucketRegion ??
                     item.finalData.bucketRegion ??
                     this.#resolveBucketRegion();
-                const uploaded = await this.#probeSignedUpload(
+                const uploaded = await this.#probeObjectSize(
                     bucket,
                     item.session.objectKey,
                     region,
@@ -3076,7 +3081,7 @@ export class FSService extends PuterService {
                 session.bucketRegion ??
                 createInput.bucketRegion ??
                 this.#resolveBucketRegion();
-            const uploaded = await this.#probeSignedUpload(
+            const uploaded = await this.#probeObjectSize(
                 reconcileBucket,
                 session.objectKey,
                 reconcileRegion,
@@ -4010,7 +4015,7 @@ export class FSService extends PuterService {
             // documented as idempotent — re-fetch and return the winner if
             // it's a directory; otherwise surface the same 409 the pre-INSERT
             // check would have produced.
-            if (!this.#isUniqueViolation(err)) throw err;
+            if (!isUniqueViolation(err)) throw err;
             const insertedPath =
                 parent.path === '/' ? `/${name}` : `${parent.path}/${name}`;
             // The dup violation proves a row exists, so a replica miss here
@@ -4031,12 +4036,6 @@ export class FSService extends PuterService {
         }
         this.#emitFsEvent('fs.create.directory', created);
         return created;
-    }
-
-    #isUniqueViolation(err: unknown): boolean {
-        if (!(err instanceof Error) || !('code' in err)) return false;
-        const code = (err as { code?: unknown }).code;
-        return code === 'ER_DUP_ENTRY' || code === 'SQLITE_CONSTRAINT';
     }
 
     /**
@@ -4342,11 +4341,7 @@ export class FSService extends PuterService {
             if (actor) {
                 const allowed = await this.services.acl.check(
                     actor,
-                    {
-                        path: entry.path,
-                        resolveAncestors: () =>
-                            this.getAncestorChain(entry.path),
-                    },
+                    this.services.acl.fsDescriptor(entry.path),
                     'write',
                 );
                 if (allowed) return;
@@ -4369,10 +4364,7 @@ export class FSService extends PuterService {
         if (actor && parentPath !== '/') {
             const allowed = await this.services.acl.check(
                 actor,
-                {
-                    path: parentPath,
-                    resolveAncestors: () => this.getAncestorChain(parentPath),
-                },
+                this.services.acl.fsDescriptor(parentPath),
                 'write',
             );
             if (allowed) return;
@@ -4387,8 +4379,8 @@ export class FSService extends PuterService {
 
     /**
      * Remove an entry. For directories, descendants are walked and removed
-     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
-     * thumbnail extension (and any other listener) can clean up side state.
+     * (both DB rows and S3 objects). Emits `fs.remove.node` once per removed
+     * entry, after its row is deleted, so listeners can clean up side state.
      *
      * The caller checks `write` on the entry; the parent check that governs
      * restructuring is enforced here.
@@ -4417,29 +4409,26 @@ export class FSService extends PuterService {
         }
         await this.#assertCanRestructure(entry, userId);
 
-        if (entry.isDir) {
-            const descendants = await this.stores.fsEntry.listDescendantsByPath(
-                entry.path,
-            );
-            if (descendants.length > 0 && !input.recursive) {
-                throw new HttpError(409, 'Directory is not empty', {
-                    legacyCode: 'conflict',
-                });
-            }
+        // What is left above a removed entry, read at most once for the whole
+        // subtree and only if a subscriber needs it.
+        const survivors = this.#memoizedChain(
+            input.descendantsOnly ? entry.path : pathPosix.dirname(entry.path),
+        );
 
-            // Delete descendants first (depth-descending). S3 objects are
-            // batched per bucket+region for efficiency.
-            await this.#removeDescendantsStorage(descendants);
-            if (descendants.length > 0) {
-                await this.stores.fsEntry.deleteEntries(descendants);
-                for (const descendant of descendants) {
-                    this.#emitRemoveEvent(descendant);
+        if (entry.isDir) {
+            if (!input.recursive) {
+                if (await this.stores.fsEntry.hasChildren(entry.id)) {
+                    throw new HttpError(409, 'Directory is not empty', {
+                        legacyCode: 'conflict',
+                    });
                 }
+            } else {
+                await this.#removeDescendants(entry, survivors);
             }
 
             if (!input.descendantsOnly) {
                 await this.stores.fsEntry.deleteEntry(entry);
-                this.#emitRemoveEvent(entry);
+                this.#emitRemoveEvents([entry], survivors);
             }
             return;
         }
@@ -4463,7 +4452,32 @@ export class FSService extends PuterService {
             }
         }
         await this.stores.fsEntry.deleteEntry(entry);
-        this.#emitRemoveEvent(entry);
+        this.#emitRemoveEvents([entry], survivors);
+    }
+
+    /**
+     * Delete a directory's contents a page at a time, leaves first, so neither
+     * memory nor a single statement grows with the subtree.
+     */
+    async #removeDescendants(
+        root: FSEntry,
+        survivors: () => Promise<AncestorChain>,
+    ): Promise<void> {
+        const limit = FSService.SUBTREE_PAGE_SIZE;
+        let after: FSEntry | undefined;
+        for (;;) {
+            const page = await this.stores.fsEntry.listDescendantsInOrder(
+                root.path,
+                { order: 'desc', limit, after },
+            );
+            if (page.length === 0) return;
+            // S3 objects are batched per bucket+region.
+            await this.#removeDescendantsStorage(page);
+            await this.stores.fsEntry.deleteEntries(page);
+            this.#emitRemoveEvents(page, survivors);
+            if (page.length < limit) return;
+            after = page[page.length - 1];
+        }
     }
 
     /**
@@ -4550,8 +4564,6 @@ export class FSService extends PuterService {
             };
             group.keys.push(child.uuid);
             grouped.set(groupKey, group);
-            // Fire individual removal events so thumbnail extension can clean up.
-            this.#emitRemoveEvent(child);
         }
         await Promise.allSettled(
             Array.from(grouped.values()).map((group) =>
@@ -4563,77 +4575,110 @@ export class FSService extends PuterService {
         );
     }
 
-    #emitRemoveEvent(entry: FSEntry): void {
-        // Ship the entry under every alias existing handlers use — `node`,
-        // `entry`, `target`. The thumbnails extension destructures
-        // `{ target }`, and the bare `{ node, entry }` shape landed
-        // `target: undefined` → crash on `target.thumbnail`.
-        try {
-            this.clients.event.emit(
-                'fs.remove.node',
-                { node: entry, entry, target: entry },
-                {},
-            );
-        } catch {
-            // Non-critical.
+    /**
+     * Removed entries publish with `survivors` as their ancestors: the
+     * directories that still exist above them once the delete is done.
+     */
+    #emitRemoveEvents(
+        entries: FSEntry[],
+        survivors: () => Promise<AncestorChain>,
+    ): void {
+        for (const entry of entries) {
+            // Ship the entry under every alias existing handlers use — `node`,
+            // `entry`, `target`. The thumbnails extension destructures
+            // `{ target }`, and the bare `{ node, entry }` shape landed
+            // `target: undefined` → crash on `target.thumbnail`.
+            try {
+                this.clients.event.emit(
+                    'fs.remove.node',
+                    { node: entry, entry, target: entry },
+                    {},
+                );
+            } catch {
+                // Non-critical.
+            }
         }
-        this.#dispatchEvents('fs.remove.node', entry);
+        this.#dispatchEvents('fs.remove.node', entries, {
+            ancestors: survivors,
+        });
+    }
+
+    /** A chain read on first use and shared by every caller after. */
+    #memoizedChain(path: string): () => Promise<AncestorChain> {
+        let chain: Promise<AncestorChain> | null = null;
+        return () => (chain ??= this.stores.fsEntry.getAncestorChain(path));
     }
 
     /**
-     * Publish a committed change to whoever subscribed to it.
+     * Publish committed changes to whoever subscribed to them.
      *
      * Post-commit and fire-and-forget: the write already happened, so nothing
-     * here may fail it or slow it down. The ancestor walk is a thunk because
-     * almost every write belongs to a user with no subscriptions, and that user
-     * must not pay for the walk to find out.
+     * here may fail it or slow it down. A batch runs at bounded concurrency in
+     * one background task. The ancestor walk is a thunk because almost every
+     * write belongs to a user with no subscriptions, and that user must not pay
+     * for the walk to find out.
      *
      * `movedFrom` is a move only: the folder `entry` left needs its own
      * ancestor walk, taken from where it used to live, or its subscribers would
      * never hear the node went.
      *
      * `ancestors` lets a caller that already knows the chain supply it instead
-     * of walking from `entry.path`.
+     * of walking from each entry's path.
      */
     #dispatchEvents(
         key: EventKey,
-        entry: FSEntry,
+        entries: FSEntry | FSEntry[],
         options: {
             movedFrom?: { path: string };
-            ancestors?: () => Promise<AncestorChain>;
+            ancestors?: (entry: FSEntry) => Promise<AncestorChain>;
         } = {},
     ): void {
         const events = this.services.events;
         if (!events?.enabled) return;
-        const { movedFrom, ancestors } = options;
+        const batch = Array.isArray(entries) ? entries : [entries];
+        if (batch.length === 0) return;
+        const { movedFrom } = options;
+        const fsEntry = this.stores.fsEntry;
+        const ancestors =
+            options.ancestors ??
+            ((entry: FSEntry) => fsEntry.getAncestorChain(entry.path));
         const actor = Context.get('actor') as Actor | undefined;
-        try {
-            void events
-                .dispatchFs(key, entry, {
-                    actingUserId: actor?.user?.id,
-                    handlerDepth: handlerDepthOf(actor),
-                    ancestors:
-                        ancestors ?? (() => this.getAncestorChain(entry.path)),
-                    ...(movedFrom
-                        ? {
-                              movedFrom: {
-                                  path: movedFrom.path,
-                                  ancestors: () =>
-                                      this.getAncestorChain(movedFrom.path),
-                              },
-                          }
-                        : {}),
-                })
-                .catch((err: unknown) => {
-                    console.warn('[fs] event dispatch failed', err);
-                });
-        } catch (err) {
-            console.warn('[fs] event dispatch failed', err);
-        }
+        const actingUserId = actor?.user?.id;
+        const handlerDepth = handlerDepthOf(actor);
+        const movedFromChain = movedFrom && {
+            path: movedFrom.path,
+            ancestors: () => fsEntry.getAncestorChain(movedFrom.path),
+        };
+        void (async () => {
+            try {
+                const results = await runWithConcurrencyLimitSettled(
+                    batch,
+                    EVENT_DISPATCH_CONCURRENCY,
+                    (entry) =>
+                        events.dispatchFs(key, entry, {
+                            actingUserId,
+                            handlerDepth,
+                            ancestors: () => ancestors(entry),
+                            ...(movedFromChain
+                                ? { movedFrom: movedFromChain }
+                                : {}),
+                        }),
+                );
+                for (const result of results) {
+                    if (result.status === 'rejected')
+                        console.warn(
+                            '[fs] event dispatch failed',
+                            result.reason,
+                        );
+                }
+            } catch (err) {
+                console.warn('[fs] event dispatch failed', err);
+            }
+        })();
     }
 
     /**
-     * Publish an entry a copy created as a plain `add` — the same thing a write
+     * Publish entries a copy created as a plain `add` — the same thing a write
      * or an upload publishes. Events-API dispatch only: `fs.create.*` on the
      * internal bus has consumers a copy has never reached, and the copy's own
      * bus event stays `fs.copy.node`.
@@ -4641,27 +4686,25 @@ export class FSService extends PuterService {
      * Links are left out: a shortcut names another node, so what a subscriber
      * should be told about one is unsettled.
      *
-     * `above` is the new entries between this one and the destination parent,
+     * `above` gives the new entries between one and the destination parent,
      * innermost first, so a tree copy costs one ancestor walk rather than one
      * per entry.
      */
-    #publishCopiedEntry(
-        entry: FSEntry,
-        above: AncestorChain,
+    #publishCopiedEntries(
+        entries: FSEntry[],
+        above: (entry: FSEntry) => AncestorChain,
         destinationChain: () => Promise<AncestorChain>,
     ): void {
-        if (entry.isSymlink || entry.isShortcut) return;
-        this.#dispatchEvents(
-            entry.isDir ? 'fs.create.directory' : 'fs.create.file',
-            entry,
-            {
-                ancestors: async () => [
-                    { uid: entry.uid, path: entry.path },
-                    ...above,
-                    ...(await destinationChain()),
-                ],
-            },
-        );
+        const ancestors = async (entry: FSEntry) => [
+            { uid: entry.uid, path: entry.path },
+            ...above(entry),
+            ...(await destinationChain()),
+        ];
+        const nodes = entries.filter((e) => !e.isSymlink && !e.isShortcut);
+        const dirs = nodes.filter((e) => e.isDir);
+        const files = nodes.filter((e) => !e.isDir);
+        this.#dispatchEvents('fs.create.directory', dirs, { ancestors });
+        this.#dispatchEvents('fs.create.file', files, { ancestors });
     }
 
     /**
@@ -4832,7 +4875,7 @@ export class FSService extends PuterService {
             // The name was taken after the probe above: a concurrent move, or
             // an occupant the replica hadn't seen yet. Resolve it as if the
             // probe had found it, then try once more.
-            if (!this.#isUniqueViolation(err)) throw err;
+            if (!isUniqueViolation(err)) throw err;
             const raced = await this.stores.fsEntry.getEntryByPath(
                 pathIn(name),
                 { useTryHardRead: true },
@@ -4981,17 +5024,21 @@ export class FSService extends PuterService {
         // A copy duplicates the bytes for real, so it costs the same against
         // the allowance as writing them. Check before the overwrite below
         // removes anything, and credit what that removal frees.
-        await this.#assertStorageAllowance(
-            destinationParent.userId,
-            await this.#entryStorageSize(source),
-            collision && input.overwrite
-                ? await this.#entryStorageSize(collision)
-                : 0,
-            this.#allowanceOverrideFor(
+        const allowance: CopyAllowance = {
+            ownerId: destinationParent.userId,
+            max: this.#allowanceOverrideFor(
                 destinationParent.userId,
                 userId,
                 input.storageAllowanceMax,
             ),
+        };
+        await this.#assertStorageAllowance(
+            allowance.ownerId,
+            await this.#entryStorageSize(source),
+            collision && input.overwrite
+                ? await this.#entryStorageSize(collision)
+                : 0,
+            allowance.max,
         );
 
         if (collision) {
@@ -5015,233 +5062,330 @@ export class FSService extends PuterService {
             }
         }
 
-        const finalPath =
-            destinationParent.path === '/'
-                ? `/${name}`
-                : `${destinationParent.path}/${name}`;
-
         // One ancestor walk for the whole copy, run only if something needs
         // it — the destination parent's own chain is the same for every
         // entry the copy creates.
-        let destinationChainCache: Promise<AncestorChain> | null = null;
-        const destinationChain = (): Promise<AncestorChain> => {
-            if (!destinationChainCache)
-                destinationChainCache = this.getAncestorChain(
-                    destinationParent.path,
-                );
-            return destinationChainCache;
-        };
-
-        if (!source.isDir) {
-            const copied = await this.#copyLeafEntry(
-                userId,
-                source,
-                destinationParent,
-                name,
-                finalPath,
-            );
-            this.#publishCopiedEntry(copied, [], destinationChain);
-            return copied;
-        }
-
-        // Recursive directory copy:
-        // 1) Create the new root directory at destination
-        // 2) Walk descendants; for each, compute new path by swapping prefix
-        // 3) Create a new row (files copy S3 object; dirs just insert)
-        const newRoot = await this.stores.fsEntry.createNonFileEntry({
-            parent: destinationParent,
-            name,
-            kind: 'directory',
-            metadata: this.#sanitizeStoredMetadata(source.metadata),
-            thumbnail: source.thumbnail,
-            associatedAppId: source.associatedAppId,
-            isPublic: source.isPublic,
-        });
-        // The new entries above a given new entry, so a descendant's chain
-        // can be built without reading anything back.
+        const destinationChain = this.#memoizedChain(destinationParent.path);
+        // The new entries above a given new directory, innermost first, so a
+        // descendant's chain can be built without reading anything back.
         const aboveByNewPath = new Map<string, AncestorChain>();
-        aboveByNewPath.set(newRoot.path, []);
-        this.#publishCopiedEntry(newRoot, [], destinationChain);
+        const publish = (copied: FSEntry[]) =>
+            this.#publishCopiedEntries(
+                copied,
+                (entry) =>
+                    aboveByNewPath.get(pathPosix.dirname(entry.path)) ?? [],
+                destinationChain,
+            );
 
-        const descendants = await this.stores.fsEntry.listDescendantsByPath(
-            source.path,
+        const [newRoot] = await this.#copyEntries(
+            userId,
+            [{ source, parent: destinationParent, name }],
+            publish,
+            allowance,
         );
-        // Sort shallow-first so parents exist before children.
-        descendants.sort((a, b) => a.path.length - b.path.length);
+        if (!newRoot) {
+            throw new HttpError(500, 'Failed to copy entry', {
+                legacyCode: 'internal_error',
+            });
+        }
+        if (!source.isDir) return newRoot;
+        aboveByNewPath.set(newRoot.path, [
+            { uid: newRoot.uid, path: newRoot.path },
+        ]);
 
-        // Maintain a map from old-path → new parent entry so child inserts
-        // can reference the correct parent uuid/id.
-        const newByOldPath = new Map<string, FSEntry>();
-        newByOldPath.set(source.path, newRoot);
-
-        for (const descendant of descendants) {
-            const oldParentPath = pathPosix.dirname(descendant.path);
-            const newParent = newByOldPath.get(oldParentPath);
-            if (!newParent) {
-                // Parent wasn't copied — skip (shouldn't happen with sort).
-                continue;
+        // Pages come shallowest first, so every parent is copied before its
+        // children; each depth in a page is one batch of inserts and S3 copies.
+        const newByOldPath = new Map<string, FSEntry>([[source.path, newRoot]]);
+        const limit = FSService.SUBTREE_PAGE_SIZE;
+        let after: FSEntry | undefined;
+        for (;;) {
+            const page = await this.stores.fsEntry.listDescendantsInOrder(
+                source.path,
+                { order: 'asc', limit, after },
+            );
+            const byDepth = new Map<number, FSEntry[]>();
+            for (const descendant of page) {
+                const depth = descendant.path.split('/').length;
+                byDepth.set(depth, [...(byDepth.get(depth) ?? []), descendant]);
             }
-            const copied = descendant.isDir
-                ? await this.stores.fsEntry.createNonFileEntry({
-                      parent: newParent,
-                      name: descendant.name,
-                      kind: 'directory',
-                      metadata: this.#sanitizeStoredMetadata(
-                          descendant.metadata,
-                      ),
-                      thumbnail: descendant.thumbnail,
-                      associatedAppId: descendant.associatedAppId,
-                      isPublic: descendant.isPublic,
-                  })
-                : await this.#copyLeafEntry(
-                      userId,
-                      descendant,
-                      newParent,
-                      descendant.name,
-                      newParent.path === '/'
-                          ? `/${descendant.name}`
-                          : `${newParent.path}/${descendant.name}`,
-                  );
-            const above: AncestorChain = [
-                { uid: newParent.uid, path: newParent.path },
-                ...(aboveByNewPath.get(newParent.path) ?? []),
-            ];
-            aboveByNewPath.set(copied.path, above);
-            this.#publishCopiedEntry(copied, above, destinationChain);
-            newByOldPath.set(descendant.path, copied);
+            for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
+                const items: CopyItem[] = [];
+                for (const descendant of byDepth.get(depth) ?? []) {
+                    const parent = newByOldPath.get(
+                        pathPosix.dirname(descendant.path),
+                    );
+                    // Its parent wasn't copied, so neither is it.
+                    if (!parent) continue;
+                    items.push({
+                        source: descendant,
+                        parent,
+                        name: descendant.name,
+                    });
+                }
+                const copied = await this.#copyEntries(
+                    userId,
+                    items,
+                    publish,
+                    allowance,
+                );
+                items.forEach((item, index) => {
+                    const entry = copied[index];
+                    if (!entry?.isDir) return;
+                    newByOldPath.set(item.source.path, entry);
+                    aboveByNewPath.set(entry.path, [
+                        { uid: entry.uid, path: entry.path },
+                        ...(aboveByNewPath.get(item.parent.path) ?? []),
+                    ]);
+                });
+            }
+            if (page.length < limit) break;
+            after = page[page.length - 1];
         }
 
         return newRoot;
     }
 
-    // Internal helper: copies a single non-directory entry. Handles files,
-    // shortcuts, and symlinks. Files trigger S3 CopyObject; shortcuts/symlinks
-    // are pure metadata clones.
-    async #copyLeafEntry(
+    /**
+     * Copy `items` into parents that already exist, keeping their order, and
+     * `publish` what was made. Directories, links and empty files are a row
+     * each; files are S3 copies at bounded concurrency followed by one batched
+     * insert.
+     *
+     * A failed S3 copy fails the call, but only after the objects that did copy
+     * have their rows, so nothing is left in the bucket unreferenced.
+     */
+    async #copyEntries(
         userId: number,
-        source: FSEntry,
-        destinationParent: FSEntry,
-        newName: string,
-        _newPath: string,
-    ): Promise<FSEntry> {
-        if (source.isSymlink) {
-            return this.stores.fsEntry.createNonFileEntry({
-                parent: destinationParent,
-                name: newName,
-                kind: 'symlink',
-                symlinkPath: source.symlinkPath,
-                metadata: this.#sanitizeStoredMetadata(source.metadata),
-                associatedAppId: source.associatedAppId,
-            });
-        }
-        if (source.isShortcut) {
-            return this.stores.fsEntry.createNonFileEntry({
-                parent: destinationParent,
-                name: newName,
-                kind: 'shortcut',
-                shortcutTo: source.shortcutTo,
-                metadata: this.#sanitizeStoredMetadata(source.metadata),
-                associatedAppId: source.associatedAppId,
-            });
-        }
-
-        // Empty files (created via `touch`/`createNonFileEntry` with kind
-        // 'empty-file') have no backing S3 object — `bucket` is null and there
-        // is nothing to CopyObject. Issuing one would throw NoSuchKey, so clone
-        // the source as another empty-file entry instead of touching S3.
-        if (hasNoBackingS3Object(source)) {
-            return this.stores.fsEntry.createNonFileEntry({
-                parent: destinationParent,
-                name: newName,
-                kind: 'empty-file',
-                metadata: this.#sanitizeStoredMetadata(source.metadata),
-                thumbnail: source.thumbnail,
-                associatedAppId: source.associatedAppId,
-                isPublic: source.isPublic,
-                immutable: source.immutable,
-            });
-        }
-
-        const newUuid = uuidv4();
-        const sourceObjectKey = source.uuid;
-        const resolvedBucket = this.stores.s3Object.resolveBucket(
-            source.bucket,
+        items: CopyItem[],
+        publish: (copied: FSEntry[]) => void,
+        allowance: CopyAllowance,
+    ): Promise<FSEntry[]> {
+        const copied = new Array<FSEntry>(items.length);
+        const files: Array<{ item: CopyItem; index: number; key: string }> = [];
+        const rows = await runWithConcurrencyLimitSettled(
+            items,
+            COPY_CONCURRENCY,
+            async (item, index) => {
+                const input = this.#rowCopyInput(item);
+                if (input) {
+                    copied[index] =
+                        await this.stores.fsEntry.createNonFileEntry(input);
+                    return;
+                }
+                files.push({ item, index, key: uuidv4() });
+            },
         );
-        // A ghost file — DB row present with a non-null bucket but its backing
-        // S3 object gone — would make CopyObject throw NoSuchKey and bubble up
-        // as a 500. Mirror `readContent`: clean up the orphan and surface a
-        // 404 instead. (`hasNoBackingS3Object` above only covers legitimately
-        // empty files, which keep a null bucket.)
-        try {
-            await this.stores.s3Object.copyObject(
-                {
-                    sourceBucket: resolvedBucket,
-                    sourceKey: sourceObjectKey,
-                    destinationBucket: resolvedBucket,
-                    destinationKey: newUuid,
-                },
-                this.stores.s3Object.resolveRegion(source.bucketRegion),
-            );
-        } catch (err) {
-            if (isNoSuchKeyError(err)) {
-                await this.#handleGhostFile(source, sourceObjectKey);
-                throw new HttpError(404, 'File contents are missing', {
-                    legacyCode: 'subject_does_not_exist',
-                    cause: err,
-                    // No path: a recipient addresses this entry by uuid.
-                    fields: {
-                        uid: source.uuid,
-                    },
-                });
-            }
-            throw err;
+        const rowFailure = rows.find((r) => r.status === 'rejected');
+        if (rowFailure) {
+            publish(copied.filter(Boolean));
+            throw (rowFailure as PromiseRejectedResult).reason;
+        }
+        if (files.length === 0) {
+            publish(copied);
+            return copied;
         }
 
-        const nextMetadata = this.#sanitizeClientMetadata(source.metadata);
+        const results = await runWithConcurrencyLimitSettled(
+            files,
+            COPY_CONCURRENCY,
+            async ({ item, key }) => {
+                const bucket = this.stores.s3Object.resolveBucket(
+                    item.source.bucket,
+                );
+                const region = this.stores.s3Object.resolveRegion(
+                    item.source.bucketRegion,
+                );
+                await this.stores.s3Object.copyObject(
+                    {
+                        sourceBucket: bucket,
+                        sourceKey: item.source.uuid,
+                        destinationBucket: bucket,
+                        destinationKey: key,
+                    },
+                    region,
+                );
+                return this.#settleCopiedSize(
+                    item.source,
+                    bucket,
+                    key,
+                    region,
+                    allowance,
+                );
+            },
+        );
+        const landed = files.filter(
+            (_, i) => results[i]?.status === 'fulfilled',
+        );
+        const copiedSizes = new Map<string, number>();
+        files.forEach(({ key }, i) => {
+            const result = results[i];
+            if (result?.status === 'fulfilled') {
+                copiedSizes.set(key, result.value);
+            }
+        });
 
-        const [created] = await this.stores.fsEntry.batchCreateEntries(
-            [
-                {
-                    userId,
-                    uuid: newUuid,
-                    path:
-                        destinationParent.path === '/'
-                            ? `/${newName}`
-                            : `${destinationParent.path}/${newName}`,
-                    size: source.size ?? 0,
-                    contentType: undefined,
-                    metadata: nextMetadata,
-                    thumbnail: source.thumbnail,
-                    associatedAppId: source.associatedAppId,
-                    immutable: source.immutable,
-                    isPublic: source.isPublic,
-                    bucket: source.bucket,
-                    bucketRegion: source.bucketRegion,
-                } as FSEntryCreateInput,
-            ],
+        const created = await this.stores.fsEntry.batchCreateEntries(
+            landed.map(
+                ({ item: { source, parent, name }, key }) =>
+                    ({
+                        userId,
+                        uuid: key,
+                        path: childPath(parent.path, name),
+                        size: copiedSizes.get(key) ?? source.size ?? 0,
+                        contentType: undefined,
+                        metadata: this.#sanitizeClientMetadata(source.metadata),
+                        thumbnail: source.thumbnail,
+                        associatedAppId: source.associatedAppId,
+                        immutable: source.immutable,
+                        isPublic: source.isPublic,
+                        bucket: source.bucket,
+                        bucketRegion: source.bucketRegion,
+                    }) as FSEntryCreateInput,
+            ),
             false,
         );
-        if (!created) {
-            throw new HttpError(500, 'Failed to copy file entry', {
-                legacyCode: 'internal_error',
-            });
+        const createdByUuid = new Map(
+            created.map((entry) => [entry.uuid, entry]),
+        );
+        for (const { item, index, key } of landed) {
+            const entry = createdByUuid.get(key);
+            if (!entry) {
+                throw new HttpError(500, 'Failed to copy file entry', {
+                    legacyCode: 'internal_error',
+                });
+            }
+            copied[index] = entry;
+            try {
+                this.clients.event.emit(
+                    'fs.copy.node',
+                    {
+                        source: item.source,
+                        copy: entry,
+                        sourceObjectKey: item.source.uuid,
+                        copyObjectKey: key,
+                    },
+                    {},
+                );
+            } catch {
+                // ignore — non-critical.
+            }
         }
 
-        try {
-            this.clients.event.emit(
-                'fs.copy.node',
-                {
-                    source,
-                    copy: created,
-                    sourceObjectKey,
-                    copyObjectKey: newUuid,
-                },
-                {},
+        publish(copied.filter(Boolean));
+        const failedAt = results.findIndex((r) => r?.status === 'rejected');
+        if (failedAt === -1) return copied;
+        const failed = files[failedAt] as (typeof files)[number];
+        const reason = (results[failedAt] as PromiseRejectedResult).reason;
+        // A ghost file — DB row present with a non-null bucket but its backing
+        // S3 object gone. Mirror `readContent`: clean up the orphan and surface
+        // a 404 instead of the copy's NoSuchKey.
+        if (isNoSuchKeyError(reason)) {
+            await this.#handleGhostFile(
+                failed.item.source,
+                failed.item.source.uuid,
             );
-        } catch {
-            // ignore — non-critical.
+            throw new HttpError(404, 'File contents are missing', {
+                legacyCode: 'subject_does_not_exist',
+                cause: reason,
+                // No path: a recipient addresses this entry by uuid.
+                fields: { uid: failed.item.source.uuid },
+            });
         }
-        return created;
+        throw reason;
+    }
+
+    /**
+     * The row a copy of a directory, link or empty file is, or null for a file
+     * with an object to copy. Empty files have no backing object — `bucket` is
+     * null — so a CopyObject for one would throw NoSuchKey.
+     */
+    /**
+     * The size a just-copied object really has. The source row can predate an
+     * overwrite whose bytes CopyObject picked up, so record what was copied and
+     * charge any excess; a copy that no longer fits is deleted and refused.
+     */
+    async #settleCopiedSize(
+        source: FSEntry,
+        bucket: string,
+        key: string,
+        region: string,
+        allowance: CopyAllowance,
+    ): Promise<number> {
+        const recordedSize = source.size ?? 0;
+        const probed = await this.#probeObjectSize(bucket, key, region);
+        const copiedSize = typeof probed === 'number' ? probed : recordedSize;
+        if (copiedSize <= recordedSize) return copiedSize;
+        try {
+            await this.#assertStorageAllowance(
+                allowance.ownerId,
+                copiedSize,
+                0,
+                allowance.max,
+            );
+        } catch (error) {
+            try {
+                await this.stores.s3Object.deleteObject(bucket, key, region);
+            } catch (deleteError) {
+                console.warn(
+                    `[fs] failed to delete rejected copy ${key}: ${this.#toErrorMessage(deleteError)}`,
+                );
+            }
+            throw error;
+        }
+        return copiedSize;
+    }
+
+    #rowCopyInput({
+        source,
+        parent,
+        name,
+    }: CopyItem): Parameters<FSEntryStore['createNonFileEntry']>[0] | null {
+        const metadata = this.#sanitizeStoredMetadata(source.metadata);
+        const associatedAppId = source.associatedAppId;
+        if (source.isDir) {
+            return {
+                parent,
+                name,
+                kind: 'directory',
+                metadata,
+                thumbnail: source.thumbnail,
+                associatedAppId,
+                isPublic: source.isPublic,
+            };
+        }
+        if (source.isSymlink) {
+            return {
+                parent,
+                name,
+                kind: 'symlink',
+                symlinkPath: source.symlinkPath,
+                metadata,
+                associatedAppId,
+            };
+        }
+        if (source.isShortcut) {
+            return {
+                parent,
+                name,
+                kind: 'shortcut',
+                shortcutTo: source.shortcutTo,
+                metadata,
+                associatedAppId,
+            };
+        }
+        if (hasNoBackingS3Object(source)) {
+            return {
+                parent,
+                name,
+                kind: 'empty-file',
+                metadata,
+                thumbnail: source.thumbnail,
+                associatedAppId,
+                isPublic: source.isPublic,
+                immutable: source.immutable,
+            };
+        }
+        return null;
     }
 
     /**
@@ -5259,47 +5403,8 @@ export class FSService extends PuterService {
             });
         }
 
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const descriptor = {
-            path: entry.path,
-            resolveAncestors: () => {
-                if (!ancestorsCache) {
-                    ancestorsCache = this.getAncestorChain(entry.path);
-                }
-                return ancestorsCache;
-            },
-        };
-        const allowed = await this.services.acl.check(actor, descriptor, mode);
-        if (allowed) return;
-
-        const safe = (await this.services.acl.getSafeAclError(
-            actor,
-            descriptor,
-            mode,
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: { code?: unknown };
-        };
-        const status = Number(safe?.status);
-        const message =
-            typeof safe?.message === 'string' && safe.message.length > 0
-                ? safe.message
-                : 'Access denied';
-        const code =
-            typeof safe?.fields?.code === 'string'
-                ? safe.fields.code
-                : undefined;
-        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-        if (status === 404) {
-            throw new HttpError(404, message, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-        throw new HttpError(403, message, {
-            legacyCode: legacyCode ?? 'access_denied',
+        await this.services.acl.assertFsAccess(actor, entry.path, mode, {
+            forbiddenCode: 'access_denied',
         });
     }
 }

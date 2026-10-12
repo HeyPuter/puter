@@ -20,7 +20,7 @@
 
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
@@ -81,6 +81,34 @@ describe('PermissionStore', () => {
         it('returns nothing for an empty permission list', async () => {
             const holder = await makeUser();
             expect(await store.getFlatUserPerms(holder.id, [])).toEqual([]);
+        });
+
+        it('drops many flat entries in one batched KV delete', async () => {
+            const holder = await makeUser();
+            const perms = [1, 2, 3].map(() => `fs:${uuidv4()}:read`);
+            for (const perm of perms) {
+                await store.setFlatUserPerm(holder.id, perm, {
+                    permission: perm,
+                });
+            }
+
+            const kv = server.stores.kv;
+            const del = vi.spyOn(kv, 'del');
+            const batchDel = vi.spyOn(kv, 'batchDel');
+            try {
+                await store.delFlatUserPerms(
+                    perms.map((permission) => ({
+                        holderUserId: holder.id,
+                        permission,
+                    })),
+                );
+                expect(batchDel).toHaveBeenCalledTimes(1);
+                expect(del).not.toHaveBeenCalled();
+            } finally {
+                del.mockRestore();
+                batchDel.mockRestore();
+            }
+            expect(await store.getFlatUserPerms(holder.id, perms)).toEqual([]);
         });
 
         it('dedupes repeated permission strings and skips missing keys', async () => {
@@ -535,6 +563,50 @@ describe('PermissionStore', () => {
             const user = await makeUser();
             expect(await store.readUserGroupPerms(user.id, [])).toEqual([]);
         });
+
+        it('reads many issuer/group pairs under many prefixes at once', async () => {
+            const issuer = await makeUser();
+            const rival = await makeUser();
+            const [g1, g2] = [
+                await seedGroup(issuer.id),
+                await seedGroup(issuer.id),
+            ];
+            await seedGroupPerm(issuer.id, g1, 'fs:one:read');
+            await seedGroupPerm(issuer.id, g2, 'manage:fs:two');
+            await seedGroupPerm(issuer.id, g2, 'fs:twofold:read');
+            await seedGroupPerm(rival.id, g1, 'fs:one:write');
+
+            const rows = await store.queryIssuerGroupPermsByPrefixes(
+                [
+                    { issuerUserId: issuer.id, groupId: g1 },
+                    { issuerUserId: issuer.id, groupId: g2 },
+                ],
+                ['fs:one', 'manage:fs:two', 'fs:two'],
+            );
+            expect(rows).toEqual(
+                expect.arrayContaining([
+                    {
+                        issuerUserId: issuer.id,
+                        groupId: g1,
+                        permission: 'fs:one:read',
+                    },
+                    {
+                        issuerUserId: issuer.id,
+                        groupId: g2,
+                        permission: 'manage:fs:two',
+                    },
+                ]),
+            );
+            // Not the rival's grant, and `fs:two` stops at a segment boundary.
+            expect(rows).toHaveLength(2);
+            expect(
+                await store.queryIssuerGroupPermsByPrefix(
+                    issuer.id,
+                    g1,
+                    'fs:one',
+                ),
+            ).toEqual(['fs:one:read']);
+        });
     });
 
     // -- issuer-prefix discovery queries ---------------------------------
@@ -656,40 +728,66 @@ describe('PermissionStore', () => {
     // -- access token permissions --------------------------------------
 
     describe('access token permissions', () => {
-        it('reads the token grants, caches them, and re-reads after invalidation', async () => {
+        it('serves the grants cached, and every write through the store invalidates them', async () => {
             const tokenUid = `tok-${uuidv4()}`;
-            await server.clients.db.write(
-                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
-                [tokenUid, 'driver:kv'],
-            );
+            const authorizer = { userId: null, appId: null };
+            await store.insertAccessTokenPerms(tokenUid, authorizer, [
+                { permission: 'driver:kv' },
+            ]);
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:kv',
+            ]);
 
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:kv')).toBe(
-                true,
-            );
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:fs')).toBe(
-                false,
-            );
-
-            // A grant added behind the cache is invisible until invalidated —
-            // and visible immediately afterwards.
+            // A row written behind the store is invisible until a store
+            // write lands.
             await server.clients.db.write(
                 'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
                 [tokenUid, 'driver:fs'],
             );
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:fs')).toBe(
-                false,
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:kv',
+            ]);
+
+            await store.insertAccessTokenPerms(tokenUid, authorizer, [
+                { permission: 'driver:ai', extra: { note: 1 } },
+            ]);
+            expect((await store.listAccessTokenPerms(tokenUid)).sort()).toEqual(
+                ['driver:ai', 'driver:fs', 'driver:kv'],
             );
 
-            await store.invalidateAccessTokenPerms(tokenUid);
-            expect(await store.hasAccessTokenPerm(tokenUid, 'driver:fs')).toBe(
-                true,
+            await store.deleteAccessTokenPerms(tokenUid);
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
+        });
+
+        it('inserts many grants a chunk per statement', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const grants = Array.from({ length: 150 }, (_, i) => ({
+                permission: `driver:p${i}`,
+            }));
+            const write = vi.spyOn(server.clients.db, 'write');
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    grants,
+                );
+                expect(write).toHaveBeenCalledTimes(2);
+            } finally {
+                write.mockRestore();
+            }
+            expect(await store.listAccessTokenPerms(tokenUid)).toHaveLength(
+                150,
             );
+            expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(7);
+            expect(
+                await store.getAccessTokenAuthorizerId(`tok-${uuidv4()}`),
+            ).toBeNull();
         });
 
         it('reports no permissions for an unknown token', async () => {
-            expect(
-                await store.hasAccessTokenPerm(`tok-${uuidv4()}`, 'driver:kv'),
-            ).toBe(false);
+            expect(await store.listAccessTokenPerms(`tok-${uuidv4()}`)).toEqual(
+                [],
+            );
         });
 
         it('answers whether the token holds any of several grants', async () => {
@@ -879,13 +977,6 @@ describe('PermissionStore', () => {
             ).toHaveLength(1);
         });
 
-        it('drops a scan cache entry on explicit invalidation', async () => {
-            const key = store.buildScanCacheKey(`actor-${uuidv4()}`, ['p'], 0);
-            await store.setScanCache(key, { allowed: false });
-            await store.invalidateScanCache(key);
-            expect(await store.getScanCache(key)).toBeNull();
-        });
-
         it('round-trips a multi-permission check cache, omitting unset entries', async () => {
             const actorUid = `actor-${uuidv4()}`;
             await store.setMultiCheckCache(
@@ -1016,8 +1107,8 @@ describe('PermissionStore', () => {
             const keeper = `fs:${uuidv4()}:read`;
             await store.upsertUserUserPerm(holder.id, issuer.id, keeper, {});
 
-            const removed = await store.deleteUserUserPermsByPermissionPrefix(
-                `fs:${uid}`,
+            const removed = await store.deleteUserUserPermsByPermissionPrefixes(
+                [`fs:${uid}`],
             );
 
             expect(removed).toHaveLength(3);
@@ -1043,10 +1134,10 @@ describe('PermissionStore', () => {
 
             // `_` and `%` are LIKE wildcards; unescaped they would match this.
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix('fs:%'),
+                await store.deleteUserUserPermsByPermissionPrefixes(['fs:%']),
             ).toEqual([]);
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix('fs:_'),
+                await store.deleteUserUserPermsByPermissionPrefixes(['fs:_']),
             ).toEqual([]);
             expect(
                 await store.readLinkedUserUserPerms(holder.id, [victim]),
@@ -1055,9 +1146,9 @@ describe('PermissionStore', () => {
 
         it('returns an empty list when the prefix matches nothing', async () => {
             expect(
-                await store.deleteUserUserPermsByPermissionPrefix(
+                await store.deleteUserUserPermsByPermissionPrefixes([
                     `fs:${uuidv4()}`,
-                ),
+                ]),
             ).toEqual([]);
         });
 

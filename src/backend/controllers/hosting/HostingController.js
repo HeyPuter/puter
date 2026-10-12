@@ -32,14 +32,6 @@ import {
  * exposed it as a top-level POST.
  */
 export class HostingController extends PuterController {
-    constructor(config, clients, stores, services) {
-        super(config, clients, stores, services);
-    }
-
-    get subdomainStore() {
-        return this.stores.subdomain;
-    }
-
     registerRoutes(router) {
         // -- Delete site ---------------------------------------------
 
@@ -71,7 +63,8 @@ export class HostingController extends PuterController {
                     });
                 }
 
-                const row = await this.subdomainStore.getByUuid(site_uuid, {
+                // Owner-scoped, so another user's site reads as missing.
+                const row = await this.stores.subdomain.getByUuid(site_uuid, {
                     userId: req.actor.user.id,
                 });
                 if (!row) {
@@ -81,33 +74,7 @@ export class HostingController extends PuterController {
                         { legacyCode: 'not_found' },
                     );
                 }
-                if (row.protected) {
-                    throw new HttpError(
-                        403,
-                        'Cannot delete a protected subdomain',
-                        { legacyCode: 'forbidden' },
-                    );
-                }
-
-                await this.subdomainStore.deleteByUuid(site_uuid, {
-                    userId: req.actor.user.id,
-                });
-
-                // Same event the `puter-subdomains` driver fires on delete —
-                // listeners (CDN purge, abuse tracking, worker cleanup)
-                // depend on it.
-                try {
-                    this.clients.event.emit(
-                        'subdomain.delete',
-                        {
-                            subdomain: row.subdomain,
-                            uid: String(row.uuid),
-                        },
-                        {},
-                    );
-                } catch {
-                    // Non-critical.
-                }
+                await this.drivers.subdomains.delete({ uid: site_uuid });
 
                 res.json({});
             },

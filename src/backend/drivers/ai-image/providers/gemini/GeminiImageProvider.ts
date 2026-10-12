@@ -21,7 +21,7 @@ import { closestAspectRatio } from '../../imageDimensions.js';
 import { assertImagePrompt } from '../../imageValidation.js';
 import { GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import {
     GEMINI_DEFAULT_RATIO,
     GEMINI_ESTIMATED_IMAGE_TOKENS,
@@ -32,7 +32,11 @@ import type {
     IImageModel,
     IImageProvider,
 } from '../../types.js';
-import { isHttpUrl, toBase64DataUri } from '../../inputImage.js';
+import {
+    isHttpUrl,
+    parseDataUri,
+    toBase64DataUri,
+} from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
@@ -52,10 +56,13 @@ interface GeminiUsageMetadata {
 }
 
 export class GeminiImageProvider implements IImageProvider {
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
     #client: GoogleGenAI;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         if (!config.apiKey) {
             throw new Error('Gemini image generation requires an API key');
         }
@@ -194,90 +201,98 @@ export class GeminiImageProvider implements IImageProvider {
         const estimatedTotalCostInMicroCents = this.#toMicroCents(
             estimatedInputCostInCents + estimatedOutputCostInCents,
         );
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const usagePrefix = `gemini:${selectedModel.id}`;
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            usagePrefix,
             estimatedTotalCostInMicroCents,
         );
 
-        if (!usageAllowed) {
+        if (!hold) {
             throw insufficientCreditsError();
         }
 
-        // --- API call ---
-        const contents = this.#buildContents(
-            prompt,
-            input_images,
-            input_image_mime_type,
-        );
-        const aspectRatio = `${ratio.w}:${ratio.h}`;
-
-        const imageConfig: Record<string, string> = { aspectRatio };
-        if (quality && selectedModel.allowedQualityLevels?.includes(quality)) {
-            imageConfig.imageSize = quality;
-        }
-
-        const response = await this.#client.models.generateContent({
-            model: selectedModel.id,
-            contents,
-            config: {
-                responseModalities: ['TEXT', 'IMAGE'],
-                imageConfig,
-            },
-        });
-
-        // --- Actual cost calculation from response usage ---
-        const usage = this.#extractUsageMetadata(response);
-        const inputTokenCount =
-            usage.promptTokenCount || estimatedPromptTokenCount;
-
-        const outputTextTokenCount =
-            usage.candidatesTextTokenCount + usage.thoughtsTokenCount;
-        const outputImageTokenCount =
-            usage.candidatesImageTokenCount || estimatedOutputImageTokens;
-
-        const inputCostInCents = this.#calculateTokenCostInCents(
-            inputTokenCount,
-            selectedModel.costs.input,
-        );
-        const outputTextCostInCents = this.#calculateTokenCostInCents(
-            outputTextTokenCount,
-            selectedModel.costs.output,
-        );
-        const outputImageCostInCents = this.#calculateTokenCostInCents(
-            outputImageTokenCount,
-            selectedModel.costs.output_image,
-        );
-
-        const usagePrefix = `gemini:${selectedModel.id}`;
-        this.#meteringService.batchIncrementUsages(actor, [
-            {
-                usageType: `${usagePrefix}:input`,
-                usageAmount: Math.max(inputTokenCount, 1),
-                costOverride: this.#toMicroCents(inputCostInCents),
-            },
-            {
-                usageType: `${usagePrefix}:output:text`,
-                usageAmount: Math.max(outputTextTokenCount, 1),
-                costOverride: this.#toMicroCents(outputTextCostInCents),
-            },
-            {
-                usageType: `${usagePrefix}:output:image`,
-                usageAmount: Math.max(outputImageTokenCount, 1),
-                costOverride: this.#toMicroCents(outputImageCostInCents),
-            },
-        ]);
-
-        const url = this.#extractImageUrl(response);
-
-        if (!url) {
-            throw new HttpError(
-                400,
-                'Failed to extract image URL from Gemini response',
-                { legacyCode: 'unknown_error' },
+        try {
+            // --- API call ---
+            const contents = this.#buildContents(
+                prompt,
+                input_images,
+                input_image_mime_type,
             );
-        }
+            const aspectRatio = `${ratio.w}:${ratio.h}`;
 
-        return url;
+            const imageConfig: Record<string, string> = { aspectRatio };
+            if (
+                quality &&
+                selectedModel.allowedQualityLevels?.includes(quality)
+            ) {
+                imageConfig.imageSize = quality;
+            }
+
+            const response = await this.#client.models.generateContent({
+                model: selectedModel.id,
+                contents,
+                config: {
+                    responseModalities: ['TEXT', 'IMAGE'],
+                    imageConfig,
+                },
+            });
+
+            // --- Actual cost calculation from response usage ---
+            const usage = this.#extractUsageMetadata(response);
+            const inputTokenCount =
+                usage.promptTokenCount || estimatedPromptTokenCount;
+
+            const outputTextTokenCount =
+                usage.candidatesTextTokenCount + usage.thoughtsTokenCount;
+            const outputImageTokenCount =
+                usage.candidatesImageTokenCount || estimatedOutputImageTokens;
+
+            const inputCostInCents = this.#calculateTokenCostInCents(
+                inputTokenCount,
+                selectedModel.costs.input,
+            );
+            const outputTextCostInCents = this.#calculateTokenCostInCents(
+                outputTextTokenCount,
+                selectedModel.costs.output,
+            );
+            const outputImageCostInCents = this.#calculateTokenCostInCents(
+                outputImageTokenCount,
+                selectedModel.costs.output_image,
+            );
+
+            this.#meteringService.batchIncrementUsages(actor, [
+                {
+                    usageType: `${usagePrefix}:input`,
+                    usageAmount: Math.max(inputTokenCount, 1),
+                    costOverride: this.#toMicroCents(inputCostInCents),
+                },
+                {
+                    usageType: `${usagePrefix}:output:text`,
+                    usageAmount: Math.max(outputTextTokenCount, 1),
+                    costOverride: this.#toMicroCents(outputTextCostInCents),
+                },
+                {
+                    usageType: `${usagePrefix}:output:image`,
+                    usageAmount: Math.max(outputImageTokenCount, 1),
+                    costOverride: this.#toMicroCents(outputImageCostInCents),
+                },
+            ]);
+
+            const url = this.#extractImageUrl(response);
+
+            if (!url) {
+                throw new HttpError(
+                    400,
+                    'Failed to extract image URL from Gemini response',
+                    { legacyCode: 'unknown_error' },
+                );
+            }
+
+            return url;
+        } finally {
+            await hold.release();
+        }
     }
 
     #buildContents(
@@ -289,9 +304,9 @@ export class GeminiImageProvider implements IImageProvider {
 
         if (input_images?.length) {
             for (const img of input_images) {
-                const parsed = this.#parseDataUri(img);
+                const parsed = parseDataUri(img);
                 const mimeType =
-                    parsed?.mimeType ??
+                    parsed?.mime ??
                     this.#detectMimeType(img) ??
                     input_image_mime_type ??
                     'image/png';
@@ -395,9 +410,9 @@ export class GeminiImageProvider implements IImageProvider {
 
     #detectMimeType(data: string): string | undefined {
         // Handle data URIs like "data:image/jpeg;base64,..."
-        const parsed = this.#parseDataUri(data);
+        const parsed = parseDataUri(data);
         if (parsed) {
-            return parsed.mimeType;
+            return parsed.mime;
         }
 
         for (const [signature, mimeType] of Object.entries(MIME_SIGNATURES)) {
@@ -406,22 +421,5 @@ export class GeminiImageProvider implements IImageProvider {
             }
         }
         return undefined;
-    }
-
-    #parseDataUri(
-        data: string,
-    ): { mimeType: string; base64: string } | undefined {
-        if (!data.startsWith('data:image/')) return undefined;
-
-        const commaIdx = data.indexOf(',');
-        if (commaIdx === -1) return undefined;
-
-        const header = data.substring(5, commaIdx); // after "data:" up to ","
-        if (!header.endsWith(';base64')) return undefined;
-
-        const mimeType = header.substring(0, header.length - 7); // strip ";base64"
-        if (mimeType.length === 0) return undefined;
-
-        return { mimeType, base64: data.substring(commaIdx + 1) };
     }
 }

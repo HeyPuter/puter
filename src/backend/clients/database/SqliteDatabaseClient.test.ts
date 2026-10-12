@@ -1038,8 +1038,7 @@ describe('SqliteDatabaseClient — query interface', () => {
 });
 
 // Single-node engines have no replica to race, so `tryHardRead` must not
-// issue the query twice — the base-class default fires `pread()` and
-// `read()` in parallel, which on sqlite is the same connection.
+// issue the query twice on the one connection.
 describe('SqliteDatabaseClient — tryHardRead', () => {
     let client: SqliteDatabaseClient;
 
@@ -1078,20 +1077,50 @@ describe('SqliteDatabaseClient — tryHardRead', () => {
         expect(readSpy).toHaveBeenCalledTimes(1);
         expect(preadSpy).not.toHaveBeenCalled();
     });
+});
 
-    it('throws from requireRead when nothing matches', async () => {
-        await expect(
-            client.requireRead(
-                'SELECT `name` FROM `widget` WHERE `id` = ?',
-                [42],
-            ),
-        ).rejects.toThrow('required read returned no rows');
+describe('SqliteDatabaseClient — prepared statements', () => {
+    let client: SqliteDatabaseClient;
+    let prepare: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+        client = await bootClient();
+        await client.write(
+            'CREATE TABLE `widget` (`id` INTEGER PRIMARY KEY, `name` TEXT)',
+        );
+        // better-sqlite3 is the driver boundary; count compilations there.
+        const db = (client as unknown as { db: Database.Database }).db;
+        prepare = vi.spyOn(db, 'prepare');
     });
 
-    it('returns the rows from requireRead when something matches', async () => {
-        await client.write('INSERT INTO `widget` (`name`) VALUES (?)', ['ok']);
-        await expect(
-            client.requireRead('SELECT `name` FROM `widget`'),
-        ).resolves.toEqual([{ name: 'ok' }]);
+    afterEach(() => {
+        client.onServerShutdown();
+    });
+
+    it('compiles a repeated query once', async () => {
+        const insert = 'INSERT INTO `widget` (`name`) VALUES (?)';
+        await client.write(insert, ['a']);
+        await client.write(insert, ['b']);
+        await client.batchWrite([{ statement: insert, values: ['c'] }]);
+        const select = 'SELECT `name` FROM `widget` ORDER BY `id`';
+        await client.read(select);
+
+        await expect(client.read(select)).resolves.toEqual([
+            { name: 'a' },
+            { name: 'b' },
+            { name: 'c' },
+        ]);
+        expect(prepare).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps serving a cached query after the schema changes', async () => {
+        const select = 'SELECT * FROM `widget`';
+        await client.write('INSERT INTO `widget` (`name`) VALUES (?)', ['a']);
+        await client.read(select);
+        await client.write('ALTER TABLE `widget` ADD COLUMN `size` INTEGER');
+
+        await expect(client.read(select)).resolves.toEqual([
+            { id: 1, name: 'a', size: null },
+        ]);
     });
 });

@@ -24,7 +24,11 @@ import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import { inferFilenameFromUrlOrPath, loadFileInput } from './fileInput.js';
+import {
+    inferFilenameFromUrlOrPath,
+    loadFileInput,
+    resolveFileInput,
+} from './fileInput.js';
 
 // Web inputs leave the process through secureFetch; stub that boundary so
 // the tests control the remote response without real network access.
@@ -415,6 +419,71 @@ describe('loadFileInput FS path', () => {
             statusCode: 413,
             legacyCode: 'storage_limit_reached',
         });
+    });
+});
+
+// ── resolveFileInput ───────────────────────────────────────────────
+
+describe('resolveFileInput', () => {
+    it('checks access to a Puter file without reading it, then reads it once on load', async () => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user!.username!}/Documents/lazy.txt`;
+        const body = Buffer.from('read me later');
+        const entry = await withActor(actor, () =>
+            writeFile(userId, path, body, 'text/plain'),
+        );
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        try {
+            const resolved = await withActor(actor, () =>
+                resolveFileInput(
+                    server.stores,
+                    server.services.fs,
+                    actor,
+                    path,
+                ),
+            );
+            expect(resolved.filename).toBe('lazy.txt');
+            expect(resolved.fsEntry?.uuid).toBe(entry.uuid);
+            expect(s3Read).not.toHaveBeenCalled();
+
+            const [first, second] = await Promise.all([
+                resolved.load(),
+                resolved.load(),
+            ]);
+            expect(first.buffer.equals(body)).toBe(true);
+            expect(second).toBe(first);
+            expect(s3Read).toHaveBeenCalledTimes(1);
+        } finally {
+            s3Read.mockRestore();
+        }
+    });
+
+    it('refuses a Puter file over maxBytes from its recorded size, before any read', async () => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user!.username!}/Documents/big.bin`;
+        await withActor(actor, () =>
+            writeFile(userId, path, Buffer.alloc(2048, 0x42)),
+        );
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        try {
+            await expect(
+                withActor(actor, () =>
+                    resolveFileInput(
+                        server.stores,
+                        server.services.fs,
+                        actor,
+                        path,
+                        { maxBytes: 64 },
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 413,
+                legacyCode: 'storage_limit_reached',
+            });
+            expect(s3Read).not.toHaveBeenCalled();
+        } finally {
+            s3Read.mockRestore();
+        }
     });
 });
 

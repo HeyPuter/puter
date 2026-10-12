@@ -21,6 +21,7 @@ import { AppOriginBlocklistService } from './abuse/AppOriginBlocklistService';
 import { ACLService } from './acl/ACLService';
 import { AppIconService } from './appIcon/AppIconService';
 import { AppPermissionService } from './apps/AppPermissionService';
+import { AppService } from './apps/AppService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
@@ -46,6 +47,7 @@ import { TeamService } from './team/TeamService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
+import { SignupService } from './user/SignupService';
 import { UserAccountService } from './user/UserAccountService';
 
 /**
@@ -71,6 +73,7 @@ declare module './types' {
         subdomainPermission: SubdomainPermissionService;
         recommendedApps: RecommendedAppsService;
         suggestedApps: SuggestedAppsService;
+        app: AppService;
         socket: SocketService;
         events: EventsService;
         eventForward: EventForwardService;
@@ -85,6 +88,7 @@ declare module './types' {
         health: ServerHealthService;
         userAccount: UserAccountService;
         team: TeamService;
+        signup: SignupService;
     }
 }
 
@@ -121,6 +125,8 @@ export const puterServices = {
     userAccount: UserAccountService,
     // Leaf: team + user stores only.
     team: TeamService,
+    // Reaches `team` and `socket` at call time only.
+    signup: SignupService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
@@ -129,6 +135,8 @@ export const puterServices = {
     subdomainPermission: SubdomainPermissionService,
     recommendedApps: RecommendedAppsService,
     suggestedApps: SuggestedAppsService,
+    // Reaches `auth` and `permission` at call time only.
+    app: AppService,
     socket: SocketService,
     // Delivers through `socket` and resolves paths through `fs`, so it follows
     // both; `fs` reaches back for dispatch at call time only.

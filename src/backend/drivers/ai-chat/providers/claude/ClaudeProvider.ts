@@ -48,7 +48,6 @@ import type {
     AIChatTextStream,
     AIChatToolUseStream,
 } from '../../utils/Streaming.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import {
     allowlistedFromHeader,
     applySafeguardsPolicy,
@@ -70,6 +69,7 @@ import {
 } from './anthropicPolicy.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 /**
  * Canonical media part → Anthropic block: `url` source for links, `base64`
@@ -281,7 +281,7 @@ export class ClaudeProvider implements IChatProvider {
         this.#fsService = fsService;
         this.anthropic = new Anthropic({
             apiKey: config.apiKey,
-            timeout: 10 * 60 * 1001,
+            ...sdkClientOptions(10 * 60 * 1001),
         });
     }
 
@@ -291,10 +291,6 @@ export class ClaudeProvider implements IChatProvider {
 
     models() {
         return CLAUDE_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
     }
 
     /** The model key this provider records usage under. */

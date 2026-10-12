@@ -19,6 +19,7 @@
 
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor';
+import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type {
     CreditHold,
@@ -53,6 +54,7 @@ export type AiMeteringService = MeteringService & {
         actor: Actor,
         usageType: string,
         amount: number,
+        opts?: { ttlMs?: number },
     ): Promise<CreditHold | null>;
 };
 
@@ -250,13 +252,14 @@ export function withAiCostFactor(
         actor: Actor,
         usageType: string,
         amount: number,
+        opts?: { ttlMs?: number },
     ): Promise<CreditHold | null> => {
         const factor = Number.isFinite(amount)
             ? await costFactor(actor, aiModelKey(usageType))
             : 1;
         const cost = factor === 1 ? amount : scaleCost(amount, factor);
         if (!(await metering.hasEnoughCredits(actor, cost))) return null;
-        return metering.reserveCredits(actor, cost);
+        return metering.reserveCredits(actor, cost, opts);
     };
 
     const overrides: Record<string, unknown> = {
@@ -279,4 +282,25 @@ export function withAiCostFactor(
     scopedViews.add(facade);
     forService.set(driver, facade);
     return facade;
+}
+
+/**
+ * Holds `amount` (priced as {@link AiMeteringService.reserveAiCredits} prices
+ * it) while `run` executes, refusing with a 402 when the actor can't afford it.
+ * The hold is released however `run` ends; `run` records the usage.
+ */
+export async function withAiCreditHold<T>(
+    metering: AiMeteringService,
+    actor: Actor,
+    usageType: string,
+    amount: number,
+    run: () => Promise<T>,
+): Promise<T> {
+    const hold = await metering.reserveAiCredits(actor, usageType, amount);
+    if (!hold) throw insufficientCreditsError();
+    try {
+        return await run();
+    } finally {
+        await hold.release();
+    }
 }

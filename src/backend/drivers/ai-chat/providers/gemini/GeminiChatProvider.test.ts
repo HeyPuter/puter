@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { GEMINI_MODELS } from './models.js';
 import { GeminiChatProvider } from './GeminiChatProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -97,9 +98,10 @@ afterAll(async () => {
 });
 
 const makeProvider = () => {
-    const provider = new GeminiChatProvider(server.services.metering, {
-        apiKey: 'test-key',
-    });
+    const provider = new GeminiChatProvider(
+        { apiKey: 'test-key' },
+        server.services.metering,
+    );
     return { provider };
 };
 
@@ -150,6 +152,8 @@ describe('GeminiChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -170,7 +174,7 @@ describe('GeminiChatProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of GEMINI_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -190,7 +194,7 @@ describe('GeminiChatProvider model catalog', () => {
     // flattening the catalog itself.
     it('list() emits every id exactly once', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toHaveLength(new Set(ids).size);
     });
 });
@@ -391,18 +395,18 @@ describe('GeminiChatProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('gemini-2.5-flash');
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -411,7 +415,7 @@ describe('GeminiChatProvider model resolution', () => {
         'gemini-3-flash-preview',
     ])('drops the deprecated %s instead of redirecting it', async (model) => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain(model);
         expect(ids).not.toContain(`google/${model}`);
     });
@@ -866,11 +870,10 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('GeminiChatProvider.complete error mapping', () => {
-    it('logs and rethrows errors raised by the OpenAI client unchanged', async () => {
+    it('rethrows errors raised by the OpenAI client unchanged', async () => {
         const { provider } = makeProvider();
         const apiError = new Error('Gemini exploded');
         createMock.mockRejectedValueOnce(apiError);
-        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -881,7 +884,6 @@ describe('GeminiChatProvider.complete error mapping', () => {
             ),
         ).rejects.toBe(apiError);
 
-        expect(errSpy).toHaveBeenCalled();
         expect(recordSpy).not.toHaveBeenCalled();
     });
 });
@@ -892,7 +894,7 @@ describe('GeminiChatProvider.checkModeration', () => {
     it('throws — Gemini provider does not implement moderation', () => {
         const { provider } = makeProvider();
         expect(() => provider.checkModeration('anything')).toThrow(
-            /no moderation/i,
+            /not implemented/i,
         );
     });
 });

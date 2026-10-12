@@ -41,9 +41,10 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'GeminiChatProvider (integration)',
     () => {
         it('returns a non-empty completion from gemini-3.7-flash', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
-            const provider = new GeminiChatProvider(makeMeteringStub(), {
-                apiKey: optionalEnv(ENV_VAR)!,
-            });
+            const provider = new GeminiChatProvider(
+                { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
+            );
 
             const result = await withTestActor(() =>
                 provider.complete({

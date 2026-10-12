@@ -160,12 +160,34 @@ describe('NotificationService.notify', () => {
         server.clients.event.off?.('outer.gui.notif.message', handler);
     });
 
+    it('does not read the row back after writing it', async () => {
+        const user = await makeUser();
+        const db = server.clients.db;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        try {
+            const uid = await notifications.notify(
+                [user.id],
+                { title: 'no read-back' },
+                { type: 'share.received' },
+            );
+            expect(uid).toEqual(expect.any(String));
+            const readsOfRow = [...read.mock.calls, ...pread.mock.calls].filter(
+                ([sql]) => /FROM `notification`/u.test(String(sql)),
+            );
+            expect(readsOfRow).toEqual([]);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
     it('pushes nothing for a recipient whose insert failed', async () => {
         const good = await makeUser();
         const pushed = collect('outer.gui.notif.message');
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-        // userId 0 is falsy — NotificationStore.create rejects it. The
+        // userId 0 is falsy — the store's insert rejects it. The
         // remaining user must still be written and still be pushed to.
         await notifications.notify(
             [0, good.id],

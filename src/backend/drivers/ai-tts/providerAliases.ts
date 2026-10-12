@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { ProviderCatalog } from '../util/providerRegistry.js';
+
 /**
  * Canonical `puter-tts` provider ids and the aliases callers may use in their
  * place. Resolution lives here rather than in the SDK so a new alias reaches
@@ -76,10 +78,9 @@ const PROVIDER_BY_ALIAS: Record<string, TTSProviderName> = {
     'speechify-tts': 'speechify',
 };
 
-/** Resolve a caller-supplied provider name, or `undefined` if unrecognized. */
-export function normalizeTTSProvider(
-    value: unknown,
-): TTSProviderName | undefined {
-    if (typeof value !== 'string') return undefined;
-    return PROVIDER_BY_ALIAS[value.trim().toLowerCase()];
-}
+export const TTS_CATALOG: ProviderCatalog = {
+    label: 'TTS',
+    ids: TTS_PROVIDERS,
+    defaultId: DEFAULT_TTS_PROVIDER,
+    aliases: PROVIDER_BY_ALIAS,
+};

@@ -21,7 +21,10 @@ import type { Request } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor } from '../../actor';
-import type { AuthService } from '../../../services/auth/AuthService';
+import {
+    HOSTED_ASSET_COOKIES,
+    type AuthService,
+} from '../../../services/auth/AuthService';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
@@ -795,16 +798,16 @@ describe('resolvePrivateIdentity', () => {
     it('returns the sticky private-cookie identity when the token matches the expected app/subdomain/host', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = await authService.createPrivateAssetToken({
+        const token = await authService.createHostedAssetToken('private', {
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
-            privateHost: 'beans.app.puter.localhost',
+            host: 'beans.app.puter.localhost',
         });
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPrivateAssetCookieName()]: token,
+                    [HOSTED_ASSET_COOKIES.private.legacyName]: token,
                 },
             }),
             authService,
@@ -820,16 +823,16 @@ describe('resolvePrivateIdentity', () => {
 
     it('falls through to req.actor when the private cookie is for a different app', async () => {
         const user = await makeUser();
-        const wrongToken = await authService.createPrivateAssetToken({
+        const wrongToken = await authService.createHostedAssetToken('private', {
             appUid: `app-${uuidv4()}`,
             userUid: user.uuid,
             subdomain: 'beans',
-            privateHost: 'beans.app.puter.localhost',
+            host: 'beans.app.puter.localhost',
         });
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPrivateAssetCookieName()]: wrongToken,
+                    [HOSTED_ASSET_COOKIES.private.legacyName]: wrongToken,
                 },
                 actor: {
                     user: { uuid: user.uuid },
@@ -1064,7 +1067,7 @@ describe('resolvePublicHostedIdentity', () => {
     it('returns the cookie identity when present and valid', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = await authService.createPublicHostedActorToken({
+        const token = await authService.createHostedAssetToken('public', {
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
@@ -1073,7 +1076,7 @@ describe('resolvePublicHostedIdentity', () => {
         const out = await resolvePublicHostedIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPublicHostedActorCookieName()]: token,
+                    [HOSTED_ASSET_COOKIES.public.legacyName]: token,
                 },
             }),
             authService,

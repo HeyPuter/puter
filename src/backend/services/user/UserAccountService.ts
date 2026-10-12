@@ -32,9 +32,10 @@ const PROVISIONED_FSENTRY_COUNT = 8;
  * account and everything hanging off it, and measuring whether an account has
  * ever actually been used.
  *
- * Most `user_id` foreign keys are `ON DELETE SET NULL` rather than `CASCADE`,
- * so "delete the row" is never the whole job — anything reaching for that
- * shortcut leaves orphans behind. Go through `cascadeDelete`.
+ * Most `user_id` foreign keys cascade, but only inside the database: S3
+ * objects, sites, flat permission entries and caches outlive a bare row delete.
+ * Audit and analytics tables are `ON DELETE SET NULL`, so their history stays.
+ * Go through `cascadeDelete`.
  */
 export class UserAccountService extends PuterService {
     /**
@@ -141,7 +142,16 @@ export class UserAccountService extends PuterService {
         // Tells prod to stop charging the owner for this seat.
         this.services.team.emitSeatDeleted(seat);
         // The membership row cascaded away, so anything keyed on it is stale.
-        if (seat) await this.services.team.forgetSeat(seat);
+        if (seat) {
+            try {
+                await this.services.team.forgetSeat(seat);
+            } catch (e) {
+                console.warn(
+                    '[cascade-delete-user] seat cache cleanup failed:',
+                    e,
+                );
+            }
+        }
     }
 
     /**

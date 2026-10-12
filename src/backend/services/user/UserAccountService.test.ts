@@ -275,6 +275,33 @@ describe('UserAccountService', () => {
             ).toBeNull();
         });
 
+        it('finishes when dropping the seat caches fails', async () => {
+            const user = await seedUser();
+            const capture = vi
+                .spyOn(server.services.team, 'captureSeatForBilling')
+                .mockResolvedValue({
+                    team_uid: `team-${uuidv4()}`,
+                    owner_user_id: 1,
+                    user_id: user.id,
+                    user_uuid: user.uuid,
+                    username: user.username,
+                });
+            const lookup = vi
+                .spyOn(server.stores.team, 'getByUid')
+                .mockRejectedValue(new Error('store down'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await expect(
+                    server.services.userAccount.cascadeDelete(user.id),
+                ).resolves.toBeUndefined();
+            } finally {
+                capture.mockRestore();
+                lookup.mockRestore();
+                warn.mockRestore();
+            }
+            expect(await server.stores.user.getById(user.id)).toBeNull();
+        });
+
         it('frees the address for a new account', async () => {
             const user = await seedUser();
             const email = user.email as string;

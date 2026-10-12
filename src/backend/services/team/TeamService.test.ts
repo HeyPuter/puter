@@ -28,6 +28,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
@@ -112,6 +113,25 @@ describe('TeamService', () => {
         );
         // 0 is what makes the owner pay for itself.
         expect(Number(membership?.org_owned)).toBe(0);
+    });
+
+    it('reports a handle claimed after the availability check as taken', async () => {
+        const handle = freeHandle();
+        await service.createTeam(owner.id, { name: 'First', handle });
+        // What a replica that has not seen the first claim yet answers.
+        const probe = vi
+            .spyOn(server.stores.team, 'isHandleAvailable')
+            .mockResolvedValue(true);
+        try {
+            await expect(
+                service.createTeam(owner.id, { name: 'Second', handle }),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                legacyCode: 'conflict',
+            });
+        } finally {
+            probe.mockRestore();
+        }
     });
 
     it('holds the owner invariant that no dialect can express', async () => {

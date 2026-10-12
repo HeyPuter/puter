@@ -49,7 +49,8 @@ import {
     parseSignedQuery,
     verifySignature,
 } from '../../util/fileSigning.js';
-import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
+import { APP_ICON_SIZES } from '../../util/appIcon.js';
+import { toAppSummary } from '../../util/appView.js';
 import {
     joinChildPath,
     normalizeAbsolutePath,
@@ -59,7 +60,7 @@ import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     buildHostedBackingDenial,
-    hostedIndexUrlBackingIsUnavailable,
+    hostedIndexUrlBackingsAreUnavailable,
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { listClientShares } from '../share/clientShare.js';
@@ -69,6 +70,7 @@ import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
     FS_BATCH_LIMIT,
+    FS_BATCH_WRITE_MAX_ITEMS,
     FS_DF_LIMIT,
     FS_HELPER_LIMIT,
     FS_MUTATE_LIMIT,
@@ -90,9 +92,12 @@ import {
     assertAccess,
     assertCanCreate,
     assertCanMoveInto,
+    emitGuiItemEvent,
     expandClientPath,
+    findOverwriteTarget,
     getBoolean,
     getString,
+    type GuiItemEventName,
     loadLegacyAssociatedApps,
     resolveV1Selector,
     signEntry,
@@ -122,6 +127,9 @@ const BATCH_MAX_FIELD_SIZE = 1 * 1024 * 1024; // 1 MiB per operation/fileinfo JS
 // Multipart carries at most one op per part, so JSON mode gets the same bound.
 const BATCH_MAX_OPS = BATCH_MAX_PARTS;
 const BATCH_MUTATING_OPS = new Set(['mkdir', 'shortcut', 'move', 'delete']);
+
+/** Rows per `readdir-subdomains` read; the response pages until done. */
+const SUBDOMAIN_PAGE_SIZE = 500;
 
 // An op's `as` names the path it produced; later ops in the same batch refer
 // to it as `$name` or `$name/rest`, since a deduped mkdir can land elsewhere.
@@ -346,13 +354,8 @@ export class LegacyFSController extends PuterController {
             '/get-launch-apps',
             { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
             async (req, res) => {
-                const recommendedSvc = this.services
-                    .recommendedApps as unknown as
-                    | { getRecommendedApps?: () => Promise<unknown[]> }
-                    | undefined;
-                const recommended = recommendedSvc?.getRecommendedApps
-                    ? await recommendedSvc.getRecommendedApps()
-                    : [];
+                const recommended =
+                    await this.services.recommendedApps.getRecommendedApps();
 
                 // The direct icon URL names a size; honour the one the
                 // caller asked for so the client isn't handed a 256px PNG for
@@ -365,32 +368,18 @@ export class LegacyFSController extends PuterController {
                 let recent: unknown[] = [];
                 const userId = req.actor?.user?.id;
                 if (userId) {
-                    const recentUids =
-                        (await (
-                            this.stores.app as unknown as {
-                                getRecentAppOpens?: (
-                                    id: number,
-                                    opts?: { limit?: number },
-                                ) => Promise<string[]>;
-                            }
-                        ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
-                    // One batched read for the rows, then the backing checks
-                    // concurrently. Serially awaiting a lookup per uid put ~2
-                    // round trips of latency on every desktop boot.
-                    const appsByUid = await (
-                        this.stores.app as unknown as {
-                            getByUids: (
-                                uids: string[],
-                            ) => Promise<Map<string, Record<string, unknown>>>;
-                        }
-                    ).getByUids(recentUids);
+                    const recentUids = await this.stores.app.getRecentAppOpens(
+                        userId,
+                        { limit: 10 },
+                    );
+                    const appsByUid =
+                        await this.stores.app.getByUids(recentUids);
 
                     // `recentUids` is ordered most-recent-first; preserve it.
-                    const orderedApps = recentUids
-                        .map((uid) => appsByUid.get(uid))
-                        .filter((app): app is Record<string, unknown> =>
-                            Boolean(app),
-                        );
+                    const orderedApps: Array<Record<string, unknown>> =
+                        recentUids
+                            .map((uid: string) => appsByUid.get(uid))
+                            .filter(Boolean);
 
                     // Don't hand out an index_url whose puter-hosted backing is
                     // gone or reclaimed. The taskbar launches recents by name (so
@@ -398,41 +387,30 @@ export class LegacyFSController extends PuterController {
                     // launch-metadata producer like any other — a future consumer
                     // reading index_url straight off it shouldn't inherit a stale
                     // origin.
-                    const backingGoneFlags = await Promise.all(
-                        orderedApps.map((app) =>
-                            hostedIndexUrlBackingIsUnavailable({
-                                app,
+                    let backingGoneFlags: boolean[];
+                    try {
+                        backingGoneFlags =
+                            await hostedIndexUrlBackingsAreUnavailable({
+                                apps: orderedApps,
                                 subdomainStore: this.stores.subdomain,
                                 config: this.config,
-                            }).catch(() => true),
-                        ),
-                    );
+                            });
+                    } catch {
+                        backingGoneFlags = orderedApps.map(() => true);
+                    }
 
                     recent = orderedApps.map((app, index) => {
                         const backingGone = backingGoneFlags[index];
                         return {
-                            uuid: app.uid,
-                            name: app.name,
-                            title: app.title,
-                            icon: app.icon ?? null,
-                            // Direct subdomain URL for the client to try
-                            // before `icon`.
-                            iconCdnUrl: getAppIconCdnUrl(
-                                app,
-                                this.config,
+                            ...toAppSummary(app, {
+                                config: this.config,
                                 iconSize,
-                            ),
-                            godmode: Boolean(app.godmode),
-                            maximize_on_start: Boolean(app.maximize_on_start),
+                            }),
+                            icon: app.icon ?? null,
                             index_url: backingGone ? null : app.index_url,
                             ...(backingGone
                                 ? { privateAccess: buildHostedBackingDenial() }
                                 : {}),
-                            // An app with no owner isn't owned by a Puter user —
-                            // it's an "external" (origin-bootstrapped) app.
-                            external:
-                                app.owner_user_id == null ||
-                                app.owner_user_id === '',
                         };
                     });
                 }
@@ -828,16 +806,13 @@ export class LegacyFSController extends PuterController {
         // (`overwritten`) so clients can drop its stale row/icon. The copy
         // deletes that entry, so resolve it beforehand.
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
-        let overwrittenEntry = null;
-        if (overwriteRequested) {
-            const targetName = getString(body, 'new_name') ?? source.name;
-            const targetPath =
-                destinationParent.path === '/'
-                    ? `/${targetName}`
-                    : `${destinationParent.path}/${targetName}`;
-            overwrittenEntry =
-                await this.stores.fsEntry.getEntryByPath(targetPath);
-        }
+        const overwrittenEntry = overwriteRequested
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  getString(body, 'new_name') ?? source.name,
+              )
+            : null;
 
         const copy = await this.services.fs.copy(userId, {
             source,
@@ -846,15 +821,14 @@ export class LegacyFSController extends PuterController {
             overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
-        await this.#emitGuiEvent('outer.gui.item.added', copy);
-        // Without this, every other client keeps a ghost row for the
-        // replaced entry until the directory is re-listed.
-        if (overwrittenEntry) {
-            await this.#emitGuiEvent(
-                'outer.gui.item.removed',
-                overwrittenEntry,
-            );
-        }
+        // Announcing the replaced entry's removal keeps other clients from
+        // showing a ghost row for it until the directory is re-listed.
+        await this.#emitGuiEvent(
+            'outer.gui.item.added',
+            copy,
+            undefined,
+            overwrittenEntry,
+        );
 
         // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
         // Array is historical — originally supported bulk copy.
@@ -916,13 +890,11 @@ export class LegacyFSController extends PuterController {
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
         let overwrittenEntry = null;
         if (overwriteRequested) {
-            const targetName = getString(body, 'new_name') ?? source.name;
-            const targetPath =
-                destinationParent.path === '/'
-                    ? `/${targetName}`
-                    : `${destinationParent.path}/${targetName}`;
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(targetPath);
+            const existing = await findOverwriteTarget(
+                this.stores.fsEntry,
+                destinationParent,
+                getString(body, 'new_name') ?? source.name,
+            );
             // Moving an entry onto its own path is not an overwrite.
             if (existing && existing.uuid !== source.uuid) {
                 overwrittenEntry = existing;
@@ -943,17 +915,14 @@ export class LegacyFSController extends PuterController {
                 Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
-        await this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: oldPath,
-        });
-        // Without this, every other client keeps a ghost row for the
-        // replaced entry until the directory is re-listed.
-        if (overwrittenEntry) {
-            await this.#emitGuiEvent(
-                'outer.gui.item.removed',
-                overwrittenEntry,
-            );
-        }
+        // Announcing the replaced entry's removal keeps other clients from
+        // showing a ghost row for it until the directory is re-listed.
+        await this.#emitGuiEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: oldPath },
+            overwrittenEntry,
+        );
 
         // Legacy response shape: `{moved: fsentry, old_path, overwritten?}`.
         const legacyEntryOpts = {
@@ -992,6 +961,13 @@ export class LegacyFSController extends PuterController {
         const descendantsOnly = getBoolean(body, 'descendants_only') ?? false;
         const pathsArray = Array.isArray(body.paths) ? body.paths : null;
         if (pathsArray) {
+            if (pathsArray.length > FS_BATCH_WRITE_MAX_ITEMS) {
+                throw new HttpError(
+                    400,
+                    `Too many items in one request (max ${FS_BATCH_WRITE_MAX_ITEMS})`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
             const removedEntries: unknown[] = [];
             for (const raw of pathsArray) {
                 const entry = await resolveV1Selector(this.stores.fsEntry, raw);
@@ -1154,11 +1130,25 @@ export class LegacyFSController extends PuterController {
             return;
         }
         const userId = this.#getActorUserId(req);
-        const rows = await this.clients.db.read(
-            'SELECT `subdomain`, `root_dir_id`, `uuid`, `ts` FROM `subdomains` WHERE `user_id` = ?',
-            [userId],
-        );
-        res.json(rows);
+        const sites: Array<Record<string, unknown>> = [];
+        let afterId: number | undefined;
+        for (;;) {
+            const page = (await this.stores.subdomain.listByUserId(userId, {
+                afterId,
+                limit: SUBDOMAIN_PAGE_SIZE,
+            })) as Array<Record<string, unknown>>;
+            for (const row of page) {
+                sites.push({
+                    subdomain: row.subdomain,
+                    root_dir_id: row.root_dir_id,
+                    uuid: row.uuid,
+                    ts: row.ts,
+                });
+            }
+            if (page.length < SUBDOMAIN_PAGE_SIZE) break;
+            afterId = Number(page[page.length - 1]!.id);
+        }
+        res.json(sites);
     };
 
     updateFsentryThumbnail = async (
@@ -1206,9 +1196,10 @@ export class LegacyFSController extends PuterController {
         const event = { url: thumbnail, uuid: entry.uuid };
         await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
-        await this.clients.db.write(
-            'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
-            [event.url, uid],
+        // Not the owner-scoped update: a shared writer passed the check above.
+        await this.stores.fsEntry.updateEntryThumbnailByUuid(
+            entry.uuid,
+            event.url,
         );
         res.json({ thumbnail: event.url });
     };
@@ -1461,11 +1452,7 @@ export class LegacyFSController extends PuterController {
                     // publishes the descriptor, so there is nothing to hide.
                     const writeOk = await this.services.acl.check(
                         actor,
-                        {
-                            path: entry.path,
-                            resolveAncestors: () =>
-                                this.services.fs.getAncestorChain(entry.path),
-                        },
+                        this.services.acl.fsDescriptor(entry.path),
                         'write',
                     );
                     finalAction = writeOk ? 'write' : 'read';
@@ -1886,11 +1873,7 @@ export class LegacyFSController extends PuterController {
         // Real path — see the note on the other `acl.check` above.
         const writeOk = await this.services.acl.check(
             actor,
-            {
-                path: entry.path,
-                resolveAncestors: () =>
-                    this.services.fs.getAncestorChain(entry.path),
-            },
+            this.services.acl.fsDescriptor(entry.path),
             'write',
         );
 
@@ -2015,14 +1998,8 @@ export class LegacyFSController extends PuterController {
             if (!(err instanceof HttpError && err.statusCode === 404))
                 throw err;
         }
-        let ancestors: Promise<Array<{ uid: string; path: string }>> | null =
-            null;
-        const descriptor = subject && {
-            path: subject.path,
-            resolveAncestors: () =>
-                (ancestors ??= this.services.fs.getAncestorChain(subject.path)),
-        };
         const acl = this.services.acl as ACLService;
+        const descriptor = subject && acl.fsDescriptor(subject.path);
         if (!descriptor || !(await acl.check(actor, descriptor, 'see')))
             throw new HttpError(404, 'Subject does not exist', {
                 legacyCode: 'subject_does_not_exist',
@@ -2119,35 +2096,18 @@ export class LegacyFSController extends PuterController {
     };
 
     async #emitGuiEvent(
-        eventName:
-            | 'outer.gui.item.added'
-            | 'outer.gui.item.updated'
-            | 'outer.gui.item.removed'
-            | 'outer.gui.item.moved',
+        eventName: GuiItemEventName,
         entry: import('../../stores/fs/FSEntry.js').FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: import('../../stores/fs/FSEntry.js').FSEntry | null,
     ): Promise<void> {
-        // GUI consumes snake_case fields (`user_id`, `parent_uid`, `is_dir`,
-        // …) — spreading the raw FSEntry ships camelCase, which the client
-        // silently ignores. Run the entry through `toLegacyEntry` first so
-        // the event payload matches what /stat et al. return, then overlay
-        // per-op extras (e.g. `old_path` for moves).
-        // `forOwner` — the audience is the owner, who can't read the actor's mask.
         try {
-            const response = {
-                ...(await toLegacyEntry(this.clients.event, entry, {
-                    forOwner: true,
-                })),
-                ...extra,
-                from_new_service: true,
-            };
-            await this.clients.event.emit(
+            await emitGuiItemEvent(
+                this.clients.event,
                 eventName,
-                {
-                    user_id_list: [entry.userId],
-                    response,
-                },
-                {},
+                entry,
+                extra,
+                replaced,
             );
         } catch {
             // Non-critical — GUI event failure must never break the HTTP response.

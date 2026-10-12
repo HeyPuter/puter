@@ -46,7 +46,7 @@ The main costs:
 For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
-- In-flight chat, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`.
+- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers.
 
 ## Rate limits
 
@@ -69,7 +69,9 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
-An input over its limit is rejected before it reaches the model. OCR input limits are under [OCR](#ocr).
+An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
+
+Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
@@ -91,6 +93,7 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 
 | Provider | Limit |
 |----------|-------|
+| All | Up to 16 reference images; more fails with `bad_request`. A reference given as a URL is fetched with a 30-second timeout and capped at 30 MB. |
 | xAI | Up to 5 reference images; more fails with `bad_request`. |
 | Together | Image routes are excluded because they require third-party data sharing; generation fails before any upstream call. |
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |
@@ -178,6 +181,7 @@ Per minute unless stated:
 | Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
 | Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |
+| Paths in one `delete()` | 500 | Per request |
 | Entries in one `/sign` request | 500 | Per request |
 | Part numbers in one `signMultipartParts` | 10,000 | Per request |
 | Legacy `/batch` request | 256 multipart parts (fields and files combined) or 256 JSON operations, 64 files, 100 MiB per file, 1 MiB per field, 256 MiB in total | Per request |

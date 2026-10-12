@@ -712,6 +712,19 @@ describe('MeteringService', () => {
             expect(result['kv:read']).toMatchObject({ units: 1 });
         });
 
+        it.each([
+            ['infinite', Number.POSITIVE_INFINITY],
+            ['NaN', Number.NaN],
+        ])('counts an %s usageAmount as one unit', async (_label, amount) => {
+            const result = await target.incrementUsage(
+                actor,
+                'kv:read',
+                amount,
+                10,
+            );
+            expect(result['kv:read']).toMatchObject({ units: 1, cost: 10 });
+        });
+
         it('normalizes a negative costOverride to 1 and raises an alarm', async () => {
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
             const result = await target.incrementUsage(
@@ -795,6 +808,46 @@ describe('MeteringService', () => {
                 const addons = await target.getActorAddons(overActor);
                 expect(addons.consumedPurchaseCredits).toBe(1_000_000);
             });
+        });
+
+        it('reads addons once while no purchased credit is left, again after a grant', async () => {
+            const spender: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(spender);
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            try {
+                await target.incrementUsage(spender, 'kv:read', 1, 10);
+                await target.incrementUsage(spender, 'kv:read', 1, 10);
+                expect(addonsSpy).toHaveBeenCalledTimes(1);
+
+                // A grant drops it, and the next overage draws on the grant.
+                await target.updateAddonCredit(spender.user.uuid!, 5_000_000);
+                await target.incrementUsage(
+                    spender,
+                    'kv:read',
+                    1,
+                    sub.monthUsageAllowance,
+                );
+                expect(addonsSpy).toHaveBeenCalledTimes(2);
+                await waitFor(async () => {
+                    const addons = await target.getActorAddons(spender);
+                    expect(addons.consumedPurchaseCredits).toBe(20);
+                });
+            } finally {
+                addonsSpy.mockRestore();
+            }
+        });
+
+        it('reads addons on every increment while purchased credit is left', async () => {
+            const holder: Actor = { user: makeUser() };
+            await target.updateAddonCredit(holder.user.uuid!, 5_000_000);
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            try {
+                await target.incrementUsage(holder, 'kv:read', 1, 10);
+                await target.incrementUsage(holder, 'kv:read', 1, 10);
+                expect(addonsSpy).toHaveBeenCalledTimes(2);
+            } finally {
+                addonsSpy.mockRestore();
+            }
         });
     });
 
@@ -2604,16 +2657,23 @@ describe('MeteringService', () => {
             expect(entry.hasCredits).toBe(false);
             entry.expiresAt = Date.now() - 1;
 
-            const failing = vi
-                .spyOn(server.stores.kv, 'get')
-                .mockRejectedValue(new Error('store down'));
+            // The month record too: the spent addons are memoized, so the
+            // refresh no longer reads them.
+            const failing = [
+                vi
+                    .spyOn(server.stores.kv, 'get')
+                    .mockRejectedValue(new Error('store down')),
+                vi
+                    .spyOn(server.stores.meteringBuffer, 'get')
+                    .mockRejectedValue(new Error('store down')),
+            ];
             try {
                 // Stale: answers with the old (broke) value while the
                 // refresh behind it fails.
                 expect(await target.hasAnyUsageCached(actor)).toBe(false);
                 await creditRefreshes().get(actor.user.uuid!);
             } finally {
-                failing.mockRestore();
+                for (const spy of failing) spy.mockRestore();
             }
 
             const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =

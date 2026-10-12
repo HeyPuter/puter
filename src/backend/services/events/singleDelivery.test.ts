@@ -250,6 +250,7 @@ beforeEach(async () => {
                     entries.get(`uid:${uid}`) ?? null,
                 getEntryByPath: async () => null,
                 getEntryById: async () => null,
+                getAncestorChain: async () => ancestors(),
             },
             user: {
                 getById: async (id: number) => ({ id, uuid: `user-${id}` }),
@@ -287,7 +288,6 @@ beforeEach(async () => {
                 }),
                 has: () => socketConnected,
             },
-            fs: { getAncestorChain: async () => ancestors() },
             acl: {
                 check: async () => true,
                 getSafeAclError: async () => ({

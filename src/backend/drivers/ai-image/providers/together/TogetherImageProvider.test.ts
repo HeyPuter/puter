@@ -38,10 +38,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { TogetherImageProvider } from './TogetherImageProvider.js';
 import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
 
@@ -80,8 +82,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new TogetherImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new TogetherImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateMock.mockReset();
@@ -105,11 +115,7 @@ describe('TogetherImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new TogetherImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new TogetherImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -193,6 +199,39 @@ describe('TogetherImageProvider.generate credit gate', () => {
 
         expect(generateMock).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('holds the image cost while Together runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: {
+                id: 81,
+                uuid: `together-hold-${Date.now()}`,
+                username: 'hold',
+            },
+        });
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return { data: [{ url: 'https://t.ai/img/1' }] };
+        });
+
+        // Wan2.6-image is per-image @ 3 cents.
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'togetherai:Wan-AI/Wan2.6-image',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(3 * 1_000_000);
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 

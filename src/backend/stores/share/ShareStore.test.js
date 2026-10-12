@@ -126,72 +126,6 @@ describe('ShareStore', () => {
         expect(await store.getByUid('no-such-share')).toBeNull();
     });
 
-    it('lists only the shares addressed to the requested recipient', async () => {
-        const email = `recipient-${Date.now()}@test.local`;
-        const mine = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { n: 1 },
-        });
-        await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: `other-${Date.now()}@test.local`,
-            data: { n: 2 },
-        });
-
-        const rows = await store.listByRecipientEmail(email);
-        expect(rows.map((r) => r.uid)).toEqual([mine.uid]);
-        expect(rows[0].data).toEqual({ n: 1 });
-    });
-
-    it('returns an empty list for a recipient with no shares', async () => {
-        expect(await store.listByRecipientEmail('nobody@test.local')).toEqual(
-            [],
-        );
-    });
-
-    it('never leaks another issuer rows through listByIssuer', async () => {
-        const mine = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: 'iso-a@test.local',
-            data: {},
-        });
-        const theirs = await store.create({
-            issuerUserId: otherIssuer.id,
-            recipientEmail: 'iso-b@test.local',
-            data: {},
-        });
-
-        const uids = (await store.listByIssuer(otherIssuer.id)).map(
-            (r) => r.uid,
-        );
-        expect(uids).toContain(theirs.uid);
-        expect(uids).not.toContain(mine.uid);
-    });
-
-    it('orders a recipient inbox newest-first', async () => {
-        const email = `ordered-${Date.now()}@test.local`;
-        const older = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { which: 'older' },
-        });
-        const newer = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { which: 'newer' },
-        });
-        // `created_at` defaults to a second-granularity timestamp, so both
-        // rows can land in the same second. Age one explicitly.
-        await server.clients.db.write(
-            "UPDATE `share` SET `created_at` = '2020-01-01 00:00:00' WHERE `uid` = ?",
-            [older.uid],
-        );
-
-        const rows = await store.listByRecipientEmail(email);
-        expect(rows.map((r) => r.uid)).toEqual([newer.uid, older.uid]);
-    });
-
     // -- deletes ------------------------------------------------------
 
     it('deletes a single share by uid and reports whether a row was removed', async () => {
@@ -205,35 +139,6 @@ describe('ShareStore', () => {
         expect(await store.getByUid(created.uid)).toBeNull();
         // Second delete finds nothing.
         expect(await store.deleteByUid(created.uid)).toBe(false);
-    });
-
-    it('deletes every share for a recipient in one call', async () => {
-        const email = `bulk-${Date.now()}@test.local`;
-        await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: {},
-        });
-        await store.create({
-            issuerUserId: otherIssuer.id,
-            recipientEmail: email,
-            data: {},
-        });
-        const survivor = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: `keep-${Date.now()}@test.local`,
-            data: {},
-        });
-
-        expect(await store.deleteByRecipientEmail(email)).toBe(true);
-        expect(await store.listByRecipientEmail(email)).toEqual([]);
-        expect(await store.getByUid(survivor.uid)).not.toBeNull();
-    });
-
-    it('reports false when a recipient bulk delete matches nothing', async () => {
-        expect(await store.deleteByRecipientEmail('ghost@test.local')).toBe(
-            false,
-        );
     });
 
     // -- active shares (the index) -------------------------------------
@@ -262,6 +167,37 @@ describe('ShareStore', () => {
 
         beforeAll(async () => {
             holder = await makeUser();
+        });
+
+        it('says whether an owner has anything shared, legacy rows included', async () => {
+            const owner = await makeUser();
+            await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
+
+            const entry = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await expect(store.ownerHasShares(owner.id)).resolves.toBe(true);
+
+            // A row written before the owner column existed.
+            const legacyOwner = await makeUser();
+            const legacy = await makeEntry(legacyOwner);
+            await store.upsertActive({
+                issuerUserId: legacyOwner.id,
+                holderUserId: holder.id,
+                fsentryId: legacy.id,
+                mode: 'read',
+            });
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `fsentry_id` = ?',
+                [legacy.id],
+            );
+            await expect(store.ownerHasShares(legacyOwner.id)).resolves.toBe(
+                true,
+            );
         });
 
         it('finds a subtree share even when the descendant has no path yet', async () => {
@@ -999,6 +935,266 @@ describe('ShareStore', () => {
             ).toBe(1);
             expect(await store.getByUid(mine.row.uid)).toBeNull();
             expect(await store.getByUid(theirs.row.uid)).not.toBeNull();
+        });
+
+        describe('behind a lagging replica', () => {
+            const rawRow = async (uid) =>
+                (
+                    await server.clients.db.read(
+                        'SELECT * FROM `share` WHERE `uid` = ?',
+                        [uid],
+                    )
+                )[0];
+
+            /**
+             * Replica reads of `share` see only `staleRows`. sqlite's pread
+             * delegates to read, so the primary is pinned to the real one.
+             */
+            const lagShares = (staleRows = []) => {
+                const db = server.clients.db;
+                const realRead = db.read.bind(db);
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation(realRead);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(async (q, p) =>
+                        /FROM `share`/u.test(q)
+                            ? staleRows.map((r) => ({ ...r }))
+                            : realRead(q, p),
+                    );
+                return () => {
+                    read.mockRestore();
+                    pread.mockRestore();
+                };
+            };
+
+            it('returns the rows it inserts before the replica has them', async () => {
+                const entry = await makeEntry(issuer);
+                const team = await server.stores.team.create({
+                    ownerUserId: issuer.id,
+                    name: 'Lagging replica',
+                });
+
+                const restore = lagShares();
+                try {
+                    const invite = await store.create({
+                        issuerUserId: issuer.id,
+                        recipientEmail: `lag-${uuidv4()}@test.local`,
+                        data: {},
+                    });
+                    expect(invite?.issuer_user_id).toBe(issuer.id);
+
+                    const pending = await store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: `lag-${uuidv4()}@test.local`,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(pending.created).toBe(true);
+                    expect(pending.row?.mode).toBe('read');
+
+                    const active = await store.upsertActive({
+                        issuerUserId: issuer.id,
+                        holderUserId: holder.id,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(active?.holder_user_id).toBe(holder.id);
+
+                    const group = await store.upsertActiveGroup({
+                        issuerUserId: issuer.id,
+                        holderGroupId: team.id,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(group?.holder_group_id).toBe(team.id);
+
+                    const link = await store.upsertAnyone({
+                        issuerUserId: issuer.id,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(link?.mode).toBe('read');
+                } finally {
+                    restore();
+                }
+            });
+
+            it('returns the row as written, not the replica copy from before', async () => {
+                const entry = await makeEntry(issuer);
+                const email = `lag-${uuidv4()}@test.local`;
+                const { row: invite } = await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const active = await store.upsertActive({
+                    issuerUserId: issuer.id,
+                    holderUserId: holder.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const claimable = await store.create({
+                    issuerUserId: issuer.id,
+                    recipientEmail: `lag-${uuidv4()}@test.local`,
+                    data: {},
+                });
+
+                let restore = lagShares([await rawRow(invite.uid)]);
+                try {
+                    const remoded = await store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: email,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    });
+                    expect(remoded.created).toBe(false);
+                    expect(remoded.row.mode).toBe('write');
+                } finally {
+                    restore();
+                }
+
+                restore = lagShares([await rawRow(active.uid)]);
+                try {
+                    const upgraded = await store.upsertActive({
+                        issuerUserId: issuer.id,
+                        holderUserId: holder.id,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    });
+                    expect(upgraded.mode).toBe('write');
+                } finally {
+                    restore();
+                }
+
+                restore = lagShares([await rawRow(claimable.uid)]);
+                try {
+                    const applied = await store.applyPending({
+                        uid: claimable.uid,
+                        holderUserId: holder.id,
+                        fsentryId: (await makeEntry(issuer)).id,
+                        mode: 'read',
+                    });
+                    expect(applied.holder_user_id).toBe(holder.id);
+                } finally {
+                    restore();
+                }
+            });
+        });
+
+        describe('without reading the row back', () => {
+            /** `fn`'s result, and the reads of `share` it made after writing. */
+            const readsAfterWrite = async (fn) => {
+                const db = server.clients.db;
+                const real = {
+                    read: db.read.bind(db),
+                    pread: db.pread.bind(db),
+                    write: db.write.bind(db),
+                };
+                const reads = [];
+                let wrote = false;
+                const spies = ['read', 'pread', 'write'].map((method) =>
+                    vi.spyOn(db, method).mockImplementation(async (q, p) => {
+                        if (method === 'write') wrote = true;
+                        else if (wrote && /FROM `share`/u.test(q))
+                            reads.push(q);
+                        return real[method](q, p);
+                    }),
+                );
+                try {
+                    return { result: await fn(), reads };
+                } finally {
+                    for (const spy of spies) spy.mockRestore();
+                }
+            };
+
+            it('create returns the row the table holds', async () => {
+                const { result: created, reads } = await readsAfterWrite(() =>
+                    store.create({
+                        issuerUserId: issuer.id,
+                        recipientEmail: `built-${uuidv4()}@test.local`,
+                        data: { note: 'built' },
+                    }),
+                );
+                expect(reads).toEqual([]);
+                expect(created).toEqual(
+                    await store.getByUid(created.uid, { primary: true }),
+                );
+            });
+
+            it('upsertPending returns a re-invite as the table holds it', async () => {
+                const entry = await makeEntry(issuer);
+                const email = `built-${uuidv4()}@test.local`;
+                await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    displayEmail: `Built.${email}`,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+
+                const { result, reads } = await readsAfterWrite(() =>
+                    store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: email,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    }),
+                );
+                expect(result.created).toBe(false);
+                expect(reads).toEqual([]);
+                expect(result.row).toMatchObject({ mode: 'write', data: {} });
+                expect(result.row).toEqual(
+                    await store.getByUid(result.row.uid, { primary: true }),
+                );
+            });
+
+            it('upsertPending asks the primary when the invite the replica found is gone', async () => {
+                const entry = await makeEntry(issuer);
+                const email = `built-${uuidv4()}@test.local`;
+                const { row: invite } = await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const [stale] = await server.clients.db.read(
+                    'SELECT * FROM `share` WHERE `uid` = ?',
+                    [invite.uid],
+                );
+                await store.deleteByUid(invite.uid);
+
+                const db = server.clients.db;
+                const realRead = db.read.bind(db);
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation(realRead);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(async (q, p) =>
+                        /FROM `share`/u.test(q)
+                            ? [{ ...stale }]
+                            : realRead(q, p),
+                    );
+                let result;
+                let primaryReads;
+                try {
+                    result = await store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: email,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    });
+                } finally {
+                    primaryReads = pread.mock.calls.length;
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+                expect(primaryReads).toBe(1);
+                expect(result).toEqual({ row: null, created: false });
+            });
         });
     });
 });
