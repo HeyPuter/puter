@@ -19,6 +19,8 @@
 
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { APIConnectionError as AnthropicConnectionError } from '@anthropic-ai/sdk';
+import { ConnectionError as MistralConnectionError } from '@mistralai/mistralai/models/errors/httpclienterrors.js';
 import { APIConnectionError, APIConnectionTimeoutError } from 'openai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { translateProviderError } from '../../controllers/drivers/DriverController.js';
@@ -28,6 +30,7 @@ import {
     CREDIT_EXHAUSTION_PATTERN,
     isCreditExhaustion,
     isTransientUpstreamError,
+    isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
     upstreamBodyStream,
@@ -63,6 +66,47 @@ describe('isUpstreamTimeoutError', () => {
         expect(isUpstreamTimeoutError(new Error('boom'))).toBe(false);
         expect(isUpstreamTimeoutError('timed out')).toBe(false);
         expect(isUpstreamTimeoutError(withStatus(504))).toBe(false);
+    });
+});
+
+describe('isUpstreamConnectionError', () => {
+    const fetchFailed = () =>
+        new TypeError('fetch failed', {
+            cause: Object.assign(new Error('read ECONNRESET'), {
+                code: 'ECONNRESET',
+            }),
+        });
+
+    it("recognises the SDKs' connection error classes", () => {
+        expect(
+            isUpstreamConnectionError(
+                new APIConnectionError({ cause: fetchFailed() }),
+            ),
+        ).toBe(true);
+        expect(
+            isUpstreamConnectionError(
+                new AnthropicConnectionError({ cause: fetchFailed() }),
+            ),
+        ).toBe(true);
+        expect(
+            isUpstreamConnectionError(
+                new MistralConnectionError('Unable to make request', {
+                    cause: fetchFailed(),
+                }),
+            ),
+        ).toBe(true);
+    });
+
+    it('recognises a reset wrapped in a fetch failed TypeError', () => {
+        expect(isUpstreamConnectionError(fetchFailed())).toBe(true);
+    });
+
+    it('does not count timeouts or ordinary errors as dropped connections', () => {
+        expect(isUpstreamConnectionError(new APIConnectionTimeoutError())).toBe(
+            false,
+        );
+        expect(isUpstreamConnectionError(new Error('boom'))).toBe(false);
+        expect(isUpstreamConnectionError(withStatus(503))).toBe(false);
     });
 });
 

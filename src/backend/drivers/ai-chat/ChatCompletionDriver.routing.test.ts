@@ -612,6 +612,55 @@ describe('ChatCompletionDriver timeout classification across the chain', () => {
     });
 });
 
+// A dropped connection carries no status either; it is the provider's outage,
+// not our bug.
+describe('ChatCompletionDriver connection-failure classification across the chain', () => {
+    // Shaped like the Stainless SDKs' connection error: no status, only the class.
+    class APIConnectionError extends Error {
+        constructor() {
+            super('Connection error.');
+        }
+    }
+
+    const completeShared = async () => {
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } catch (e) {
+            return e as HttpError;
+        }
+        return undefined;
+    };
+
+    it('returns 400 upstream_provider_unavailable when every route lost its connection', async () => {
+        createMock.mockRejectedValue(new APIConnectionError());
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+    });
+
+    it('counts a dropped connection as an upstream signal, so a mixed chain is not a 500', async () => {
+        createMock
+            .mockRejectedValueOnce(new APIConnectionError())
+            .mockRejectedValue(new Error('upstream down'));
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+        });
+    });
+});
+
 // Azure is served ahead of OpenAI for the models it fronts, at OpenAI's list
 // price — the long-context tier included.
 describe('ChatCompletionDriver Azure-served OpenAI pricing', () => {

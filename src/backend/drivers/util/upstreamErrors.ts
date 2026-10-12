@@ -38,7 +38,12 @@ const TIMEOUT_ERROR_CODES = new Set([
     'UND_ERR_HEADERS_TIMEOUT',
     'UND_ERR_BODY_TIMEOUT',
 ]);
-const CONNECTION_ERROR_NAMES = new Set(['APIConnectionError', 'SocketError']);
+// `ConnectionError` is Mistral's (Speakeasy) wrapper for a failed fetch.
+const CONNECTION_ERROR_NAMES = new Set([
+    'APIConnectionError',
+    'ConnectionError',
+    'SocketError',
+]);
 const CONNECTION_ERROR_CODES = new Set([
     'ECONNRESET',
     'ECONNREFUSED',
@@ -87,6 +92,18 @@ export const isUpstreamTimeoutError = (err: unknown): boolean => {
     );
 };
 
+/** The connection to an upstream provider dropped or never opened. */
+export const isUpstreamConnectionError = (err: unknown): boolean => {
+    const e = asShape(err);
+    if (!e) return false;
+    if (matches(e, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)) return true;
+    const cause = asShape(e.cause);
+    return (
+        cause !== undefined &&
+        matches(cause, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)
+    );
+};
+
 /**
  * A failure worth retrying on the next poll: a timeout, a dropped connection,
  * or a status the provider itself treats as temporary (408, 429, 5xx). Any
@@ -100,12 +117,7 @@ export const isTransientUpstreamError = (err: unknown): boolean => {
     if (status !== undefined) {
         return status >= 500 || TRANSIENT_STATUSES.has(status);
     }
-    if (matches(e, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)) return true;
-    const cause = asShape(e.cause);
-    return (
-        cause !== undefined &&
-        matches(cause, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)
-    );
+    return isUpstreamConnectionError(err);
 };
 
 // -- Upstream messages --

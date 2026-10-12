@@ -37,6 +37,7 @@ import {
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,
+    isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
 } from '../util/upstreamErrors.js';
@@ -215,6 +216,8 @@ type ProviderAttempt = {
     error: string;
     /** The attempt died to a transport timeout rather than an answer. */
     timedOut?: boolean;
+    /** The connection dropped or never opened (reset, refused) before an answer. */
+    connectionFailed?: boolean;
     /**
      * The vendor's own error type (Anthropic `error.error.type`, OpenAI
      * `error.type`).
@@ -269,13 +272,17 @@ const toAttempt = (
         typeof (headers as Headers)?.get === 'function'
             ? ((headers as Headers).get('retry-after') ?? undefined)
             : (headers as Record<string, string> | undefined)?.['retry-after'];
+    const timedOut = isUpstreamTimeoutError(err);
     return {
         model: modelId,
         provider: providerId,
         status,
         code: e?.error?.code ?? e?.code,
         error: sanitizeUpstreamMessage(message),
-        ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
+        ...(timedOut ? { timedOut: true } : {}),
+        ...(!timedOut && isUpstreamConnectionError(err)
+            ? { connectionFailed: true }
+            : {}),
         ...(upstreamType !== undefined ? { upstreamType } : {}),
         ...(upstreamMessage !== undefined
             ? {
@@ -383,7 +390,8 @@ const streamErrorStatus = (a: ProviderAttempt): number => {
  *   `upstream_provider_unavailable`, `upstreamStatus: 529` (no page)
  * - All model-not-found (404) → 400 `upstream_bad_request`, `upstreamStatus: 404`
  *   (no page)
- * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
+ * - All upstream 5xx or dropped connections → 400 `upstream_provider_unavailable`
+ *   (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
  * - All timed out → 504 `upstream_timeout` (no page)
  * - Mixed → 400 `upstream_failed` (no page)
@@ -440,7 +448,9 @@ const classifyAttempts = (
             fields: { ...fields, upstreamStatus: 404 },
         });
     }
-    if (attempts.every(isUpstream5xx)) {
+    if (
+        attempts.every((a) => isUpstream5xx(a) || a.connectionFailed === true)
+    ) {
         return new HttpError(400, 'AI provider unavailable', {
             legacyCode: 'upstream_provider_unavailable',
             fields,
@@ -465,10 +475,12 @@ const classifyAttempts = (
     }
 
     // Mixed failures where at least one attempt is clearly upstream
-    // (had an HTTP status from the SDK, or never got one in time) means
-    // "AI providers couldn't satisfy the request" — expose, don't page.
+    // (had an HTTP status from the SDK, lost its connection, or never got one
+    // in time) means "AI providers couldn't satisfy the request" — expose,
+    // don't page.
     const isUpstreamSignal = (a: ProviderAttempt) =>
         a.timedOut === true ||
+        a.connectionFailed === true ||
         a.status !== undefined ||
         isRateLimit(a) ||
         isAuthFailure(a) ||
