@@ -703,7 +703,7 @@ describe('OpenRouterProvider.complete non-stream output', () => {
 });
 
 describe('OpenRouterProvider billed cost through the driver', () => {
-    it('reports a billed completion to cost listeners split at the catalog rates', async () => {
+    const makeDriver = async () => {
         const driver = new ChatCompletionDriver(
             {
                 providers: {
@@ -716,6 +716,26 @@ describe('OpenRouterProvider billed cost through the driver', () => {
             server.services,
         );
         await driver.onServerStart();
+        return driver;
+    };
+
+    /** Applies `factor` to every AI cost, as the hosted deployment does. */
+    const withCostFactor = (factor: number) => {
+        const listener = (_key: string, event: { factor: number }) => {
+            event.factor = factor;
+        };
+        server.clients.event.on('ai.cost.factor.*', listener as never);
+        return () => server.clients.event.off('ai.cost.factor.*', listener as never);
+    };
+
+    /** µ¢ the ledger was handed for every usage recorded so far. */
+    const ledgerTotal = (spy: MockInstance<MeteringService['batchIncrementUsages']>) =>
+        spy.mock.calls
+            .flatMap(([, usages]) => usages)
+            .reduce((total, usage) => total + (usage.costOverride ?? 0), 0);
+
+    it('reports a billed completion to cost listeners split at the catalog rates', async () => {
+        const driver = await makeDriver();
         const costEvents: Record<string, unknown>[] = [];
         vi.spyOn(server.clients.event, 'emit').mockImplementation(
             (key, data) => {
@@ -760,6 +780,86 @@ describe('OpenRouterProvider billed cost through the driver', () => {
             output_ucents: 6000,
             total_ucents: 10_000,
         });
+    });
+
+    it('reports what a billed completion was charged, after the cost factor', async () => {
+        const driver = await makeDriver();
+        const stopFactor = withCostFactor(1.6);
+        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0001 },
+        });
+
+        let result: { usage: Record<string, number> };
+        try {
+            result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            )) as typeof result;
+            await vi.waitFor(() => expect(recorded).toHaveBeenCalled());
+        } finally {
+            stopFactor();
+            driver.onServerShutdown();
+        }
+
+        expect(ledgerTotal(recorded)).toBe(16_000);
+        expect(result.usage.cost).toBe(16_000);
+        // The upstream's own price stays where it was.
+        expect(result.usage.usd_cents).toBe(0.01);
+    });
+
+    it('ends a stream with what it was charged at the catalog rates, after the cost factor', async () => {
+        const driver = await makeDriver();
+        const stopFactor = withCostFactor(1.6);
+        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'hello' } }] },
+                {
+                    choices: [{ delta: {} }],
+                    usage: {
+                        prompt_tokens: 100,
+                        completion_tokens: 50,
+                        prompt_tokens_details: { cached_tokens: 10 },
+                    },
+                },
+            ]),
+        );
+
+        let usageLine: { usage: Record<string, number> } | undefined;
+        try {
+            const result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                }),
+            )) as unknown as { stream: AsyncIterable<Buffer> };
+            const chunks: Buffer[] = [];
+            for await (const chunk of result.stream) chunks.push(chunk);
+            usageLine = Buffer.concat(chunks)
+                .toString('utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line))
+                .find((line) => line.type === 'usage');
+            await vi.waitFor(() => expect(recorded).toHaveBeenCalled());
+        } finally {
+            stopFactor();
+            driver.onServerShutdown();
+        }
+
+        // 90·1000 + 50·3000 + 10·1000 (cached reads at the prompt rate), ×1.6.
+        expect(ledgerTotal(recorded)).toBe(400_000);
+        expect(usageLine?.usage.cost).toBe(400_000);
     });
 });
 

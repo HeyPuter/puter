@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import type { Actor } from '../../core/actor.ts';
+import { runWithContext } from '../../core/context.ts';
 import type { AiCostFactorEvent } from '../../clients/event/types.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
@@ -15,6 +16,8 @@ import type { MeteringService } from '../../services/metering/MeteringService.ts
 import {
     type AiMeteringService,
     aiModelKey,
+    factoredTotal,
+    requestAiCosts,
     withAiCostFactor,
     withAiCreditHold,
 } from './aiCostFactor.ts';
@@ -149,6 +152,65 @@ describe('AI cost factor', () => {
         );
 
         expect(result.total).toBe(1040 + 2080);
+    });
+
+    it('records a usage object as it stood when recording began', async () => {
+        listen(2);
+        const recorded = vi.spyOn(metering, 'batchIncrementUsages');
+        const usage: Record<string, number> = { input_tokens: 100 };
+
+        try {
+            const done = scoped.utilRecordUsageObject(
+                usage,
+                actor,
+                'claude:sonnet',
+                { input_tokens: 1000 },
+            );
+            // The driver decorates the usage it reports once metering is called.
+            usage.usd_cents = 0.1;
+            await done;
+
+            expect(
+                recorded.mock.calls[0]![1].map((entry) => entry.usageType),
+            ).toEqual(['claude:sonnet:input_tokens']);
+        } finally {
+            recorded.mockRestore();
+        }
+    });
+
+    it("tracks a request's charges before the factor, as the ledger counts them", async () => {
+        listen(1.6);
+        const recorded = vi.spyOn(metering, 'batchIncrementUsages');
+
+        try {
+            const costs = await runWithContext({ actor }, async () => {
+                await scoped.utilRecordUsageObject(
+                    { input_tokens: 100, output_tokens: 0, reasoning: 3 },
+                    actor,
+                    'claude:sonnet',
+                    { input_tokens: 1001, output_tokens: 7 },
+                );
+                await scoped.incrementUsage(actor, 'xai:stt:second', 3, 333);
+                return requestAiCosts();
+            });
+
+            // Zero-amount and unpriced entries charge nothing.
+            expect(costs).toEqual([1001, 333]);
+            // The service skips zero-amount entries.
+            const ledger = recorded.mock.calls
+                .flatMap(([, usages]) => usages)
+                .filter((usage) => usage.usageAmount !== 0)
+                .reduce((total, usage) => total + (usage.costOverride ?? 0), 0);
+            expect(factoredTotal(costs, 1.6)).toBe(ledger);
+            expect(ledger).toBe(1602 + 533);
+        } finally {
+            recorded.mockRestore();
+        }
+    });
+
+    it('tracks no charges outside a request', async () => {
+        await scoped.incrementUsage(actor, 'xai:stt:second', 3, 333);
+        expect(requestAiCosts()).toEqual([]);
     });
 
     it('asks once per model in a batch', async () => {

@@ -19,6 +19,7 @@
 
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor';
+import { Context } from '../../core/context.js';
 import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type {
@@ -105,6 +106,46 @@ const resolveAiCostFactor = async (
 const scaleCost = (cost: number, factor: number): number =>
     Math.round(cost * factor);
 
+/** Context key for the pre-factor µ¢ of each AI charge the request recorded. */
+const REQUEST_COSTS_KEY = 'aiRecordedCosts';
+
+/** Notes what each usage will cost before the factor, as the ledger counts it. */
+const noteRequestCosts = (usages: UsageInput[]): void => {
+    if (!Context.current()) return;
+    let costs = Context.get(REQUEST_COSTS_KEY) as number[] | undefined;
+    if (!costs) {
+        costs = [];
+        Context.set(REQUEST_COSTS_KEY, costs);
+    }
+    for (const { usageAmount, costOverride } of usages) {
+        // The ledger skips a zero amount and charges nothing for no price.
+        if (usageAmount === 0 || !Number.isFinite(costOverride)) continue;
+        costs.push(costOverride as number);
+    }
+};
+
+/**
+ * The pre-factor µ¢ of every AI charge recorded in the current request, in
+ * recording order. Empty outside a request.
+ */
+export const requestAiCosts = (): readonly number[] =>
+    (Context.get(REQUEST_COSTS_KEY) as number[] | undefined) ?? [];
+
+/**
+ * What pre-factor `costs` come to in the ledger at `factor`: each one scaled
+ * and rounded as recording does, a negative one charged as 1.
+ */
+export const factoredTotal = (
+    costs: readonly number[],
+    factor: number,
+): number =>
+    Math.round(
+        costs.reduce((total, cost) => {
+            const scaled = factor === 1 ? cost : scaleCost(cost, factor);
+            return total + (scaled < 0 ? 1 : scaled);
+        }, 0),
+    );
+
 /** One facade per service + driver, so call sites can ask for theirs freely. */
 const facades = new WeakMap<MeteringService, Map<string, AiMeteringService>>();
 /** Every facade handed out, so one is never scoped a second time. */
@@ -180,6 +221,7 @@ export function withAiCostFactor(
         costOverride?: number,
     ): Promise<UsageByType> => {
         const usage = { usageType, usageAmount, costOverride };
+        noteRequestCosts([usage]);
         if (!hooked(usage))
             return metering.incrementUsage(
                 actor,
@@ -201,6 +243,7 @@ export function withAiCostFactor(
         actor: Actor,
         usages: UsageInput[],
     ): Promise<UsageByType> => {
+        noteRequestCosts(usages ?? []);
         if (!usages?.some(hooked))
             return metering.batchIncrementUsages(actor, usages);
         return scaleUsages(actor, usages).then((scaled) =>
@@ -214,6 +257,13 @@ export function withAiCostFactor(
         modelPrefix: string,
         costsOverrides?: Partial<Record<keyof T, number>>,
     ): Promise<UsageByType> => {
+        noteRequestCosts(
+            Object.entries(trackedUsageObject).map(([key, usageAmount]) => ({
+                usageType: key,
+                usageAmount,
+                costOverride: costsOverrides?.[key as keyof T],
+            })),
+        );
         // The prefix is the model here, so one lookup covers every entry.
         if (!costsOverrides || !hasAiCostFactor(events, driver, modelPrefix))
             return metering.utilRecordUsageObject(
@@ -222,6 +272,8 @@ export function withAiCostFactor(
                 modelPrefix,
                 costsOverrides,
             );
+        // Recorded after the lookup; callers may add keys to theirs meanwhile.
+        const usageObject = { ...trackedUsageObject };
         const scaleOverrides = (factor: number) =>
             factor === 1
                 ? costsOverrides
@@ -237,7 +289,7 @@ export function withAiCostFactor(
         return resolveAiCostFactor(events, actor, driver, modelPrefix).then(
             (factor) =>
                 metering.utilRecordUsageObject(
-                    trackedUsageObject,
+                    usageObject,
                     actor,
                     modelPrefix,
                     scaleOverrides(factor),

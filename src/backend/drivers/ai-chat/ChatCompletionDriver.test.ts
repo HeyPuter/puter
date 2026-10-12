@@ -269,6 +269,7 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         expect('usage' in result && result.usage).toMatchObject({
             input_tokens: 0,
             output_tokens: 1,
+            cost: 0,
         });
     });
 

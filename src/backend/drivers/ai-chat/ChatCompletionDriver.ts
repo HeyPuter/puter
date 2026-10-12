@@ -32,6 +32,8 @@ import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
+    factoredTotal,
+    requestAiCosts,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -645,6 +647,8 @@ export class ChatCompletionDriver extends PuterDriver {
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
+        // AI charges recorded in this request before the completion started.
+        const priorCharges = requestAiCosts().length;
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
@@ -776,8 +780,10 @@ export class ChatCompletionDriver extends PuterDriver {
         let hold: CreditHold = NO_CREDIT_HOLD;
         // The current attempt's balance-bound output cap, if it had one.
         let fundsCap: number | undefined;
+        // The cost factor the current attempt's charges are recorded at.
+        let costFactor = 1;
         if (!useFakeProvider) {
-            ({ hold, fundsCap } = await this.#applyCreditGate(
+            ({ hold, fundsCap, costFactor } = await this.#applyCreditGate(
                 actor,
                 model,
                 args,
@@ -901,12 +907,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 // The previous attempt released its hold when it failed, so
                 // this one starts from nothing held.
                 if (!useFakeProvider) {
-                    ({ hold, fundsCap } = await this.#applyCreditGate(
-                        actor,
-                        fallback,
-                        args,
-                        { promptTokenEstimate, requestedMaxTokens },
-                    ));
+                    ({ hold, fundsCap, costFactor } =
+                        await this.#applyCreditGate(actor, fallback, args, {
+                            promptTokenEstimate,
+                            requestedMaxTokens,
+                        }));
                 }
 
                 tried.add(routeId(fallback.provider!, fallback.id));
@@ -970,6 +975,10 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const username = actor.user?.username;
 
+        /** What this completion was charged, in µ¢, as the ledger holds it. */
+        const charged = () =>
+            factoredTotal(requestAiCosts().slice(priorCharges), costFactor);
+
         // A completion that used all of a balance-bound cap stopped because
         // the account ran dry, so the caller is told to top up.
         const ranOutOfFunds = (usage: Record<string, unknown> | undefined) =>
@@ -1005,6 +1014,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 const enrichedUsage = usage ? { ...usage } : usage;
                 if (enrichedUsage) {
                     this.#injectUsdCents(enrichedUsage, model, usageCosts);
+                    // An empty report recorded nothing; the stream is charged
+                    // an estimate once it ends instead.
+                    if (Object.values(usage!).some(Number.isFinite)) {
+                        enrichedUsage.cost = charged();
+                    }
                 }
                 // A cancelled stream isn't a completion, but whatever it
                 // metered still gets its cost row.
@@ -1171,6 +1185,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 intendedProvider,
                 usageCosts,
             });
+            res.usage.cost = charged();
         }
 
         Context.set('driverMetadata', {
@@ -1345,7 +1360,7 @@ export class ChatCompletionDriver extends PuterDriver {
              */
             requestedMaxTokens: number | undefined;
         },
-    ): Promise<{ hold: CreditHold; fundsCap?: number }> {
+    ): Promise<{ hold: CreditHold; fundsCap?: number; costFactor: number }> {
         const metering = this.services.metering;
         const { promptTokenEstimate, requestedMaxTokens } = estimates;
         // A provider can name its own cost keys for this request (Claude's
@@ -1463,7 +1478,7 @@ export class ChatCompletionDriver extends PuterDriver {
             actor,
             Math.max(worstCaseCost, minimumCredits),
         );
-        return { hold, fundsCap };
+        return { hold, fundsCap, costFactor };
     }
 
     /** The key `model`'s usage is recorded and cost-factored under. */
