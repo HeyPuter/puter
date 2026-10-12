@@ -1,6 +1,6 @@
 # Backend Architecture
 
-Loosely inspired by the Controller–Service–Repository pattern with dependency injection. The backend is organized as a stack of layers where each layer only depends on the layers beneath it, and `PuterServer` ([src/backend/server.ts](../src/backend/server.ts)) instantiates each layer in order and hands the instances down to the next.
+Loosely inspired by the Controller–Service–Repository pattern with dependency injection. The backend is a stack of layers; each depends only on the layers beneath it and receives them through its constructor from `PuterServer` ([src/backend/server.ts](../src/backend/server.ts)), which instantiates the layers in order. The rules for working within the layers are in [AGENTS.md](../AGENTS.md#backend).
 
 ## Layers
 
@@ -31,8 +31,6 @@ block-beta
     style CFG fill:#334155,stroke:#1e293b,color:#fff
 ```
 
-Each layer only depends on the layers beneath it, and every dependency is injected through the constructor by `PuterServer`. Extensions sit alongside this stack and can register into any layer — see [Extensions](#extensions) below.
-
 | Layer | Lives in | Responsibility |
 | --- | --- | --- |
 | **Controllers** | [src/backend/controllers/](../src/backend/controllers/) | Route handlers. Parse + validate input, apply per-route gates (auth, subdomain, rate limit, body parsers — see `RouteOptions`), call into services, format responses. |
@@ -42,7 +40,7 @@ Each layer only depends on the layers beneath it, and every dependency is inject
 | **Clients** | [src/backend/clients/](../src/backend/clients/) | Adapters for external/internal services (sql, redis, s3, dynamodb, email, event bus, …). Knows protocols, not domain concepts. |
 | **Config** | `config.*.json` → `IConfig` | The flat, typed config object every layer receives at construction. |
 
-Each layer receives the layers beneath it through its constructor, so dependencies are explicit and traceable from `PuterServer`. A controller does not reach into a client directly; if it needs one, the right move is usually a service.
+Extensions sit alongside this stack and can register into any layer; see [Extensions](#extensions).
 
 ## Entry point: `PuterServer`
 
@@ -55,13 +53,11 @@ Each layer receives the layers beneath it through its constructor, so dependenci
 
 ## Context (ALS)
 
-We use [`Context`](../src/backend/core/context.ts) — backed by `AsyncLocalStorage` — to carry per-request state without threading it through every function signature. It is used **sparingly**, mostly for `actor` and `req`. The request-context middleware opens a scope per request after the auth probe runs; anything inside a request handler can call `Context.get('actor')` / `Context.get('req')` instead of plumbing it as an argument.
-
-Prefer explicit arguments. Reach for `Context` only when the value is truly request-scoped and would otherwise need to thread through many layers.
+[`Context`](../src/backend/core/context.ts), backed by `AsyncLocalStorage`, carries per-request state without threading it through every function signature. The request-context middleware opens a scope per request after the auth probe runs, so anything inside a request handler can call `Context.get('actor')` / `Context.get('req')`. It's used sparingly, mostly for `actor` and `req`; see the [Context rule](../AGENTS.md#backend).
 
 ## Actors
 
-An [`Actor`](../src/backend/core/actor.ts) is who a request is acting as. It has two app-shaped fields and they are not interchangeable: `app` is the app the actor carries *directly* (an app-under-user token), while `effectiveApp` is the app it ultimately acts as — its own, or the one that issued its access token. An access-token actor has no `app` of its own, so a gate that reads `app` answers "no app" for it and falls open.
+An [`Actor`](../src/backend/core/actor.ts) is who a request is acting as. Its two app fields are not interchangeable: `app` is the app the actor carries *directly* (an app-under-user token), while `effectiveApp` is the app it ultimately acts as — its own, or the one that issued its access token. An access-token actor has no `app` of its own, so a gate that reads `app` answers "no app" for it and falls open.
 
 `makeActor` resolves `effectiveApp` once at construction, and `assertResolvedActor` at the request edge rejects any actor that skipped it — so reading `effectiveApp` needs no fallback. Reach for `app` only where the direct app genuinely is the question, and say why in a comment.
 
@@ -71,11 +67,11 @@ An [`Actor`](../src/backend/core/actor.ts) is who a request is acting as. It has
 
 ## Extensions
 
-Extensions live alongside core ([packages/puter/extensions/](../extensions/)) and parallel the layered stack. They are meant for **non-crucial parts of the system** — things Puter still works without if removed.
+Extensions live in [extensions/](../extensions/), parallel the layered stack, and hold the parts of the system Puter still works without. [AGENTS.md](../AGENTS.md#extensions) has the rule for what belongs in one.
 
 - **Good extensions**: [thumbnails](../extensions/thumbnails.ts), [serverInfo](../extensions/serverInfo.ts), [devWatcher](../extensions/devWatcher.ts) — opt-in features cleanly bolted on.
 - **Should probably be core**: [metering](../extensions/metering.ts), [appTelemetry](../extensions/appTelemetry.ts) — clients now expect these to be present, so the "extension" framing is misleading.
-- **Shouldn't have been an extension**: [whoami](../extensions/whoami.ts) — it's load-bearing for every authenticated client. Keep this one in mind as a cautionary example when deciding whether something belongs in an extension.
+- **Shouldn't have been an extension**: [whoami](../extensions/whoami.ts) — it's load-bearing for every authenticated client.
 
 ### Extension API
 
@@ -98,11 +94,11 @@ import { extension } from '@heyputer/backend/src/extensions';
 const services = extension.import('service');
 
 extension.get('/healthcheck/deep', { subdomain: 'api', adminOnly: true }, async (_req, res) => {
-    res.json({ ok: await services.health.runDeepCheck() });
+    res.json(await services.health.getStatus());
 });
 
-extension.on('user.signup', (_key, data) => {
-    console.log('new user', data.user.username);
+extension.on('puter.signup.success', (_key, data) => {
+    console.log('new user', data.username);
 });
 ```
 
@@ -117,10 +113,3 @@ extension.on('app.recommended', (_key, data) => {
     data.appNames = ['editor', 'camera'];
 });
 ```
-
-## Conventions
-
-- **TypeScript preferred** in new code where feasible. Existing JS is fine; convert opportunistically when you're already touching a file.
-- **`camelCase`** for variable/function names; **`PascalCase`** for classes and for files that contain a class (`AuthService.ts`, `KVStoreDriver.ts`).
-- **Deduplicate**. If two services need the same logic, lift it into a util/helper rather than calling sideways across the same layer — services should not depend on other services for code reuse.
-- **Don't reach across layers.** Controllers do not poke clients directly; services do not register routes. If you find yourself wanting to, that's usually a signal the abstraction is wrong.
