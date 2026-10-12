@@ -103,6 +103,13 @@ const vacatedHomeKey = (username: string) =>
     `prodfsv2:vacated-home:${username.toLowerCase()}`;
 const BULK_QUERY_CHUNK_SIZE = 200;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
+// Most entries whose invalidations one node broadcasts per broadcast flush
+// window. A flush reaches each peer as one POST (50 MB max, ~200 bytes an
+// entry); past the cap, invalidations stay local and peers wait out
+// ENTRY_CACHE_TTL_SECONDS.
+export const ENTRY_BROADCAST_CAP = 10_000;
+// BroadcastService's default `broadcast.outbound_flush_ms`.
+const DEFAULT_BROADCAST_FLUSH_MS = 2_000;
 
 /**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
@@ -111,6 +118,10 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
  */
 export class FSEntryStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
+
+    #broadcastWindowStart = 0;
+    #broadcastedInWindow = 0;
+    #broadcastCapLogged = false;
 
     #insertIgnoreIntoFsentriesSql(): string {
         return this.clients.db.insertIgnoreInto('fsentries');
@@ -349,10 +360,52 @@ export class FSEntryStore extends PuterStore {
     }
 
     async #invalidateEntryCache(entry: FSEntry): Promise<void> {
-        // Broadcasts; read-path `#writeEntryToCache` stays local to avoid
-        // fanning backfills over the network.
-        const keys = this.#entryCacheKeys(entry);
-        await this.publishCacheKeys({ keys });
+        await this.#invalidateEntriesCache([entry]);
+    }
+
+    /**
+     * Drops here and, within the window's broadcast budget, in peer regions as
+     * one event for the batch. The read-path `#writeEntryToCache` stays local
+     * so backfills don't fan out.
+     */
+    async #invalidateEntriesCache(entries: FSEntry[]): Promise<void> {
+        const keysOf = (batch: FSEntry[]) =>
+            batch.flatMap((entry) => this.#entryCacheKeys(entry));
+        const broadcastCount = this.#takeBroadcastBudget(entries.length);
+        await this.publishCacheKeys({
+            keys: keysOf(entries.slice(0, broadcastCount)),
+            broadcast: true,
+        });
+        await this.publishCacheKeys({
+            keys: keysOf(entries.slice(broadcastCount)),
+        });
+    }
+
+    /** How many of `count` entries may still broadcast this window. */
+    #takeBroadcastBudget(count: number): number {
+        const flushMs = Number(this.config.broadcast?.outbound_flush_ms);
+        const windowMs =
+            Number.isFinite(flushMs) && flushMs > 0
+                ? flushMs
+                : DEFAULT_BROADCAST_FLUSH_MS;
+        const now = Date.now();
+        if (now - this.#broadcastWindowStart >= windowMs) {
+            this.#broadcastWindowStart = now;
+            this.#broadcastedInWindow = 0;
+            this.#broadcastCapLogged = false;
+        }
+        const allowed = Math.min(
+            count,
+            ENTRY_BROADCAST_CAP - this.#broadcastedInWindow,
+        );
+        this.#broadcastedInWindow += allowed;
+        if (allowed < count && !this.#broadcastCapLogged) {
+            this.#broadcastCapLogged = true;
+            console.warn(
+                `[FSEntryStore] broadcast cap (${ENTRY_BROADCAST_CAP} entries per ${windowMs} ms) reached; invalidating the rest locally only`,
+            );
+        }
+        return allowed;
     }
 
     async invalidateEntryCacheByPathForUser(
@@ -376,7 +429,10 @@ export class FSEntryStore extends PuterStore {
             return;
         }
 
-        await this.publishCacheKeys({ keys: cacheKeys });
+        await this.publishCacheKeys({
+            keys: cacheKeys,
+            broadcast: this.#takeBroadcastBudget(1) > 0,
+        });
     }
 
     async invalidateEntryCacheByUuid(uuid: string): Promise<void> {
@@ -406,6 +462,7 @@ export class FSEntryStore extends PuterStore {
 
         await this.publishCacheKeys({
             keys: [`prodfsv2:fsentry:uuid:${uuid}`],
+            broadcast: this.#takeBroadcastBudget(1) > 0,
         });
     }
 
@@ -436,6 +493,7 @@ export class FSEntryStore extends PuterStore {
 
         await this.publishCacheKeys({
             keys: [`prodfsv2:fsentry:id:${id}`],
+            broadcast: this.#takeBroadcastBudget(1) > 0,
         });
     }
 
@@ -1298,7 +1356,7 @@ export class FSEntryStore extends PuterStore {
             keys: this.#entryCacheKeys(entry),
             serializedData: JSON.stringify(entry),
             ttlSeconds: ENTRY_CACHE_TTL_SECONDS,
-            broadcast: true,
+            broadcast: this.#takeBroadcastBudget(1) > 0,
         });
         return entry;
     }
@@ -1903,12 +1961,10 @@ export class FSEntryStore extends PuterStore {
                     },
                 );
                 if (successfulUpdateOperations.length > 0) {
-                    await Promise.all(
-                        successfulUpdateOperations.map((operation) => {
-                            return this.#invalidateEntryCache(
-                                operation.existingEntry,
-                            );
-                        }),
+                    await this.#invalidateEntriesCache(
+                        successfulUpdateOperations.map(
+                            (operation) => operation.existingEntry,
+                        ),
                     );
                     await Promise.all(
                         successfulUpdateOperations.map((operation) => {
@@ -3326,11 +3382,9 @@ export class FSEntryStore extends PuterStore {
                     `DELETE FROM fsentries WHERE id IN (${placeholders})`,
                     ids,
                 );
+                // Per chunk, which also bounds the size of each broadcast.
+                await this.#invalidateEntriesCache(chunk);
             },
-        );
-        // Invalidate caches for all removed entries (best effort).
-        await Promise.all(
-            entries.map((entry) => this.#invalidateEntryCache(entry)),
         );
     }
 

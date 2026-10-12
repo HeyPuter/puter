@@ -27,7 +27,7 @@ import type { IConfig } from '../../types';
 import { decodeCursor, encodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSEntry, FSEntryCreateInput } from './FSEntry.js';
-import { FSEntryStore } from './FSEntryStore.js';
+import { ENTRY_BROADCAST_CAP, FSEntryStore } from './FSEntryStore.js';
 
 describe('FSEntryStore', () => {
     it('quotes camelCase storage allowance aliases for Postgres', async () => {
@@ -156,6 +156,31 @@ const pathOf = async (uuid: string): Promise<string | null> => {
     )) as Array<{ path: string | null }>;
     return rows[0]?.path ?? null;
 };
+
+type CacheUpdate = { cacheKey: string[]; data?: unknown };
+
+/** The `outer.cacheUpdate` payloads emitted, for peer regions, during `run`. */
+const captureCacheUpdates = async (
+    run: () => Promise<unknown>,
+): Promise<CacheUpdate[]> => {
+    const seen: CacheUpdate[] = [];
+    const listener = (_key: string, data: CacheUpdate) => {
+        seen.push(data);
+    };
+    server.clients.event.on('outer.cacheUpdate', listener);
+    try {
+        await run();
+    } finally {
+        server.clients.event.off('outer.cacheUpdate', listener);
+    }
+    return seen;
+};
+
+const entryCacheKeys = (entry: FSEntry): string[] => [
+    `prodfsv2:fsentry:id:${entry.id}`,
+    `prodfsv2:fsentry:uuid:${entry.uuid}`,
+    `prodfsv2:fsentry:path:any:${entry.path}`,
+];
 
 describe('FSEntryStore path normalization', () => {
     it('rejects an empty or traversing path everywhere it normalizes', async () => {
@@ -316,6 +341,228 @@ describe('FSEntryStore cache invalidation', () => {
         await expect(
             store.invalidateEntryCacheById(-1),
         ).resolves.toBeUndefined();
+    });
+
+    it('tells peer regions to drop a deleted entry', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/pd.txt`);
+
+        const updates = await captureCacheUpdates(() =>
+            store.deleteEntry(file),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining(entryCacheKeys(file)),
+        );
+    });
+
+    it('tells peer regions to drop both paths of a moved entry', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/pm.txt`);
+        const newPath = `${user.home}/Documents/pm-moved.txt`;
+
+        const updates = await captureCacheUpdates(() =>
+            store.updateEntry(file.uuid, {
+                name: 'pm-moved.txt',
+                path: newPath,
+            }),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining([
+                ...entryCacheKeys(file),
+                `prodfsv2:fsentry:path:any:${newPath}`,
+            ]),
+        );
+    });
+
+    it('tells peer regions to drop an overwritten file', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/po.txt`);
+
+        const updates = await captureCacheUpdates(() =>
+            store.batchCreateEntries([
+                {
+                    userId: user.userId,
+                    uuid: uuidv4(),
+                    path: file.path,
+                    size: 7,
+                    overwrite: true,
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                },
+            ]),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining(entryCacheKeys(file)),
+        );
+    });
+
+    it('sends a batch delete to peers as one update, not one per entry', async () => {
+        const user = await makeUser();
+        const entries = [
+            await createFile(user, `${user.home}/Documents/pb1.txt`),
+            await createFile(user, `${user.home}/Documents/pb2.txt`),
+            await createFile(user, `${user.home}/Documents/pb3.txt`),
+        ];
+
+        const updates = await captureCacheUpdates(() =>
+            store.deleteEntries(entries),
+        );
+
+        expect(updates).toHaveLength(1);
+        expect(updates[0]!.cacheKey).toEqual(
+            expect.arrayContaining(entries.flatMap(entryCacheKeys)),
+        );
+    });
+
+    it('stops a peer serving its copy once it applies the broadcast', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/pa.txt`);
+        const cached = await store.getEntryByUuid(file.uuid);
+
+        const updates = await captureCacheUpdates(() =>
+            store.deleteEntry(file),
+        );
+
+        // Stand in for the peer: its Redis still holds what it cached before
+        // the delete, so its reads keep finding the entry.
+        for (const key of entryCacheKeys(file)) {
+            await server.clients.redis.setex(key, 60, JSON.stringify(cached));
+        }
+        await expect(store.getEntryByPath(file.path)).resolves.not.toBeNull();
+
+        for (const update of updates) {
+            await server.clients.event.emitAndWait(
+                'outer.cacheUpdate',
+                update,
+                { from_outside: true },
+            );
+        }
+
+        await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
+        await expect(store.getEntryByUuid(file.uuid)).resolves.toBeNull();
+        await expect(store.getEntryById(file.id)).resolves.toBeNull();
+    });
+});
+
+describe('FSEntryStore broadcast budget', () => {
+    // Its own store, so spending the budget can't starve the shared store's
+    // broadcasts that other tests assert on.
+    const budgetedStore = (outboundFlushMs?: number): FSEntryStore =>
+        new FSEntryStore(
+            {
+                ...(configContainer as IConfig),
+                broadcast: { outbound_flush_ms: outboundFlushMs },
+            },
+            server.clients as ConstructorParameters<typeof FSEntryStore>[1],
+            server.stores as ConstructorParameters<typeof FSEntryStore>[2],
+        );
+
+    /** `count` files in a fresh directory, each cached under all its keys. */
+    const cachedFiles = async (count: number): Promise<FSEntry[]> => {
+        const user = await makeUser();
+        const dir = `${user.home}/bulk-${uuidv4()}`;
+        const entries = await store.batchCreateEntries(
+            Array.from({ length: count }, (_, i) => ({
+                userId: user.userId,
+                uuid: uuidv4(),
+                path: `${dir}/f${i}`,
+                size: 1,
+                bucket: 'puter-local',
+                bucketRegion: 'us-west-2',
+            })),
+        );
+        await store.getEntriesByIds(entries.map((entry) => entry.id));
+        return entries;
+    };
+
+    const cachedKeyCount = async (entries: FSEntry[]): Promise<number> => {
+        const values = await server.clients.redis.mget(
+            entries.flatMap(entryCacheKeys),
+        );
+        return values.filter((value) => value !== null).length;
+    };
+
+    const broadcastEntryCount = (updates: CacheUpdate[]): number =>
+        updates
+            .flatMap((update) => update.cacheKey)
+            .filter((key) => key.startsWith('prodfsv2:fsentry:uuid:')).length;
+
+    it('broadcasts at most the cap in one window and invalidates the rest locally', async () => {
+        const entries = await cachedFiles(ENTRY_BROADCAST_CAP + 50);
+        expect(await cachedKeyCount(entries)).toBe(entries.length * 3);
+        const budgeted = budgetedStore();
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const updates = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(entries),
+            );
+            expect(broadcastEntryCount(updates)).toBe(ENTRY_BROADCAST_CAP);
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(await cachedKeyCount(entries)).toBe(0);
+    });
+
+    it('caps a delete that arrives page by page, warning once', async () => {
+        const entries = await cachedFiles(ENTRY_BROADCAST_CAP + 50);
+        const budgeted = budgetedStore();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const updates = await captureCacheUpdates(async () => {
+                for (let i = 0; i < entries.length; i += 150) {
+                    await budgeted.deleteEntries(entries.slice(i, i + 150));
+                }
+            });
+            expect(broadcastEntryCount(updates)).toBe(ENTRY_BROADCAST_CAP);
+            const capWarnings = warn.mock.calls.filter(([message]) =>
+                String(message).startsWith('[FSEntryStore]'),
+            );
+            expect(capWarnings).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+            warn.mockRestore();
+        }
+        expect(await cachedKeyCount(entries)).toBe(0);
+    });
+
+    it('starts a fresh budget once the configured flush window passes', async () => {
+        const entries = await cachedFiles(ENTRY_BROADCAST_CAP + 6);
+        const spend = entries.slice(0, ENTRY_BROADCAST_CAP);
+        const late = entries.slice(ENTRY_BROADCAST_CAP, -3);
+        const next = entries.slice(-3);
+        const budgeted = budgetedStore(5_000);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const start = Date.now();
+            const spent = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(spend),
+            );
+            expect(broadcastEntryCount(spent)).toBe(ENTRY_BROADCAST_CAP);
+
+            vi.setSystemTime(start + 4_999);
+            const capped = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(late),
+            );
+            expect(broadcastEntryCount(capped)).toBe(0);
+            expect(await cachedKeyCount(late)).toBe(0);
+
+            vi.setSystemTime(start + 5_000);
+            const fresh = await captureCacheUpdates(() =>
+                budgeted.deleteEntries(next),
+            );
+            expect(fresh.flatMap((update) => update.cacheKey)).toEqual(
+                expect.arrayContaining(next.flatMap(entryCacheKeys)),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
