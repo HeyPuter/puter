@@ -2777,6 +2777,22 @@ describe('ClaudeProvider.countTokens', () => {
         expect(payload.model).toBe('claude-haiku-4-5-20251001');
         expect(payload.messages).toEqual([{ role: 'user', content: 'hi' }]);
     });
+
+    it('keeps the SDK retries the completion client turns off', async () => {
+        const { provider } = makeProvider();
+        countTokensMock.mockResolvedValueOnce({ input_tokens: 42 });
+
+        await withTestActor(() =>
+            provider.countTokens({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            } as never),
+        );
+
+        // No other route serves a token count, so a transient failure gets
+        // the SDK's retries instead of reaching the caller.
+        expect(countTokensMock.mock.calls[0]![1]).toEqual({ maxRetries: 2 });
+    });
 });
 
 // -- Determinism (§8 risk: preserved thinking) ------------------------
