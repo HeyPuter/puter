@@ -235,6 +235,25 @@ describe('AbstractDatabaseClient — SQL generation', () => {
         expect(mysql().returningIdClause()).toBe('');
     });
 
+    it('stamps a timestamp from unix seconds in each dialect', () => {
+        expect(sqlite().timestampFromUnixSql()).toBe(
+            "datetime(?, 'unixepoch')",
+        );
+        expect(mysql().timestampFromUnixSql()).toBe('FROM_UNIXTIME(?)');
+        expect(postgres().timestampFromUnixSql()).toBe('to_timestamp(?)');
+    });
+
+    it('describes a stored timestamp the way each driver reads it back', () => {
+        const seconds = Date.UTC(2026, 9, 11, 8, 5, 9) / 1000;
+        expect(sqlite().timestampValue(seconds)).toBe('2026-10-11 08:05:09');
+        expect(mysql().timestampValue(seconds)).toEqual(
+            new Date(seconds * 1000),
+        );
+        expect(postgres().timestampValue(seconds)).toEqual(
+            new Date(seconds * 1000),
+        );
+    });
+
     it('falls back to `otherwise` for an engine with no explicit choice', () => {
         const client = new FixtureDatabaseClient([]);
         expect(

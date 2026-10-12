@@ -612,7 +612,9 @@ export class SubdomainStore extends PuterStore {
             [...values, ...whereParams],
         );
 
-        const after = await this.getByUuid(uuid, { userId });
+        // Not `{ ...before, ...allowed }`: `before` is the replica's, and a
+        // column it has stale would go into the cache.
+        const after = await this.getByUuid(uuid, { userId, primary: true });
         if (before?.subdomain && before.subdomain !== after?.subdomain) {
             await this.publishCacheKeys({
                 keys: [this.#cacheKey(before.subdomain)],

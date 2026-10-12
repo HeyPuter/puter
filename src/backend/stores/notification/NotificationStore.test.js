@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 
 describe('NotificationStore', () => {
@@ -82,6 +82,34 @@ describe('NotificationStore', () => {
             value: 'plain text',
         });
         expect(created.value).toBe('plain text');
+    });
+
+    it('returns the row the table holds without reading it back', async () => {
+        const db = server.clients.db;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        let created;
+        let reads;
+        try {
+            created = await store.create({
+                userId: user.id,
+                value: { title: 'built' },
+                type: 'app.custom',
+                audience: 'app',
+                appUid: `app-${uuidv4()}`,
+            });
+        } finally {
+            reads = [...read.mock.calls, ...pread.mock.calls].filter(([q]) =>
+                /FROM `notification`/u.test(q),
+            );
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(reads).toEqual([]);
+        expect(created).toEqual(
+            await store.getByUid(created.uid, { primary: true }),
+        );
     });
 
     it('rejects a create with no user', async () => {

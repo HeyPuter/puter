@@ -1129,6 +1129,132 @@ describe('AppStore CRUD and cache invalidation', () => {
         const map = await appStore.getByUids(['app-nope']);
         expect(map.size).toBe(0);
     });
+
+    // -- behind a lagging replica --------------------------------------
+
+    /**
+     * Replica reads of `apps` see only `staleRows`. sqlite's pread delegates to
+     * read, so the primary is pinned to the real one.
+     */
+    const withLaggingReplica = async (staleRows, fn) => {
+        const realRead = db.read.bind(db);
+        const preadSpy = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const readSpy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                /FROM `apps`/.test(sql)
+                    ? staleRows.map((r) => ({ ...r }))
+                    : realRead(sql, params),
+            );
+        try {
+            return await fn();
+        } finally {
+            readSpy.mockRestore();
+            preadSpy.mockRestore();
+        }
+    };
+
+    const rawRow = async (id) =>
+        (await db.read('SELECT * FROM `apps` WHERE `id` = ?', [id]))[0];
+
+    const cachedByUid = async (uid) =>
+        JSON.parse((await redis.get(`apps:uid:${uid}`)) ?? 'null');
+
+    it('returns and caches a created app before the replica has it', async () => {
+        const app = await withLaggingReplica([], () =>
+            createApp({ title: 'Lagged' }),
+        );
+        expect(app?.title).toBe('Lagged');
+        expect((await cachedByUid(app.uid))?.title).toBe('Lagged');
+
+        const origin = 'https://lagging-replica-bootstrap.test';
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const bootstrapped = await withLaggingReplica([], () =>
+            appStore.createFromOrigin(uid, origin),
+        );
+        expect(bootstrapped?.uid).toBe(uid);
+        expect((await cachedByUid(uid))?.index_url).toBe(origin);
+    });
+
+    it('returns and caches the updated app, not a replica copy missing an earlier update', async () => {
+        const app = await createApp({ title: 'One' });
+        const stale = await rawRow(app.id);
+        await appStore.update(app.id, { title: 'Two' });
+
+        const updated = await withLaggingReplica([stale], () =>
+            appStore.update(app.id, { description: 'later' }),
+        );
+
+        expect(updated).toMatchObject({ title: 'Two', description: 'later' });
+        expect(await cachedByUid(app.uid)).toMatchObject({
+            title: 'Two',
+            description: 'later',
+        });
+    });
+
+    it('does not cache the pre-claim row a lagging replica still serves', async () => {
+        const name = freshName();
+        await db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`) VALUES (?, ?, ?, ?)',
+            [`app-${name}`, name, name, `https://${name}.example.com/`],
+        );
+        // Straight from the table, so nothing is cached yet.
+        const [stale] = await db.read('SELECT * FROM `apps` WHERE `name` = ?', [
+            name,
+        ]);
+
+        await withLaggingReplica([stale], async () => {
+            expect(await appStore.claimOwnership(Number(stale.id), OWNER)).toBe(
+                true,
+            );
+            // Let any unawaited cache write land.
+            await new Promise((r) => setTimeout(r, 20));
+        });
+
+        // Nothing cached, or the claimed row; never the unowned copy.
+        const cached = await cachedByUid(stale.uid);
+        expect(cached === null || cached.owner_user_id === OWNER).toBe(true);
+    });
+
+    it('returns and caches a created app as the table holds it, without reading it back', async () => {
+        const origin = `https://${freshName()}.built.test`;
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        let created;
+        let reads;
+        try {
+            created = [
+                await createApp({
+                    title: 'Built',
+                    description: 'every column',
+                    icon: 'data:image/png;base64,AA==',
+                    maximize_on_start: true,
+                    metadata: JSON.stringify({ category: 'tools' }),
+                }),
+                await appStore.createFromOrigin(uid, origin),
+            ];
+        } finally {
+            reads = [...read.mock.calls, ...pread.mock.calls].filter(([q]) =>
+                /FROM `apps`/u.test(q),
+            );
+            read.mockRestore();
+            pread.mockRestore();
+        }
+        expect(reads).toEqual([]);
+
+        for (const app of created) {
+            expect(await cachedByUid(app.uid)).toEqual(
+                JSON.parse(JSON.stringify(app)),
+            );
+            await redis.del(
+                `apps:id:${app.id}`,
+                `apps:uid:${app.uid}`,
+                `apps:name:${app.name}`,
+            );
+            expect(app).toEqual(await appStore.getById(app.id));
+        }
+    });
 });
 
 describe('AppStore detailed stats', () => {

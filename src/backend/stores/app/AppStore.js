@@ -136,6 +136,26 @@ const APP_BOOLEAN_COLUMNS = new Set([
     'is_private',
     'feedback_enabled',
 ]);
+// What a new row holds in each column its INSERT leaves to the schema. A new
+// `apps` column belongs here too; the create tests compare against the table.
+const APP_COLUMN_DEFAULTS = {
+    owner_user_id: null,
+    icon: null,
+    description: null,
+    godmode: false,
+    maximize_on_start: false,
+    approved_for_listing: false,
+    approved_for_opening_items: false,
+    approved_for_incentive_program: false,
+    last_review: null,
+    tags: null,
+    app_owner: null,
+    background: false,
+    metadata: null,
+    protected: false,
+    is_private: false,
+    feedback_enabled: false,
+};
 
 export class AppStore extends PuterStore {
     // -- Reads --------------------------------------------------------
@@ -420,7 +440,12 @@ export class AppStore extends PuterStore {
         );
         const affected = (result?.affectedRows ?? result?.changes ?? 0) > 0;
         if (affected) {
-            const fresh = await this.getById(appId);
+            // Invalidating needs the uid and name; only the id is known. Not
+            // `getById`: on a cache miss it would cache the replica's
+            // pre-claim row.
+            const fresh = await this.#readFromDb('id', appId, {
+                primary: true,
+            });
             if (fresh) {
                 await this.invalidate(fresh);
             }
@@ -552,16 +577,10 @@ export class AppStore extends PuterStore {
             allowed.app_owner = appOwner;
         }
 
-        const columns = ['uid', ...Object.keys(allowed)];
-        const values = [uid, ...Object.values(allowed)];
-
-        const placeholders = columns.map(() => '?').join(', ');
-        const colList = columns.map((c) => `\`${c}\``).join(', ');
-
-        const result = await this.clients.db.write(
-            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
-            values,
-        );
+        const written = { uid, ...allowed };
+        const createdAt = Math.floor(Date.now() / 1000);
+        const { sql, values } = this.#insertStatement(written, createdAt);
+        const result = await this.clients.db.write(sql, values);
         const insertId = result?.insertId;
         if (!insertId)
             throw new Error('Failed to create app — no insertId returned');
@@ -570,7 +589,11 @@ export class AppStore extends PuterStore {
         await this.clearCacheTombstones(
             this.#cacheKeysForApp({ id: insertId, uid, name: allowed.name }),
         );
-        const fresh = await this.getById(insertId);
+        const fresh = await this.#createdApp(
+            Number(insertId),
+            written,
+            createdAt,
+        );
         if (fresh?.name) {
             await this.#clearOldAppNamesForName(fresh.name);
         }
@@ -615,18 +638,13 @@ export class AppStore extends PuterStore {
                     : null,
         };
 
-        const columns = ['uid', ...Object.keys(fields)];
-        const values = [uid, ...Object.values(fields)];
-
-        const placeholders = columns.map(() => '?').join(', ');
-        const colList = columns.map((c) => `\`${c}\``).join(', ');
+        const written = { uid, ...fields };
+        const createdAt = Math.floor(Date.now() / 1000);
+        const { sql, values } = this.#insertStatement(written, createdAt);
 
         let result;
         try {
-            result = await this.clients.db.write(
-                `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
-                values,
-            );
+            result = await this.clients.db.write(sql, values);
         } catch (error) {
             if (!isUniqueViolation(error)) throw error;
             // Lost a check-then-insert race: `uid` is deterministic
@@ -651,7 +669,11 @@ export class AppStore extends PuterStore {
         await this.clearCacheTombstones(
             this.#cacheKeysForApp({ id: insertId, uid, name: fields.name }),
         );
-        const fresh = await this.getById(insertId);
+        const fresh = await this.#createdApp(
+            Number(insertId),
+            written,
+            createdAt,
+        );
         await this.#invalidateListCachesForApps([fresh]);
         return fresh;
     }
@@ -685,7 +707,9 @@ export class AppStore extends PuterStore {
             await this.#clearOldAppNamesForName(allowed.name);
         }
 
-        const fresh = await this.#readFromDb('id', appId);
+        // Not `{ ...before, ...allowed }`: `before` is the replica's, and a
+        // column it has stale would go into the cache.
+        const fresh = await this.#readFromDb('id', appId, { primary: true });
         await this.#invalidateListCachesForApps([before, fresh]);
         if (fresh) {
             await this.#refreshCache({ ...fresh, ...allowed });
@@ -970,6 +994,45 @@ export class AppStore extends PuterStore {
         return normalized;
     }
 
+    /**
+     * The INSERT for a new row: `written`'s columns, and `timestamp` stamped
+     * from `createdAt` (unix seconds) instead of defaulted.
+     */
+    #insertStatement(written, createdAt) {
+        const db = this.clients.db;
+        const colList = [...Object.keys(written), 'timestamp']
+            .map((c) => `\`${c}\``)
+            .join(', ');
+        const placeholders = [
+            ...Object.keys(written).map(() => '?'),
+            db.timestampFromUnixSql(),
+        ].join(', ');
+        return {
+            sql: `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${db.returningIdClause()}`,
+            values: [...Object.values(written), createdAt],
+        };
+    }
+
+    /**
+     * The row `#insertStatement` wrote, built rather than read back from the
+     * primary; cached on the way out.
+     */
+    async #createdApp(id, written, createdAt) {
+        const app = this.#normalizeRow({
+            ...APP_COLUMN_DEFAULTS,
+            ...written,
+            id,
+            timestamp: this.clients.db.timestampValue(createdAt),
+            created_epoch: createdAt,
+        });
+        try {
+            await this.#writeCache(app);
+        } catch {
+            // Best effort; the next read fills it.
+        }
+        return app;
+    }
+
     async #readFromDb(prop, value, { primary = false } = {}) {
         const read = primary
             ? (sql, params) => this.clients.db.pread(sql, params)
@@ -1157,7 +1220,7 @@ export class AppStore extends PuterStore {
 
     async #refreshCache(app) {
         const keys = this.#cacheKeysForApp(app);
-        // `update` reads the replica, so it can refresh a row already deleted.
+        // A delete can land between `update`'s read and this refresh.
         await this.writeCacheUnlessDeleted(keys, () =>
             this.#publishRefresh(keys, app),
         );

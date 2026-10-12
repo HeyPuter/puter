@@ -20,19 +20,36 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
+/**
+ * @typedef {{
+ *     userId: number;
+ *     value: unknown;
+ *     uid?: string;
+ *     type?: string;
+ *     audience?: string;
+ *     appUid?: string | null;
+ * }} NotificationInsert
+ */
+
 export class NotificationStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUid(uid, { userId } = {}) {
+    /**
+     * Pass `primary` to read back a row just written; a replica may lag.
+     *
+     * @param {string} uid
+     * @param {{ userId?: number; primary?: boolean }} [opts]
+     */
+    async getByUid(uid, { userId, primary = false } = {}) {
         const where =
             userId !== undefined
                 ? 'WHERE `uid` = ? AND `user_id` = ?'
                 : 'WHERE `uid` = ?';
         const params = userId !== undefined ? [uid, userId] : [uid];
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`notification\` ${where} LIMIT 1`,
-            params,
-        );
+        const sql = `SELECT * FROM \`notification\` ${where} LIMIT 1`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -150,22 +167,19 @@ export class NotificationStore extends PuterStore {
     // -- Writes -------------------------------------------------------
 
     /**
+     * Write a notification and return its row, built from what was written:
+     * `created_at` is stamped here rather than defaulted, so nothing needs
+     * reading back.
+     *
      * `uid` lets the caller name the row up front — NotificationService pushes
-     * the uid to the socket before this insert lands, and the ack / mark-shown
+     * the uid to the socket after this insert lands, and the ack / mark-shown
      * round trip comes back keyed on it.
      *
      * `type`, `audience` and `appUid` are the scope tuple; the registry in the
      * notification service is what decides which combinations are legal, and
      * the empty `type` written by a caller that names none reads as legacy.
      *
-     * @param {{
-     *     userId: number;
-     *     value: unknown;
-     *     uid?: string;
-     *     type?: string;
-     *     audience?: string;
-     *     appUid?: string | null;
-     * }} args
+     * @param {NotificationInsert} args
      */
     async create({
         userId,
@@ -176,13 +190,38 @@ export class NotificationStore extends PuterStore {
         appUid = null,
     }) {
         if (!userId) throw new Error('create: userId is required');
+        const db = this.clients.db;
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
-        await this.clients.db.write(
-            'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, `audience`, `app_uid`) VALUES (?, ?, ?, ?, ?, ?)',
-            [uid, userId, serialized, type, audience, appUid],
+        const createdAt = Math.floor(Date.now() / 1000);
+        const { insertId } = await db.write(
+            'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, ' +
+                '`audience`, `app_uid`, `created_at`) VALUES ' +
+                `(?, ?, ?, ?, ?, ?, ${db.timestampFromUnixSql()})${db.returningIdClause()}`,
+            [uid, userId, serialized, type, audience, appUid, createdAt],
         );
-        return this.getByUid(uid, { userId });
+        return this.#normalizeRow({
+            id: Number(insertId),
+            uid,
+            user_id: userId,
+            value: serialized,
+            acknowledged: null,
+            shown: null,
+            created_at: db.timestampValue(createdAt),
+            app_uid: appUid,
+            audience,
+            type,
+        });
+    }
+
+    /**
+     * `create` for a caller that needs only the uid.
+     *
+     * @param {NotificationInsert} args
+     * @returns {Promise<string>}
+     */
+    async insert(args) {
+        return (await this.create(args)).uid;
     }
 
     /**

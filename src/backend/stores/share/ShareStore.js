@@ -53,10 +53,12 @@ const SHARED_IDS_CHUNK_SIZE = 1000;
 export class ShareStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUid(uid) {
-        const rows = await this.clients.db.read(
+    /** Pass `primary` to read back a row just written; a replica may lag. */
+    async getByUid(uid, { primary = false } = {}) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `uid` = ? LIMIT 1',
             [uid],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -600,7 +602,7 @@ export class ShareStore extends PuterStore {
         }
 
         const existing = await this.clients.db.read(
-            'SELECT `uid`, `data` FROM `share` WHERE `recipient_email` = ? AND ' +
+            'SELECT * FROM `share` WHERE `recipient_email` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? AND ' +
                 '`holder_user_id` IS NULL LIMIT 1',
             [recipientEmail, fsentryId, issuerUserId],
@@ -618,14 +620,16 @@ export class ShareStore extends PuterStore {
                 : {}),
         });
         if (existing[0]?.uid) {
-            await this.clients.db.write(
+            const updated = await this.clients.db.write(
                 'UPDATE `share` SET `mode` = ?, `data` = ? WHERE `uid` = ?',
                 [mode, data, existing[0].uid],
             );
-            return {
-                row: await this.getByUid(existing[0].uid),
-                created: false,
-            };
+            // The rest of the row is the replica's copy; a pending row's other
+            // columns only change when it is claimed or its node changes hands.
+            const row = updated.anyRowsAffected
+                ? this.#normalizeRow({ ...existing[0], mode, data })
+                : await this.getByUid(existing[0].uid, { primary: true });
+            return { row, created: false };
         }
 
         const uid = uuidv4();
@@ -644,7 +648,11 @@ export class ShareStore extends PuterStore {
                 fsentryId,
             ],
         );
-        return { row: await this.getByUid(uid), created: true };
+        // `entry_owner_user_id` came from a subquery only the primary has run.
+        return {
+            row: await this.getByUid(uid, { primary: true }),
+            created: true,
+        };
     }
 
     async create({ issuerUserId, recipientEmail, data }) {
@@ -653,14 +661,33 @@ export class ShareStore extends PuterStore {
                 'create: issuerUserId and recipientEmail are required',
             );
         }
+        const db = this.clients.db;
         const uid = uuidv4();
         const serialized =
             typeof data === 'string' ? data : JSON.stringify(data ?? {});
-        await this.clients.db.write(
-            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `data`) VALUES (?, ?, ?, ?)',
-            [uid, issuerUserId, recipientEmail, serialized],
+        // Stamped rather than defaulted, so the row is known without a read.
+        const createdAt = Math.floor(Date.now() / 1000);
+        const { insertId } = await db.write(
+            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
+                '`data`, `created_at`) VALUES (?, ?, ?, ?, ' +
+                `${db.timestampFromUnixSql()})${db.returningIdClause()}`,
+            [uid, issuerUserId, recipientEmail, serialized, createdAt],
         );
-        return this.getByUid(uid);
+        return this.#normalizeRow({
+            id: Number(insertId),
+            uid,
+            issuer_user_id: issuerUserId,
+            recipient_email: recipientEmail,
+            data: serialized,
+            created_at: db.timestampValue(createdAt),
+            holder_user_id: null,
+            fsentry_id: null,
+            mode: null,
+            applied_at: null,
+            holder_group_id: null,
+            anyone: null,
+            entry_owner_user_id: null,
+        });
     }
 
     /**
@@ -731,7 +758,12 @@ export class ShareStore extends PuterStore {
                 data,
             ],
         );
-        return this.getActive({ holderUserId, fsentryId, issuerUserId });
+        // The upsert may have kept an existing row's uid and created_at, and
+        // `entry_owner_user_id` is a subquery's; only the primary knows them.
+        return this.getActive(
+            { holderUserId, fsentryId, issuerUserId },
+            { primary: true },
+        );
     }
 
     /**
@@ -797,7 +829,11 @@ export class ShareStore extends PuterStore {
                 data,
             ],
         );
-        return this.getActiveGroup({ holderGroupId, fsentryId, issuerUserId });
+        // As `upsertActive`: only the primary knows the row this settled on.
+        return this.getActiveGroup(
+            { holderGroupId, fsentryId, issuerUserId },
+            { primary: true },
+        );
     }
 
     /**
@@ -805,12 +841,17 @@ export class ShareStore extends PuterStore {
      * @param {number} input.holderGroupId
      * @param {number} input.fsentryId
      * @param {number} input.issuerUserId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async getActiveGroup({ holderGroupId, fsentryId, issuerUserId }) {
-        const rows = await this.clients.db.read(
+    async getActiveGroup(
+        { holderGroupId, fsentryId, issuerUserId },
+        { primary = false } = {},
+    ) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `holder_group_id` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
             [holderGroupId, fsentryId, issuerUserId],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -847,12 +888,17 @@ export class ShareStore extends PuterStore {
      * @param {number} input.holderUserId
      * @param {number} input.fsentryId
      * @param {number} input.issuerUserId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async getActive({ holderUserId, fsentryId, issuerUserId }) {
-        const rows = await this.clients.db.read(
+    async getActive(
+        { holderUserId, fsentryId, issuerUserId },
+        { primary = false } = {},
+    ) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `holder_user_id` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
             [holderUserId, fsentryId, issuerUserId],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -905,7 +951,8 @@ export class ShareStore extends PuterStore {
             ],
         );
         if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
-        return this.getByUid(uid);
+        // Only the uid is known here; the caller holds the replica's copy.
+        return this.getByUid(uid, { primary: true });
     }
 
     /**
@@ -1037,11 +1084,12 @@ export class ShareStore extends PuterStore {
             : this.clients.db.read(sql, params);
     }
 
-    async getAnyone(fsentryId) {
-        const rows = await this.#readAnyone(
-            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1',
-            [fsentryId],
-        );
+    async getAnyone(fsentryId, { primary = false } = {}) {
+        const sql =
+            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1';
+        const rows = primary
+            ? await this.clients.db.pread(sql, [fsentryId])
+            : await this.#readAnyone(sql, [fsentryId]);
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -1140,7 +1188,8 @@ export class ShareStore extends PuterStore {
                 issuerUserId,
             ],
         );
-        return this.getAnyone(fsentryId);
+        // As `upsertActive`: only the primary knows the row this settled on.
+        return this.getAnyone(fsentryId, { primary: true });
     }
 
     /**
@@ -1230,6 +1279,12 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    #select(sql, params, primary) {
+        return primary
+            ? this.clients.db.pread(sql, params)
+            : this.clients.db.read(sql, params);
+    }
 
     /** The recursive walk of a directory's row ids, by parent linkage. */
     #subtreeCte() {

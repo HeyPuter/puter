@@ -207,6 +207,37 @@ describe('ShareService', () => {
         expect(listed.items.map((i) => i.entryUid)).toContain(file.uuid);
     });
 
+    it('keeps the grant when the replica has not seen the new share row yet', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of `share` come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `share`/u.test(q) ? [] : realRead(q, p),
+            );
+        let result;
+        try {
+            result = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(result.mode).toBe('read');
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+    });
+
     it('tells the account how much is shared with it, and an app only its page', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
