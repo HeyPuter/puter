@@ -1391,6 +1391,26 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    it('hands back the whoami account shape, without the phone number', async () => {
+        const user = await server.stores.user.getByUsername(username, {
+            force: true,
+        });
+        await server.stores.user.update(user!.id, { phone: '+15550100' });
+        const res = makeRes();
+        await controller.handleLogin(makeReq({ username, password }), res);
+        const body = res.body as { user: Record<string, unknown> };
+        expect(body.user).not.toHaveProperty('phone');
+        expect(body.user).toMatchObject({
+            username,
+            uuid: user!.uuid,
+            oidc_only: false,
+            otp: false,
+            is_user_token: true,
+        });
+        expect(body.user.directories).toBeTypeOf('object');
+        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
+    });
+
     // A deleted row still answering from cache reaches the session INSERT.
     it('answers 401 rather than 500 when the account row is gone but still cached', async () => {
         const goneName = `lg_${Math.random().toString(36).slice(2, 10)}`;
@@ -6782,20 +6802,18 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         const { user: leaver, actor: leaverActor } = await makeUserAndActor();
         const vacated = leaver.username;
         // Warm the entry cache under the old path, as any read would.
-        const docs = (await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        ))!;
+        await server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`);
         await controller.handleChangeUsername(
             makeReq({ new_username: `r_${uniq()}` }, { actor: leaverActor }),
             makeRes(),
         );
 
-        // The cache still maps the old path to the leaver's folder, so a new
-        // holder of the name would pass ACL on it.
-        const cached = await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        );
-        expect(cached?.uuid).toBe(docs.uuid);
+        // Dropped here, but a peer region or lagging replica can still map the
+        // old path to the leaver's folder, where a new holder of the name
+        // would pass ACL on it.
+        await expect(
+            server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`),
+        ).resolves.toBeNull();
 
         const { user: claimer, actor: claimerActor } = await makeUserAndActor();
         await expect(

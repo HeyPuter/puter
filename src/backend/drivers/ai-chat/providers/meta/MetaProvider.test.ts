@@ -52,6 +52,7 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { usdPerMToken } from '../../utils/pricing.js';
 import { MetaProvider } from './MetaProvider.js';
 import { META_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- OpenAI SDK mock ----------------------------------------------
 //
@@ -93,16 +94,11 @@ afterAll(async () => {
 
 const makeProvider = (config: { apiKey?: string; apiBaseUrl?: string } = {}) =>
     new MetaProvider(
-        server.services.metering,
-        {
-            fsEntry: server.stores.fsEntry,
-            s3Object: server.stores.s3Object,
-        },
-        server.services.fs,
         {
             apiKey: config.apiKey ?? 'test-key',
             ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
         },
+        server.services.metering,
     );
 
 const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
@@ -179,6 +175,8 @@ describe('MetaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.meta.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -187,6 +185,8 @@ describe('MetaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://staging.meta.test/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -203,7 +203,7 @@ describe('MetaProvider model catalog', () => {
     });
 
     it('list() flattens canonical ids and aliases', () => {
-        const names = makeProvider().list();
+        const names = modelLookupNames(makeProvider().models());
         for (const m of META_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -233,7 +233,7 @@ describe('MetaProvider model catalog', () => {
         // would win bucket routing — and Meta trains on what it serves. It is
         // also gated behind a separate enrolment, so a standard-tier key gets
         // `model_not_found` for it.
-        const names = new Set(makeProvider().list());
+        const names = new Set(modelLookupNames(makeProvider().models()));
         for (const name of names) {
             expect(name).not.toContain('contributor');
         }
@@ -494,17 +494,18 @@ describe('MetaProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
-        createMock.mockResolvedValueOnce(OK_COMPLETION);
-        await complete(makeProvider(), { model: 'totally-not-a-real-model' });
+    it('rejects an unknown id instead of substituting the default', async () => {
+        const provider = makeProvider();
 
-        expect(createMock.mock.calls[0]![0].model).toBe('muse-spark-1.2');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'meta:muse-spark-1.2',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 

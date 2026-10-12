@@ -657,6 +657,32 @@ describe('PermissionService (integration)', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
         });
+
+        it('keeps each refusal’s status and wording', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const tooLong = `zztest:${'x'.repeat(300)}:ii:read`;
+
+            await expect(
+                permService.grantDevAppPermission(actor, app.uid, tooLong),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'Invalid `permission`',
+            });
+            await expect(
+                permService.grantUserGroupPermission(actor, uuidv4(), tooLong),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'permission is too long',
+            });
+            await expect(
+                permService.revokeDevAppAll({ user: {} } as Actor, app.uid),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+                message: 'actor must be a user',
+            });
+        });
     });
 
     describe('queryIssuerHolderPermissionsByPrefix', () => {
@@ -1946,6 +1972,39 @@ describe('PermissionService — scan paths', () => {
                     permission,
                 ),
             ).toBe(true);
+        });
+
+        it('a scoped token scan reads the token grant list once for every option', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const permission = `zztest:tok-${uuidv4()}:ii:read`;
+            await permissionFor(row.id, permission);
+            const tokenUid = `tok-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`, `extra`) VALUES (?, ?, ?)',
+                [tokenUid, permission, '{}'],
+            );
+
+            const get = vi.spyOn(server.clients.redis, 'get');
+            try {
+                expect(
+                    await permService.check(
+                        scopedToken(actor, tokenUid),
+                        [
+                            `zztest:tok-${uuidv4()}:ii:read`,
+                            `zztest:tok-${uuidv4()}:ii:read`,
+                            permission,
+                        ],
+                        { noCache: true },
+                    ),
+                ).toBe(true);
+                expect(
+                    get.mock.calls.filter(
+                        ([key]) => key === `perms:token:${tokenUid}`,
+                    ),
+                ).toHaveLength(1);
+            } finally {
+                get.mockRestore();
+            }
         });
 
         it('a scoped token cannot exceed its issuer even with a row of its own', async () => {

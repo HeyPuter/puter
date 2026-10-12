@@ -19,8 +19,8 @@
 
 import { mintKvHandleId } from '../../services/events/kvShares.js';
 import {
-    openCursor,
-    sealCursor,
+    keysetPage,
+    openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types.js';
@@ -77,11 +77,6 @@ export interface FindLiveKvShareHandleInput {
 }
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
-
-const asNumber = (value: unknown): number | null => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-};
 
 const toRow = (row: Record<string, unknown>): KvShareHandle => ({
     handle: String(row.handle),
@@ -254,9 +249,7 @@ export class KvShareHandleStore extends PuterStore {
             ),
             KV_HANDLE_LIST_LIMIT_CAP,
         );
-        const after = asNumber(
-            openCursor(options.cursor, this.config.jwt_secret_v2)?.id,
-        );
+        const after = openIdCursor(options.cursor, this.config.jwt_secret_v2);
 
         const filter = ['`owner_user_id` = ?'];
         const filterParams: unknown[] = [ownerUserId];
@@ -278,13 +271,11 @@ export class KvShareHandleStore extends PuterStore {
             [...params, limit + 1],
         );
 
-        const page = rows.slice(0, limit);
-        const result: PageResult<KvShareHandle> = { items: page.map(toRow) };
-        if (rows.length > limit)
-            result.cursor = sealCursor(
-                { id: Number(page[page.length - 1].id) },
-                this.config.jwt_secret_v2,
-            );
+        const page = keysetPage(rows, limit, this.config.jwt_secret_v2);
+        const result: PageResult<KvShareHandle> = {
+            items: page.rows.map(toRow),
+        };
+        if (page.cursor) result.cursor = page.cursor;
 
         if (options.includeTotal) {
             const [count] = await this.clients.db.read(

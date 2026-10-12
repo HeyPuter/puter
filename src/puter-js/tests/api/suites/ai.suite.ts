@@ -55,8 +55,8 @@ const oversizedDataUri = (
     return `data:${mime};base64,${payload}`;
 };
 
-/** Token usage the `costly` fake model reports back. */
-type Usage = { input_tokens?: number; output_tokens?: number };
+/** Token usage the `costly` fake model reports back, and what it cost. */
+type Usage = { input_tokens?: number; output_tokens?: number; cost?: number };
 
 /**
  * Flatten a rejection to text. SDK errors arrive in a few shapes (Error,
@@ -112,6 +112,7 @@ export default suite('ai', {
         }, true);
         t.assert.equal((result.message as { model?: string }).model, 'fake');
         t.assert.equal((result.usage as Usage).input_tokens, 0);
+        t.assert.equal((result.usage as Usage).cost, 0);
         t.assert.ok(textOf(result).length > 0);
     },
 

@@ -192,8 +192,8 @@ export const FS_POLL_LIMIT = userWindow('fs:poll', 240, 240, 120);
 // also a pending session and presigned URLs. Checked before any per-item work.
 
 /**
- * `startBatchWrite` / `completeBatchWrite` / `batchWrite`. Puter.js chunks
- * uploads at this size.
+ * `startBatchWrite` / `completeBatchWrite` / `batchWrite`, and the `paths` of
+ * one legacy `/delete`. Puter.js chunks uploads at this size.
  */
 export const FS_BATCH_WRITE_MAX_ITEMS = 500;
 

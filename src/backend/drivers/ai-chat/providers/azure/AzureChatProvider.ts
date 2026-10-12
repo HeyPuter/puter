@@ -81,8 +81,7 @@ export class AzureChatProvider implements IChatProvider {
     #fsService: FSService;
 
     // Sibling Responses-API provider (Azure or OpenAI) used to handle
-    // Responses-only features like web_search. Typed loosely since we only
-    // ever forward `complete()` to it.
+    // Responses-only features like web_search, and moderation.
     #responsesProvider: IChatProvider | null = null;
 
     constructor(
@@ -99,8 +98,13 @@ export class AzureChatProvider implements IChatProvider {
             baseURL: config.apiURL,
         });
     }
-    checkModeration(_text: string) {
-        throw new Error('Method not implemented.');
+    checkModeration(
+        text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
+        if (!this.#responsesProvider) {
+            throw new Error('moderation requires the Responses provider');
+        }
+        return this.#responsesProvider.checkModeration(text);
     }
 
     // Wired up by the driver after the OpenAI providers are built, so the

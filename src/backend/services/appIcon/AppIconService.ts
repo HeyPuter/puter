@@ -106,8 +106,7 @@ export class AppIconService extends PuterService {
                 if (d.action === 'icon-migrated') return;
                 const app = await this.stores.app.getByUid(String(d.app_uid));
                 const icon = (app as Record<string, unknown> | null)?.icon as
-                    | string
-                    | undefined;
+                    string | undefined;
                 if (icon?.startsWith('data:')) {
                     await this.#scheduleIcon(
                         { app_uid: d.app_uid, data_url: icon },
@@ -326,11 +325,10 @@ export class AppIconService extends PuterService {
             '',
         );
         if (apiBase) {
-            await this.clients.db.write(
-                "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",
-                [`${apiBase}/app-icon/${appUid}`, appUid],
+            await this.stores.app.replaceDataUrlIcon(
+                appUid,
+                `${apiBase}/app-icon/${appUid}`,
             );
-            await this.stores.app.invalidateByUid(appUid);
             this.clients.event.emit(
                 'app.changed',
                 {

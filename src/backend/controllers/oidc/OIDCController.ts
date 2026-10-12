@@ -23,6 +23,8 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
+import { startWebSession } from '../auth/webSession.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { normalizeBonusCode } from '../../util/signupBonus.js';
 import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
@@ -623,7 +625,7 @@ export class OIDCController extends PuterController {
                 );
             }
 
-            await this.#finishLogin(res, user, stateDecoded);
+            await this.#finishLogin(req, res, user, stateDecoded);
         };
         router.get('/auth/oidc/callback/login', cbOpts, loginCb);
         router.post('/auth/oidc/callback/login', cbOpts, loginCb);
@@ -694,7 +696,7 @@ export class OIDCController extends PuterController {
                 resolved.origin === 'created'
                     ? undefined
                     : { oidc_switched: 'login' };
-            await this.#finishLogin(res, user, stateDecoded, extra);
+            await this.#finishLogin(req, res, user, stateDecoded, extra);
         };
         router.get('/auth/oidc/callback/signup', cbOpts, signupCb);
         router.post('/auth/oidc/callback/signup', cbOpts, signupCb);
@@ -1004,26 +1006,15 @@ if (window.opener) {
     }
 
     async #finishLogin(
+        req: Request,
         res: Response,
-        user: {
-            id: number;
-            uuid: string;
-            username: string;
-            email?: string | null;
-            [k: string]: unknown;
-        },
+        user: UserRow,
         stateDecoded: Record<string, unknown>,
         extraQueryParams?: Record<string, string>,
     ): Promise<void> {
-        const { token: sessionToken } =
-            await this.services.auth.createSessionToken(
-                user as import('../../stores/user/UserStore.js').UserRow,
-            );
-
-        const cookieName = this.config.cookie_name ?? 'puter_token';
-        res.cookie(cookieName, sessionToken, {
-            ...sessionCookieFlags(this.config),
-            httpOnly: true,
+        await startWebSession(req, res, user, {
+            config: this.config,
+            auth: this.services.auth,
         });
 
         const origin = (this.config.origin ?? '').replace(/\/$/, '');

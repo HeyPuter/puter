@@ -788,37 +788,24 @@ describe('AzureResponsesProvider.complete streaming', () => {
 // -- Moderation ------------------------------------------------------
 
 describe('AzureResponsesProvider.checkModeration', () => {
-    it('flags content when any category score exceeds 0.8', async () => {
+    // Azure serves no moderation endpoint, so nothing goes to its client.
+    it('delegates to the configured moderation provider', async () => {
         const provider = makeProvider();
-        moderationsCreateMock.mockResolvedValueOnce({
-            results: [{ category_scores: { violence: 0.9, hate: 0.1 } }],
-        });
+        const openai = {
+            checkModeration: vi.fn().mockResolvedValue({ flagged: true }),
+        };
+        provider.setModerationProvider(openai as never);
 
-        const result = await provider.checkModeration('something risky');
-
-        expect(moderationsCreateMock).toHaveBeenCalledWith({
-            model: 'omni-moderation-latest',
-            input: 'something risky',
-        });
-        expect(result.flagged).toBe(true);
+        await expect(
+            provider.checkModeration('something risky'),
+        ).resolves.toEqual({ flagged: true });
+        expect(openai.checkModeration).toHaveBeenCalledWith('something risky');
+        expect(moderationsCreateMock).not.toHaveBeenCalled();
     });
 
-    it('does not flag when every score sits at or below the 0.8 threshold', async () => {
-        const provider = makeProvider();
-        moderationsCreateMock.mockResolvedValueOnce({
-            results: [{ category_scores: { violence: 0.8, hate: 0.5 } }],
-        });
-
-        expect((await provider.checkModeration('borderline')).flagged).toBe(
-            false,
-        );
-    });
-
-    it('reports not-flagged when the moderation endpoint returns no results', async () => {
-        const provider = makeProvider();
-        moderationsCreateMock.mockResolvedValueOnce({});
-
-        expect((await provider.checkModeration('empty')).flagged).toBe(false);
+    it('throws when no moderation provider is configured', () => {
+        expect(() => makeProvider().checkModeration('anything')).toThrow();
+        expect(moderationsCreateMock).not.toHaveBeenCalled();
     });
 });
 

@@ -26,13 +26,23 @@
  * Deliberately process-local and short-lived: it is a latency optimisation, not
  * a circuit breaker. Nothing is ever hard-blocked — routing only _prefers_
  * healthy routes, and an entry expires on its own without any probe or reset
- * path to get wrong.
+ * path to get wrong. A transient failure is remembered for a minute, so one
+ * blip doesn't hand the model's traffic to a reseller for long.
  */
 
 import { kv } from '../../../util/kvSingleton.js';
 
-/** How long a route stays marked after a route-level failure. */
+/**
+ * How long a route stays marked after a failure that won't heal on its own,
+ * like bad credentials.
+ */
 export const UNHEALTHY_TTL_SEC = 10 * 60;
+
+/**
+ * How long a route stays marked after a 5xx, rate limit, timeout or dropped
+ * connection.
+ */
+export const TRANSIENT_UNHEALTHY_TTL_SEC = 60;
 
 const routeKey = (provider: string, modelId: string) =>
     `aiChat:unhealthyRoute:${provider}:${modelId}`;
@@ -45,8 +55,12 @@ const routeKey = (provider: string, modelId: string) =>
  * refused on its merits (a 400, an oversized prompt) says nothing about whether
  * the next caller will be served, and must not mark anything.
  */
-export const markRouteUnhealthy = (provider: string, modelId: string): void => {
-    kv.set(routeKey(provider, modelId), 1, { EX: UNHEALTHY_TTL_SEC });
+export const markRouteUnhealthy = (
+    provider: string,
+    modelId: string,
+    ttlSec = UNHEALTHY_TTL_SEC,
+): void => {
+    kv.set(routeKey(provider, modelId), 1, { EX: ttlSec });
 };
 
 export const isRouteUnhealthy = (provider: string, modelId: string): boolean =>

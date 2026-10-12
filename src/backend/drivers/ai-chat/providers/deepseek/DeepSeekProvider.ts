@@ -19,137 +19,62 @@
 
 import dedent from 'dedent';
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import type { PuterMessage } from '../../types.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
 import { DEEPSEEK_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 
-export class DeepSeekProvider implements IChatProvider {
-    #openai: OpenAI;
+// Function calling currently loops unless the tool result is restated as a
+// system message.
+const toolResultText = (message: { tool_call_id: string; content: string }) =>
+    dedent(`
+    Hi DeepSeek V3, your tool calling is broken and you are not able to
+    obtain tool results in the expected way. That's okay, we can work
+    around this.
 
-    #meteringService: MeteringService;
+    Please do not repeat this tool call.
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: 'https://api.deepseek.com',
+    We have provided the tool call results below:
+
+    Tool call ${message.tool_call_id} returned: ${message.content}.
+`);
+
+export class DeepSeekProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: config.apiBaseUrl ?? 'https://api.deepseek.com',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'deepseek-flash',
+            models: () => DEEPSEEK_MODELS,
+            meteringPrefix: 'deepseek',
+            defaultMaxTokens: 1000,
+            passthrough: ['temperature'],
         });
-        this.#meteringService = meteringService;
     }
 
-    getDefaultModel() {
-        return 'deepseek-flash';
-    }
-
-    models() {
-        return DEEPSEEK_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `deepseek:${modelId}`;
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        messages = await OpenAIUtil.process_input_messages(messages);
+    protected override prepareMessages(messages: PuterMessage[]) {
         for (const message of messages) {
             // DeepSeek doesn't accept string arrays alongside tool calls
             if (message.tool_calls && Array.isArray(message.content)) {
                 message.content = '';
             }
         }
-
-        // Function calling currently loops unless we inject the tool result as a system message.
-        const TOOL_TEXT = (message: {
-            tool_call_id: string;
-            content: string;
-        }) =>
-            dedent(`
-            Hi DeepSeek V3, your tool calling is broken and you are not able to
-            obtain tool results in the expected way. That's okay, we can work
-            around this.
-
-            Please do not repeat this tool call.
-
-            We have provided the tool call results below:
-
-            Tool call ${message.tool_call_id} returned: ${message.content}.
-        `);
         for (let i = messages.length - 1; i >= 0; i--) {
             const message = messages[i];
             if (message.role === 'tool') {
                 messages.splice(i + 1, 0, {
                     role: 'system',
-                    content: [
-                        {
-                            type: 'text',
-                            text: TOOL_TEXT(message),
-                        },
-                    ],
+                    content: [{ type: 'text', text: toolResultText(message) }],
                 });
             }
         }
-
-        const completion = await this.#openai.chat.completions.create(
-            {
-                messages,
-                model: modelUsed.id,
-                ...(tools ? { tools } : {}),
-                max_tokens: max_tokens ?? 1000,
-                temperature,
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams,
-            { signal: Context.get('abortSignal') },
-        );
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor!,
-                    this.meteringModelKey(modelUsed.id),
-                    costsOverrideFromModel,
-                );
-                return trackedUsage;
-            },
-            stream: stream,
-            completion,
-        });
-    }
-
-    checkModeration(_text: string) {
-        throw new Error('Method not implemented.');
+        return messages;
     }
 }

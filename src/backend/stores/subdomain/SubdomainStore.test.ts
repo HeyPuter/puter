@@ -123,6 +123,37 @@ describe('SubdomainStore cache coherency', () => {
         expect(after?.root_dir_id).toBe(2);
     });
 
+    it('update returns and caches the new row before the replica has it', async () => {
+        const userId = await makeUser();
+        const subdomain = `sds-lag-${Math.random().toString(36).slice(2, 8)}`;
+        const row = await store.create({ userId, subdomain, rootDirId: 1 });
+
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of `subdomains` come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `subdomains`/u.test(q) ? [] : realRead(q, p),
+            );
+        let updated;
+        try {
+            updated = await store.update(
+                row.uuid,
+                { root_dir_id: 2 },
+                { userId },
+            );
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(updated?.root_dir_id).toBe(2);
+        expect((await store.getBySubdomain(subdomain))?.root_dir_id).toBe(2);
+    });
+
     it('delete leaves a negative marker rather than a stale row', async () => {
         const userId = await makeUser();
         const subdomain = `sds-delete-${Math.random().toString(36).slice(2, 8)}`;
@@ -374,23 +405,6 @@ describe('SubdomainStore listing and counting', () => {
         expect(await store.existsBySubdomain(`${p}missing`)).toBe(false);
     });
 
-    it('resolves custom domains by exact match and by listing', async () => {
-        const userId = await makeUser();
-        const p = prefix();
-        const row = await createFor(userId, `${p}dom`);
-        await store.update(row.uuid, { domain: `${p}example.com` });
-
-        expect((await store.getByDomain(`${p}example.com`))?.uuid).toBe(
-            row.uuid,
-        );
-        expect(await store.getByDomain('nobody.example')).toBeNull();
-        expect(
-            (await store.listByDomain(`${p}example.com`)).map(
-                (r: { uuid: string }) => r.uuid,
-            ),
-        ).toEqual([row.uuid]);
-    });
-
     it('lists and counts by prefix, scoped to the owner', async () => {
         const userId = await makeUser();
         const other = await makeUser();
@@ -421,6 +435,28 @@ describe('SubdomainStore listing and counting', () => {
                 null as unknown as string,
             ),
         ).toBe(0);
+    });
+
+    it('matches a prefix literally, not as a LIKE pattern', async () => {
+        const userId = await makeUser();
+        const p = prefix();
+        await createFor(userId, `${p}a_b`);
+        await createFor(userId, `${p}axb`);
+
+        expect(
+            (await store.listByUserIdAndPrefix(userId, `${p}a_`)).map(
+                (r) => r.subdomain,
+            ),
+        ).toEqual([`${p}a_b`]);
+        expect(await store.countByUserIdAndPrefix(userId, `${p}a_`)).toBe(1);
+        expect(
+            (
+                await store.listByUserId(userId, { excludePrefix: `${p}a_` })
+            ).map((r) => r.subdomain),
+        ).toEqual([`${p}axb`]);
+        expect(
+            await store.count({ userId, excludePrefix: `${p}a_` }),
+        ).toBe(1);
     });
 
     it('narrows a prefix listing by a single app id and paginates it', async () => {
@@ -561,6 +597,22 @@ describe('SubdomainStore reads and writes', () => {
         await expect(
             store.deleteByUuid('no-such-uuid'),
         ).resolves.toBeUndefined();
+    });
+
+    it('writes without scanning any set of cached keys', async () => {
+        const userId = await makeUser();
+        const smembers = vi.spyOn(server.clients.redis, 'smembers');
+        try {
+            const row = await store.create({
+                userId,
+                subdomain: `sds-scan-${Math.random().toString(36).slice(2, 8)}`,
+            });
+            await store.update(row.uuid, { domain: 'scan.example' });
+            await store.deleteByUuid(row.uuid);
+            expect(smembers).not.toHaveBeenCalled();
+        } finally {
+            smembers.mockRestore();
+        }
     });
 });
 

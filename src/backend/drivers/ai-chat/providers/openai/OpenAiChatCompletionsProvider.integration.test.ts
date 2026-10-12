@@ -44,10 +44,8 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
     () => {
         const buildProvider = () =>
             new OpenAiChatProvider(
-                makeMeteringStub(),
-                { fsEntry: undefined as never, s3Object: undefined as never },
-                undefined as never,
                 { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
             );
 
         it('returns a non-empty completion from gpt-4o-mini', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {

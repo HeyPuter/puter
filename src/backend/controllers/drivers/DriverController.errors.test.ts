@@ -40,6 +40,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DriverMethodLifecycleEvent } from '../../clients/event/types.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { configureRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    UpstreamResponseError,
+    upstreamBodyStream,
+} from '../../drivers/util/upstreamErrors.js';
 import { DriverController } from './DriverController.js';
 
 // -- Harness ---------------------------------------------------------
@@ -266,6 +270,35 @@ describe('DriverController upstream error translation', () => {
         });
     });
 
+    // `fields` become the alarm's details, so this is what names the vendor.
+    it.each([
+        [
+            'a provider API response',
+            new UpstreamResponseError('Invalid API key', 401, 'xai'),
+            500,
+            'upstream_auth_failed',
+        ],
+        [
+            'a provider error carrying its status',
+            Object.assign(new Error('insufficient credits'), {
+                status: 402,
+                provider: 'byteplus',
+            }),
+            503,
+            'upstream_credits_exhausted',
+        ],
+    ])(
+        'names the provider behind %s in the error fields',
+        async (_shape, raw, statusCode, legacyCode) => {
+            const { err } = await callWith(throwing(raw));
+            expect(err).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { provider: raw.provider, upstreamStatus: raw.status },
+            });
+        },
+    );
+
     it('prefers the nested error.message and error.code over the top-level ones', async () => {
         const { err } = await callWith(
             throwing({
@@ -448,6 +481,51 @@ describe('DriverController stream responses', () => {
 
         expect(res.headers['content-type']).toBe('audio/mpeg');
         expect('transfer-encoding' in res.headers).toBe(false);
+    });
+
+    it('destroys the response, without crashing, when the source fails after the first chunk', async () => {
+        let upstream!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                upstream = controller;
+            },
+        });
+        const { handler } = build({
+            run: () => ({
+                dataType: 'stream',
+                content_type: 'audio/mpeg',
+                chunked: true,
+                stream: upstreamBodyStream(new Response(body)),
+            }),
+        });
+        const res = new MockRes();
+        const uncaught = vi.fn();
+        process.on('uncaughtException', uncaught);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await runWithContext({}, () =>
+                handler(
+                    makeReq({ interface: 'test-iface', method: 'run' }),
+                    res as unknown as Response,
+                    () => {},
+                ),
+            );
+            upstream.enqueue(Buffer.from('first'));
+            await vi.waitFor(() => expect(res.chunks).toHaveLength(1));
+
+            const closed = new Promise((resolve) => res.once('close', resolve));
+            upstream.error(new Error('connection reset'));
+            await closed;
+
+            expect(Buffer.concat(res.chunks).toString()).toBe('first');
+            expect(res.destroyed).toBe(true);
+            expect(res.writableFinished).toBe(false);
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(uncaught).not.toHaveBeenCalled();
+        } finally {
+            process.off('uncaughtException', uncaught);
+            warn.mockRestore();
+        }
     });
 });
 

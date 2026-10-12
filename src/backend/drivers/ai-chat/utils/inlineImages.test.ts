@@ -40,11 +40,13 @@ const buildResponse = (
         contentLength?: string;
     } = {},
 ): Response => {
-    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
     const headers = new Headers();
     if (contentType) headers.set('content-type', contentType);
     if (contentLength) headers.set('content-length', contentLength);
-    return new Response(buf, { status, headers });
+    return new Response(Buffer.isBuffer(body) ? body : Buffer.from(body), {
+        status,
+        headers,
+    });
 };
 
 describe('inlineHttpImageUrls', () => {
@@ -134,6 +136,59 @@ describe('inlineHttpImageUrls', () => {
         expect(part.type).toBe('text');
         expect(part.image_url).toBeUndefined();
         expect(part.text).toContain('exceeds maximum');
+    });
+
+    it('stops reading an undeclared body at the cap', async () => {
+        let pulled = 0;
+        const endless = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                pulled += 1;
+                controller.enqueue(new Uint8Array(1024 * 1024));
+            },
+        });
+        mockedSecureFetch.mockResolvedValueOnce(
+            new Response(endless, {
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
+
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    { image_url: { url: 'https://example.com/endless.png' } },
+                ],
+            },
+        ];
+
+        await inlineHttpImageUrls(messages);
+
+        const part = messages[0].content[0] as { type?: string; text?: string };
+        expect(part.type).toBe('text');
+        expect(part.text).toContain('exceeds maximum');
+        // One chunk past the cap, not the whole stream.
+        expect(pulled).toBeLessThanOrEqual(
+            Math.ceil(MAX_IMAGE_BYTES / (1024 * 1024)) + 2,
+        );
+    });
+
+    it('replaces a response with no declared type with a text error block', async () => {
+        mockedSecureFetch.mockResolvedValueOnce(
+            buildResponse(Buffer.from([1, 2, 3]), { contentType: null }),
+        );
+
+        const messages = [
+            {
+                role: 'user',
+                content: [{ image_url: { url: 'https://example.com/blob' } }],
+            },
+        ];
+
+        await inlineHttpImageUrls(messages);
+
+        const part = messages[0].content[0] as { type?: string; text?: string };
+        expect(part.type).toBe('text');
+        expect(part.text).toContain('unknown MIME type');
     });
 
     it('replaces non-image responses with a text error block', async () => {

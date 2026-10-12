@@ -21,7 +21,6 @@ import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { EventMap } from '../../clients/event/types.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -56,7 +55,10 @@ import {
 } from '../../services/fs/sharePathMask.js';
 import { Context } from '../../core/context.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import { toLegacyEntry } from '../fs/legacyFsHelpers.js';
+import {
+    emitGuiItemEvent,
+    type GuiItemEventName,
+} from '../fs/legacyFsHelpers.js';
 import { PuterController } from '../types.js';
 import {
     createLock,
@@ -947,7 +949,8 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.added', copy);
+        // Announcing what the copy replaced keeps a ghost row off other clients.
+        this.#emitGuiEvent('outer.gui.item.added', copy, undefined, destExists);
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -998,9 +1001,12 @@ export class WebDAVController extends PuterController {
             newName: pathPosix.basename(destPath),
             overwrite,
         });
-        this.#emitGuiEvent('outer.gui.item.moved', moved, {
-            old_path: davPath,
-        });
+        this.#emitGuiEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: davPath },
+            destExists,
+        );
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -1122,11 +1128,7 @@ export class WebDAVController extends PuterController {
 
         const allowed = await this.services.acl.check(
             actor,
-            {
-                path: root.path,
-                resolveAncestors: () =>
-                    this.services.fs.getAncestorChain(root.path),
-            },
+            this.services.acl.fsDescriptor(root.path),
             'read',
         );
         if (!allowed) return null;
@@ -1145,14 +1147,8 @@ export class WebDAVController extends PuterController {
     // -- ACL helpers -------------------------------------------------
 
     async #canRead(actor: Actor, path: string): Promise<boolean> {
-        return await this.services.acl.check(
-            actor,
-            {
-                path,
-                resolveAncestors: () => this.services.fs.getAncestorChain(path),
-            },
-            'read',
-        );
+        const acl = this.services.acl;
+        return await acl.check(actor, acl.fsDescriptor(path), 'read');
     }
 
     async #assertRead(actor: Actor, path: string): Promise<void> {
@@ -1163,11 +1159,8 @@ export class WebDAVController extends PuterController {
     }
 
     async #assertWrite(actor: Actor, path: string): Promise<void> {
-        const descriptor = {
-            path,
-            resolveAncestors: () => this.services.fs.getAncestorChain(path),
-        };
-        const ok = await this.services.acl.check(actor, descriptor, 'write');
+        const acl = this.services.acl;
+        const ok = await acl.check(actor, acl.fsDescriptor(path), 'write');
         if (!ok)
             throw new HttpError(403, 'Permission denied', {
                 legacyCode: 'permission_denied',
@@ -1176,33 +1169,25 @@ export class WebDAVController extends PuterController {
 
     // -- Event emission ----------------------------------------------
 
-    #emitGuiEvent<T extends keyof EventMap>(
-        eventName: T,
+    #emitGuiEvent(
+        eventName: GuiItemEventName,
         entry: FSEntry,
         extra?: Record<string, unknown>,
+        replaced?: FSEntry | null,
     ): void {
-        const meta = {};
-        void Promise.resolve()
-            .then(async () => {
-                const response = {
-                    ...(await toLegacyEntry(this.clients.event, entry, {
-                        forOwner: true,
-                    })),
-                    ...extra,
-                    from_new_service: true,
-                };
-                this.clients.event.emit(
+        void (async () => {
+            try {
+                await emitGuiItemEvent(
+                    this.clients.event,
                     eventName,
-                    {
-                        user_id_list: [entry.userId],
-                        response,
-                    } as unknown as EventMap[T],
-                    meta,
+                    entry,
+                    extra,
+                    replaced,
                 );
-            })
-            .catch(() => {
+            } catch {
                 // non-critical
-            });
+            }
+        })();
     }
 
     // -- Misc helpers ------------------------------------------------

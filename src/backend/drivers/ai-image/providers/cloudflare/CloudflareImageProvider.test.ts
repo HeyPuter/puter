@@ -39,12 +39,15 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
+import { translateProviderError } from '../../../../controllers/drivers/DriverController.js';
 
 // Keep URL downloads offline; other input parsing stays real.
 const { fetchImageBytesMock } = vi.hoisted(() => ({
@@ -73,6 +76,14 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = (
     overrides: Partial<{
         apiToken: string;
@@ -86,7 +97,7 @@ const makeProvider = (
             accountId: 'acct-test',
             ...overrides,
         } as never,
-        server.services.metering,
+        aiMetering(),
     );
 
 beforeEach(() => {
@@ -174,6 +185,39 @@ describe('CloudflareImageProvider.generate credit gate', () => {
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('holds the estimate while Cloudflare runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: { id: 91, uuid: `cf-hold-${Date.now()}`, username: 'hold' },
+        });
+        let heldDuringCall = -1;
+        fetchSpy.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return okJsonResponse({ result: { image: 'AAAA' } });
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: '@cf/black-forest-labs/flux-1-schnell',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        expect(estimate).toBeGreaterThan(0);
+        expect(heldDuringCall).toBe(Math.ceil(estimate));
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 });
 
@@ -372,24 +416,46 @@ describe('CloudflareImageProvider.generate output extraction', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('throws 400 with the upstream error message on a non-2xx response', async () => {
-        const provider = makeProvider();
-        fetchSpy.mockResolvedValueOnce(
-            new Response(JSON.stringify({ error: 'boom' }), {
-                status: 500,
-                headers: { 'content-type': 'application/json' },
-            }),
-        );
+    it.each([
+        [429, 429, 'upstream_rate_limited'],
+        [401, 500, 'upstream_auth_failed'],
+        [500, 400, 'upstream_provider_unavailable'],
+        [400, 400, 'upstream_bad_request'],
+    ])(
+        'maps an upstream %i to %i %s at the driver boundary',
+        async (upstreamStatus, statusCode, legacyCode) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        success: false,
+                        errors: [{ message: 'boom' }],
+                    }),
+                    {
+                        status: upstreamStatus,
+                        headers: { 'content-type': 'application/json' },
+                    },
+                ),
+            );
 
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: '@cf/black-forest-labs/flux-1-schnell',
-                    prompt: 'hi',
-                } as never),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
+            let callerError: unknown;
+            try {
+                await withTestActor(() =>
+                    provider.generate({
+                        model: '@cf/black-forest-labs/flux-1-schnell',
+                        prompt: 'hi',
+                    } as never),
+                );
+            } catch (e) {
+                callerError = translateProviderError(e);
+            }
+            expect(callerError).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { provider: 'cloudflare', upstreamStatus },
+            });
+        },
+    );
 
     it('throws 400 when JSON response carries no usable image string', async () => {
         const provider = makeProvider();

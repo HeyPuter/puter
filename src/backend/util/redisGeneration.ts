@@ -17,23 +17,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-export interface OuterGuiItemEventResponse {
-    path?: string;
-    old_path?: string;
-    uid?: string;
-    uuid?: string;
-    id?: string;
-}
+import type { Cluster } from 'ioredis';
 
-export interface OuterGuiItemEventPayload {
-    user_id_list?: Array<number | string>;
-    response?: OuterGuiItemEventResponse;
-}
-
-export interface FsRemoveNodeTarget {
-    get?: (key: string) => Promise<unknown> | unknown;
-}
-
-export interface FsRemoveNodeEventPayload {
-    target?: FsRemoveNodeTarget;
-}
+/**
+ * Increment a generation counter and renew its TTL in one round trip; the two
+ * commands travel together, so the counter can't be left without an expiry.
+ * Returns the new value.
+ */
+export const bumpGeneration = async (
+    redis: Pick<Cluster, 'pipeline'>,
+    key: string,
+    ttlSeconds: number,
+): Promise<number> => {
+    const results = await redis
+        .pipeline()
+        .incr(key)
+        .expire(key, ttlSeconds)
+        .exec();
+    for (const [error] of results ?? []) {
+        if (error) throw error;
+    }
+    return Number(results?.[0]?.[1]);
+};

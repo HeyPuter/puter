@@ -52,6 +52,7 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { usdPerMToken } from '../../utils/pricing.js';
 import { HOONIFY_MODELS } from './models.js';
 import { HoonifyProvider } from './HoonifyProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -158,6 +159,8 @@ describe('HoonifyProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'hooni_test-key',
             baseURL: 'https://api.hoonify.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -166,6 +169,8 @@ describe('HoonifyProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'hooni_test-key',
             baseURL: 'https://staging.hoonify.test/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -187,7 +192,7 @@ describe('HoonifyProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of HOONIFY_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -212,7 +217,7 @@ describe('HoonifyProvider model catalog', () => {
         // `AGGREGATOR_PROVIDERS` ranks Hoonify behind the vendor so it only
         // serves once Alibaba's route fails.
         const { provider } = makeProvider();
-        expect(provider.list()).toContain('qwen/qwen3.6-27b');
+        expect(modelLookupNames(provider.models())).toContain('qwen/qwen3.6-27b');
     });
 
     it('exposes Inkling Small at its list pricing and sends its exact-case wire id', async () => {
@@ -494,26 +499,18 @@ describe('HoonifyProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe(
-            'google/gemma-4-31B-it',
-        );
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'hoonify:google/gemma-4-31b-it',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 
@@ -548,7 +545,7 @@ describe('HoonifyProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -562,14 +559,14 @@ describe('HoonifyProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('hoonify:zai-org/glm-5.2');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            100 * Number(glm.costs.prompt_tokens),
+            90 * Number(glm.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(
@@ -700,7 +697,7 @@ describe('HoonifyProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -712,7 +709,7 @@ describe('HoonifyProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('hoonify:zai-org/glm-5.2');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            4 * Number(glm.costs.prompt_tokens),
+            3 * Number(glm.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(

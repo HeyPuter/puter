@@ -17,12 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Readable } from 'node:stream';
-import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { Context } from '../../../core/context.js';
+import { isHttpError } from '../../../core/http/HttpError.js';
 import { runWithConcurrencyLimit } from '../../../util/concurrency.js';
-import { collectStream } from '../../util/fileInput.js';
-import { secureFetch } from '../../../util/secureHttp.js';
+import { fetchImageBytes } from '../../util/imageInput.js';
 
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
@@ -73,58 +71,28 @@ export async function inlineHttpImageUrls(
 
 async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
     try {
-        const requestSignal = Context.get('abortSignal');
-        const timeoutSignal = AbortSignal.timeout(30_000);
-        const signal = requestSignal
-            ? AbortSignal.any([requestSignal, timeoutSignal])
-            : timeoutSignal;
-        const response = await secureFetch(url, { signal });
-        if (!response.ok) {
-            await response.body?.cancel();
-            setTextError(
-                part,
-                `failed to fetch image (status ${response.status})`,
-            );
-            return;
-        }
-        const contentLength = Number(
-            response.headers.get('content-length') ?? NaN,
-        );
-        if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
-            await response.body?.cancel();
+        const { bytes, mime } = await fetchImageBytes(url, {
+            maxBytes: MAX_IMAGE_BYTES,
+            signal: Context.get('abortSignal'),
+            requireImageMime: true,
+        });
+        part.type = 'image_url';
+        part.image_url = {
+            url: `data:${mime};base64,${bytes.toString('base64')}`,
+        };
+    } catch (err) {
+        if (isHttpError(err) && err.code === 'input_too_large') {
             setTextError(
                 part,
                 `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
             );
             return;
         }
-
-        const mimeType = (response.headers.get('content-type') ?? '')
-            .split(';')[0]
-            ?.trim();
-        if (!mimeType || !mimeType.startsWith('image/')) {
-            await response.body?.cancel();
-            setTextError(
-                part,
-                `expected an image, got ${mimeType || 'unknown MIME type'}`,
-            );
-            return;
-        }
-
-        const buffer = response.body
-            ? await collectStream(
-                  Readable.fromWeb(response.body as WebReadableStream),
-                  MAX_IMAGE_BYTES,
-              )
-            : Buffer.alloc(0);
-        const base64 = buffer.toString('base64');
-        part.type = 'image_url';
-        part.image_url = { url: `data:${mimeType};base64,${base64}` };
-    } catch (err) {
-        const message =
-            (err as { legacyCode?: string })?.legacyCode === 'input_too_large'
-                ? `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`
-                : 'failed to fetch image';
+        // fetchImageBytes' own errors are safe to show; anything else (DNS,
+        // socket, SSRF guard) stays generic.
+        const message = isHttpError(err)
+            ? err.message
+            : 'failed to fetch image';
         setTextError(part, message);
     }
 }

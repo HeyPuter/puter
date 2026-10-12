@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { extension, extensionStore } from '../../extensions.js';
 import type { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -115,5 +123,18 @@ describe('RecommendedAppsService', () => {
         expect(
             await server.services.recommendedApps.getRecommendedApps(),
         ).toEqual([]);
+    });
+
+    it('resolves the whole list with one batched name lookup', async () => {
+        const getByName = vi.spyOn(server.stores.app, 'getByName');
+        const getByNames = vi.spyOn(server.stores.app, 'getByNames');
+        try {
+            await server.services.recommendedApps.getRecommendedApps();
+            expect(getByName).not.toHaveBeenCalled();
+            expect(getByNames).toHaveBeenCalledTimes(1);
+        } finally {
+            getByName.mockRestore();
+            getByNames.mockRestore();
+        }
     });
 });

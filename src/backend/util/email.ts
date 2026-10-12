@@ -18,8 +18,8 @@
  */
 
 /**
- * Email normalization + block-list check. Stateless — used by AuthController
- * (signup / change-email / save-account).
+ * Email normalization + block-list check. Stateless; every path that matches,
+ * keys or blocks on an address uses these rules.
  *
  * CleanEmail('foo.bar+tag@gmail.com') === 'foobar@gmail.com'
  * isBlockedEmail('temp@mailinator.com', ['mailinator.com']) === true
@@ -170,7 +170,8 @@ export function isProviderCanonicalized(email: string): boolean {
 
 /**
  * Returns true when the (cleaned) email matches any of the blocked domain
- * suffixes. Suffix-match so `mailinator.com` blocks `foo@bar.mailinator.com`.
+ * suffixes. Suffix-match so `mailinator.com` blocks `foo@bar.mailinator.com`;
+ * case-insensitive on both sides.
  */
 export function isBlockedEmail(
     email: string,
@@ -178,5 +179,7 @@ export function isBlockedEmail(
 ): boolean {
     if (!blockedDomains || blockedDomains.length === 0) return false;
     const clean = cleanEmail(email);
-    return blockedDomains.some((suffix) => clean.endsWith(suffix));
+    return blockedDomains.some((suffix) =>
+        clean.endsWith(suffix.toLowerCase()),
+    );
 }

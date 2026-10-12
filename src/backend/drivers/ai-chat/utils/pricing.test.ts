@@ -26,6 +26,7 @@ import {
     longContextMultipliers,
     trackedInputTokens,
     trackedOutputTokens,
+    usageCost,
     usageDetailsFromUsage,
     usdPerMToken,
 } from './pricing.js';
@@ -348,5 +349,84 @@ describe('long-context pricing', () => {
             input: 2,
             output: 1.5,
         });
+    });
+});
+
+describe('usageCost', () => {
+    const rates = model({
+        prompt_tokens: 3,
+        completion_tokens: 15,
+        cached_tokens: 0.3,
+    });
+
+    it('splits the priced usage into input and output sides', () => {
+        expect(
+            usageCost(
+                { prompt_tokens: 100, completion_tokens: 10, cached_tokens: 50 },
+                rates,
+            ),
+        ).toEqual({ inputMicroCents: 315, outputMicroCents: 150 });
+    });
+
+    it('agrees with what buildCostsOverride records', () => {
+        const usage = {
+            prompt_tokens: 1234,
+            completion_tokens: 567,
+            cached_tokens: 89,
+            grounding_requests: 1,
+        };
+        const recorded = Object.values(buildCostsOverride(usage, rates)).reduce(
+            (a, b) => a + b,
+            0,
+        );
+        const cost = usageCost(usage, rates)!;
+        expect(cost.inputMicroCents + cost.outputMicroCents).toBe(
+            Math.round(recorded),
+        );
+    });
+
+    it('takes the costs a provider recorded over the model rates', () => {
+        expect(
+            usageCost(
+                { prompt_tokens: 100, billedUsage: 1, usd_cents: 0.5 },
+                rates,
+                { prompt_tokens: 0, billedUsage: 500_000 },
+            ),
+        ).toEqual({ inputMicroCents: 500_000, outputMicroCents: 0 });
+    });
+
+    it('prices advisor usage only through a recorded cost', () => {
+        expect(
+            usageCost(
+                { prompt_tokens: 10, advisor_output_tokens: 1000 },
+                rates,
+            ),
+        ).toEqual({ inputMicroCents: 30, outputMicroCents: 0 });
+        expect(
+            usageCost(
+                { prompt_tokens: 10, advisor_output_tokens: 1000 },
+                rates,
+                { advisor_output_tokens: 7 },
+            ),
+        ).toEqual({ inputMicroCents: 30, outputMicroCents: 7 });
+    });
+
+    it('is null when nothing in the usage can be priced', () => {
+        expect(
+            usageCost({ prompt_tokens: 10, completion_tokens: 5 }, model({})),
+        ).toBeNull();
+    });
+
+    it('skips usd_cents and non-numeric annotations', () => {
+        expect(
+            usageCost(
+                {
+                    prompt_tokens: 10,
+                    usd_cents: 99,
+                    accounting_method: 'energy',
+                },
+                rates,
+            ),
+        ).toEqual({ inputMicroCents: 30, outputMicroCents: 0 });
     });
 });

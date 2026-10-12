@@ -72,6 +72,8 @@ Prefer `usageDetails` over `usage` for anything beyond the raw billing totals. C
 
 Token accounting for the request. Values are always numbers, but the key names are provider-specific: most OpenAI-compatible providers report `prompt_tokens`, `completion_tokens`, and `cached_tokens`, while Anthropic and OpenAI Responses models report `input_tokens` and `output_tokens`.
 
+`usage.cost` is what the request was charged to the user, in microcents ($0.01 = 1,000,000). It is `0` in test mode and for free models.
+
 #### `compaction` (Object)
 
 Present only on non-streaming responses where the model compacted earlier context (see [Compaction](/AI/chat#compaction)). A drop-in `messages` item of the form `{ type: 'compaction', id, encrypted_content }` — resend it on the next turn in place of the summarized history. Absent when no compaction occurred.

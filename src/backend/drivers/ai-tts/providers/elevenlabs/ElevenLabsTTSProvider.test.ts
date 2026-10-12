@@ -45,7 +45,11 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { ElevenLabsTTSProvider } from './ElevenLabsTTSProvider.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
@@ -137,6 +141,43 @@ describe('ElevenLabsTTSProvider catalog', () => {
         expect((init as RequestInit).headers).toMatchObject({
             'xi-api-key': 'test-key',
         });
+    });
+
+    it('listVoices calls ElevenLabs once per cache window', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockImplementation(async () =>
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+
+        const [first, second] = await Promise.all([
+            provider.listVoices(),
+            provider.listVoices(),
+        ]);
+        const third = await provider.listVoices();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+    });
+
+    it('listVoices does not cache a failed fetch', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }));
+        await expect(provider.listVoices()).rejects.toMatchObject({
+            status: 503,
+        });
+
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+        expect(await provider.listVoices()).toHaveLength(1);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
     it('listVoices uses a custom apiBaseUrl when configured', async () => {
@@ -273,7 +314,11 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
-        await withTestActor(() => provider.synthesize({ text: 'hi', model }));
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text: 'hi', model }),
+            ),
+        );
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         const [, init] = fetchSpy.mock.calls[0]!;
@@ -316,6 +361,7 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         );
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>)['xi-api-key']).toBe(
             'test-key',
         );
@@ -424,8 +470,10 @@ describe('ElevenLabsTTSProvider.synthesize voice resolution', () => {
         fetchSpy.mockResolvedValueOnce(catalogResponse());
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
-        await withTestActor(() =>
-            provider.synthesize({ text: 'hi', voice }),
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice }),
+            ),
         );
 
         expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
@@ -501,13 +549,11 @@ describe('ElevenLabsTTSProvider.synthesize voice resolution', () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(new Response('{}', { status: 503 }));
 
-        await expect(
-            withTestActor(() =>
+        expect(
+            await callerError(() =>
                 provider.synthesize({ text: 'hi', voice: 'Bella' }),
             ),
-        ).rejects.toMatchObject({
-            legacyCode: 'upstream_provider_unavailable',
-        });
+        ).toMatchObject({ legacyCode: 'upstream_provider_unavailable' });
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
@@ -539,6 +585,30 @@ describe('ElevenLabsTTSProvider.synthesize streaming output', () => {
         expect(Buffer.concat(chunks).toString()).toBe('AAA-BBB');
     });
 
+    it('answers before the upstream body has finished arriving', async () => {
+        const provider = makeProvider();
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(body, { headers: { 'content-type': 'audio/mpeg' } }),
+        );
+
+        // Resolves with the upstream still open: nothing is buffered first.
+        const result = (await withTestActor(() =>
+            provider.synthesize({ text: 'hi' }),
+        )) as { stream: Readable };
+        controller.enqueue(Buffer.from('AAA'));
+        controller.close();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.stream) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toBe('AAA');
+    });
+
     it('uses the response content-type header when present', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse('x', 'audio/wav'));
@@ -559,8 +629,10 @@ describe('ElevenLabsTTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello';
-        await withTestActor(() =>
-            provider.synthesize({ text, model: 'eleven_flash_v2_5' }),
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text, model: 'eleven_flash_v2_5' }),
+            ),
         );
 
         const expectedCost = ELEVENLABS_TTS_COSTS['eleven_flash_v2_5'] * text.length;
@@ -598,33 +670,14 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
             }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            fields: { provider: 'elevenlabs', upstreamStatus: 422 },
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
-    });
-
-    it.each([
-        [404, 'warn'],
-        [401, 'error'],
-        [503, 'error'],
-    ] as const)('logs upstream %s at %s', async (status, level) => {
-        const provider = makeProvider();
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        fetchSpy.mockResolvedValueOnce(new Response('{}', { status }));
-
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: status === 401 ? 500 : 400 });
-        expect(level === 'warn' ? warnSpy : errorSpy).toHaveBeenCalledWith(
-            '[ElevenLabsTTSProvider] request failed',
-            expect.objectContaining({ status }),
-        );
-        expect(level === 'warn' ? errorSpy : warnSpy).not.toHaveBeenCalled();
     });
 
     it('propagates fetch rejection without metering', async () => {

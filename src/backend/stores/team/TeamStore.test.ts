@@ -149,6 +149,24 @@ describe('TeamStore', () => {
         expect(await store.countOwned(loner.id)).toBe(0);
     });
 
+    it('reads many teams by id at once, soft-deleted included', async () => {
+        const kept = await store.create({ ownerUserId: owner.id, name: 'Kept' });
+        const gone = await store.create({ ownerUserId: owner.id, name: 'Gone' });
+        await store.softDelete(gone.uid);
+
+        const teams = await store.getByIdsIncludingDeleted([
+            kept.id,
+            gone.id,
+            kept.id,
+            -1,
+        ]);
+        expect([...teams.keys()].sort()).toEqual([kept.id, gone.id].sort());
+        expect(teams.get(gone.id)?.deleted_at).not.toBeNull();
+        await expect(store.getByIdIncludingDeleted(gone.id)).resolves.toMatchObject(
+            { uid: gone.uid },
+        );
+    });
+
     it('creates a team without a handle', async () => {
         const created = await store.create({
             ownerUserId: owner.id,
@@ -203,11 +221,6 @@ describe('TeamStore', () => {
         // Unreachable by predicate: a team admin is not a platform admin.
         for (const group of seeded) {
             await expect(store.getByUid(group.uid)).resolves.toBeNull();
-        }
-        const owners = new Set(seeded.map((g) => g.owner_user_id));
-        for (const ownerId of owners) {
-            const listed = await store.listByOwner(ownerId);
-            expect(listed.map((t) => t.uid)).not.toContain(seeded[0].uid);
         }
     });
 
@@ -271,8 +284,6 @@ describe('TeamStore', () => {
 
         await expect(store.getByUid(created.uid)).resolves.toBeNull();
         await expect(store.getByHandle(handle)).resolves.toBeNull();
-        const listed = await store.listByOwner(owner.id);
-        expect(listed.map((t) => t.uid)).not.toContain(created.uid);
     });
 
     it('releases the handle on soft delete so it can be claimed again', async () => {
@@ -433,6 +444,93 @@ describe('TeamStore', () => {
         await expect(store.removeMember(team.uid, member.id)).resolves.toBe(true);
         await expect(store.removeMember(team.uid, member.id)).resolves.toBe(false);
         await expect(store.isMember(team.uid, member.id)).resolves.toBe(false);
+    });
+
+    describe('peer regions', () => {
+        type CacheUpdate = { cacheKey: string[] };
+
+        const captureCacheUpdates = async (
+            run: () => Promise<unknown>,
+        ): Promise<CacheUpdate[]> => {
+            const seen: CacheUpdate[] = [];
+            const listener = (_key: string, data: CacheUpdate) => {
+                seen.push(data);
+            };
+            server.clients.event.on('outer.cacheUpdate', listener);
+            try {
+                await run();
+            } finally {
+                server.clients.event.off('outer.cacheUpdate', listener);
+            }
+            return seen;
+        };
+
+        it('stop seeing a removed member once they apply the broadcast', async () => {
+            const team = await store.create({
+                ownerUserId: owner.id,
+                name: 'Regions',
+                handle: freeHandle(),
+            });
+            const member = await makeUser();
+            await store.addMember(team.uid, member.id, { orgOwned: false });
+            const cached = await store.getMembership(team.uid, member.id);
+            expect(cached).not.toBeNull();
+            const key = `team:member:${team.uid}:${member.id}`;
+
+            const updates = await captureCacheUpdates(() =>
+                store.removeMember(team.uid, member.id),
+            );
+            expect(updates.flatMap((u) => u.cacheKey)).toContain(key);
+
+            // Stand in for the peer: it still holds the membership it cached
+            // before the removal.
+            await server.clients.redis.set(
+                key,
+                JSON.stringify(cached),
+                'EX',
+                60,
+            );
+            await expect(store.isMember(team.uid, member.id)).resolves.toBe(
+                true,
+            );
+
+            for (const update of updates) {
+                await server.clients.event.emitAndWait(
+                    'outer.cacheUpdate',
+                    update,
+                    { from_outside: true },
+                );
+            }
+
+            await expect(store.isMember(team.uid, member.id)).resolves.toBe(
+                false,
+            );
+        });
+
+        it('drop every membership of a deleted team from one update', async () => {
+            const team = await store.create({
+                ownerUserId: owner.id,
+                name: 'Closing',
+                handle: freeHandle(),
+            });
+            const members = [await makeUser(), await makeUser()];
+            for (const member of members) {
+                await store.addMember(team.uid, member.id, { orgOwned: false });
+            }
+
+            const updates = await captureCacheUpdates(() =>
+                store.softDelete(team.uid),
+            );
+
+            expect(updates).toHaveLength(1);
+            expect(updates[0]!.cacheKey).toEqual(
+                expect.arrayContaining([
+                    `team:row:${team.uid}`,
+                    `team:members:${team.id}`,
+                    ...members.map((m) => `team:member:${team.uid}:${m.id}`),
+                ]),
+            );
+        });
     });
 
     it('scopes membership to the team asked for', async () => {
@@ -612,39 +710,6 @@ describe('TeamStore', () => {
             await store.addMember(team.uid, payer.id, { orgOwned: false });
 
             expect(await store.countActiveSeats(team.id)).toBe(2);
-        });
-
-        it('lists the uuids of the seats it bills for', async () => {
-            const { team, members } = await seatedTeam(2);
-            const uuids = await store.listActiveSeatUuids(team.uid);
-            const expected = await Promise.all(
-                members.map(async (m) =>
-                    (await server.stores.user.getById(m.id))!.uuid,
-                ),
-            );
-            expect(uuids.sort()).toEqual(expected.sort());
-        });
-
-        it('leaves out a suspended seat, matching countActiveSeats', async () => {
-            const { team, members } = await seatedTeam(2);
-            await suspend(members[0].id);
-            const uuids = await store.listActiveSeatUuids(team.uid);
-            expect(uuids).toHaveLength(1);
-            expect(uuids).toHaveLength(
-                await store.countActiveSeats(team.id),
-            );
-        });
-
-        it('leaves out the payer, who is not a seat', async () => {
-            const { team } = await seatedTeam(1);
-            const payer = await makeUser();
-            await server.stores.user.update(payer.id, { password: 'hashed' });
-            await store.addMember(team.uid, payer.id, { orgOwned: false });
-            expect(await store.listActiveSeatUuids(team.uid)).toHaveLength(1);
-        });
-
-        it('is empty for an unknown team, not an error', async () => {
-            expect(await store.listActiveSeatUuids('no-such-team')).toEqual([]);
         });
 
         it('is zero for a team with no seats, not an error', async () => {

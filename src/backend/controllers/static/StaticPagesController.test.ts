@@ -375,6 +375,38 @@ describe('StaticPagesController GET /confirm-email-by-token', () => {
         expect(Boolean(refreshed?.requires_email_confirmation)).toBe(false);
     });
 
+    it('re-runs the email checks, as the code route does', async () => {
+        const user = await makeUser({ email_confirmed: 0 });
+        const deny = (_k: string, data: unknown) => {
+            Object.assign(data as object, {
+                allow: false,
+                message: 'Address no longer accepted.',
+            });
+        };
+        server.clients.event.on('email.validate', deny);
+        const { res, captured } = makeRes();
+        try {
+            await callRoute(
+                'get',
+                '/confirm-email-by-token',
+                makeReq({
+                    query: {
+                        user_uuid: user.uuid,
+                        token: user.email_confirm_token,
+                    },
+                }),
+                res,
+            );
+        } finally {
+            server.clients.event.off('email.validate', deny);
+        }
+        expect(String(captured.body)).toContain('Address no longer accepted.');
+        const refreshed = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(Boolean(refreshed?.email_confirmed)).toBe(false);
+    });
+
     it('rejects when the email is already confirmed on a different account', async () => {
         // Duplicate-email gate fires only when the existing row is
         // (a) email_confirmed=1 and (b) has a non-null password — the

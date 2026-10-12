@@ -158,7 +158,7 @@ const AUTH_COMPRESSION = def({
 
 // `hosted-asset` scope signs the sticky cookies set after a visitor
 // passes the private/public-app access gate (see AuthService
-// createPrivateAssetToken / createPublicHostedActorToken). Keeping it
+// createHostedAssetToken). Keeping it
 // in its own scope prevents a cookie from ever being honored as a main
 // auth token.
 const HOSTED_ASSET_COMPRESSION = def({

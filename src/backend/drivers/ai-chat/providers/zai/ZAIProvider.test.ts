@@ -50,6 +50,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { ZAI_MODELS } from './models.js';
 import { ZAIProvider } from './ZAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -155,6 +156,8 @@ describe('ZAIProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.z.ai/api/paas/v4',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -163,6 +166,8 @@ describe('ZAIProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://staging.z.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -182,7 +187,7 @@ describe('ZAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of ZAI_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -535,24 +540,18 @@ describe('ZAIProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('glm-5.1');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'zai:glm-5.1',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 
@@ -587,7 +586,7 @@ describe('ZAIProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -599,14 +598,14 @@ describe('ZAIProvider.complete non-stream output', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('zai:glm-4.6');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            100 * Number(glm46.costs.prompt_tokens),
+            90 * Number(glm46.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(
@@ -795,7 +794,7 @@ describe('ZAIProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
@@ -805,7 +804,7 @@ describe('ZAIProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('zai:glm-4.6');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            4 * Number(glm46.costs.prompt_tokens),
+            3 * Number(glm46.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(

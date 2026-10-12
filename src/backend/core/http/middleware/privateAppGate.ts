@@ -20,7 +20,10 @@
 
 import type { AbstractDatabaseClient } from '@heyputer/backend/src/clients/database/DatabaseClient';
 import type { Request } from 'express';
-import type { AuthService } from '../../../services/auth/AuthService';
+import {
+    HOSTED_ASSET_COOKIES,
+    type AuthService,
+} from '../../../services/auth/AuthService';
 import type { IConfig } from '../../../types';
 import type { Actor } from '../../actor';
 
@@ -48,8 +51,7 @@ import type { Actor } from '../../actor';
  * Sticky cookies (`puter.private.asset.token` for private apps,
  * `puter.public.hosted.actor.token` for public-hosted actors) are set after a
  * visitor passes the gate, and honored on subsequent requests to skip the full
- * entitlement lookup. See AuthService `createPrivateAssetToken` /
- * `createPublicHostedActorToken`.
+ * entitlement lookup. See AuthService `createHostedAssetToken`.
  */
 
 export interface PrivateHostingConfig {
@@ -356,8 +358,8 @@ export async function resolvePrivateIdentity(opts: {
     // back to the legacy dot-style name while the deprecation window
     // is open. A v1-signed token no longer verifies at all, so it lands
     // in the catch below and the chain re-mints under v2 on this response.
-    const v2CookieName = authService.getPrivateAssetCookieNameV2();
-    const legacyCookieName = authService.getPrivateAssetCookieName();
+    const { name: v2CookieName, legacyName: legacyCookieName } =
+        HOSTED_ASSET_COOKIES.private;
     const privateCookieToken =
         (typeof cookies?.[v2CookieName] === 'string'
             ? cookies[v2CookieName]
@@ -367,12 +369,13 @@ export async function resolvePrivateIdentity(opts: {
             : null);
     if (privateCookieToken) {
         try {
-            const claims = await authService.verifyPrivateAssetToken(
+            const claims = await authService.verifyHostedAssetToken(
+                'private',
                 privateCookieToken,
                 {
-                    expectedAppUid,
-                    expectedSubdomain,
-                    expectedPrivateHost,
+                    appUid: expectedAppUid,
+                    subdomain: expectedSubdomain,
+                    host: expectedPrivateHost,
                 },
             );
             return {
@@ -495,8 +498,8 @@ export async function resolvePublicHostedIdentity(opts: {
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
 
-    const publicCookieNameV2 = authService.getPublicHostedActorCookieNameV2();
-    const publicCookieNameLegacy = authService.getPublicHostedActorCookieName();
+    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
+        HOSTED_ASSET_COOKIES.public;
     const publicCookieToken =
         (typeof cookies?.[publicCookieNameV2] === 'string'
             ? cookies[publicCookieNameV2]
@@ -506,12 +509,13 @@ export async function resolvePublicHostedIdentity(opts: {
             : null);
     if (publicCookieToken) {
         try {
-            const claims = await authService.verifyPublicHostedActorToken(
+            const claims = await authService.verifyHostedAssetToken(
+                'public',
                 publicCookieToken,
                 {
-                    expectedAppUid,
-                    expectedSubdomain,
-                    expectedHost,
+                    appUid: expectedAppUid,
+                    subdomain: expectedSubdomain,
+                    host: expectedHost,
                 },
             );
             return {
