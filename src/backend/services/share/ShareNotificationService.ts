@@ -926,8 +926,16 @@ export class ShareNotificationService extends PuterService {
                 DIGEST_TAKE_CONCURRENCY,
                 (entryKey) => this.stores.kv.take({ key: entryKey }),
             );
-            const failedTake = takes.find((t) => t.status === 'rejected');
-            if (failedTake) throw (failedTake as PromiseRejectedResult).reason;
+            const failedTakes = takes.filter((t) => t.status === 'rejected');
+            if (failedTakes.length > 0) {
+                // A failed take left its entry queued for a later flush; the
+                // ones already taken exist only here now, so send them.
+                console.warn('[share-notify] digest take failed:', {
+                    key,
+                    failed: failedTakes.length,
+                    err: (failedTakes[0] as PromiseRejectedResult).reason,
+                });
+            }
             const claimed: Array<{ key: string; record: DigestEntryRecord }> =
                 [];
             keys.forEach((entryKey, i) => {
