@@ -2069,6 +2069,34 @@ describe('FSEntryStore subtrees under names starting with a supplementary charac
         expect(found.map((entry) => entry.path)).toEqual([expected[2]]);
     });
 
+    it('walks the whole subtree page by page in both orders', async () => {
+        const user = await makeUser();
+        const parent = `${user.home}/Documents/emoji-walk`;
+        await seed(user, parent);
+        const walk = async (order: 'asc' | 'desc') => {
+            const seen: string[] = [];
+            let after: FSEntry | undefined;
+            for (;;) {
+                const page = await store.listDescendantsInOrder(parent, {
+                    order,
+                    limit: 1,
+                    after,
+                });
+                if (page.length === 0) break;
+                seen.push(...page.map((entry) => entry.path));
+                after = page[page.length - 1];
+            }
+            return seen;
+        };
+        const expected = [
+            `${parent}/🔥 a`,
+            `${parent}/🔥 a/🔥 b`,
+            `${parent}/🔥 a/🔥 b/c.txt`,
+        ];
+        await expect(walk('asc')).resolves.toEqual(expected);
+        await expect(walk('desc')).resolves.toEqual([...expected].reverse());
+    });
+
     it('rewrites every path under a prefix that holds one', async () => {
         const user = await makeUser();
         const parent = `${user.home}/Documents/emoji-rewrite`;
@@ -2216,6 +2244,45 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
             [2],
             [3],
         ]);
+    });
+
+    it('pages a walk over the missed children too', async () => {
+        const { db, store: mysqlStore } = storeOver(tree);
+
+        await mysqlStore.listDescendantsInOrder('/u/tree', {
+            order: 'desc',
+            limit: 10,
+        });
+
+        expect(db.statements).toHaveLength(1);
+        expect(db.statements[0]!.params.slice(0, 4)).toEqual([
+            '/u/tree/%',
+            '/u/tree/🔥 a%',
+            '/u/tree/😀 50!%!_off!!.png%',
+            '/u/tree/🔥 a/🔥 b%',
+        ]);
+    });
+
+    it('pages every pattern group with the same seek', async () => {
+        const crowded = [
+            row(1, null, '/u/tree'),
+            ...Array.from({ length: 501 }, (_, i) =>
+                row(10 + i, 1, `/u/tree/🔥 ${i}`, false),
+            ),
+        ];
+        const { db, store: mysqlStore } = storeOver(crowded);
+
+        await mysqlStore.listDescendantsInOrder('/u/tree', {
+            order: 'asc',
+            limit: 5,
+            after: { id: 3, path: '/u/tree/x' } as FSEntry,
+        });
+
+        expect(db.statements).toHaveLength(2);
+        for (const statement of db.statements) {
+            // Seek (depth, depth, id) and limit close every group's params.
+            expect(statement.params.slice(-4)).toEqual([3, 3, 3, 5]);
+        }
     });
 
     it('looks for the moved root at both paths and reads the primary when rewriting', async () => {
