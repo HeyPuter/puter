@@ -60,6 +60,8 @@ const DEFAULT_RATIO = { w: 1024, h: 1024 };
 
 const PREDICTION_WINDOW_MS = 10 * 60 * 1000;
 const CLEANUP_WINDOW_MS = 30_000;
+// Holds outlive the prediction window, its creation and cleanup.
+const HOLD_TTL_MS = PREDICTION_WINDOW_MS + 5 * 60 * 1000;
 
 // Input images are caller-supplied URLs fetched before the credit gate can
 // price them, so the fan-out is bounded in count, concurrency, bytes and time.
@@ -300,6 +302,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                 actor,
                 `replicate:${selectedModel.id}`,
                 amount,
+                { ttlMs: HOLD_TTL_MS },
             );
             if (!hold) throw insufficientCreditsError();
             return hold;
