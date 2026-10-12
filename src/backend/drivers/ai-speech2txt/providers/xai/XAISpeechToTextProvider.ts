@@ -185,14 +185,14 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
             UCENTS_PER_SECOND * estimatedSeconds,
             async () => {
                 const response = await upstreamFetch(
-                    'xAI STT',
+                    'xai',
                     `${API_BASE}/stt`,
                     {
                         method: 'POST',
                         headers: { Authorization: `Bearer ${this.#apiKey}` },
                         body: formData,
                     },
-                    { timeoutMs: STT_TIMEOUT_MS },
+                    { providerLabel: 'xAI STT', timeoutMs: STT_TIMEOUT_MS },
                 );
                 const result = await response.json();
                 const actualSeconds =

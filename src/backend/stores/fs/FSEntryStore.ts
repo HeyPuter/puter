@@ -118,9 +118,10 @@ const entryCacheKey = (
     by: 'id' | 'uuid' | 'path',
     value: string | number,
 ): string => `prodfsv2:fsentry:${by === 'path' ? 'path:any' : by}:${value}`;
-// A renamed home's descendants stay cached under the old path until their TTL
-// (longer behind a lagging replica), and ACL grants a home by path prefix, so
-// no other account may take the vacated name until well after that.
+// A renamed home's descendants can stay cached under the old path until their
+// TTL (past the invalidation caps, or behind a lagging replica), and ACL grants
+// a home by path prefix, so no other account may take the vacated name until
+// well after that.
 const VACATED_HOME_HOLD_SECONDS = 60 * 60;
 const vacatedHomeKey = (username: string) =>
     `prodfsv2:vacated-home:${username.toLowerCase()}`;
@@ -131,12 +132,14 @@ const SUBTREE_PATTERNS_PER_STATEMENT = 500;
 const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 // Most entries whose invalidations one node broadcasts per broadcast flush
-// window. A flush reaches each peer as one POST (50 MB max, ~200 bytes an
-// entry); past the cap, invalidations stay local and peers wait out
-// ENTRY_CACHE_TTL_SECONDS.
+// window (~200 bytes an entry); past the cap, invalidations stay local and
+// peers wait out ENTRY_CACHE_TTL_SECONDS.
 export const ENTRY_BROADCAST_CAP = 10_000;
 // BroadcastService's default `broadcast.outbound_flush_ms`.
 const DEFAULT_BROADCAST_FLUSH_MS = 2_000;
+// Most moved descendants a prefix rewrite invalidates by key; past it, the
+// rest wait out ENTRY_CACHE_TTL_SECONDS.
+const REBASED_INVALIDATION_MAX = 100_000;
 
 /**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
@@ -349,7 +352,7 @@ export class FSEntryStore extends PuterStore {
         };
     }
 
-    #entryCacheKeys(entry: FSEntry): string[] {
+    #entryCacheKeys(entry: Pick<FSEntry, 'id' | 'uuid' | 'path'>): string[] {
         return [
             entryCacheKey('id', entry.id),
             entryCacheKey('uuid', entry.uuid),
@@ -410,8 +413,10 @@ export class FSEntryStore extends PuterStore {
      * one event for the batch. The read-path `#writeEntryToCache` stays local
      * so backfills don't fan out.
      */
-    async #invalidateEntriesCache(entries: FSEntry[]): Promise<void> {
-        const keysOf = (batch: FSEntry[]) =>
+    async #invalidateEntriesCache(
+        entries: Array<Pick<FSEntry, 'id' | 'uuid' | 'path'>>,
+    ): Promise<void> {
+        const keysOf = (batch: typeof entries) =>
             batch.flatMap((entry) => this.#entryCacheKeys(entry));
         const broadcastCount = this.#takeBroadcastBudget(entries.length);
         await this.publishCacheKeys({
@@ -2858,78 +2863,63 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Whether a directory has any child. Keyed by `parent_id`, so no path
-     * collation can hide one, and read from the primary because a missed child
-     * would be cascade-deleted with its parent.
+     * Whether a directory has any child. Keyed by parent link, so no path
+     * collation can hide one: `parent_uid`, the only one rows from the old
+     * backend carry, then `parent_id`, which the delete cascade follows. Two
+     * lookups, not an OR, which MySQL may answer with a table scan. Read from
+     * the primary because a missed child would be orphaned or cascaded.
      */
-    async hasChildren(entryId: number): Promise<boolean> {
+    async hasChildren(entry: FSEntry): Promise<boolean> {
         const rows = await this.clients.db.pread(
-            'SELECT 1 AS present FROM fsentries WHERE parent_id = ? LIMIT 1',
-            [entryId],
+            `SELECT 1 AS present FROM fsentries WHERE parent_uid = ?
+             UNION ALL
+             SELECT 1 AS present FROM fsentries WHERE parent_id = ?
+             LIMIT 1`,
+            [entry.uuid, entry.id],
         );
         return rows.length > 0;
     }
 
     /**
-     * One page of a subtree by depth, then id. `asc` reaches every parent
-     * before its children (a copy can create them in that order) and `desc`
-     * every child before its parent (a delete can go page by page without the
-     * `parent_id` cascade taking a row it has not seen). Pass the previous
-     * page's last row as `after`. Owner-blind, like `listDescendantsByPath`.
-     *
-     * Not path order: MySQL sorts only the first `max_sort_length` bytes of a
-     * PAD SPACE key, so long paths tie and a child can sort past its parent.
-     * Each pattern group is paged with the same seek and merged, so a subtree
-     * past one group still pages in order.
+     * One page of the children of `parents`, by parent and then id; pass the
+     * previous page's last row as `after`. Keyed by `parent_uid`, which every
+     * row carries (old rows have no `parent_id`); on MySQL and SQLite its index
+     * ends in the id, so a page reads only its own rows. Owner-blind.
      */
-    async listDescendantsInOrder(
-        pathPrefix: string,
-        options: {
-            order: 'asc' | 'desc';
-            limit: number;
-            after?: FSEntry | null;
-        },
+    async listChildrenOfParents(
+        parents: FSEntry[],
+        options: { limit: number; after?: FSEntry | null },
     ): Promise<FSEntry[]> {
-        const likePattern = this.#descendantsPattern(pathPrefix);
+        if (parents.length === 0) return [];
         const { after } = options;
-        const dir = options.order === 'desc' ? 'DESC' : 'ASC';
-        const cmp = options.order === 'desc' ? '<' : '>';
-        // Segment count: a name can't contain `/`, which is one byte and one
-        // character in every engine.
-        const depth = "(LENGTH(path) - LENGTH(REPLACE(path, '/', '')))";
-        const afterDepth = after ? after.path.split('/').length - 1 : 0;
         const seek = after
-            ? `AND (${depth} ${cmp} ? OR (${depth} = ? AND id ${cmp} ?))`
+            ? 'AND (parent_uid > ? OR (parent_uid = ? AND id > ?))'
             : '';
-        const limit = Math.max(1, options.limit);
-        const rows = new Map<number, FSEntryRow>();
-        for (const patterns of await this.#subtreePatterns(
-            pathPrefix,
-            likePattern,
-        )) {
-            const group = (await this.clients.db.read(
-                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-                 WHERE ${this.#pathLikeAny(patterns)} ${seek}
-                 ORDER BY ${depth} ${dir}, id ${dir} LIMIT ?`,
-                [
-                    ...patterns,
-                    ...(after ? [afterDepth, afterDepth, after.id] : []),
-                    limit,
-                ],
-            )) as unknown as FSEntryRow[];
-            for (const row of group) rows.set(Number(row.id), row);
-        }
-        const sign = options.order === 'desc' ? -1 : 1;
-        return [...rows.values()]
-            .sort(
-                (a, b) =>
-                    sign *
-                    (this.#slashCount(String(a.path)) -
-                        this.#slashCount(String(b.path)) ||
-                        Number(a.id) - Number(b.id)),
-            )
-            .slice(0, limit)
-            .map((row) => this.#mapFSEntryRow(row));
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE parent_uid IN (${parents.map(() => '?').join(', ')}) ${seek}
+             ORDER BY parent_uid, id LIMIT ?`,
+            [
+                ...parents.map((parent) => parent.uuid),
+                ...(after ? [after.parentUid, after.parentUid, after.id] : []),
+                Math.max(1, options.limit),
+            ],
+        )) as unknown as FSEntryRow[];
+        const parentPaths = new Map(
+            parents.map((parent) => [parent.uuid, parent.path]),
+        );
+        return rows.map((row) => {
+            const entry = this.#mapFSEntryRow(row);
+            // Legacy rows can lack a path; the parent's says where they sit.
+            const parentPath = parentPaths.get(entry.parentUid ?? '');
+            if (!entry.path && parentPath) {
+                entry.path =
+                    parentPath === '/'
+                        ? `/${entry.name}`
+                        : `${parentPath}/${entry.name}`;
+            }
+            return entry;
+        });
     }
 
     #descendantsPattern(pathPrefix: string): string {
@@ -2987,14 +2977,15 @@ export class FSEntryStore extends PuterStore {
         if (pastRange) {
             const prefix = this.#normalizePath(pathPrefix);
             const rootPaths = options.rootPaths ?? [prefix];
-            let parents = `(SELECT id FROM fsentries WHERE path IN (${rootPaths.map(() => '?').join(', ')}))`;
+            let parents = `(SELECT uuid FROM fsentries WHERE path IN (${rootPaths.map(() => '?').join(', ')}))`;
             let parentParams: unknown[] = rootPaths;
-            let parentPaths = new Map<number, string>();
+            let parentPaths = new Map<string, string>();
             // A missed directory's own such children fall outside its pattern's
-            // range in turn, so walk down until none are left.
+            // range in turn, so walk down until none are left. Linked by
+            // `parent_uid`: rows from the old backend have no `parent_id`.
             while (patterns.length <= SUBTREE_PATTERNS_MAX) {
-                const sql = `SELECT id, parent_id, name, is_dir FROM fsentries
-                     WHERE parent_id IN ${parents} AND ${pastRange} LIMIT ?`;
+                const sql = `SELECT uuid, parent_uid, name, is_dir FROM fsentries
+                     WHERE parent_uid IN ${parents} AND ${pastRange} LIMIT ?`;
                 const params = [
                     ...parentParams,
                     SUBTREE_PATTERNS_MAX + 1 - patterns.length,
@@ -3004,16 +2995,16 @@ export class FSEntryStore extends PuterStore {
                         ? await this.clients.db.pread(sql, params)
                         : await this.clients.db.read(sql, params)
                 ) as Array<{
-                    id: number;
-                    parent_id: number;
+                    uuid: string;
+                    parent_uid: string;
                     name: string;
                     is_dir: number | boolean;
                 }>;
-                const dirs = new Map<number, string>();
+                const dirs = new Map<string, string>();
                 for (const row of rows) {
-                    const path = `${parentPaths.get(Number(row.parent_id)) ?? prefix}/${row.name}`;
+                    const path = `${parentPaths.get(row.parent_uid) ?? prefix}/${row.name}`;
                     patterns.push(`${this.#escapeLikePattern(path)}%`);
-                    if (row.is_dir) dirs.set(Number(row.id), path);
+                    if (row.is_dir) dirs.set(row.uuid, path);
                 }
                 if (dirs.size === 0) break;
                 parents = `(${[...dirs.keys()].map(() => '?').join(', ')})`;
@@ -3490,11 +3481,11 @@ export class FSEntryStore extends PuterStore {
                 postgres: '? || SUBSTR(path, ?)',
                 otherwise: 'CONCAT(?, SUBSTR(path, ?))',
             });
-            for (const patterns of await this.#subtreePatterns(
-                oldPath,
-                likePattern,
-                { rootPaths: [oldPath, newPath], primary: true },
-            )) {
+            const groups = await this.#subtreePatterns(oldPath, likePattern, {
+                rootPaths: [oldPath, newPath],
+                primary: true,
+            });
+            for (const patterns of groups) {
                 await this.clients.db.write(
                     `UPDATE fsentries
                      SET path = ${rewrittenPath},
@@ -3503,11 +3494,10 @@ export class FSEntryStore extends PuterStore {
                     [newPath, oldLen + 1, now, userId, ...patterns],
                 );
             }
+            await this.#invalidateRebasedSubtree(oldPath, newPath, groups);
         }
 
-        // Invalidate root cache under both old and new keys; descendants
-        // rely on TTL (60s) to refresh — username rename is rare enough
-        // that a broad subtree invalidation isn't worth the round-trips.
+        // Invalidate root cache under both old and new keys.
         await this.#invalidateEntryCache(root);
         const refreshedRows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
@@ -3523,10 +3513,9 @@ export class FSEntryStore extends PuterStore {
         return refreshed;
     }
 
-    // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`.
-    // Used by move/rename when a directory is relocated. Cache for affected
-    // entries is invalidated coarsely afterwards by the caller. Pass
-    // `newUserId` when the subtree also changes hands.
+    // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`,
+    // and drops their cached copies. Used by move/rename when a directory is
+    // relocated. Pass `newUserId` when the subtree also changes hands.
     async updatePathPrefixForUser(
         userId: number,
         oldPrefix: string,
@@ -3562,11 +3551,11 @@ export class FSEntryStore extends PuterStore {
         // pointing at a path their parent no longer has. `idx_fsentries_path`
         // leads on `path`, so this is the same index range either way.
         let affected = 0;
-        for (const patterns of await this.#subtreePatterns(
-            normalizedOld,
-            likePattern,
-            { rootPaths: [normalizedOld, normalizedNew], primary: true },
-        )) {
+        const groups = await this.#subtreePatterns(normalizedOld, likePattern, {
+            rootPaths: [normalizedOld, normalizedNew],
+            primary: true,
+        });
+        for (const patterns of groups) {
             const result = await this.clients.db.write(
                 `UPDATE fsentries
                  SET path = ${rewrittenPath},
@@ -3583,7 +3572,56 @@ export class FSEntryStore extends PuterStore {
             );
             affected += this.#affectedRows(result);
         }
+        await this.#invalidateRebasedSubtree(
+            normalizedOld,
+            normalizedNew,
+            groups,
+        );
         return affected;
+    }
+
+    /**
+     * Drops every key a subtree just moved from `oldPrefix` to `newPrefix` was
+     * cached under. A stale copy still resolves the old path and reports it by
+     * id and uuid, so a write beneath it lands at a path its parent no longer
+     * has. Reads the moved rows from the primary through the rewrite's own
+     * pattern `groups`, shifted onto the new prefix.
+     */
+    async #invalidateRebasedSubtree(
+        oldPrefix: string,
+        newPrefix: string,
+        groups: string[][],
+    ): Promise<void> {
+        // Escaping is per character, so every pattern starts with this.
+        const escapedOld = this.#escapeLikePattern(oldPrefix);
+        const escapedNew = this.#escapeLikePattern(newPrefix);
+        let remaining = REBASED_INVALIDATION_MAX;
+        for (const group of groups) {
+            const patterns = group.map(
+                (pattern) => escapedNew + pattern.slice(escapedOld.length),
+            );
+            const rows = (await this.clients.db.pread(
+                `SELECT id, uuid, path FROM fsentries WHERE ${this.#pathLikeAny(patterns)} LIMIT ?`,
+                [...patterns, remaining],
+            )) as Array<{ id: number; uuid: string; path: string }>;
+            remaining -= rows.length;
+            const moved = rows.map((row) => ({
+                id: Number(row.id),
+                uuid: row.uuid,
+                path: oldPrefix + String(row.path).slice(newPrefix.length),
+            }));
+            await runWithConcurrencyLimit(
+                this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
+                DEFAULT_DB_CHUNK_CONCURRENCY,
+                (chunk) => this.#invalidateEntriesCache(chunk),
+            );
+            if (remaining <= 0) {
+                console.warn(
+                    `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
+                );
+                return;
+            }
+        }
     }
 
     async deleteEntry(entry: FSEntry): Promise<void> {

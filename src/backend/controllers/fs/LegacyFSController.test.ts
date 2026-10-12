@@ -1882,6 +1882,73 @@ describe('LegacyFSController.move', () => {
         expect(moved!.path).toBe(`/${ownerName}/Trash/note${suffix}.txt`);
     });
 
+    it("neither reports nor announces replacing an owner's Trash entry an overwriting move renamed around", async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Overwrites`;
+        const occupantPath = `/${ownerName}/Trash/note.txt`;
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        for (const path of [`${sharedPath}/note.txt`, occupantPath]) {
+            await withActor(owner.actor, () =>
+                controller.touch(
+                    makeReq({ body: { path }, actor: owner.actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        const occupant =
+            (await server.stores.fsEntry.getEntryByPath(occupantPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: sharedPath,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(sharedPath),
+            },
+            'write',
+        );
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        const { res, captured } = makeRes();
+        let removedOccupant: boolean;
+        try {
+            await withActor(holder.actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: `${sharedPath}/note.txt`,
+                            destination: `/${ownerName}/Trash`,
+                            overwrite: true,
+                        },
+                        actor: holder.actor,
+                    }),
+                    res,
+                ),
+            );
+            removedOccupant = emitSpy.mock.calls.some(
+                ([eventName, data]) =>
+                    eventName === 'outer.gui.item.removed' &&
+                    (data as { response: { uuid?: string } }).response.uuid ===
+                        occupant.uuid,
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(removedOccupant).toBe(false);
+        expect(captured.body).not.toHaveProperty('overwritten');
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(occupant.uuid),
+        ).not.toBeNull();
+    });
+
     it('refuses a share recipient moving an item into their own trash', async () => {
         const owner = await makeUser();
         const holder = await makeUser();

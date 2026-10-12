@@ -953,7 +953,10 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         expect(providerError).toBeInstanceOf(ChatStreamAbortedError);
         // Nobody is listening, so no error line is written for the abort.
         expect(body).not.toContain('"type":"error"');
-        expect(await metering.getOutstandingHolds(actor)).toBe(0);
+        // The hold goes back once the usage write lands.
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
         // What was generated before the hang-up is still charged.
         expect(metered).toHaveBeenCalled();
     });
@@ -984,7 +987,9 @@ describe('stream pump termination', () => {
             model: 'priced', messages: [{ role: 'user', content: 'hi' }], stream: true,
         }), actor) as unknown as { stream: Readable };
         await drain(result.stream);
-        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0);
+        await vi.waitFor(async () =>
+            expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0),
+        );
         expect(warning).toHaveBeenCalledWith('Chat stream cleanup failed:', 'cleanup failed');
     });
 });

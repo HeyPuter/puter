@@ -24,7 +24,7 @@ import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-    withAiCreditHold,
+    withStreamedAiCharge,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
@@ -263,27 +263,25 @@ export class VoiceChangerDriver extends PuterDriver {
         if (search) url.search = search;
 
         const metering = this.#aiMetering;
-        return withAiCreditHold(
+        return withStreamedAiCharge(
             metering,
             actor,
             usageKey,
             estimatedCost,
             async (): Promise<DriverStreamResult> => {
                 const response = await upstreamFetch(
-                    'ElevenLabs',
+                    'elevenlabs',
                     url,
                     {
                         method: 'POST',
                         headers: { 'xi-api-key': elevenlabs.apiKey },
                         body: formData,
                     },
-                    { timeoutMs: CONVERT_TIMEOUT_MS, stream: true },
-                );
-                metering.incrementUsage(
-                    actor,
-                    usageKey,
-                    estimatedSeconds,
-                    estimatedCost,
+                    {
+                        providerLabel: 'ElevenLabs',
+                        timeoutMs: CONVERT_TIMEOUT_MS,
+                        stream: true,
+                    },
                 );
                 return {
                     dataType: 'stream',
@@ -292,6 +290,13 @@ export class VoiceChangerDriver extends PuterDriver {
                     stream: upstreamBodyStream(response),
                 };
             },
+            () =>
+                metering.incrementUsage(
+                    actor,
+                    usageKey,
+                    estimatedSeconds,
+                    estimatedCost,
+                ),
         );
     }
 }

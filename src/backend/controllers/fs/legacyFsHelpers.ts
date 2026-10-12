@@ -564,6 +564,18 @@ export async function findOverwriteTarget(
     );
 }
 
+/**
+ * `target` if the overwriting move kept the name it was looked up by, so took
+ * its place. A move into someone else's Trash renames instead and leaves it.
+ */
+export function replacedByMove(
+    target: FSEntry | null,
+    moved: FSEntry,
+    name: string,
+): FSEntry | null {
+    return target && moved.name === name ? target : null;
+}
+
 export { normalizeAbsolutePath };
 
 // -- Signing ---------------------------------------------------------

@@ -35,6 +35,7 @@ import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
 import { NO_CREDIT_HOLD } from '../services/metering/types.js';
+import type { DriverStreamResult } from './meta.js';
 import type { AiMeteringService } from './util/aiCostFactor.js';
 
 /**
@@ -77,6 +78,15 @@ export const makeMeteringStub = (): AiMeteringService =>
         getRemainingUsage: () => Promise.resolve(Number.MAX_SAFE_INTEGER),
         getReportedCosts: () => [],
     }) as unknown as AiMeteringService;
+
+/** Reads a driver's stream result to its end, as the response pipe would. */
+export const readStreamResult = async (result: unknown): Promise<Buffer> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of (result as DriverStreamResult).stream) {
+        chunks.push(Buffer.from(chunk as Uint8Array));
+    }
+    return Buffer.concat(chunks);
+};
 
 /**
  * Run `fn` inside a request-scoped context with `SYSTEM_ACTOR` set, which is

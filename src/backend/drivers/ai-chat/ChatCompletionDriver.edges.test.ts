@@ -252,7 +252,9 @@ describe('ChatCompletionDriver provider registration', () => {
         expect((await driver.models()).length).toBeGreaterThan(0);
     });
 
-    it('reports per-model cost lines for every registered provider', () => {
+    it('reports per-model cost lines for every registered provider', async () => {
+        // The catalog loads in the background; this waits for it.
+        await fullDriver.models();
         const rows = fullDriver.getReportedCosts() as Array<{
             usageType: string;
             ucentsPerUnit: number;

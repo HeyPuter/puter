@@ -52,17 +52,20 @@ export const decodeCursor = (
     if (typeof cursor === 'object') return cursor;
     const trimmed = cursor.trim();
     if (trimmed === '') return undefined;
+    let parsed: Record<string, unknown> | null;
     try {
-        return JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
+        parsed = JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
     } catch {
         try {
-            return JSON.parse(trimmed);
+            parsed = JSON.parse(trimmed);
         } catch {
             throw new HttpError(400, `invalid ${label}`, {
                 legacyCode: 'bad_request',
             });
         }
     }
+    // A client that stringifies a null cursor sends `cursor=null`.
+    return parsed ?? undefined;
 };
 
 // -- Sealed cursors ---------------------------------------------------

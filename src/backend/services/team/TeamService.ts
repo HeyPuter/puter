@@ -997,6 +997,13 @@ export class TeamService extends PuterService {
             },
             this.config.default_user_group,
         );
+        // provisionUser only logs a failed home; a seat without one is unusable.
+        if (!user.trash_uuid) {
+            await this.services.userAccount.cascadeDelete(user.id);
+            throw new HttpError(500, 'Could not create the account', {
+                legacyCode: 'internal_error',
+            });
+        }
 
         // Otherwise a vanished team leaves a real account nobody owns.
         const admitted = await this.stores.team.addMember(teamUid, user.id, {

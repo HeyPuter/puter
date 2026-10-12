@@ -542,9 +542,12 @@ describe('XAISpeechToTextProvider metering', () => {
         );
 
         expect(heldDuringCall).toBe(UCENTS_PER_SECOND * 2);
-        expect(
-            await server.stores.creditHold.outstanding(actor.user.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user.uuid),
+            ).toBe(0),
+        );
     });
 
     it('meters ceil(duration) seconds × per-second ucents using the API duration', async () => {
@@ -676,7 +679,7 @@ describe('XAISpeechToTextProvider error paths', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('tags upstream errors with the original status', async () => {
+    it('tags upstream errors with provider=xai and the original status', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
             new Response('boom', { status: 502 }),
@@ -691,7 +694,7 @@ describe('XAISpeechToTextProvider error paths', () => {
                 actor,
             ),
         ).toMatchObject({
-            fields: { upstreamStatus: 502 },
+            fields: { provider: 'xai', upstreamStatus: 502 },
         });
     });
 

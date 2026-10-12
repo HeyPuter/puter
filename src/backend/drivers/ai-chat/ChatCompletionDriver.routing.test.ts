@@ -30,6 +30,7 @@
 
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -151,15 +152,15 @@ const OPENROUTER_CATALOG = [
     created: 1_700_000_000,
 }));
 
+const catalogResponse = ({ url }: { url: string }) => ({
+    data: {
+        data: url.includes('openrouter') ? OPENROUTER_CATALOG : GATEWAY_CATALOG,
+    },
+});
+
 beforeAll(async () => {
     server = await setupTestServer();
-    axiosRequestMock.mockImplementation(({ url }: { url: string }) => ({
-        data: {
-            data: url.includes('openrouter')
-                ? OPENROUTER_CATALOG
-                : GATEWAY_CATALOG,
-        },
-    }));
+    axiosRequestMock.mockImplementation(catalogResponse);
 
     // Built once, not per-test: `#buildModelMap` mutates the catalogs
     // providers hand back (lowercasing ids, pushing `puterId` onto the
@@ -220,6 +221,13 @@ const attemptsFor = async (
         }
     ).fields.attempts;
 };
+
+// Shaped like the Stainless SDKs' connection error: no status, only the class.
+class APIConnectionError extends Error {
+    constructor() {
+        super('Connection error.');
+    }
+}
 
 describe('ChatCompletionDriver gemini routing', () => {
     it('serves gemini models from Google, with the gateway only as fallback', async () => {
@@ -303,6 +311,147 @@ describe('ChatCompletionDriver hands providers their own catalog entry', () => {
 
         expect(catalog).not.toHaveBeenCalled();
         catalog.mockRestore();
+    });
+});
+
+describe('ChatCompletionDriver while a gateway catalog is loading', () => {
+    const SLOW_GATEWAY = 'https://slow-gateway.test/v1';
+
+    /** Hold the slow gateway's catalog response until the returned release. */
+    const holdCatalog = () => {
+        let release!: () => void;
+        const held = new Promise((resolve) => {
+            release = () => resolve(catalogResponse({ url: SLOW_GATEWAY }));
+        });
+        axiosRequestMock.mockImplementation((req: { url: string }) =>
+            req.url.startsWith(SLOW_GATEWAY) ? held : catalogResponse(req),
+        );
+        return release;
+    };
+
+    afterEach(() => {
+        axiosRequestMock.mockImplementation(catalogResponse);
+    });
+
+    /** A driver with Infron behind the slow gateway, started as boot would. */
+    const startSlowDriver = (providers: Record<string, unknown> = {}) => {
+        const slowDriver = new ChatCompletionDriver(
+            {
+                providers: {
+                    ...providers,
+                    infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        slowDriver.onServerStart();
+        return slowDriver;
+    };
+
+    const answerOnce = () =>
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+    const ask = (
+        slowDriver: ChatCompletionDriver,
+        args: { model: string; provider?: string },
+    ) =>
+        withTestActor(() =>
+            slowDriver.complete({
+                ...args,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+    // A request is read off the socket only after catalogs that need no
+    // fetch have landed.
+    const nextRequestTurn = () =>
+        new Promise<void>((resolve) => setImmediate(resolve));
+
+    it('serves a gateway model requested before its catalog arrives', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver();
+        answerOnce();
+
+        const reply = ask(slowDriver, { model: 'qwen/qwq-max' });
+        releaseCatalog();
+
+        await expect(reply).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('Qwen/QwQ-Max');
+        slowDriver.onServerShutdown();
+    });
+
+    it('serves a direct model without waiting for a gateway catalog', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver({
+            deepseek: { apiKey: 'test-key' },
+        });
+        try {
+            await nextRequestTurn();
+            answerOnce();
+
+            await expect(
+                ask(slowDriver, { model: 'deepseek-v4-pro' }),
+            ).resolves.toMatchObject({ message: { content: 'hi' } });
+            expect(createMock.mock.calls.at(-1)![0].model).toBe(
+                'deepseek-v4-pro',
+            );
+        } finally {
+            releaseCatalog();
+            slowDriver.onServerShutdown();
+        }
+    });
+
+    it('waits for the gateway a request names, even when a direct route is loaded', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver({
+            deepseek: { apiKey: 'test-key' },
+        });
+        await nextRequestTurn();
+        answerOnce();
+
+        const reply = ask(slowDriver, {
+            model: 'deepseek-v4-pro',
+            provider: 'infron',
+        });
+        releaseCatalog();
+
+        await expect(reply).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe(
+            'deepseek/deepseek-v4-pro',
+        );
+        slowDriver.onServerShutdown();
+    });
+
+    it('lets the drivers started after it register without waiting for the catalog', async () => {
+        const releaseCatalog = holdCatalog();
+        let booted: PuterServer | undefined;
+        try {
+            booted = await setupTestServer({
+                providers: {
+                    infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
+                    elevenlabs: { apiKey: 'test-key' },
+                },
+            } as never);
+            expect(await booted.drivers.aiTts.list()).toContain('elevenlabs');
+        } finally {
+            releaseCatalog();
+            await booted?.shutdown();
+        }
     });
 });
 
@@ -562,6 +711,47 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         await complete();
         expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
     });
+
+    describe('how long a failed route stays marked', () => {
+        let start: number;
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            start = Date.now();
+        });
+        afterEach(() => vi.useRealTimers());
+
+        const markedAfter = (seconds: number) => {
+            vi.setSystemTime(start + seconds * 1000);
+            return isRouteUnhealthy('deepseek', 'deepseek-v4-pro');
+        };
+
+        it.each([
+            [
+                'an upstream 5xx',
+                Object.assign(new Error('bad gateway'), { status: 502 }),
+            ],
+            [
+                'a rate limit',
+                Object.assign(new Error('slow down'), { status: 429 }),
+            ],
+            ['a dropped connection', new APIConnectionError()],
+        ])('a minute after %s', async (_kind, err) => {
+            await attemptsFor('deepseek-v4-pro', err);
+
+            expect(markedAfter(59)).toBe(true);
+            expect(markedAfter(61)).toBe(false);
+        });
+
+        it('ten minutes after bad credentials', async () => {
+            await attemptsFor(
+                'deepseek-v4-pro',
+                Object.assign(new Error('invalid api key'), { status: 401 }),
+            );
+
+            expect(markedAfter(61)).toBe(true);
+            expect(markedAfter(10 * 60 + 1)).toBe(false);
+        });
+    });
 });
 
 // A transport timeout carries no status, so the classifier used to lump a
@@ -601,6 +791,48 @@ describe('ChatCompletionDriver timeout classification across the chain', () => {
     it('counts a timed-out route as an upstream signal, so a mixed chain is not a 500', async () => {
         createMock
             .mockRejectedValueOnce(new APIConnectionTimeoutError())
+            .mockRejectedValue(new Error('upstream down'));
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+        });
+    });
+});
+
+// A dropped connection carries no status either; it is the provider's outage,
+// not our bug.
+describe('ChatCompletionDriver connection-failure classification across the chain', () => {
+    const completeShared = async () => {
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } catch (e) {
+            return e as HttpError;
+        }
+        return undefined;
+    };
+
+    it('returns 400 upstream_provider_unavailable when every route lost its connection', async () => {
+        createMock.mockRejectedValue(new APIConnectionError());
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+    });
+
+    it('counts a dropped connection as an upstream signal, so a mixed chain is not a 500', async () => {
+        createMock
+            .mockRejectedValueOnce(new APIConnectionError())
             .mockRejectedValue(new Error('upstream down'));
 
         const err = await completeShared();

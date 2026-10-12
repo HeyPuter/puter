@@ -44,10 +44,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
@@ -698,6 +700,228 @@ describe('OpenRouterProvider.complete non-stream output', () => {
         });
         expect(overrides.prompt).toBe(90 * 1000);
         expect(overrides.completion).toBe(50 * 3000);
+    });
+});
+
+describe('OpenRouterProvider billed cost through the driver', () => {
+    const makeDriver = async () => {
+        const driver = new ChatCompletionDriver(
+            {
+                providers: {
+                    openrouter: { apiKey: 'test-key' },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        await driver.onServerStart();
+        return driver;
+    };
+
+    /** Applies `factor` to every AI cost, as the hosted deployment does. */
+    const withCostFactor = (factor: number) => {
+        const listener = (_key: string, event: { factor: number }) => {
+            event.factor = factor;
+        };
+        server.clients.event.on('ai.cost.factor.*', listener as never);
+        return () => server.clients.event.off('ai.cost.factor.*', listener as never);
+    };
+
+    /** µ¢ the ledger was handed for every usage recorded so far. */
+    const ledgerTotal = (spy: MockInstance<MeteringService['batchIncrementUsages']>) =>
+        spy.mock.calls
+            .flatMap(([, usages]) => usages)
+            .reduce((total, usage) => total + (usage.costOverride ?? 0), 0);
+
+    it('reports a billed completion to cost listeners split at the catalog rates', async () => {
+        const driver = await makeDriver();
+        const costEvents: Record<string, unknown>[] = [];
+        vi.spyOn(server.clients.event, 'emit').mockImplementation(
+            (key, data) => {
+                if (key === 'ai.prompt.cost-calculated') {
+                    costEvents.push(data as Record<string, unknown>);
+                }
+            },
+        );
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 50,
+                prompt_tokens_details: { cached_tokens: 10 },
+                cost: 0.0001,
+            },
+        });
+
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } finally {
+            driver.onServerShutdown();
+        }
+
+        // At 1000/3000 µ¢ per prompt/completion token the 10,000 µ¢ bill
+        // divides 90k + 10k (cached reads at the prompt rate) : 150k.
+        expect(costEvents).toHaveLength(1);
+        expect(costEvents[0]).toMatchObject({
+            input_tokens: 90,
+            output_tokens: 50,
+            input_ucents: 4000,
+            output_ucents: 6000,
+            total_ucents: 10_000,
+        });
+    });
+
+    it('reports what a billed completion was charged, after the cost factor', async () => {
+        const driver = await makeDriver();
+        const stopFactor = withCostFactor(1.6);
+        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0001 },
+        });
+
+        let result: { usage: Record<string, number> };
+        try {
+            result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            )) as typeof result;
+            await vi.waitFor(() => expect(recorded).toHaveBeenCalled());
+        } finally {
+            stopFactor();
+            driver.onServerShutdown();
+        }
+
+        expect(ledgerTotal(recorded)).toBe(16_000);
+        expect(result.usage.cost).toBe(16_000);
+        // The upstream's own price stays where it was.
+        expect(result.usage.usd_cents).toBe(0.01);
+    });
+
+    it("keeps a completion's credit hold until its usage is recorded", async () => {
+        const driver = await makeDriver();
+        const actor = makeActor({
+            user: {
+                id: 94,
+                uuid: `openrouter-hold-${Date.now()}`,
+                username: 'openrouter-hold',
+            },
+        });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1e12, held: 0 });
+        // The gate looks the factor up first; hold back the recording's lookup.
+        let lookups = 0;
+        let landRecording = () => {};
+        const recordingHeld = new Promise<void>((resolve) => {
+            landRecording = resolve;
+        });
+        const slowFactor = async (_key: string, event: { factor: number }) => {
+            if (++lookups === 2) await recordingHeld;
+            event.factor = 1.6;
+        };
+        server.clients.event.on('ai.cost.factor.*', slowFactor as never);
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0001 },
+        });
+
+        try {
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'openrouter:openai/gpt-6-luna',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                actor,
+            );
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBeGreaterThan(0);
+
+            landRecording();
+            await vi.waitFor(async () =>
+                expect(
+                    await server.stores.creditHold.outstanding(
+                        actor.user!.uuid,
+                    ),
+                ).toBe(0),
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', slowFactor as never);
+            driver.onServerShutdown();
+        }
+    });
+
+    it('ends a stream with what it was charged at the catalog rates, after the cost factor', async () => {
+        const driver = await makeDriver();
+        const stopFactor = withCostFactor(1.6);
+        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'hello' } }] },
+                {
+                    choices: [{ delta: {} }],
+                    usage: {
+                        prompt_tokens: 100,
+                        completion_tokens: 50,
+                        prompt_tokens_details: { cached_tokens: 10 },
+                    },
+                },
+            ]),
+        );
+
+        let usageLine: { usage: Record<string, number> } | undefined;
+        try {
+            const result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                }),
+            )) as unknown as { stream: AsyncIterable<Buffer> };
+            const chunks: Buffer[] = [];
+            for await (const chunk of result.stream) chunks.push(chunk);
+            usageLine = Buffer.concat(chunks)
+                .toString('utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line))
+                .find((line) => line.type === 'usage');
+            await vi.waitFor(() => expect(recorded).toHaveBeenCalled());
+        } finally {
+            stopFactor();
+            driver.onServerShutdown();
+        }
+
+        // 90·1000 + 50·3000 + 10·1000 (cached reads at the prompt rate), ×1.6.
+        expect(ledgerTotal(recorded)).toBe(400_000);
+        expect(usageLine?.usage.cost).toBe(400_000);
     });
 });
 

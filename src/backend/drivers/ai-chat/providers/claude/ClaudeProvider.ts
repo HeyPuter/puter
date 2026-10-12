@@ -69,7 +69,7 @@ import {
 } from './anthropicPolicy.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
-import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { sdkClientOptions, sdkRetryOptions } from '../../utils/sdkClient.js';
 
 /**
  * Canonical media part → Anthropic block: `url` source for links, `base64`
@@ -532,11 +532,15 @@ export class ClaudeProvider implements IChatProvider {
             const value = (sdkParams as any)[key];
             if (value !== undefined) picked[key] = value;
         }
-        const result = await this.anthropic.beta.messages.countTokens({
-            ...picked,
-            ...(betas.length ? { betas } : {}),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any);
+        // No other route serves a token count, so the SDK's retries stay on.
+        const result = await this.anthropic.beta.messages.countTokens(
+            {
+                ...picked,
+                ...(betas.length ? { betas } : {}),
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
+            sdkRetryOptions,
+        );
         return result.input_tokens;
     }
 

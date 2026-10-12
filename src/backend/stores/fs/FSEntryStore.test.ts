@@ -386,6 +386,56 @@ describe('FSEntryStore cache invalidation', () => {
         );
     });
 
+    it('drops every key of each descendant a prefix rewrite moves, here and in peer regions', async () => {
+        const user = await makeUser();
+        const oldDir = `${user.home}/Documents/pr-old`;
+        const newDir = `${user.home}/Documents/pr-new`;
+        await store.ensureDirectoriesForUserWithCreated(user.userId, [
+            { path: `${oldDir}/inner`, createPaths: true },
+        ]);
+        const dir = (await store.getEntryByPath(oldDir))!;
+        const inner = (await store.getEntryByPath(`${oldDir}/inner`))!;
+        const file = await createFile(user, `${oldDir}/inner/f.txt`);
+        await store.getEntryByUuid(file.uuid);
+
+        // The order FSService renames in: the directory, then what's below.
+        await store.updateEntry(dir.uuid, { name: 'pr-new', path: newDir });
+        const updates = await captureCacheUpdates(() =>
+            store.updatePathPrefixForUser(user.userId, oldDir, newDir),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining([
+                ...entryCacheKeys(inner),
+                ...entryCacheKeys(file),
+            ]),
+        );
+        await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
+        await expect(
+            store.getEntryByPath(`${oldDir}/inner`),
+        ).resolves.toBeNull();
+        expect((await store.getEntryByUuid(file.uuid))?.path).toBe(
+            `${newDir}/inner/f.txt`,
+        );
+        expect((await store.getEntryById(inner.id))?.path).toBe(
+            `${newDir}/inner`,
+        );
+    });
+
+    it('drops the old keys of the descendants of a renamed home', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/hr.txt`);
+        await store.getEntryByUuid(file.uuid);
+        const newName = `${user.username}-hr`;
+
+        await store.renameUserHome(user.userId, newName);
+
+        await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
+        expect((await store.getEntryByUuid(file.uuid))?.path).toBe(
+            `/${newName}/Documents/hr.txt`,
+        );
+    });
+
     it('tells peer regions to drop an overwritten file', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/po.txt`);
@@ -2075,34 +2125,6 @@ describe('FSEntryStore subtrees under names starting with a supplementary charac
         expect(found.map((entry) => entry.path)).toEqual([expected[2]]);
     });
 
-    it('walks the whole subtree page by page in both orders', async () => {
-        const user = await makeUser();
-        const parent = `${user.home}/Documents/emoji-walk`;
-        await seed(user, parent);
-        const walk = async (order: 'asc' | 'desc') => {
-            const seen: string[] = [];
-            let after: FSEntry | undefined;
-            for (;;) {
-                const page = await store.listDescendantsInOrder(parent, {
-                    order,
-                    limit: 1,
-                    after,
-                });
-                if (page.length === 0) break;
-                seen.push(...page.map((entry) => entry.path));
-                after = page[page.length - 1];
-            }
-            return seen;
-        };
-        const expected = [
-            `${parent}/🔥 a`,
-            `${parent}/🔥 a/🔥 b`,
-            `${parent}/🔥 a/🔥 b/c.txt`,
-        ];
-        await expect(walk('asc')).resolves.toEqual(expected);
-        await expect(walk('desc')).resolves.toEqual([...expected].reverse());
-    });
-
     it('rewrites every path under a prefix that holds one', async () => {
         const user = await makeUser();
         const parent = `${user.home}/Documents/emoji-rewrite`;
@@ -2122,7 +2144,8 @@ describe('FSEntryStore subtrees under names starting with a supplementary charac
 describe('FSEntryStore subtree patterns on MySQL', () => {
     interface FixtureRow {
         id: number;
-        parent_id: number | null;
+        uuid: string;
+        parent_uid: string | null;
         name: string;
         path: string;
         is_dir: number;
@@ -2172,22 +2195,22 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
             this.lookups.push({ method, params });
             const keys = params.slice(0, -1);
             const limit = Number(params[params.length - 1]);
-            const parentIds = query.includes('WHERE path IN')
+            const parentUids = query.includes('WHERE path IN')
                 ? this.rows
                       .filter((row) => keys.includes(row.path))
-                      .map((row) => row.id)
-                : keys.map(Number);
+                      .map((row) => row.uuid)
+                : keys;
             return this.rows
                 .filter(
                     (row) =>
-                        row.parent_id !== null &&
-                        parentIds.includes(row.parent_id) &&
+                        row.parent_uid !== null &&
+                        parentUids.includes(row.parent_uid) &&
                         row.name.codePointAt(0)! > 0xffff,
                 )
                 .slice(0, limit)
-                .map(({ id, parent_id, name, is_dir }) => ({
-                    id,
-                    parent_id,
+                .map(({ uuid, parent_uid, name, is_dir }) => ({
+                    uuid,
+                    parent_uid,
                     name,
                     is_dir,
                 }));
@@ -2201,7 +2224,8 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
         isDir = true,
     ): FixtureRow => ({
         id,
-        parent_id: parentId,
+        uuid: `uuid-${id}`,
+        parent_uid: parentId === null ? null : `uuid-${parentId}`,
         name: path.slice(path.lastIndexOf('/') + 1),
         path,
         is_dir: isDir ? 1 : 0,
@@ -2247,48 +2271,9 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
         // one below that.
         expect(db.lookups.map((lookup) => lookup.params.slice(0, -1))).toEqual([
             ['/u/tree'],
-            [2],
-            [3],
+            ['uuid-2'],
+            ['uuid-3'],
         ]);
-    });
-
-    it('pages a walk over the missed children too', async () => {
-        const { db, store: mysqlStore } = storeOver(tree);
-
-        await mysqlStore.listDescendantsInOrder('/u/tree', {
-            order: 'desc',
-            limit: 10,
-        });
-
-        expect(db.statements).toHaveLength(1);
-        expect(db.statements[0]!.params.slice(0, 4)).toEqual([
-            '/u/tree/%',
-            '/u/tree/🔥 a%',
-            '/u/tree/😀 50!%!_off!!.png%',
-            '/u/tree/🔥 a/🔥 b%',
-        ]);
-    });
-
-    it('pages every pattern group with the same seek', async () => {
-        const crowded = [
-            row(1, null, '/u/tree'),
-            ...Array.from({ length: 501 }, (_, i) =>
-                row(10 + i, 1, `/u/tree/🔥 ${i}`, false),
-            ),
-        ];
-        const { db, store: mysqlStore } = storeOver(crowded);
-
-        await mysqlStore.listDescendantsInOrder('/u/tree', {
-            order: 'asc',
-            limit: 5,
-            after: { id: 3, path: '/u/tree/x' } as FSEntry,
-        });
-
-        expect(db.statements).toHaveLength(2);
-        for (const statement of db.statements) {
-            // Seek (depth, depth, id) and limit close every group's params.
-            expect(statement.params.slice(-4)).toEqual([3, 3, 3, 5]);
-        }
     });
 
     it('looks for the moved root at both paths and reads the primary when rewriting', async () => {
@@ -2303,12 +2288,21 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
             method: 'pread',
             params: ['/u/tree', '/u/renamed', expect.any(Number)],
         });
-        expect(db.statements).toHaveLength(1);
+        expect(db.statements).toHaveLength(2);
         expect(db.statements[0]!.params.slice(-4)).toEqual([
             '/u/tree/%',
             '/u/tree/🔥 a%',
             '/u/tree/😀 50!%!_off!!.png%',
             '/u/tree/🔥 a/🔥 b%',
+        ]);
+        // Then the moved rows, for their cache keys, by the same patterns
+        // under the new prefix.
+        expect(db.statements[1]!.method).toBe('pread');
+        expect(db.statements[1]!.params.slice(0, -1)).toEqual([
+            '/u/renamed/%',
+            '/u/renamed/🔥 a%',
+            '/u/renamed/😀 50!%!_off!!.png%',
+            '/u/renamed/🔥 a/🔥 b%',
         ]);
     });
 
@@ -2323,14 +2317,16 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
 
         await mysqlStore.updatePathPrefixForUser(1, '/u/tree', '/u/renamed');
 
-        const patternsPer = db.statements.map(
-            (statement) =>
-                statement.params.filter(
-                    (param) =>
-                        typeof param === 'string' &&
-                        param.startsWith('/u/tree/'),
-                ).length,
-        );
+        const patternsPer = db.statements
+            .filter((statement) => statement.method === 'write')
+            .map(
+                (statement) =>
+                    statement.params.filter(
+                        (param) =>
+                            typeof param === 'string' &&
+                            param.startsWith('/u/tree/'),
+                    ).length,
+            );
         expect(patternsPer).toEqual([500, 500, 201]);
 
         db.statements.length = 0;
@@ -2921,9 +2917,9 @@ describe('FSEntryStore subtree walks', () => {
     });
 
     it('probes for children without listing them', async () => {
-        await expect(store.hasChildren(root.id)).resolves.toBe(true);
+        await expect(store.hasChildren(root)).resolves.toBe(true);
         const empty = await store.getEntryByPath(`${root.path}/empty`);
-        await expect(store.hasChildren(empty!.id)).resolves.toBe(false);
+        await expect(store.hasChildren(empty!)).resolves.toBe(false);
     });
 
     it('sees a child whose name starts outside the BMP', async () => {
@@ -2933,78 +2929,62 @@ describe('FSEntryStore subtree walks', () => {
             kind: 'directory',
         });
         await createFile(user, `${holder.path}/🔥 notes.txt`);
-        await expect(store.hasChildren(holder.id)).resolves.toBe(true);
+        await expect(store.hasChildren(holder)).resolves.toBe(true);
     });
 
-    const walk = async (order: 'asc' | 'desc', limit: number) => {
+    /** Every entry under `top`, `limit` children at a time, a level per pass. */
+    const walk = async (top: FSEntry, limit: number) => {
         const seen: FSEntry[] = [];
-        let after: FSEntry | undefined;
-        for (;;) {
-            const page = await store.listDescendantsInOrder(root.path, {
-                order,
-                limit,
-                after,
-            });
-            seen.push(...page);
-            if (page.length < limit) return seen;
-            after = page[page.length - 1];
+        for (let level = [top]; level.length > 0; ) {
+            const next: FSEntry[] = [];
+            let after: FSEntry | undefined;
+            for (;;) {
+                const page = await store.listChildrenOfParents(level, {
+                    limit,
+                    after,
+                });
+                seen.push(...page);
+                next.push(...page.filter((entry) => entry.isDir));
+                if (page.length < limit) break;
+                after = page[page.length - 1];
+            }
+            level = next;
         }
+        return seen;
     };
 
-    it('pages a subtree with parents before children, or children first', async () => {
+    it('pages the children of several directories, each once', async () => {
         const all = await store.listDescendantsByPath(root.path);
-        const down = await walk('asc', 2);
-        const up = await walk('desc', 2);
+        const seen = await walk(root, 2);
 
         const paths = (entries: FSEntry[]) => entries.map((e) => e.path);
-        expect([...paths(down)].sort()).toEqual([...paths(all)].sort());
-        expect(new Set(paths(down)).size).toBe(all.length);
-        expect(paths(up)).toEqual([...paths(down)].reverse());
-
-        // Shallowest first, whatever the names sort as.
-        const depths = down.map((e) => e.path.split('/').length);
-        expect(depths).toEqual([...depths].sort((a, b) => a - b));
-
-        // Each directory comes before everything under it on the way down.
-        const position = new Map(down.map((e, i) => [e.path, i]));
-        for (const entry of down) {
+        expect([...paths(seen)].sort()).toEqual([...paths(all)].sort());
+        expect(new Set(paths(seen)).size).toBe(all.length);
+        // Each directory comes before everything under it.
+        const position = new Map(seen.map((e, i) => [e.path, i]));
+        for (const entry of seen) {
             const parent = position.get(entry.path.replace(/\/[^/]+$/, ''));
             if (parent !== undefined)
                 expect(parent).toBeLessThan(position.get(entry.path)!);
         }
     });
 
-    it('lets a bottom-up delete go page by page without orphaning rows', async () => {
-        const doomed = await store.createNonFileEntry({
+    it('gives a child stored without a path the one its parent implies', async () => {
+        const holder = await store.createNonFileEntry({
             parent: documents,
-            name: 'walk-delete',
+            name: 'walk-legacy',
             kind: 'directory',
         });
-        const inner = await store.createNonFileEntry({
-            parent: doomed,
-            name: 'inner',
-            kind: 'directory',
+        const file = await createFile(user, `${holder.path}/old.txt`);
+        await blankPath(file.uuid);
+
+        const [child] = await store.listChildrenOfParents([holder], {
+            limit: 10,
         });
-        await createFile(user, `${inner.path}/x.txt`);
-        await createFile(user, `${inner.path}/y.txt`);
-        await createFile(user, `${doomed.path}/z.txt`);
 
-        const deleted: string[] = [];
-        let after: FSEntry | undefined;
-        for (;;) {
-            const page = await store.listDescendantsInOrder(doomed.path, {
-                order: 'desc',
-                limit: 2,
-                after,
-            });
-            if (page.length === 0) break;
-            await store.deleteEntries(page);
-            deleted.push(...page.map((e) => e.name));
-            if (page.length < 2) break;
-            after = page[page.length - 1];
-        }
-
-        expect(deleted.sort()).toEqual(['inner', 'x.txt', 'y.txt', 'z.txt']);
-        await expect(store.hasChildren(doomed.id)).resolves.toBe(false);
+        expect(child).toMatchObject({
+            uuid: file.uuid,
+            path: `${holder.path}/old.txt`,
+        });
     });
 });

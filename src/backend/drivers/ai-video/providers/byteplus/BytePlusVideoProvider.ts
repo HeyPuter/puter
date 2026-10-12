@@ -392,7 +392,11 @@ export class BytePlusVideoProvider extends VideoProvider {
                     payload.error?.message ??
                         `BytePlus video API error (status ${response.status})`,
                 ),
-                { status: response.status, code: payload.error?.code },
+                {
+                    status: response.status,
+                    code: payload.error?.code,
+                    provider: 'byteplus',
+                },
             );
         }
         return payload;

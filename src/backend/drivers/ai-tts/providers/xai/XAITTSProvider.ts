@@ -150,7 +150,7 @@ export class XAITTSProvider implements ITTSProvider {
             text,
             async () => {
                 const response = await upstreamFetch(
-                    'xAI TTS',
+                    'xai',
                     `${API_BASE}/tts`,
                     {
                         method: 'POST',
@@ -160,7 +160,11 @@ export class XAITTSProvider implements ITTSProvider {
                         },
                         body: JSON.stringify(body),
                     },
-                    { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS, stream: true },
+                    {
+                        providerLabel: 'xAI TTS',
+                        timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
+                        stream: true,
+                    },
                 );
                 return {
                     dataType: 'stream',

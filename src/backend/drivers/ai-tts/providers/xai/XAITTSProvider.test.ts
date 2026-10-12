@@ -44,7 +44,11 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { callerError, withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { XAITTSProvider } from './XAITTSProvider.js';
 import { XAI_TTS_COSTS } from './costs.js';
 
@@ -308,7 +312,9 @@ describe('XAITTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello world';
-        await withTestActor(() => provider.synthesize({ text }));
+        await readStreamResult(
+            await withTestActor(() => provider.synthesize({ text })),
+        );
 
         const expectedCost = XAI_TTS_COSTS['xai-tts'] * text.length;
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
@@ -361,6 +367,22 @@ describe('XAITTSProvider.synthesize error paths', () => {
             legacyCode: 'upstream_provider_unavailable',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('names xAI in the fields of an upstream auth failure', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('{"error":"Invalid API key"}', { status: 401 }),
+        );
+
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+            message: 'Invalid API key',
+            fields: { provider: 'xai', upstreamStatus: 401 },
+        });
     });
 
     it('maps upstream 429 to HttpError 429 upstream_rate_limited', async () => {

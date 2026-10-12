@@ -99,6 +99,7 @@ import {
     getString,
     type GuiItemEventName,
     loadLegacyAssociatedApps,
+    replacedByMove,
     resolveV1Selector,
     signEntry,
     signingConfigFromAppConfig,
@@ -888,16 +889,17 @@ export class LegacyFSController extends PuterController {
         // (`overwritten`) so clients can drop its stale row/icon. The move
         // deletes that entry, so resolve it beforehand.
         const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
-        let overwrittenEntry = null;
+        const name = getString(body, 'new_name') ?? source.name;
+        let overwriteTarget = null;
         if (overwriteRequested) {
             const existing = await findOverwriteTarget(
                 this.stores.fsEntry,
                 destinationParent,
-                getString(body, 'new_name') ?? source.name,
+                name,
             );
             // Moving an entry onto its own path is not an overwrite.
             if (existing && existing.uuid !== source.uuid) {
-                overwrittenEntry = existing;
+                overwriteTarget = existing;
             }
         }
 
@@ -914,6 +916,7 @@ export class LegacyFSController extends PuterController {
             newMetadata: (body.new_metadata ?? undefined) as
                 Record<string, unknown> | null | undefined,
         });
+        const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
         // Announcing the replaced entry's removal keeps other clients from
         // showing a ghost row for it until the directory is re-listed.

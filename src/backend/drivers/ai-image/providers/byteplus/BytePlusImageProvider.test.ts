@@ -228,9 +228,12 @@ describe('BytePlusImageProvider.generate gates', () => {
         expect(heldDuringCall).toBe(
             findModel('seedream-4-0-250828').costs['per-image'] * 1_000_000,
         );
-        expect(
-            await server.stores.creditHold.outstanding(actor.user!.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 });
 

@@ -60,6 +60,7 @@ import type {
     IChatProvider,
     ICompleteArguments,
 } from './types.js';
+import { clearUnhealthyRoutes } from './utils/providerHealth.js';
 import type { AIChatStream } from './utils/Streaming.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -152,7 +153,9 @@ describe('ChatCompletionDriver model catalog', () => {
         expect(ids).toEqual(['abuse', 'costly', 'fake']);
     });
 
-    it('getReportedCosts() emits one entry per (model, cost-key) pair and skips zero rates and the `tokens` scale descriptor', () => {
+    it('getReportedCosts() emits one entry per (model, cost-key) pair and skips zero rates and the `tokens` scale descriptor', async () => {
+        // The catalog loads in the background; this waits for it.
+        await driver.models();
         const reported = driver.getReportedCosts();
         // `fake` and `abuse` have 0-cost keys → skipped (not finite > 0
         // alone; the impl skips non-finite, and the cost map filters
@@ -201,9 +204,9 @@ describe('ChatCompletionDriver model map', () => {
         d.onServerShutdown();
     });
 
-    it('is built by the time onServerStart resolves', async () => {
+    it('lists the catalog to a caller that asks while it is still loading', async () => {
         const d = newDriver({ ollama: { enabled: false } });
-        await d.onServerStart();
+        d.onServerStart();
         expect((await d.models()).length).toBeGreaterThan(0);
         d.onServerShutdown();
     });
@@ -266,6 +269,7 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         expect('usage' in result && result.usage).toMatchObject({
             input_tokens: 0,
             output_tokens: 1,
+            cost: 0,
         });
     });
 
@@ -1715,6 +1719,74 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
             .fields.attempts;
         expect(attempts).toHaveLength(1);
         expect(attempts[0].timedOut).toBe(true);
+    });
+
+    it("returns HTTP 400 upstream_provider_unavailable when the only route's connection resets", async () => {
+        // The reset happens under the real OpenAI SDK DeepSeek is built on.
+        const realFetch = globalThis.fetch;
+        let deepseekCalls = 0;
+        vi.stubGlobal(
+            'fetch',
+            async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = String(
+                    input instanceof Request ? input.url : input,
+                );
+                if (!url.includes('api.deepseek.com')) {
+                    return realFetch(input, init);
+                }
+                deepseekCalls++;
+                throw new TypeError('fetch failed', {
+                    cause: Object.assign(new Error('read ECONNRESET'), {
+                        code: 'ECONNRESET',
+                    }),
+                });
+            },
+        );
+        try {
+            // Built after the stub: the SDK picks up `fetch` when constructed.
+            const d = new ChatCompletionDriver(
+                {
+                    providers: {
+                        deepseek: { apiKey: 'test-key' },
+                        ollama: { enabled: false },
+                    },
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            await d.onServerStart();
+
+            let caught: HttpError | undefined;
+            try {
+                await withTestActor(() =>
+                    d.complete({
+                        model: 'deepseek-flash',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                );
+            } catch (e) {
+                caught = e as HttpError;
+            }
+
+            expect(caught).toBeInstanceOf(HttpError);
+            expect(caught).toMatchObject({
+                statusCode: 400,
+                legacyCode: 'upstream_provider_unavailable',
+            });
+            const attempts = (
+                caught as unknown as {
+                    fields: { attempts: { connectionFailed?: boolean }[] };
+                }
+            ).fields.attempts;
+            expect(attempts).toHaveLength(1);
+            expect(attempts[0].connectionFailed).toBe(true);
+            // The driver's fallback chain owns retries, not the SDK.
+            expect(deepseekCalls).toBe(1);
+        } finally {
+            vi.unstubAllGlobals();
+            clearUnhealthyRoutes();
+        }
     });
 
     it('returns HTTP 500 with the failure history in `fields.attempts` when all providers fail', async () => {

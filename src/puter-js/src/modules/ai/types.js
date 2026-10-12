@@ -161,6 +161,8 @@
  * @property {string | null} [stopSequence] The stop sequence that ended generation, when one did.
  * @property {Record<string, unknown> | null} [stopDetails] Extra detail on why generation stopped
  * (e.g. a refusal classification). Provider-specific.
+ * @property {Record<string, number>} [usage] Token counts under provider-specific keys, plus `cost`:
+ * what the request was charged, in microcents ($0.01 = 1,000,000).
  * @property {UsageDetails} [usageDetails] Provider-neutral usage breakdown — prefer this over `usage`
  * for anything beyond raw billing totals.
  */
@@ -199,7 +201,8 @@
  * `"compaction"` chunks — the same shape regardless of which provider served the request. Resend it in
  * `messages` on the next turn in place of the summarized history.
  * @property {unknown} [extra_content] Provider-specific extra metadata.
- * @property {Record<string, number>} [usage] Token usage totals. Present on the final `"usage"` chunk.
+ * @property {Record<string, number>} [usage] Token usage totals, plus `cost`: what the request was
+ * charged, in microcents ($0.01 = 1,000,000). Present on the final `"usage"` chunk.
  * @property {string} [finish_reason] OpenAI-vocabulary finish reason, derived from `stopReason`.
  * Present on the final `"usage"` chunk.
  * @property {string} [stopReason] The native stop reason. Present on the final `"usage"` chunk.

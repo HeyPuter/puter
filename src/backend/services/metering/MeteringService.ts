@@ -295,8 +295,9 @@ export class MeteringService extends PuterService {
     /**
      * Uuid → an addons record with no purchased credit left, for the increment
      * path. Only a grant changes one, since nothing draws on an empty pool, and
-     * every grant announces `credits-changed`, which drops it. A record with
-     * credit left is always read fresh: other nodes draw it down unannounced.
+     * every grant announces `credits-changed`, which drops it and holds off
+     * caching for the force-exact window. A record with credit left is always
+     * read fresh: other nodes draw it down unannounced.
      */
     #spentAddons = new Map<
         string,
@@ -2186,7 +2187,14 @@ export class MeteringService extends PuterService {
         const creditLeft =
             (addons.purchasedCredits || 0) -
             (addons.consumedPurchaseCredits || 0);
-        if (creditLeft > 0 || drops !== this.#spentAddonsDrops) return addons;
+        // Right after a credits change the store can still return the record
+        // from before it, so nothing is held until that window ends.
+        if (
+            creditLeft > 0 ||
+            drops !== this.#spentAddonsDrops ||
+            this.#isForcingExactReads(uuid)
+        )
+            return addons;
         if (this.#spentAddons.size >= MeteringService.CREDIT_CACHE_LIMIT) {
             const oldest = this.#spentAddons.keys().next().value;
             if (oldest !== undefined) this.#spentAddons.delete(oldest);
