@@ -17,18 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from './FSEntry.js';
 import {
+    groupByPendingUploadSessionPartition,
     isPendingUploadSession,
     normalizePendingUploadSession,
     PENDING_UPLOAD_SESSION_KEY_PREFIX,
+    PENDING_UPLOAD_SESSION_PARTITIONS,
     toPendingUploadSession,
     toPendingUploadSessionExpiresAtSeconds,
     toPendingUploadSessionKey,
+    toPendingUploadSessionPartition,
     withPendingUploadSessionStatus,
 } from './pendingUploadSessionHelpers.js';
 
@@ -66,6 +70,60 @@ describe('toPendingUploadSessionKey', () => {
         expect(toPendingUploadSessionKey('abc')).toBe(
             `${PENDING_UPLOAD_SESSION_KEY_PREFIX}abc`,
         );
+    });
+});
+
+describe('toPendingUploadSessionPartition', () => {
+    it('maps a session id to the same partition every time', () => {
+        // Golden values: a change here strands every live session.
+        expect(toPendingUploadSessionPartition('abc')).toBe(
+            'upload-session-10',
+        );
+        expect(
+            toPendingUploadSessionPartition(
+                '5d4adce0-a381-4982-9c02-6e2540026238',
+            ),
+        ).toBe('upload-session-6');
+    });
+
+    it('spreads session ids across every partition', () => {
+        const seen = new Set(
+            Array.from({ length: 2000 }, () =>
+                toPendingUploadSessionPartition(randomUUID()),
+            ),
+        );
+        expect(seen).toEqual(
+            new Set(
+                Array.from(
+                    { length: PENDING_UPLOAD_SESSION_PARTITIONS },
+                    (_, i) => `upload-session-${i}`,
+                ),
+            ),
+        );
+    });
+});
+
+describe('groupByPendingUploadSessionPartition', () => {
+    it('groups values by their session partition, keeping order within one', () => {
+        const ids = Array.from({ length: 50 }, () => randomUUID());
+        const groups = groupByPendingUploadSessionPartition(
+            ids.map((sessionId) => ({ sessionId })),
+            (value) => value.sessionId,
+        );
+
+        expect(new Set(groups.map(([partition]) => partition)).size).toBe(
+            groups.length,
+        );
+        for (const [partition, values] of groups) {
+            for (const { sessionId } of values) {
+                expect(toPendingUploadSessionPartition(sessionId)).toBe(
+                    partition,
+                );
+            }
+            const order = values.map(({ sessionId }) => ids.indexOf(sessionId));
+            expect(order).toEqual([...order].sort((a, b) => a - b));
+        }
+        expect(groups.flatMap(([, values]) => values)).toHaveLength(ids.length);
     });
 });
 
