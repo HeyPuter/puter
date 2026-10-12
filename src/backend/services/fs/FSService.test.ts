@@ -6954,14 +6954,15 @@ describe('FSService subtree paging', () => {
             const uuid = (data as { node?: FSEntry })?.node?.uuid;
             if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
         };
-        const pages = vi.spyOn(server.stores.fsEntry, 'listDescendantsInOrder');
+        const pages = vi.spyOn(server.stores.fsEntry, 'listChildrenOfParents');
         server.clients.event.on('fs.remove.node', listener);
         try {
             await withPageSize(2, () =>
                 fs.remove(user.userId, { entry: root, recursive: true }),
             );
-            // 9 rows at 2 a page: four full pages and a short one.
-            expect(pages).toHaveBeenCalledTimes(5);
+            // 2 a page: the root's 5 children in three, then `sub` and `empty`
+            // together in two, then `deep` in one.
+            expect(pages).toHaveBeenCalledTimes(6);
             expect(pages.mock.calls.every(([, opts]) => opts.limit === 2)).toBe(
                 true,
             );
@@ -6989,7 +6990,7 @@ describe('FSService subtree paging', () => {
     it('refuses a non-empty directory with one probe, never listing it', async () => {
         const { root } = await makeTree('page-probe');
         const probe = vi.spyOn(server.stores.fsEntry, 'hasChildren');
-        const pages = vi.spyOn(server.stores.fsEntry, 'listDescendantsInOrder');
+        const pages = vi.spyOn(server.stores.fsEntry, 'listChildrenOfParents');
         const listAll = vi.spyOn(
             server.stores.fsEntry,
             'listDescendantsByPath',
@@ -7013,6 +7014,42 @@ describe('FSService subtree paging', () => {
             pages.mockRestore();
             listAll.mockRestore();
         }
+    });
+
+    it('refuses a directory whose only child links to it by uuid alone', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/page-uid-child`,
+        });
+        // The old backend wrote `parent_uid` and never `parent_id`.
+        const childUuid = uuidv4();
+        const now = Math.floor(Date.now() / 1000);
+        await server.clients.db.write(
+            `INSERT INTO fsentries
+             (uuid, user_id, parent_uid, name, path, is_dir, created, modified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                childUuid,
+                user.userId,
+                dir.uuid,
+                'old',
+                `${dir.path}/old`,
+                server.clients.db.booleanValue(true),
+                now,
+                now,
+            ],
+        );
+
+        const error = await caught(() =>
+            fs.remove(user.userId, { entry: dir }),
+        );
+
+        expect(error.statusCode).toBe(409);
+        expect(await entryAt(user, '/Documents/page-uid-child')).not.toBeNull();
+        await expect(
+            server.clients.db.read('SELECT id FROM fsentries WHERE uuid = ?', [
+                childUuid,
+            ]),
+        ).resolves.toHaveLength(1);
     });
 
     it('copies a tree larger than a page, contents and all', async () => {
@@ -7057,5 +7094,136 @@ describe('FSService subtree paging', () => {
             inserts.mockRestore();
             objects.mockRestore();
         }
+    });
+
+    it('walks a page of directories in batches, empty ones and all', async () => {
+        const root = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/page-batches`,
+        });
+        for (const name of ['e1', 'e2', 'e3', 'd1', 'd2']) {
+            await fs.mkdir(user.userId, { path: `${root.path}/${name}` });
+        }
+        await writeFile(user, `${root.path}/d1/x.txt`, 'x');
+        await writeFile(user, `${root.path}/d2/y.txt`, 'y');
+        const descendants = await server.stores.fsEntry.listDescendantsByPath(
+            root.path,
+        );
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        const service = fs.constructor as typeof FSService;
+        const previous = service.SUBTREE_WALK_PARENTS;
+        service.SUBTREE_WALK_PARENTS = 2;
+        const counts = new Map<string, number>();
+        const listener = (_key: string, data: unknown) => {
+            const uuid = (data as { node?: FSEntry })?.node?.uuid;
+            if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
+        };
+        server.clients.event.on('fs.remove.node', listener);
+        try {
+            // [e1, e2] hold nothing; [e3, d1] and [d2] each hold a file.
+            const copy = await fs.copy(user.userId, {
+                source: root,
+                destinationParent: destination,
+                newName: 'page-batches-copy',
+            });
+            const copied = await server.stores.fsEntry.listDescendantsByPath(
+                copy.path,
+            );
+            const relative = (entries: FSEntry[], base: string) =>
+                entries.map((e) => e.path.slice(base.length)).sort();
+            expect(relative(copied, copy.path)).toEqual(
+                relative(descendants, root.path),
+            );
+
+            await fs.remove(user.userId, { entry: root, recursive: true });
+        } finally {
+            service.SUBTREE_WALK_PARENTS = previous;
+            server.clients.event.off('fs.remove.node', listener);
+        }
+
+        expect(
+            await server.stores.fsEntry.listDescendantsByPath(root.path),
+        ).toEqual([]);
+        for (const entry of [root, ...descendants])
+            expect(counts.get(entry.uuid)).toBe(1);
+    });
+
+    it('deletes a tree through index lookups alone, never scanning or sorting it', async () => {
+        // The plan is SQLite's; Postgres sorts each page's rows by id.
+        if (server.clients.db.engineName !== 'sqlite') return;
+        const { root } = await makeTree('page-plan');
+        const reads = vi.spyOn(server.clients.db, 'read');
+        let statements: unknown[][] = [];
+        try {
+            await withPageSize(2, () =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            );
+            statements = reads.mock.calls.filter(([sql]) =>
+                /\bfsentries\b/.test(String(sql)),
+            );
+        } finally {
+            reads.mockRestore();
+        }
+
+        expect(statements.length).toBeGreaterThan(0);
+        for (const [sql, params] of statements) {
+            const plan = (await server.clients.db.read(
+                `EXPLAIN QUERY PLAN ${sql}`,
+                params as unknown[],
+            )) as Array<{ detail: string }>;
+            const steps = plan.map((step) => step.detail).join('; ');
+            expect(steps).not.toMatch(
+                /\bSCAN (TABLE )?fsentries\b|TEMP B-TREE/,
+            );
+        }
+    });
+
+    it('copies and deletes a child stored without a path', async () => {
+        const { root } = await makeTree('page-legacy');
+        const legacy = await writeFile(user, `${root.path}/sub/old.txt`, 'old');
+        // Rows from before paths were stored carry only their parent link.
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = NULL WHERE uuid = ?',
+            [legacy.uuid],
+        );
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.copy(user.userId, {
+            source: root,
+            destinationParent: destination,
+            newName: 'page-legacy-copy',
+        });
+        const copied = await entryAt(
+            user,
+            '/Desktop/page-legacy-copy/sub/old.txt',
+        );
+        expect(copied && (await readBack(copied))).toBe('old');
+
+        const removed: FSEntry[] = [];
+        const listener = (_key: string, data: unknown) => {
+            const node = (data as { node?: FSEntry })?.node;
+            if (node?.uuid === legacy.uuid) removed.push(node);
+        };
+        server.clients.event.on('fs.remove.node', listener);
+        try {
+            await fs.remove(user.userId, { entry: root, recursive: true });
+        } finally {
+            server.clients.event.off('fs.remove.node', listener);
+        }
+
+        expect(removed.map((entry) => entry.path)).toEqual([
+            `${root.path}/sub/old.txt`,
+        ]);
+        await expect(
+            server.clients.db.read('SELECT id FROM fsentries WHERE uuid = ?', [
+                legacy.uuid,
+            ]),
+        ).resolves.toEqual([]);
+        await expect(
+            server.stores.s3Object.getObjectStream(
+                { bucket: legacy.bucket!, objectKey: legacy.uuid },
+                legacy.bucketRegion!,
+            ),
+        ).rejects.toMatchObject({ name: 'NoSuchKey' });
     });
 });

@@ -276,9 +276,12 @@ describe('OpenAiImageProvider.generate credit gate', () => {
         const [, estimate] = hasCreditsSpy.mock.calls[0]!;
         expect(estimate).toBeGreaterThan(0);
         expect(heldDuringCall).toBe(Math.ceil(estimate));
-        expect(
-            await server.stores.creditHold.outstanding(actor.user!.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 });
 

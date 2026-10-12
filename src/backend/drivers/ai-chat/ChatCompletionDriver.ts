@@ -32,11 +32,14 @@ import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
+    factoredTotal,
+    requestAiCosts,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,
+    isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
 } from '../util/upstreamErrors.js';
@@ -105,6 +108,8 @@ import {
 import {
     isRouteUnhealthy,
     markRouteUnhealthy,
+    TRANSIENT_UNHEALTHY_TTL_SEC,
+    UNHEALTHY_TTL_SEC,
 } from './utils/providerHealth.js';
 import { CATALOG_TTL_MS } from './utils/cachedRemoteCatalog.js';
 import { fromFinishReason } from './utils/stopReason.js';
@@ -215,6 +220,8 @@ type ProviderAttempt = {
     error: string;
     /** The attempt died to a transport timeout rather than an answer. */
     timedOut?: boolean;
+    /** The connection dropped or never opened (reset, refused) before an answer. */
+    connectionFailed?: boolean;
     /**
      * The vendor's own error type (Anthropic `error.error.type`, OpenAI
      * `error.type`).
@@ -269,13 +276,17 @@ const toAttempt = (
         typeof (headers as Headers)?.get === 'function'
             ? ((headers as Headers).get('retry-after') ?? undefined)
             : (headers as Record<string, string> | undefined)?.['retry-after'];
+    const timedOut = isUpstreamTimeoutError(err);
     return {
         model: modelId,
         provider: providerId,
         status,
         code: e?.error?.code ?? e?.code,
         error: sanitizeUpstreamMessage(message),
-        ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
+        ...(timedOut ? { timedOut: true } : {}),
+        ...(!timedOut && isUpstreamConnectionError(err)
+            ? { connectionFailed: true }
+            : {}),
         ...(upstreamType !== undefined ? { upstreamType } : {}),
         ...(upstreamMessage !== undefined
             ? {
@@ -326,6 +337,19 @@ const isRouteLevelFailure = (a: ProviderAttempt) =>
     isRateLimit(a) ||
     isAuthFailure(a) ||
     isUpstream5xx(a);
+
+/**
+ * A route-level failure that usually clears within a minute. Bad credentials
+ * and an exhausted account stay broken until someone fixes them.
+ */
+const isTransientFailure = (a: ProviderAttempt) =>
+    !isAuthFailure(a) &&
+    !isCreditExhaustion(a) &&
+    (isUpstream5xx(a) ||
+        isRateLimit(a) ||
+        a.status === 408 ||
+        a.timedOut === true ||
+        a.connectionFailed === true);
 
 // One bucket can hold the same model id under several providers *and* several
 // ids under one provider, so only the pair identifies an attempt.
@@ -383,7 +407,8 @@ const streamErrorStatus = (a: ProviderAttempt): number => {
  *   `upstream_provider_unavailable`, `upstreamStatus: 529` (no page)
  * - All model-not-found (404) → 400 `upstream_bad_request`, `upstreamStatus: 404`
  *   (no page)
- * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
+ * - All upstream 5xx or dropped connections → 400 `upstream_provider_unavailable`
+ *   (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
  * - All timed out → 504 `upstream_timeout` (no page)
  * - Mixed → 400 `upstream_failed` (no page)
@@ -440,7 +465,9 @@ const classifyAttempts = (
             fields: { ...fields, upstreamStatus: 404 },
         });
     }
-    if (attempts.every(isUpstream5xx)) {
+    if (
+        attempts.every((a) => isUpstream5xx(a) || a.connectionFailed === true)
+    ) {
         return new HttpError(400, 'AI provider unavailable', {
             legacyCode: 'upstream_provider_unavailable',
             fields,
@@ -465,10 +492,12 @@ const classifyAttempts = (
     }
 
     // Mixed failures where at least one attempt is clearly upstream
-    // (had an HTTP status from the SDK, or never got one in time) means
-    // "AI providers couldn't satisfy the request" — expose, don't page.
+    // (had an HTTP status from the SDK, lost its connection, or never got one
+    // in time) means "AI providers couldn't satisfy the request" — expose,
+    // don't page.
     const isUpstreamSignal = (a: ProviderAttempt) =>
         a.timedOut === true ||
+        a.connectionFailed === true ||
         a.status !== undefined ||
         isRateLimit(a) ||
         isAuthFailure(a) ||
@@ -529,6 +558,8 @@ export class ChatCompletionDriver extends PuterDriver {
     /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
     #catalogEntries = new WeakMap<IChatModel, IChatModel>();
     #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
+    /** The first model-map build, finished once every catalog is in. */
+    #modelMapBuilt: Promise<void> = Promise.resolve();
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -539,9 +570,11 @@ export class ChatCompletionDriver extends PuterDriver {
         );
     }
 
-    override async onServerStart() {
+    override onServerStart() {
         this.#registerProviders();
-        await this.#buildModelMap();
+        // Not awaited: a gateway catalog can take its whole fetch timeout, and
+        // the drivers started after this one shouldn't wait for it.
+        this.#modelMapBuilt = this.#buildModelMap({ publishEachCatalog: true });
         // Gateway catalogs change under us; rebuild once they've expired.
         this.#modelMapRefresh = setInterval(() => {
             void this.#buildModelMap();
@@ -556,6 +589,7 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Interface methods -------------------------------------------
 
     async models() {
+        await this.#modelMapBuilt;
         const seen = new Set<string>();
         return Object.values(this.#modelIdMap)
             .flat()
@@ -613,6 +647,8 @@ export class ChatCompletionDriver extends PuterDriver {
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
+        // AI charges recorded in this request before the completion started.
+        const priorCharges = requestAiCosts().length;
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
@@ -626,7 +662,10 @@ export class ChatCompletionDriver extends PuterDriver {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
 
-        let model = this.#resolveModel(args.model, intendedProvider);
+        let model = await this.#resolveLoadedModel(
+            args.model,
+            intendedProvider,
+        );
         if (!model) {
             throw new HttpError(400, `Model not found: ${args.model}`, {
                 legacyCode: 'bad_request',
@@ -741,8 +780,10 @@ export class ChatCompletionDriver extends PuterDriver {
         let hold: CreditHold = NO_CREDIT_HOLD;
         // The current attempt's balance-bound output cap, if it had one.
         let fundsCap: number | undefined;
+        // The cost factor the current attempt's charges are recorded at.
+        let costFactor = 1;
         if (!useFakeProvider) {
-            ({ hold, fundsCap } = await this.#applyCreditGate(
+            ({ hold, fundsCap, costFactor } = await this.#applyCreditGate(
                 actor,
                 model,
                 args,
@@ -780,7 +821,13 @@ export class ChatCompletionDriver extends PuterDriver {
             attempts.push(attempt);
             if (!isFreeModel(failed)) allModelsFree = false;
             if (isRouteLevelFailure(attempt)) {
-                markRouteUnhealthy(failed.provider!, failed.id);
+                markRouteUnhealthy(
+                    failed.provider!,
+                    failed.id,
+                    isTransientFailure(attempt)
+                        ? TRANSIENT_UNHEALTHY_TTL_SEC
+                        : UNHEALTHY_TTL_SEC,
+                );
             }
             return attempt;
         };
@@ -860,12 +907,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 // The previous attempt released its hold when it failed, so
                 // this one starts from nothing held.
                 if (!useFakeProvider) {
-                    ({ hold, fundsCap } = await this.#applyCreditGate(
-                        actor,
-                        fallback,
-                        args,
-                        { promptTokenEstimate, requestedMaxTokens },
-                    ));
+                    ({ hold, fundsCap, costFactor } =
+                        await this.#applyCreditGate(actor, fallback, args, {
+                            promptTokenEstimate,
+                            requestedMaxTokens,
+                        }));
                 }
 
                 tried.add(routeId(fallback.provider!, fallback.id));
@@ -929,6 +975,10 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const username = actor.user?.username;
 
+        /** What this completion was charged, in µ¢, as the ledger holds it. */
+        const charged = () =>
+            factoredTotal(requestAiCosts().slice(priorCharges), costFactor);
+
         // A completion that used all of a balance-bound cap stopped because
         // the account ran dry, so the caller is told to top up.
         const ranOutOfFunds = (usage: Record<string, unknown> | undefined) =>
@@ -964,6 +1014,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 const enrichedUsage = usage ? { ...usage } : usage;
                 if (enrichedUsage) {
                     this.#injectUsdCents(enrichedUsage, model, usageCosts);
+                    // An empty report recorded nothing; the stream is charged
+                    // an estimate once it ends instead.
+                    if (Object.values(usage!).some(Number.isFinite)) {
+                        enrichedUsage.cost = charged();
+                    }
                 }
                 // A cancelled stream isn't a completion, but whatever it
                 // metered still gets its cost row.
@@ -1130,6 +1185,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 intendedProvider,
                 usageCosts,
             });
+            res.usage.cost = charged();
         }
 
         Context.set('driverMetadata', {
@@ -1229,7 +1285,10 @@ export class ChatCompletionDriver extends PuterDriver {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
 
-        const model = this.#resolveModel(args.model, intendedProvider);
+        const model = await this.#resolveLoadedModel(
+            args.model,
+            intendedProvider,
+        );
         if (!model) {
             throw new HttpError(400, `Model not found: ${args.model}`, {
                 legacyCode: 'bad_request',
@@ -1301,7 +1360,7 @@ export class ChatCompletionDriver extends PuterDriver {
              */
             requestedMaxTokens: number | undefined;
         },
-    ): Promise<{ hold: CreditHold; fundsCap?: number }> {
+    ): Promise<{ hold: CreditHold; fundsCap?: number; costFactor: number }> {
         const metering = this.services.metering;
         const { promptTokenEstimate, requestedMaxTokens } = estimates;
         // A provider can name its own cost keys for this request (Claude's
@@ -1410,16 +1469,17 @@ export class ChatCompletionDriver extends PuterDriver {
         // the cap just set. Capped output is what makes the number finite —
         // for a model with no output price the output term is zero and the
         // prompt estimate stands alone. Already factored, so it's held through
-        // the plain service rather than scaled a second time.
+        // `reserveCredits`, which doesn't scale a second time, and released
+        // only once this request's usage has been recorded.
         const worstCaseCost =
             approximateInputCost +
             extras +
             (args.max_tokens ?? 0) * outputTokenCost;
-        const hold = await this.services.metering.reserveCredits(
+        const hold = await this.#aiMetering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
         );
-        return { hold, fundsCap };
+        return { hold, fundsCap, costFactor };
     }
 
     /** The key `model`'s usage is recorded and cost-factored under. */
@@ -1709,7 +1769,37 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     /**
-     * Group every provider's catalog into per-model buckets.
+     * Load every provider's catalog and swap in the map built from them. A
+     * provider whose catalog fails is left out rather than failing the build.
+     *
+     * A refresh swaps once, so the previous map serves until every catalog is
+     * in. The first build also publishes as each catalog lands, so models from
+     * catalogs that need no fetch are served while the gateways' still load.
+     */
+    async #buildModelMap({ publishEachCatalog = false } = {}) {
+        const names = Object.keys(this.#providers);
+        const catalogs = new Array<IChatModel[] | undefined>(names.length);
+        await Promise.all(
+            names.map(async (name, i) => {
+                try {
+                    catalogs[i] = await this.#providers[name].models();
+                } catch (e) {
+                    console.warn(
+                        `[ai-chat] ${name} catalog unavailable: ${(e as Error)?.message ?? e}`,
+                    );
+                    return;
+                }
+                if (publishEachCatalog) {
+                    this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+                }
+            }),
+        );
+        this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+    }
+
+    /**
+     * Group the loaded catalogs into per-model buckets, in provider
+     * registration order.
      *
      * A bucket is the set of routes to one model: the vendor we integrate with
      * directly plus every reseller carrying it. They are deliberately _not_
@@ -1719,28 +1809,18 @@ export class ChatCompletionDriver extends PuterDriver {
      *
      * Entries join a bucket by identity key (see `isIdentityKey`); display
      * names remain addressable but never merge two providers' entries.
-     *
-     * Built into a fresh map that replaces the old one whole, so a refresh
-     * never serves a half-built map. A provider whose catalog fails is left out
-     * of this build rather than failing it.
      */
-    async #buildModelMap() {
-        const names = Object.keys(this.#providers);
-        const catalogs = await Promise.allSettled(
-            names.map(async (name) => this.#providers[name].models()),
-        );
+    #assembleModelMap(
+        names: string[],
+        catalogs: (IChatModel[] | undefined)[],
+    ): Record<string, IChatModel[]> {
         const modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
         names.forEach((providerName, i) => {
-            const catalog = catalogs[i]!;
-            if (catalog.status === 'rejected') {
-                console.warn(
-                    `[ai-chat] ${providerName} catalog unavailable: ${(catalog.reason as Error)?.message ?? catalog.reason}`,
-                );
-                return;
-            }
+            const catalog = catalogs[i];
+            if (!catalog) return;
 
-            for (const entry of catalog.value) {
+            for (const entry of catalog) {
                 // Catalogs are module-level constants shared by every driver
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
@@ -1794,7 +1874,22 @@ export class ChatCompletionDriver extends PuterDriver {
             }
         });
 
-        this.#modelIdMap = modelIdMap;
+        return modelIdMap;
+    }
+
+    /**
+     * Resolve against the map as it stands. A model, or the provider route
+     * asked for, that isn't in it yet may be in a catalog still loading at
+     * boot, so that waits for the first build before giving up.
+     */
+    async #resolveLoadedModel(
+        modelId: string,
+        provider?: string,
+    ): Promise<IChatModel | null> {
+        const model = this.#resolveModel(modelId, provider);
+        if (model && (!provider || model.provider === provider)) return model;
+        await this.#modelMapBuilt;
+        return this.#resolveModel(modelId, provider);
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {

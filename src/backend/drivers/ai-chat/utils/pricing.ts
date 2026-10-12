@@ -43,6 +43,12 @@ const isRate = (value: unknown): value is number =>
     typeof value === 'number' && Number.isFinite(value);
 
 /**
+ * Keys on a usage object that aren't usage: the cost table's scale and what the
+ * request cost.
+ */
+const NOT_USAGE = new Set(['tokens', 'usd_cents', 'cost']);
+
+/**
  * The usage keys a model's input and output are priced under. Most models use
  * the defaults; a model whose provider reports usage under other names carries
  * them in `input_cost_key`/`output_cost_key`.
@@ -104,7 +110,7 @@ export const trackedInputTokens = (
     const { outputKey } = costKeys(model);
     let total = 0;
     for (const [key, amount] of Object.entries(trackedUsage)) {
-        if (key === 'tokens' || key === 'usd_cents') continue;
+        if (NOT_USAGE.has(key)) continue;
         // Per-call counts (`web_search_requests`, `web_search_calls`) and
         // advisor-iteration tokens are billed, but neither is part of the
         // executor prompt the funds cap and long-context threshold are
@@ -174,7 +180,7 @@ export const usageDetailsFromUsage = (
 
 /** A usage key/amount pair that carries a price, rather than a scale or a label. */
 const isBillable = (key: string, amount: unknown): amount is number =>
-    key !== 'tokens' && key !== 'usd_cents' && isRate(amount);
+    !NOT_USAGE.has(key) && isRate(amount);
 
 /**
  * The µ¢ each usage key costs at the model's rates. A key the model doesn't

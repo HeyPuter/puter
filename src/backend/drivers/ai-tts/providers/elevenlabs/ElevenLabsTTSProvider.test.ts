@@ -45,7 +45,11 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { callerError, withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { ElevenLabsTTSProvider } from './ElevenLabsTTSProvider.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
@@ -310,7 +314,11 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
-        await withTestActor(() => provider.synthesize({ text: 'hi', model }));
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text: 'hi', model }),
+            ),
+        );
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         const [, init] = fetchSpy.mock.calls[0]!;
@@ -519,8 +527,10 @@ describe('ElevenLabsTTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello';
-        await withTestActor(() =>
-            provider.synthesize({ text, model: 'eleven_flash_v2_5' }),
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text, model: 'eleven_flash_v2_5' }),
+            ),
         );
 
         const expectedCost = ELEVENLABS_TTS_COSTS['eleven_flash_v2_5'] * text.length;
@@ -563,6 +573,7 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
         ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            fields: { provider: 'elevenlabs', upstreamStatus: 422 },
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });

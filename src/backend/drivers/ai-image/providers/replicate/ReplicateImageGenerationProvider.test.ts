@@ -244,9 +244,30 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
         );
 
         expect(heldDuringCall).toBe(Math.round(2.4 * 1_000_000));
-        expect(
-            await server.stores.creditHold.outstanding(actor.user!.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
+    });
+
+    it('holds credits for longer than a prediction can run', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('ttl');
+        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        createPredictionMock.mockResolvedValueOnce({
+            id: 'ttl',
+            status: 'succeeded',
+            output: ['https://r.example/img.png'],
+        });
+
+        await withTestActor(() => provider.generate({ prompt: 'hi' }), actor);
+
+        // Ten minutes of prediction plus up to 90 s to create it.
+        expect(reserveSpy).toHaveBeenCalledTimes(1);
+        const ttlMs = reserveSpy.mock.calls[0]![2]?.ttlMs ?? 10 * 60 * 1000;
+        expect(ttlMs).toBeGreaterThan(10 * 60 * 1000 + 90_000);
     });
 
     it('releases the output hold when the input surcharge is unaffordable', async () => {

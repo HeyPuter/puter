@@ -879,6 +879,53 @@ describe('share email digest durability', () => {
         expect(sent.filter((mail) => mail.to === invitee)).toHaveLength(0);
     });
 
+    it('sends the entries it claimed when one cannot be claimed, and that one on a later sweep', async () => {
+        const owner = env.users.user;
+        const invitee = `partial-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+        const names = ['one.txt', 'two.txt', 'three.txt'];
+        const keys = names.map(
+            () => `share:digest:invite:${invitee}:${crypto.randomUUID()}`,
+        );
+        for (const [i, name] of names.entries()) {
+            await env.server.stores.kv.set({
+                key: keys[i],
+                value: {
+                    kind: 'invite',
+                    to: invitee,
+                    sender: owner.username,
+                    count: 1,
+                    names: [name],
+                    queuedAt: Date.now() - 60 * 60_000 + i,
+                },
+            });
+        }
+
+        // The store refuses the claim on the first entry once.
+        const dynamo = env.server.clients.dynamo;
+        const realDel = dynamo.del.bind(dynamo);
+        let refused = false;
+        vi.spyOn(dynamo, 'del').mockImplementation(async (table, key, opts) => {
+            if (!refused && (key as { key?: string }).key === keys[0]) {
+                refused = true;
+                throw new Error('transient store failure');
+            }
+            return realDel(table, key, opts);
+        });
+
+        await env.server.services.shareNotification.sweepForTests();
+        const first = sent.filter((mail) => mail.to === invitee);
+        expect(first).toHaveLength(1);
+        expect(first[0].html).toContain('two.txt');
+        expect(first[0].html).toContain('three.txt');
+        expect(first[0].html).not.toContain('one.txt');
+
+        await env.server.services.shareNotification.sweepForTests();
+        const all = sent.filter((mail) => mail.to === invitee);
+        expect(all).toHaveLength(2);
+        expect(all[1].html).toContain('one.txt');
+        expect(all[1].html).not.toContain('two.txt');
+    });
+
     it('holds queued sends durably and drains them once on shutdown', async () => {
         const owner = env.users.user;
         const invitee = `drain-${crypto.randomUUID().slice(0, 8)}@puter.local`;

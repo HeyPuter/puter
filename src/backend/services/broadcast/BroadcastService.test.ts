@@ -449,6 +449,20 @@ describe('BroadcastService.verifyAndEmit', () => {
 
 // ── Outbound flush ──────────────────────────────────────────────────
 
+/**
+ * Drain currently-queued outbound events. Polls instead of using a single
+ * timeout so we don't race the flush window — the timer is scheduled lazily and
+ * "no calls yet" doesn't mean "no calls coming."
+ */
+const waitForFlush = async (predicate: () => boolean, timeoutMs = 1000) => {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (predicate()) return;
+        await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error('Timed out waiting for outbound flush');
+};
+
 describe('BroadcastService outbound flush', () => {
     let server: PuterServer;
 
@@ -485,20 +499,6 @@ describe('BroadcastService outbound flush', () => {
     afterEach(() => {
         axiosRequestMock.mockReset();
     });
-
-    /**
-     * Drain currently-queued outbound events. Polls instead of using a single
-     * timeout so we don't race the 25ms flush window — the timer is scheduled
-     * lazily and "no calls yet" doesn't mean "no calls coming."
-     */
-    const waitForFlush = async (predicate: () => boolean, timeoutMs = 1000) => {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-            if (predicate()) return;
-            await new Promise((r) => setTimeout(r, 10));
-        }
-        throw new Error('Timed out waiting for outbound flush');
-    };
 
     const findCallByEventKey = (eventKey: string) => {
         return axiosRequestMock.mock.calls.find((call) => {
@@ -629,6 +629,180 @@ describe('BroadcastService outbound flush', () => {
 
         // Nothing new is emitted — only the retry can satisfy this.
         await waitForFlush(() => axiosRequestMock.mock.calls.some(carries));
+    });
+});
+
+// -- Outbound body budget -----------------------------------------------
+
+describe('BroadcastService outbound body budget', () => {
+    const MAX_BODY_BYTES = 4096;
+    // Stands in for the peers' express.json limit, well over the budget.
+    const PEER_BODY_LIMIT = 4 * MAX_BODY_BYTES;
+    const EVENT_KEY = 'outer.budget-test';
+
+    type PeerName = 'down' | 'up';
+    interface Post {
+        peer: PeerName;
+        ids: string[];
+        bytes: number;
+        delivered: boolean;
+    }
+
+    let server: PuterServer;
+    let warn: ReturnType<typeof vi.spyOn>;
+    let downPeerAnswers = true;
+    const posts: Post[] = [];
+
+    const answerAsPeer = async (request: { url: string; data: string }) => {
+        const peer: PeerName = request.url.includes('peer-down')
+            ? 'down'
+            : 'up';
+        const bytes = Buffer.byteLength(request.data);
+        const ids = (
+            JSON.parse(request.data) as {
+                events: { key: string; data: { id: string } }[];
+            }
+        ).events
+            .filter((event) => event.key === EVENT_KEY)
+            .map((event) => event.data.id);
+        if (peer === 'down' && !downPeerAnswers) {
+            posts.push({ peer, ids, bytes, delivered: false });
+            throw new Error('connect ECONNREFUSED');
+        }
+        const delivered = bytes <= PEER_BODY_LIMIT;
+        posts.push({ peer, ids, bytes, delivered });
+        return delivered
+            ? { status: 200, statusText: 'OK', data: 'ok' }
+            : { status: 413, statusText: 'Payload Too Large', data: '' };
+    };
+
+    const payload = (id: string) => ({ id, pad: 'x'.repeat(900) });
+    const eventBytes = (id: string) =>
+        Buffer.byteLength(
+            JSON.stringify({ key: EVENT_KEY, data: payload(id), meta: {} }),
+        );
+    const emit = (ids: string[]) => {
+        for (const id of ids) {
+            server.clients.event.emit(
+                EVENT_KEY as never,
+                payload(id) as never,
+                {},
+            );
+        }
+        return ids;
+    };
+    const attempted = (peer: PeerName, id: string) =>
+        posts.some((post) => post.peer === peer && post.ids.includes(id));
+    const deliveredIds = (peer: PeerName) =>
+        posts
+            .filter((post) => post.peer === peer && post.delivered)
+            .flatMap((post) => post.ids);
+    const largestBody = () => Math.max(...posts.map((post) => post.bytes));
+
+    beforeAll(async () => {
+        warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        server = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    {
+                        peerId: 'peer-down',
+                        webhook: true,
+                        webhook_url:
+                            'http://broadcast-peer-down.invalid/broadcast/webhook',
+                        webhook_secret: 'peer-down-secret',
+                    },
+                    {
+                        peerId: 'peer-up',
+                        webhook: true,
+                        webhook_url:
+                            'http://broadcast-peer-up.invalid/broadcast/webhook',
+                        webhook_secret: 'peer-up-secret',
+                    },
+                ],
+                outbound_flush_ms: 25,
+                outboundMaxBodyBytes: MAX_BODY_BYTES,
+            },
+        } as never);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+        warn.mockRestore();
+    });
+
+    beforeEach(() => {
+        posts.length = 0;
+        downPeerAnswers = true;
+        axiosRequestMock.mockReset();
+        axiosRequestMock.mockImplementation(answerAsPeer);
+    });
+
+    afterEach(() => {
+        axiosRequestMock.mockReset();
+    });
+
+    it('splits a flush into bodies under the budget, keeping event order', async () => {
+        const ids = emit(Array.from({ length: 20 }, (_, i) => `split-${i}`));
+        await waitForFlush(() => attempted('up', ids.at(-1)!));
+
+        expect(largestBody()).toBeLessThanOrEqual(MAX_BODY_BYTES);
+        expect(deliveredIds('down')).toEqual(ids);
+        expect(deliveredIds('up')).toEqual(ids);
+    });
+
+    it('keeps delivering to healthy peers while one is down, then catches it up on its newest events', async () => {
+        downPeerAnswers = false;
+        const rounds: string[][] = [];
+        for (let round = 0; round < 6; round++) {
+            const ids = emit(
+                Array.from({ length: 8 }, (_, i) => `r${round}-${i}`),
+            );
+            rounds.push(ids);
+            await waitForFlush(() => attempted('up', ids.at(-1)!));
+        }
+        // Each event once: the healthy peer is not sent the other's backlog.
+        expect(deliveredIds('up')).toEqual(rounds.flat());
+
+        downPeerAnswers = true;
+        emit(['marker']);
+        await waitForFlush(() => deliveredIds('down').includes('marker'));
+
+        expect(largestBody()).toBeLessThanOrEqual(MAX_BODY_BYTES);
+        const all = [...rounds.flat(), 'marker'];
+        const caughtUp = deliveredIds('down');
+        // The newest events, oldest first, ending at the marker.
+        expect(caughtUp).toEqual(all.slice(all.length - caughtUp.length));
+        expect(caughtUp).not.toContain(rounds[0][0]);
+        const backlogBytes = caughtUp
+            .slice(0, -1)
+            .reduce((sum, id) => sum + eventBytes(id), 0);
+        expect(backlogBytes).toBeLessThanOrEqual(4 * MAX_BODY_BYTES);
+    });
+
+    it('drops an event too large for any body and delivers the rest', async () => {
+        server.clients.event.emit(
+            EVENT_KEY as never,
+            { id: 'too-big', pad: 'x'.repeat(MAX_BODY_BYTES) } as never,
+            {},
+        );
+        emit(['after-too-big']);
+        await waitForFlush(() => attempted('up', 'after-too-big'));
+
+        expect(posts.flatMap((post) => post.ids)).not.toContain('too-big');
+        expect(deliveredIds('up')).toEqual(['after-too-big']);
+    });
+
+    it('drops an event that cannot be serialized and delivers the rest', async () => {
+        server.clients.event.emit(
+            EVENT_KEY as never,
+            { id: 'unserializable', n: BigInt(1) } as never,
+            {},
+        );
+        emit(['after-unserializable']);
+        await waitForFlush(() => attempted('up', 'after-unserializable'));
+
+        expect(deliveredIds('up')).toEqual(['after-unserializable']);
     });
 });
 

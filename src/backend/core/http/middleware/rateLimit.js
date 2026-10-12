@@ -198,11 +198,13 @@ async function checkKv(kv, key, limit, windowMs) {
     const prefix = `rate:${key}:`;
     // `list` filters by TTL already, so a non-expired row ⇒ in-window.
     // Cap the fetch at `limit + 1` — once we know it's over, the exact
-    // count doesn't matter.
+    // count doesn't matter. The cap applies before expired rows are dropped,
+    // so read newest first: unswept rows from past windows sort oldest.
     const { res } = await kv.list({
         as: 'keys',
         pattern: prefix,
         limit: limit + 1,
+        reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
     if (keys.length >= limit) return false;
@@ -223,6 +225,7 @@ async function peekKv(kv, key, limit) {
         as: 'keys',
         pattern: `rate:${key}:`,
         limit: limit + 1,
+        reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
     return keys.length < limit;
@@ -331,12 +334,14 @@ async function acquireKvConcurrent(kv, key, limit) {
     // KV has no atomic increment. Use the row-per-slot pattern: each
     // in-flight request owns a unique row under a shared prefix; count
     // by listing the prefix. Same race profile as `checkKv` — best
-    // effort, conservative bias.
+    // effort, conservative bias. Newest first, as in `checkKv`, so unswept
+    // orphan slots don't fill the capped fetch.
     const prefix = `concurrent:${key}:`;
     const { res } = await kv.list({
         as: 'keys',
         pattern: prefix,
         limit: limit + 1,
+        reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
     if (keys.length >= limit) return { ok: false };

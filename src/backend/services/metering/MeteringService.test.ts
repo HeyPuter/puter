@@ -849,6 +849,73 @@ describe('MeteringService', () => {
                 addonsSpy.mockRestore();
             }
         });
+
+        it.each([
+            [
+                'on this node',
+                (uuid: string) => target.updateAddonCredit(uuid, 5_000_000),
+            ],
+            [
+                'by another node',
+                async (uuid: string) => {
+                    await server.stores.kv.incr({
+                        key: `${POLICY_PREFIX}:actor:${uuid}:addons`,
+                        pathAndAmountMap: { purchasedCredits: 5_000_000 },
+                    });
+                    server.clients.event.emit(
+                        'outer.pubsub.metering.credits-changed',
+                        { userUuid: uuid },
+                        {},
+                    );
+                },
+            ],
+        ])(
+            'draws overage from a top-up made %s once a stale first read after it catches up',
+            async (_label, grant) => {
+                const buyer: Actor = { user: makeUser() };
+                const uuid = buyer.user.uuid!;
+                const sub = await target.getActorSubscription(buyer);
+                // Allowance spent with no purchased credit left.
+                await target.incrementUsage(
+                    buyer,
+                    'kv:read',
+                    1,
+                    sub.monthUsageAllowance,
+                );
+
+                await grant(uuid);
+
+                // The first addons read after the grant comes from a replica
+                // that hasn't seen it yet, so the record isn't there.
+                const addonsKey = `${POLICY_PREFIX}:actor:${uuid}:addons`;
+                const realGet = server.clients.dynamo.get.bind(
+                    server.clients.dynamo,
+                );
+                let lagging = true;
+                const replicaLag = vi
+                    .spyOn(server.clients.dynamo, 'get')
+                    .mockImplementation(async (...args) => {
+                        const response = await realGet(...args);
+                        if (!lagging || args[1].key !== addonsKey)
+                            return response;
+                        lagging = false;
+                        return { ...response, Item: undefined };
+                    });
+                try {
+                    await target.incrementUsage(buyer, 'kv:read', 1, 1_000_000);
+                    await target.incrementUsage(buyer, 'kv:read', 1, 1_000_000);
+                } finally {
+                    replicaLag.mockRestore();
+                }
+                expect(lagging).toBe(false);
+
+                await waitFor(async () => {
+                    const addons = await target.getActorAddons(buyer);
+                    expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+                });
+                expect(await target.hasAnyUsageCached(buyer)).toBe(true);
+            },
+        );
     });
 
     // ── overuse alarm ────────────────────────────────────────────────

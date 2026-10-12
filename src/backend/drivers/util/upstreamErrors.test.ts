@@ -19,6 +19,8 @@
 
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { APIConnectionError as AnthropicConnectionError } from '@anthropic-ai/sdk';
+import { ConnectionError as MistralConnectionError } from '@mistralai/mistralai/models/errors/httpclienterrors.js';
 import { APIConnectionError, APIConnectionTimeoutError } from 'openai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { translateProviderError } from '../../controllers/drivers/DriverController.js';
@@ -28,6 +30,7 @@ import {
     CREDIT_EXHAUSTION_PATTERN,
     isCreditExhaustion,
     isTransientUpstreamError,
+    isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
     upstreamBodyStream,
@@ -63,6 +66,47 @@ describe('isUpstreamTimeoutError', () => {
         expect(isUpstreamTimeoutError(new Error('boom'))).toBe(false);
         expect(isUpstreamTimeoutError('timed out')).toBe(false);
         expect(isUpstreamTimeoutError(withStatus(504))).toBe(false);
+    });
+});
+
+describe('isUpstreamConnectionError', () => {
+    const fetchFailed = () =>
+        new TypeError('fetch failed', {
+            cause: Object.assign(new Error('read ECONNRESET'), {
+                code: 'ECONNRESET',
+            }),
+        });
+
+    it("recognises the SDKs' connection error classes", () => {
+        expect(
+            isUpstreamConnectionError(
+                new APIConnectionError({ cause: fetchFailed() }),
+            ),
+        ).toBe(true);
+        expect(
+            isUpstreamConnectionError(
+                new AnthropicConnectionError({ cause: fetchFailed() }),
+            ),
+        ).toBe(true);
+        expect(
+            isUpstreamConnectionError(
+                new MistralConnectionError('Unable to make request', {
+                    cause: fetchFailed(),
+                }),
+            ),
+        ).toBe(true);
+    });
+
+    it('recognises a reset wrapped in a fetch failed TypeError', () => {
+        expect(isUpstreamConnectionError(fetchFailed())).toBe(true);
+    });
+
+    it('does not count timeouts or ordinary errors as dropped connections', () => {
+        expect(isUpstreamConnectionError(new APIConnectionTimeoutError())).toBe(
+            false,
+        );
+        expect(isUpstreamConnectionError(new Error('boom'))).toBe(false);
+        expect(isUpstreamConnectionError(withStatus(503))).toBe(false);
     });
 });
 
@@ -243,14 +287,14 @@ describe('upstreamFetch', () => {
     const fail = async (status: number, body: unknown): Promise<unknown> => {
         try {
             await upstreamFetch(
-                'Vendor',
+                'vendor',
                 `${base}/status/${status}`,
                 {
                     method: 'POST',
                     body:
                         typeof body === 'string' ? body : JSON.stringify(body),
                 },
-                { timeoutMs: 5000 },
+                { providerLabel: 'Vendor', timeoutMs: 5000 },
             );
         } catch (e) {
             return e;
@@ -260,10 +304,10 @@ describe('upstreamFetch', () => {
 
     it('returns a 2xx response untouched', async () => {
         const res = await upstreamFetch(
-            'Vendor',
+            'vendor',
             `${base}/status/200`,
             { method: 'POST', body: '{"ok":true}' },
-            { timeoutMs: 5000 },
+            { providerLabel: 'Vendor', timeoutMs: 5000 },
         );
         expect(await res.json()).toEqual({ ok: true });
     });
@@ -306,7 +350,7 @@ describe('upstreamFetch', () => {
             expect(translateProviderError(err)).toMatchObject({
                 statusCode,
                 legacyCode,
-                fields: { upstreamStatus },
+                fields: { provider: 'vendor', upstreamStatus },
             });
         },
     );
@@ -328,10 +372,10 @@ describe('upstreamFetch', () => {
         let err: unknown;
         try {
             await upstreamFetch(
-                'Vendor',
+                'vendor',
                 `${base}/hang`,
                 {},
-                { timeoutMs: 50 },
+                { providerLabel: 'Vendor', timeoutMs: 50 },
             );
         } catch (e) {
             err = e;
@@ -346,10 +390,10 @@ describe('upstreamFetch', () => {
     it('still honours a caller abort signal', async () => {
         const controller = new AbortController();
         const pending = upstreamFetch(
-            'Vendor',
+            'vendor',
             `${base}/hang`,
             { signal: controller.signal },
-            { timeoutMs: 5000 },
+            { providerLabel: 'Vendor', timeoutMs: 5000 },
         );
         controller.abort();
         await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
@@ -357,10 +401,10 @@ describe('upstreamFetch', () => {
 
     it('lets a streamed body keep flowing past timeoutMs once headers arrive', async () => {
         const res = await upstreamFetch(
-            'Vendor',
+            'vendor',
             `${base}/trickle`,
             {},
-            { timeoutMs: 250, stream: true },
+            { providerLabel: 'Vendor', timeoutMs: 250, stream: true },
         );
         expect(await res.text()).toBe(trickleChunks.join(''));
     });
@@ -369,10 +413,10 @@ describe('upstreamFetch', () => {
         let err: unknown;
         try {
             await upstreamFetch(
-                'Vendor',
+                'vendor',
                 `${base}/hang`,
                 {},
-                { timeoutMs: 50, stream: true },
+                { providerLabel: 'Vendor', timeoutMs: 50, stream: true },
             );
         } catch (e) {
             err = e;
@@ -386,10 +430,10 @@ describe('upstreamFetch', () => {
 
     it('bounds a non-streamed call by the whole body', async () => {
         const res = await upstreamFetch(
-            'Vendor',
+            'vendor',
             `${base}/trickle`,
             {},
-            { timeoutMs: 250 },
+            { providerLabel: 'Vendor', timeoutMs: 250 },
         );
         let err: unknown;
         try {
@@ -403,10 +447,10 @@ describe('upstreamFetch', () => {
     it('aborts a streamed body when the caller aborts mid-stream', async () => {
         const controller = new AbortController();
         const res = await upstreamFetch(
-            'Vendor',
+            'vendor',
             `${base}/trickle`,
             { signal: controller.signal },
-            { timeoutMs: 5000, stream: true },
+            { providerLabel: 'Vendor', timeoutMs: 5000, stream: true },
         );
         const reader = upstreamBodyStream(res)[Symbol.asyncIterator]();
         await reader.next();
