@@ -2894,6 +2894,8 @@ export class FSEntryStore extends PuterStore {
      *
      * Not path order: MySQL sorts only the first `max_sort_length` bytes of a
      * PAD SPACE key, so long paths tie and a child can sort past its parent.
+     * Each pattern group is paged with the same seek and merged, so a subtree
+     * past one group still pages in order.
      */
     async listDescendantsInOrder(
         pathPrefix: string,
@@ -2914,17 +2916,35 @@ export class FSEntryStore extends PuterStore {
         const seek = after
             ? `AND (${depth} ${cmp} ? OR (${depth} = ? AND id ${cmp} ?))`
             : '';
-        const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE path LIKE ? ESCAPE '!' ${seek}
-             ORDER BY ${depth} ${dir}, id ${dir} LIMIT ?`,
-            [
-                likePattern,
-                ...(after ? [afterDepth, afterDepth, after.id] : []),
-                Math.max(1, options.limit),
-            ],
-        )) as unknown as FSEntryRow[];
-        return rows.map((row) => this.#mapFSEntryRow(row));
+        const limit = Math.max(1, options.limit);
+        const rows = new Map<number, FSEntryRow>();
+        for (const patterns of await this.#subtreePatterns(
+            pathPrefix,
+            likePattern,
+        )) {
+            const group = (await this.clients.db.read(
+                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+                 WHERE ${this.#pathLikeAny(patterns)} ${seek}
+                 ORDER BY ${depth} ${dir}, id ${dir} LIMIT ?`,
+                [
+                    ...patterns,
+                    ...(after ? [afterDepth, afterDepth, after.id] : []),
+                    limit,
+                ],
+            )) as unknown as FSEntryRow[];
+            for (const row of group) rows.set(Number(row.id), row);
+        }
+        const sign = options.order === 'desc' ? -1 : 1;
+        return [...rows.values()]
+            .sort(
+                (a, b) =>
+                    sign *
+                    (this.#slashCount(String(a.path)) -
+                        this.#slashCount(String(b.path)) ||
+                        Number(a.id) - Number(b.id)),
+            )
+            .slice(0, limit)
+            .map((row) => this.#mapFSEntryRow(row));
     }
 
     #descendantsPattern(pathPrefix: string): string {
