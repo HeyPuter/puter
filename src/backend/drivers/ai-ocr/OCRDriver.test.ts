@@ -860,7 +860,10 @@ describe('OCRDriver credit pre-flight', () => {
         expect(checkedCosts()).toEqual([perPage * 12]);
         // Concurrent calls see the whole document's cost while it runs.
         expect(remainingDuringCall).toBe(before - perPage * 12);
-        expect(await outstandingHolds(actor)).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(await outstandingHolds(actor)).toBe(0),
+        );
         // Billing still follows the pages the provider reports.
         const [, , count, cost] = incrementUsageSpy.mock.calls.find(
             ([, type]) => type === pageType,

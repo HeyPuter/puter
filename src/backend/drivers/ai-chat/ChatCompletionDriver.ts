@@ -1469,12 +1469,13 @@ export class ChatCompletionDriver extends PuterDriver {
         // the cap just set. Capped output is what makes the number finite —
         // for a model with no output price the output term is zero and the
         // prompt estimate stands alone. Already factored, so it's held through
-        // the plain service rather than scaled a second time.
+        // `reserveCredits`, which doesn't scale a second time, and released
+        // only once this request's usage has been recorded.
         const worstCaseCost =
             approximateInputCost +
             extras +
             (args.max_tokens ?? 0) * outputTokenCost;
-        const hold = await this.services.metering.reserveCredits(
+        const hold = await this.#aiMetering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
         );

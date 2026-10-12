@@ -44,6 +44,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -814,6 +815,67 @@ describe('OpenRouterProvider billed cost through the driver', () => {
         expect(result.usage.cost).toBe(16_000);
         // The upstream's own price stays where it was.
         expect(result.usage.usd_cents).toBe(0.01);
+    });
+
+    it("keeps a completion's credit hold until its usage is recorded", async () => {
+        const driver = await makeDriver();
+        const actor = makeActor({
+            user: {
+                id: 94,
+                uuid: `openrouter-hold-${Date.now()}`,
+                username: 'openrouter-hold',
+            },
+        });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1e12, held: 0 });
+        // The gate looks the factor up first; hold back the recording's lookup.
+        let lookups = 0;
+        let landRecording = () => {};
+        const recordingHeld = new Promise<void>((resolve) => {
+            landRecording = resolve;
+        });
+        const slowFactor = async (_key: string, event: { factor: number }) => {
+            if (++lookups === 2) await recordingHeld;
+            event.factor = 1.6;
+        };
+        server.clients.event.on('ai.cost.factor.*', slowFactor as never);
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0001 },
+        });
+
+        try {
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'openrouter:openai/gpt-6-luna',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                actor,
+            );
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBeGreaterThan(0);
+
+            landRecording();
+            await vi.waitFor(async () =>
+                expect(
+                    await server.stores.creditHold.outstanding(
+                        actor.user!.uuid,
+                    ),
+                ).toBe(0),
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', slowFactor as never);
+            driver.onServerShutdown();
+        }
     });
 
     it('ends a stream with what it was charged at the catalog rates, after the cost factor', async () => {

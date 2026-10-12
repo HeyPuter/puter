@@ -23,11 +23,12 @@ import type { Actor } from '../../core/actor';
 import { Context } from '../../core/context.js';
 import { insufficientCreditsError } from '../../services/metering/enforcement.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
-import type {
-    CreditHold,
-    UsageByType,
-    UsageInput,
-} from '../../services/metering/types';
+import {
+    type CreditHold,
+    NO_CREDIT_HOLD,
+    type UsageByType,
+    type UsageInput,
+} from '../../services/metering/types.js';
 import type { DriverStreamResult } from '../meta.js';
 
 /** Anything past this is read as a mistake and the cost is left as-is. */
@@ -147,6 +148,49 @@ export const factoredTotal = (
             return total + (scaled < 0 ? 1 : scaled);
         }, 0),
     );
+
+/** Context key for the request's AI usage writes that haven't landed yet. */
+const PENDING_WRITES_KEY = 'aiPendingUsageWrites';
+
+/** Notes a usage write so the request's credit holds outlast it. */
+const trackWrite = (write: Promise<UsageByType>): Promise<UsageByType> => {
+    if (!Context.current()) return write;
+    let pending = Context.get(PENDING_WRITES_KEY) as
+        | Set<Promise<void>>
+        | undefined;
+    if (!pending) {
+        pending = new Set();
+        Context.set(PENDING_WRITES_KEY, pending);
+    }
+    const landed = write.then(
+        () => {},
+        () => {},
+    );
+    pending.add(landed);
+    void landed.then(() => pending.delete(landed));
+    return write;
+};
+
+/**
+ * `hold`, but its release waits for the usage writes the request has issued, so
+ * its spend never drops out of sight before the charge lands. Release returns
+ * at once either way; the hold's TTL ends one whose release fails.
+ */
+const outlastingWrites = (hold: CreditHold): CreditHold => {
+    if (hold === NO_CREDIT_HOLD) return hold;
+    return {
+        ...hold,
+        release: async () => {
+            const pending = Context.get(PENDING_WRITES_KEY) as
+                | Set<Promise<void>>
+                | undefined;
+            if (!pending?.size) return hold.release();
+            void Promise.all([...pending])
+                .then(() => hold.release())
+                .catch(() => {});
+        },
+    };
+};
 
 /** One facade per service + driver, so call sites can ask for theirs freely. */
 const facades = new WeakMap<MeteringService, Map<string, AiMeteringService>>();
@@ -313,15 +357,30 @@ export function withAiCostFactor(
             : 1;
         const cost = factor === 1 ? amount : scaleCost(amount, factor);
         if (!(await metering.hasEnoughCredits(actor, cost))) return null;
-        return metering.reserveCredits(actor, cost, opts);
+        return outlastingWrites(
+            await metering.reserveCredits(actor, cost, opts),
+        );
     };
 
+    const reserveCredits = async (
+        actor: Actor,
+        amount: number,
+        opts?: { ttlMs?: number },
+    ): Promise<CreditHold> =>
+        outlastingWrites(await metering.reserveCredits(actor, amount, opts));
+
     const overrides: Record<string, unknown> = {
-        incrementUsage,
-        batchIncrementUsages,
-        utilRecordUsageObject,
+        incrementUsage: (...args: Parameters<typeof incrementUsage>) =>
+            trackWrite(incrementUsage(...args)),
+        batchIncrementUsages: (
+            ...args: Parameters<typeof batchIncrementUsages>
+        ) => trackWrite(batchIncrementUsages(...args)),
+        utilRecordUsageObject: (
+            ...args: Parameters<typeof utilRecordUsageObject>
+        ) => trackWrite(utilRecordUsageObject(...args)),
         costFactor,
         reserveAiCredits,
+        reserveCredits,
     };
 
     // A proxy, not a wrapper: providers use far more of the service than the
@@ -386,9 +445,13 @@ export async function withStreamedAiCharge(
     const settle = (charge: boolean) => {
         if (settled) return;
         settled = true;
-        if (charge) record();
-        // A failed release leaves the hold to its TTL.
-        hold.release().catch(() => {});
+        // The relay runs outside the request, so the hold waits on the charge
+        // itself. A failed release leaves the hold to its TTL.
+        const release = () => hold.release().catch(() => {});
+        void Promise.resolve(charge ? record() : undefined).then(
+            release,
+            release,
+        );
     };
     const source = result.stream;
     let chunks: AsyncIterator<unknown> | undefined;

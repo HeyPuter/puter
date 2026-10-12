@@ -244,9 +244,12 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
         );
 
         expect(heldDuringCall).toBe(Math.round(2.4 * 1_000_000));
-        expect(
-            await server.stores.creditHold.outstanding(actor.user!.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 
     it('holds credits for longer than a prediction can run', async () => {

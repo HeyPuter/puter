@@ -432,6 +432,107 @@ describe('AI cost factor', () => {
             }
         });
 
+        it('keeps the hold until the usage it stands for is recorded', async () => {
+            // The second lookup is the recording's; hold it back.
+            let lookups = 0;
+            let landRecording = () => {};
+            const recordingHeld = new Promise<void>((resolve) => {
+                landRecording = resolve;
+            });
+            const slowFactor = async (
+                _key: string,
+                event: AiCostFactorEvent,
+            ) => {
+                if (++lookups === 2) await recordingHeld;
+                event.factor = 1.3;
+            };
+            server.clients.event.on('ai.cost.factor.*', slowFactor as never);
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                await runWithContext({ actor }, () =>
+                    withAiCreditHold(
+                        scoped,
+                        actor,
+                        usageType,
+                        1000,
+                        async () => {
+                            void scoped.incrementUsage(
+                                actor,
+                                usageType,
+                                1,
+                                1000,
+                            );
+                            return 'done';
+                        },
+                    ),
+                );
+                expect(await metering.getOutstandingHolds(actor)).toBe(1300);
+
+                landRecording();
+                await vi.waitFor(async () =>
+                    expect(await metering.getOutstandingHolds(actor)).toBe(0),
+                );
+            } finally {
+                server.clients.event.off(
+                    'ai.cost.factor.*',
+                    slowFactor as never,
+                );
+                check.mockRestore();
+            }
+        });
+
+        it('releases the hold when the usage write fails', async () => {
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            const write = vi
+                .spyOn(metering, 'incrementUsage')
+                .mockRejectedValueOnce(new Error('ledger down'));
+            try {
+                await runWithContext({ actor }, () =>
+                    withAiCreditHold(
+                        scoped,
+                        actor,
+                        usageType,
+                        1000,
+                        async () => {
+                            scoped
+                                .incrementUsage(actor, usageType, 1, 1000)
+                                .catch(() => {});
+                        },
+                    ),
+                );
+                await vi.waitFor(async () =>
+                    expect(await metering.getOutstandingHolds(actor)).toBe(0),
+                );
+            } finally {
+                check.mockRestore();
+                write.mockRestore();
+            }
+        });
+
+        it('releases at once when nothing was recorded', async () => {
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                await runWithContext({ actor }, () =>
+                    withAiCreditHold(
+                        scoped,
+                        actor,
+                        usageType,
+                        1000,
+                        async () => {},
+                    ),
+                );
+                expect(await metering.getOutstandingHolds(actor)).toBe(0);
+            } finally {
+                check.mockRestore();
+            }
+        });
+
         it('releases the hold when run throws', async () => {
             const check = vi
                 .spyOn(metering, 'hasEnoughCredits')
@@ -515,6 +616,39 @@ describe('AI cost factor', () => {
             await vi.waitFor(async () =>
                 expect(await metering.getOutstandingHolds(actor)).toBe(0),
             );
+        });
+
+        it('keeps the hold until the charge is recorded', async () => {
+            let landCharge = () => {};
+            const charge = new Promise<void>((resolve) => {
+                landCharge = resolve;
+            });
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                const result = await withStreamedAiCharge(
+                    scoped,
+                    actor,
+                    usageType,
+                    1000,
+                    async () => ({
+                        dataType: 'stream',
+                        content_type: 'audio/mpeg',
+                        stream: Readable.from([Buffer.from('ab')]),
+                    }),
+                    () => charge,
+                );
+                expect(await read(result.stream)).toBeUndefined();
+                expect(await metering.getOutstandingHolds(actor)).toBe(1000);
+
+                landCharge();
+                await vi.waitFor(async () =>
+                    expect(await metering.getOutstandingHolds(actor)).toBe(0),
+                );
+            } finally {
+                check.mockRestore();
+            }
         });
 
         it('charges nothing when the upstream fails before its first byte', async () => {

@@ -542,9 +542,12 @@ describe('XAISpeechToTextProvider metering', () => {
         );
 
         expect(heldDuringCall).toBe(UCENTS_PER_SECOND * 2);
-        expect(
-            await server.stores.creditHold.outstanding(actor.user.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user.uuid),
+            ).toBe(0),
+        );
     });
 
     it('meters ceil(duration) seconds × per-second ucents using the API duration', async () => {

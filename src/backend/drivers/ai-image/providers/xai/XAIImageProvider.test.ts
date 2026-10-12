@@ -282,9 +282,12 @@ describe('XAIImageProvider.generate credit gate', () => {
 
         finishFirst();
         expect(await first).toBe('https://x.ai/img/1');
-        expect(
-            await server.stores.creditHold.outstanding(actor.user!.uuid),
-        ).toBe(0);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 
     it('holds at the model cost factor', async () => {
