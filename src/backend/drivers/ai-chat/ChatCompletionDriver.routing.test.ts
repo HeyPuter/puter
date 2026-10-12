@@ -333,11 +333,12 @@ describe('ChatCompletionDriver while a gateway catalog is loading', () => {
         axiosRequestMock.mockImplementation(catalogResponse);
     });
 
-    it('serves a gateway model requested before its catalog arrives', async () => {
-        const releaseCatalog = holdCatalog();
+    /** A driver with Infron behind the slow gateway, started as boot would. */
+    const startSlowDriver = (providers: Record<string, unknown> = {}) => {
         const slowDriver = new ChatCompletionDriver(
             {
                 providers: {
+                    ...providers,
                     infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
                     ollama: { enabled: false },
                 },
@@ -347,6 +348,10 @@ describe('ChatCompletionDriver while a gateway catalog is loading', () => {
             server.services,
         );
         slowDriver.onServerStart();
+        return slowDriver;
+    };
+
+    const answerOnce = () =>
         createMock.mockResolvedValueOnce({
             choices: [
                 {
@@ -357,18 +362,78 @@ describe('ChatCompletionDriver while a gateway catalog is loading', () => {
             usage: { prompt_tokens: 1, completion_tokens: 1 },
         });
 
-        const reply = withTestActor(() =>
+    const ask = (
+        slowDriver: ChatCompletionDriver,
+        args: { model: string; provider?: string },
+    ) =>
+        withTestActor(() =>
             slowDriver.complete({
-                model: 'qwen/qwq-max',
+                ...args,
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
+
+    // A request is read off the socket only after catalogs that need no
+    // fetch have landed.
+    const nextRequestTurn = () =>
+        new Promise<void>((resolve) => setImmediate(resolve));
+
+    it('serves a gateway model requested before its catalog arrives', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver();
+        answerOnce();
+
+        const reply = ask(slowDriver, { model: 'qwen/qwq-max' });
         releaseCatalog();
 
         await expect(reply).resolves.toMatchObject({
             message: { content: 'hi' },
         });
         expect(createMock.mock.calls.at(-1)![0].model).toBe('Qwen/QwQ-Max');
+        slowDriver.onServerShutdown();
+    });
+
+    it('serves a direct model without waiting for a gateway catalog', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver({
+            deepseek: { apiKey: 'test-key' },
+        });
+        try {
+            await nextRequestTurn();
+            answerOnce();
+
+            await expect(
+                ask(slowDriver, { model: 'deepseek-v4-pro' }),
+            ).resolves.toMatchObject({ message: { content: 'hi' } });
+            expect(createMock.mock.calls.at(-1)![0].model).toBe(
+                'deepseek-v4-pro',
+            );
+        } finally {
+            releaseCatalog();
+            slowDriver.onServerShutdown();
+        }
+    });
+
+    it('waits for the gateway a request names, even when a direct route is loaded', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver({
+            deepseek: { apiKey: 'test-key' },
+        });
+        await nextRequestTurn();
+        answerOnce();
+
+        const reply = ask(slowDriver, {
+            model: 'deepseek-v4-pro',
+            provider: 'infron',
+        });
+        releaseCatalog();
+
+        await expect(reply).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe(
+            'deepseek/deepseek-v4-pro',
+        );
         slowDriver.onServerShutdown();
     });
 

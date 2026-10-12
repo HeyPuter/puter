@@ -556,7 +556,7 @@ export class ChatCompletionDriver extends PuterDriver {
     /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
     #catalogEntries = new WeakMap<IChatModel, IChatModel>();
     #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
-    /** The first model-map build, which requests arriving during it wait on. */
+    /** The first model-map build, finished once every catalog is in. */
     #modelMapBuilt: Promise<void> = Promise.resolve();
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
@@ -572,7 +572,7 @@ export class ChatCompletionDriver extends PuterDriver {
         this.#registerProviders();
         // Not awaited: a gateway catalog can take its whole fetch timeout, and
         // the drivers started after this one shouldn't wait for it.
-        this.#modelMapBuilt = this.#buildModelMap();
+        this.#modelMapBuilt = this.#buildModelMap({ publishEachCatalog: true });
         // Gateway catalogs change under us; rebuild once they've expired.
         this.#modelMapRefresh = setInterval(() => {
             void this.#buildModelMap();
@@ -638,7 +638,6 @@ export class ChatCompletionDriver extends PuterDriver {
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
-        await this.#modelMapBuilt;
         const abortSignal = Context.get('abortSignal');
         abortSignal?.throwIfAborted();
         const actor = Context.get('actor');
@@ -659,7 +658,10 @@ export class ChatCompletionDriver extends PuterDriver {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
 
-        let model = this.#resolveModel(args.model, intendedProvider);
+        let model = await this.#resolveLoadedModel(
+            args.model,
+            intendedProvider,
+        );
         if (!model) {
             throw new HttpError(400, `Model not found: ${args.model}`, {
                 legacyCode: 'bad_request',
@@ -1256,7 +1258,6 @@ export class ChatCompletionDriver extends PuterDriver {
     async [COUNT_TOKENS](
         args: ICompleteArguments,
     ): Promise<{ input_tokens: number }> {
-        await this.#modelMapBuilt;
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
             intendedProvider = 'azure-openai';
@@ -1269,7 +1270,10 @@ export class ChatCompletionDriver extends PuterDriver {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
 
-        const model = this.#resolveModel(args.model, intendedProvider);
+        const model = await this.#resolveLoadedModel(
+            args.model,
+            intendedProvider,
+        );
         if (!model) {
             throw new HttpError(400, `Model not found: ${args.model}`, {
                 legacyCode: 'bad_request',
@@ -1749,7 +1753,37 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     /**
-     * Group every provider's catalog into per-model buckets.
+     * Load every provider's catalog and swap in the map built from them. A
+     * provider whose catalog fails is left out rather than failing the build.
+     *
+     * A refresh swaps once, so the previous map serves until every catalog is
+     * in. The first build also publishes as each catalog lands, so models from
+     * catalogs that need no fetch are served while the gateways' still load.
+     */
+    async #buildModelMap({ publishEachCatalog = false } = {}) {
+        const names = Object.keys(this.#providers);
+        const catalogs = new Array<IChatModel[] | undefined>(names.length);
+        await Promise.all(
+            names.map(async (name, i) => {
+                try {
+                    catalogs[i] = await this.#providers[name].models();
+                } catch (e) {
+                    console.warn(
+                        `[ai-chat] ${name} catalog unavailable: ${(e as Error)?.message ?? e}`,
+                    );
+                    return;
+                }
+                if (publishEachCatalog) {
+                    this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+                }
+            }),
+        );
+        this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+    }
+
+    /**
+     * Group the loaded catalogs into per-model buckets, in provider
+     * registration order.
      *
      * A bucket is the set of routes to one model: the vendor we integrate with
      * directly plus every reseller carrying it. They are deliberately _not_
@@ -1759,28 +1793,18 @@ export class ChatCompletionDriver extends PuterDriver {
      *
      * Entries join a bucket by identity key (see `isIdentityKey`); display
      * names remain addressable but never merge two providers' entries.
-     *
-     * Built into a fresh map that replaces the old one whole, so a refresh
-     * never serves a half-built map. A provider whose catalog fails is left out
-     * of this build rather than failing it.
      */
-    async #buildModelMap() {
-        const names = Object.keys(this.#providers);
-        const catalogs = await Promise.allSettled(
-            names.map(async (name) => this.#providers[name].models()),
-        );
+    #assembleModelMap(
+        names: string[],
+        catalogs: (IChatModel[] | undefined)[],
+    ): Record<string, IChatModel[]> {
         const modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
         names.forEach((providerName, i) => {
-            const catalog = catalogs[i]!;
-            if (catalog.status === 'rejected') {
-                console.warn(
-                    `[ai-chat] ${providerName} catalog unavailable: ${(catalog.reason as Error)?.message ?? catalog.reason}`,
-                );
-                return;
-            }
+            const catalog = catalogs[i];
+            if (!catalog) return;
 
-            for (const entry of catalog.value) {
+            for (const entry of catalog) {
                 // Catalogs are module-level constants shared by every driver
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
@@ -1834,7 +1858,22 @@ export class ChatCompletionDriver extends PuterDriver {
             }
         });
 
-        this.#modelIdMap = modelIdMap;
+        return modelIdMap;
+    }
+
+    /**
+     * Resolve against the map as it stands. A model, or the provider route
+     * asked for, that isn't in it yet may be in a catalog still loading at
+     * boot, so that waits for the first build before giving up.
+     */
+    async #resolveLoadedModel(
+        modelId: string,
+        provider?: string,
+    ): Promise<IChatModel | null> {
+        const model = this.#resolveModel(modelId, provider);
+        if (model && (!provider || model.provider === provider)) return model;
+        await this.#modelMapBuilt;
+        return this.#resolveModel(modelId, provider);
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {
