@@ -204,6 +204,11 @@ describe('VideoGenerationDriver catalog', () => {
         expect(ids).toEqual([...ids].sort());
     });
 
+    it('builds the catalog once at boot, not on every listing', async () => {
+        expect(await driver.models()).toBe(await driver.models());
+        expect(await driver.list()).toBe(await driver.list());
+    });
+
     it('getReportedCosts emits per-cost-key line items namespaced by provider:model:costKey', () => {
         const reported = driver.getReportedCosts() as Array<{
             usageType: string;
@@ -675,6 +680,32 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         );
 
         expect(togetherSent().puter_output_path).toBeUndefined();
+    });
+
+    it("leaves the caller's args untouched", async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+        completeTogetherJob();
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(Buffer.from('fake-mp4'), {
+                status: 200,
+                headers: { 'content-type': 'video/mp4' },
+            }),
+        );
+
+        const args = {
+            prompt: 'hi',
+            model: ` ${DEFAULT_MODEL.toUpperCase()} `,
+            seconds: 999,
+            size: '1920x1080',
+            puter_output_path: '/testuser/dir/clip.mp4',
+        };
+        const before = structuredClone(args);
+        await withTestUser(() => driver.generate(args as never));
+
+        expect(args).toEqual(before);
     });
 
     it('throws 400 when actor has no user ID but puter_output_path is set', async () => {

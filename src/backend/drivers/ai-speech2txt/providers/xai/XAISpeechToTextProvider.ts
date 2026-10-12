@@ -18,8 +18,10 @@
  */
 
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
+import type { Actor } from '../../../../core/actor.js';
+import { withAiCreditHold } from '../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../util/fileInput.js';
+import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import type {
     ISpeechToTextDeps,
     ISpeechToTextModel,
@@ -39,6 +41,8 @@ import { SpeechToTextProvider } from '../SpeechToTextProvider.js';
 
 const API_BASE = 'https://api.x.ai/v1';
 const MAX_AUDIO_FILE_SIZE = 500 * 1024 * 1024; // 500 MB per xAI docs
+// Covers the upload as well as the transcription.
+const STT_TIMEOUT_MS = 10 * 60 * 1000;
 // $0.10 per hour = 10 cents per hour = 10 * 1_000_000 microcents per hour
 // Per second: 10_000_000 / 3600 ≈ 2778 microcents per second
 const UCENTS_PER_SECOND = 2778;
@@ -147,134 +151,85 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
 
         const actor = this.requireActor();
 
-        // Determine if the input is an HTTP URL or a filesystem/data-URL reference
-        const isUrl = this.#isHttpUrl(args.file);
+        const formData = new FormData();
+        if (pinnedModel) formData.append('model', pinnedModel);
+        if (args.language) formData.append('language', args.language);
+        if (args.format !== undefined)
+            formData.append('format', String(args.format));
+        if (args.diarize) formData.append('diarize', 'true');
+        if (args.multichannel) formData.append('multichannel', 'true');
+        if (args.channels) formData.append('channels', String(args.channels));
+        if (args.audio_format)
+            formData.append('audio_format', args.audio_format);
+        if (args.sample_rate)
+            formData.append('sample_rate', String(args.sample_rate));
 
-        // For URLs we use xAI's native `url` param — no local fetch needed.
-        // For files we load from the Puter FS / data-URL.
-        let fileBuffer: Buffer | null = null;
-        let filename = 'audio.mp3';
-        let mimeType = 'audio/mpeg';
-
-        if (!isUrl) {
-            const loaded = await loadFileInput(
-                this.deps.stores,
-                this.deps.fs,
-                actor,
-                args.file,
-                { maxBytes: MAX_AUDIO_FILE_SIZE },
-            );
-            fileBuffer = loaded.buffer;
-            filename = loaded.filename || 'audio.mp3';
-            mimeType = loaded.mimeType || 'audio/mpeg';
+        // A URL goes to xAI as-is and is downloaded there; its duration can't
+        // be known upfront, so the hold covers a conservative 60 seconds.
+        // Actual usage is metered from the duration xAI reports.
+        let estimatedSeconds = 60;
+        if (this.#isHttpUrl(args.file)) {
+            formData.append('url', args.file);
+        } else {
+            // The file must be the last field, per xAI's docs.
+            const { blob, filename } = await this.#loadAudio(args.file, actor);
+            estimatedSeconds = Math.max(1, Math.ceil(blob.size / 16000));
+            formData.append('file', blob, filename);
         }
 
-        // Pre-flight credit check. For URLs we can't know the duration
-        // upfront, so use a conservative 60-second estimate; actual usage
-        // is metered from the API response duration afterwards.
-        const estimatedSeconds = fileBuffer
-            ? Math.max(1, Math.ceil(fileBuffer.byteLength / 16000))
-            : 60;
-        const estimatedCost = UCENTS_PER_SECOND * estimatedSeconds;
-        const hold = await this.deps.metering.reserveAiCredits(
+        const metering = this.deps.metering;
+        return withAiCreditHold(
+            metering,
             actor,
             'xai:stt:second',
-            estimatedCost,
-        );
-        if (!hold) throw insufficientCreditsError();
-
-        try {
-            // Build multipart form data
-            const formData = new FormData();
-
-            if (pinnedModel) formData.append('model', pinnedModel);
-            if (args.language) formData.append('language', args.language);
-            if (args.format !== undefined)
-                formData.append('format', String(args.format));
-            if (args.diarize) formData.append('diarize', 'true');
-            if (args.multichannel) formData.append('multichannel', 'true');
-            if (args.channels)
-                formData.append('channels', String(args.channels));
-            if (args.audio_format)
-                formData.append('audio_format', args.audio_format);
-            if (args.sample_rate)
-                formData.append('sample_rate', String(args.sample_rate));
-
-            if (isUrl) {
-                // Pass URL directly to xAI — it downloads server-side
-                formData.append('url', args.file as string);
-            } else {
-                // File must be the last field per xAI docs
-                // Copy into a plain Uint8Array — Node's Buffer type doesn't
-                // satisfy the DOM BlobPart signature.
-                const blob = new Blob([new Uint8Array(fileBuffer!)], {
-                    type: mimeType,
-                });
-                formData.append('file', blob, filename);
-            }
-
-            const response = await fetch(`${API_BASE}/stt`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.#apiKey}`,
-                },
-                body: formData,
-            });
-
-            if (!response.ok) {
-                const errText = await response.text().catch(() => '');
-                console.error(
-                    `[XAISpeechToTextProvider] API returned ${response.status}: ${errText}`,
-                );
-                // Mirrors ElevenLabs / XAITTS — map upstream status to an
-                // `upstream_*` HttpError so the alarm gate skips it.
-                const legacyCode =
-                    response.status >= 500
-                        ? 'upstream_provider_unavailable'
-                        : response.status === 401 || response.status === 403
-                          ? 'upstream_auth_failed'
-                          : response.status === 429
-                            ? 'upstream_rate_limited'
-                            : 'upstream_bad_request';
-                const exposedStatus =
-                    legacyCode === 'upstream_rate_limited'
-                        ? 429
-                        : legacyCode === 'upstream_auth_failed'
-                          ? 500
-                          : 400;
-                throw new HttpError(
-                    exposedStatus,
-                    errText ||
-                        `xAI STT request failed (status ${response.status})`,
+            UCENTS_PER_SECOND * estimatedSeconds,
+            async () => {
+                const response = await upstreamFetch(
+                    'xAI STT',
+                    `${API_BASE}/stt`,
                     {
-                        legacyCode,
-                        fields: {
-                            provider: 'xai',
-                            upstreamStatus: response.status,
-                        },
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${this.#apiKey}` },
+                        body: formData,
                     },
+                    { timeoutMs: STT_TIMEOUT_MS },
                 );
-            }
+                const result = await response.json();
+                const actualSeconds =
+                    typeof result.duration === 'number'
+                        ? Math.ceil(result.duration)
+                        : estimatedSeconds;
+                metering.incrementUsage(
+                    actor,
+                    'xai:stt:second',
+                    actualSeconds,
+                    UCENTS_PER_SECOND * actualSeconds,
+                );
+                return result;
+            },
+        );
+    }
 
-            const result = await response.json();
-
-            // Meter actual usage using returned duration, or estimated
-            const actualSeconds =
-                typeof result.duration === 'number'
-                    ? Math.ceil(result.duration)
-                    : estimatedSeconds;
-            const actualCost = UCENTS_PER_SECOND * actualSeconds;
-
-            this.deps.metering.incrementUsage(
-                actor,
-                'xai:stt:second',
-                actualSeconds,
-                actualCost,
-            );
-
-            return result;
-        } finally {
-            await hold.release();
-        }
+    /**
+     * The audio as the Blob the upload sends. The loaded buffer stays local, so
+     * only the Blob's copy is held for the upload.
+     */
+    async #loadAudio(
+        file: unknown,
+        actor: Actor,
+    ): Promise<{ blob: Blob; filename: string }> {
+        const loaded = await loadFileInput(
+            this.deps.stores,
+            this.deps.fs,
+            actor,
+            file,
+            { maxBytes: MAX_AUDIO_FILE_SIZE },
+        );
+        return {
+            blob: new Blob([loaded.buffer as BlobPart], {
+                type: loaded.mimeType || 'audio/mpeg',
+            }),
+            filename: loaded.filename || 'audio.mp3',
+        };
     }
 }
