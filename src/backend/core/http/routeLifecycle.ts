@@ -61,6 +61,8 @@ export const routeEventKeyBase = (
  * off the real status, not `reject`.
  *
  * Subscribers can listen on `route.*`, `route.<method>.*`, or the exact key.
+ * Each phase is skipped when nothing listens for it, so an unobserved route
+ * pays for a few map lookups and nothing else.
  */
 export const createRouteLifecycleMiddleware = (
     events: EventClient,
@@ -70,8 +72,18 @@ export const createRouteLifecycleMiddleware = (
     const pathLabel =
         typeof fullPath === 'string' ? fullPath : String(fullPath);
     const keyBase = routeEventKeyBase(method, fullPath);
+    const beforeKey = `${keyBase}.before` as const;
 
     return async (req: Request, res, next) => {
+        const observeBefore = events.hasListeners(beforeKey);
+        const observeEnd =
+            events.hasListeners(`${keyBase}.after`) ||
+            events.hasListeners(`${keyBase}.error`);
+        if (!observeBefore && !observeEnd) {
+            next();
+            return;
+        }
+
         const actor = req.actor ? actorUid(req.actor) : undefined;
         const startedAt = Date.now();
         const base = {
@@ -89,7 +101,9 @@ export const createRouteLifecycleMiddleware = (
             allow: true as boolean,
             rejectReason: undefined as string | undefined,
         };
-        await events.emitAndWait(`${keyBase}.before`, beforeEvent, {});
+        if (observeBefore) {
+            await events.emitAndWait(beforeKey, beforeEvent, {});
+        }
 
         // Explicit veto: a listener set `allow = false`. Emit `reject` and
         // answer 403 — unless the listener already wrote its own response, in
@@ -134,6 +148,11 @@ export const createRouteLifecycleMiddleware = (
                 },
                 {},
             );
+            return;
+        }
+
+        if (!observeEnd) {
+            next();
             return;
         }
 

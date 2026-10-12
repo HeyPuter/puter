@@ -19,12 +19,9 @@
 
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { EventClient } from '../../clients/event/EventClient';
-import type {
-    EventMap,
-    RouteLifecycleEvent,
-} from '../../clients/event/types';
+import type { EventMap, RouteLifecycleEvent } from '../../clients/event/types';
 import type { IConfig } from '../../types';
 import {
     createRouteLifecycleMiddleware,
@@ -98,6 +95,78 @@ describe('routeEventKeyBase', () => {
 });
 
 describe('createRouteLifecycleMiddleware', () => {
+    it('does no event work for a route nobody listens to', async () => {
+        const events = makeEvents();
+        // A listener elsewhere must not make this route pay.
+        record(events, 'route.get.other.before' as keyof EventMap);
+        const emitAndWait = vi.spyOn(events, 'emitAndWait');
+        const emit = vi.spyOn(events, 'emit');
+
+        const mw = createRouteLifecycleMiddleware(events, POST, PATH);
+        const res = new FakeRes();
+        let nextCalled = false;
+        await mw(makeReq('u-1'), res as unknown as Response, () => {
+            nextCalled = true;
+        });
+        res.writableFinished = true;
+        res.emit('finish');
+        res.emit('close');
+
+        expect(nextCalled).toBe(true);
+        expect(emitAndWait).not.toHaveBeenCalled();
+        expect(emit).not.toHaveBeenCalled();
+        expect(res.listenerCount('finish')).toBe(0);
+        expect(res.listenerCount('close')).toBe(0);
+    });
+
+    it('skips the awaited before emit when only the terminal phase is observed', async () => {
+        const events = makeEvents();
+        const after = record(events, `${BASE}.after` as keyof EventMap);
+        const emitAndWait = vi.spyOn(events, 'emitAndWait');
+
+        const mw = createRouteLifecycleMiddleware(events, POST, PATH);
+        const res = new FakeRes();
+        await mw(makeReq('u-1'), res as unknown as Response, () => {});
+        res.writableFinished = true;
+        res.emit('finish');
+
+        expect(emitAndWait).not.toHaveBeenCalled();
+        expect(after).toHaveLength(1);
+        expect(after[0]).toMatchObject({
+            phase: 'after',
+            actorUid: 'user:u-1',
+        });
+    });
+
+    it('skips the response hooks when only before is observed', async () => {
+        const events = makeEvents();
+        const before = record(events, `${BASE}.before` as keyof EventMap);
+
+        const mw = createRouteLifecycleMiddleware(events, POST, PATH);
+        const res = new FakeRes();
+        let nextCalled = false;
+        await mw(makeReq(), res as unknown as Response, () => {
+            nextCalled = true;
+        });
+
+        expect(nextCalled).toBe(true);
+        expect(before).toHaveLength(1);
+        expect(res.listenerCount('finish')).toBe(0);
+    });
+
+    it('fires wildcard listeners on every phase', async () => {
+        const events = makeEvents();
+        const seen = record(events, 'route.*' as keyof EventMap);
+
+        const mw = createRouteLifecycleMiddleware(events, POST, PATH);
+        const res = new FakeRes();
+        await mw(makeReq(), res as unknown as Response, () => {});
+        res.writableFinished = true;
+        res.emit('finish');
+
+        expect(seen.map((e) => e.phase)).toEqual(['before', 'after']);
+    });
+
     it('emits before, then after on a clean finish', async () => {
         const events = makeEvents();
         const before = record(events, `${BASE}.before` as keyof EventMap);

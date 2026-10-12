@@ -21,10 +21,15 @@ import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { basename, dirname, extname, join, resolve } from 'path';
 import { createContext, runInContext } from 'vm';
 import type { IConfig } from '../../types';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { Span } from '../../util/span.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 
 const MIGRATIONS_DIR = resolve(__dirname, './migrations/sqlite');
+const STATEMENT_CACHE_SIZE = 1000;
+
+type SqliteDatabase = InstanceType<typeof import('better-sqlite3')>;
+type SqliteStatement = import('better-sqlite3').Statement<unknown[]>;
 
 /**
  * Ordered list of [threshold_version, files[]] pairs. A database whose
@@ -128,7 +133,11 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
     override readonly engineName = 'sqlite';
 
     // better-sqlite3 instance — set during onServerStart
-    private db!: InstanceType<typeof import('better-sqlite3')>;
+    private db!: SqliteDatabase;
+    /** Prepared statements by query text; SQLite re-prepares on schema change. */
+    private readonly statements = new BoundedTtlMap<string, SqliteStatement>({
+        maxEntries: STATEMENT_CACHE_SIZE,
+    });
 
     constructor(config: IConfig) {
         super(config);
@@ -150,12 +159,14 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
             mkdirSync(dirname(dbPath), { recursive: true });
         }
 
+        this.statements.clear();
         this.db = new Database(dbPath);
 
         await this.runMigrations(isNew);
     }
 
     override onServerShutdown(): void {
+        this.statements.clear();
         if (this.db) {
             this.db.close();
         }
@@ -170,12 +181,9 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
-        query = this.transformQuery(query);
-        params = this.transformParams(params);
-        return this.db.prepare(query).all(...params) as Record<
-            string,
-            unknown
-        >[];
+        return this.prepare(query).all(
+            ...this.transformParams(params),
+        ) as Record<string, unknown>[];
     }
 
     override async pread(
@@ -186,25 +194,12 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         return this.read(query, params);
     }
 
-    override async tryHardRead(
-        query: string,
-        params: unknown[] = [],
-    ): Promise<Record<string, unknown>[]> {
-        // No replica to race, so the base class's parallel
-        // primary-plus-replica read would run the same statement twice on
-        // the one connection.
-        return this.read(query, params);
-    }
-
     @Span('db.write', (query: string) => ({ 'db.statement': query }))
     override async write(
         query: string,
         params: unknown[] = [],
     ): Promise<WriteResult> {
-        query = this.transformQuery(query);
-        params = this.transformParams(params);
-
-        const info = this.db.prepare(query).run(...params);
+        const info = this.prepare(query).run(...this.transformParams(params));
 
         return {
             insertId: info.lastInsertRowid,
@@ -220,10 +215,8 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         entries: { statement: string; values: unknown[] }[],
     ): Promise<void> {
         this.db.transaction(() => {
-            for (let { statement, values } of entries) {
-                statement = this.transformQuery(statement);
-                values = this.transformParams(values);
-                this.db.prepare(statement).run(...values);
+            for (const { statement, values } of entries) {
+                this.prepare(statement).run(...this.transformParams(values));
             }
         })();
     }
@@ -231,6 +224,15 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
     // ------------------------------------------------------------------
     // SQLite-specific transforms
     // ------------------------------------------------------------------
+
+    private prepare(query: string): SqliteStatement {
+        let statement = this.statements.get(query);
+        if (!statement) {
+            statement = this.db.prepare(this.transformQuery(query));
+            this.statements.set(query, statement);
+        }
+        return statement;
+    }
 
     private transformQuery(query: string): string {
         return query.replace(/now\(\)/gi, "datetime('now')");

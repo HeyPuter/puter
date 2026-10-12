@@ -44,7 +44,10 @@ import {
     requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
+    requireCreditsGate,
     requirePhoneVerifiedGate,
+    requireReputationGate,
+    requireSubscriptionGate,
     requireTeam2fa,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
@@ -53,9 +56,6 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
-import { requireCreditsGate } from './core/http/middleware/credits';
-import { requireReputationGate } from './core/http/middleware/reputation';
-import { requireSubscriptionGate } from './core/http/middleware/subscription';
 import { validateReputationRequirement } from './core/reputation';
 import {
     actorOnPaidPlan,

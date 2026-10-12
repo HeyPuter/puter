@@ -22,9 +22,23 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
 import {
     isSignatureValid,
+    mimeFromName,
     signFile,
     verifySignature,
 } from './fileSigning.js';
+
+// Pass-through spy, to count how often a key is derived from the raw secret.
+const { hmacKeys } = vi.hoisted(() => ({ hmacKeys: [] as unknown[] }));
+vi.mock('node:crypto', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:crypto')>();
+    return {
+        ...actual,
+        createHmac: (...args: Parameters<typeof actual.createHmac>) => {
+            hmacKeys.push(args[1]);
+            return actual.createHmac(...args);
+        },
+    };
+});
 
 const CONFIG = {
     secret: 'a-real-secret-not-the-placeholder',
@@ -288,5 +302,39 @@ describe('fileSigning legacy signature visibility', () => {
         } finally {
             warn.mockRestore();
         }
+    });
+});
+
+describe('signing key derivation', () => {
+    it('derives the purpose key from a secret once', () => {
+        const secret = 'a-secret-only-this-test-uses';
+        hmacKeys.length = 0;
+        signFile(makeEntry(), { ...CONFIG, secret });
+        signFile(makeEntry(), { ...CONFIG, secret });
+        expect(hmacKeys.filter((key) => key === secret)).toHaveLength(1);
+    });
+});
+
+describe('mimeFromName', () => {
+    it('keeps the types it has always reported', () => {
+        expect(mimeFromName('photo.JPG')).toBe('image/jpeg');
+        expect(mimeFromName('favicon.ico')).toBe('image/x-icon');
+        expect(mimeFromName('clip.wav')).toBe('audio/wav');
+        expect(mimeFromName('notes.md')).toBe('text/markdown');
+        expect(mimeFromName('app.mjs')).toBe('application/javascript');
+    });
+
+    it('covers extensions beyond the old inline table', () => {
+        expect(mimeFromName('slides.pptx')).toBe(
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        );
+        expect(mimeFromName('song.flac')).toBe('audio/x-flac');
+    });
+
+    it('is null for unknown, missing or leading-dot-only extensions', () => {
+        expect(mimeFromName('archive.unknownext')).toBeNull();
+        expect(mimeFromName('README')).toBeNull();
+        expect(mimeFromName('.bashrc')).toBeNull();
+        expect(mimeFromName('trailing.')).toBeNull();
     });
 });
