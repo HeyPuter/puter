@@ -410,6 +410,12 @@ export interface IBroadcastConfig {
      * 2000ms.
      */
     outbound_flush_ms?: number;
+    /**
+     * Largest outbound POST body in bytes; a flush over it goes out as several
+     * POSTs, and a peer that is down is owed at most four bodies' worth.
+     * Default 4 MiB.
+     */
+    outboundMaxBodyBytes?: number;
 }
 
 /** Cloudflare Workers deployment config used by `WorkerDriver`. */
