@@ -46,6 +46,7 @@ import { TeamService } from './team/TeamService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
+import { SignupService } from './user/SignupService';
 import { UserAccountService } from './user/UserAccountService';
 
 /**
@@ -85,6 +86,7 @@ declare module './types' {
         health: ServerHealthService;
         userAccount: UserAccountService;
         team: TeamService;
+        signup: SignupService;
     }
 }
 
@@ -121,6 +123,8 @@ export const puterServices = {
     userAccount: UserAccountService,
     // Leaf: team + user stores only.
     team: TeamService,
+    // Reaches `team` and `socket` at call time only.
+    signup: SignupService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
