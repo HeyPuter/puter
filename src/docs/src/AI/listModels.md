@@ -20,17 +20,6 @@ A string containing the provider you want to list the models for.
 
 ## Return value
 
-Successful results are cached for 60 seconds per SDK instance, provider, API origin
-and authentication token. Concurrent identical calls share one request. Each call
-receives an independent copy of the result. Provider filtering happens on the server;
-older servers are filtered locally. The SDK falls back to the legacy driver only
-when the endpoint is unavailable (404 or 501).
-
-Network and server failures reject the promise; they do not resolve to an empty
-catalogue. Network failures use `{ message, code: "network_error" }`, invalid
-catalogue responses use `invalid_response`, idle timeouts use `request_timeout`,
-and server errors pass through unchanged.
-
 Resolves to an array of model objects. Each object always contains `id` and `provider`, and may include fields such as `name`, `aliases`, `context`, `max_tokens`, and a `cost` object (`currency`, `tokens`, `input` and `output` costs in cents). Additional provider-specific capability fields may also be present.
 
 Example model entry:
@@ -53,6 +42,13 @@ Example model entry:
   }
 ]
 ```
+
+Network and server failures reject the promise; they do not resolve to an empty
+catalogue. Network failures use `{ message, code: "network_error" }`, invalid
+catalogue responses use `invalid_response`, idle timeouts use `request_timeout`,
+and server errors pass through unchanged.
+
+<div class="info">Successful results are cached for 60 seconds per provider.</div>
 
 ## Model variants
 

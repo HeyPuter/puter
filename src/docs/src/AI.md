@@ -7,8 +7,6 @@ The Puter.js AI feature allows you to integrate artificial intelligence capabili
 
 You can use AI models from various providers to perform tasks such as chat, text-to-image, image-to-text, text-to-video, and text-to-speech conversion. And with the [User-Pays Model](/user-pays-model/), you don't have to set up your own API keys and top up credits, because users cover their own AI costs.
 
-Chat supports cancellation through an `AbortSignal`; see [chat()](/AI/chat/#stopping-a-stream). [listModels()](/AI/listModels/) caches successful catalogues for 60 seconds and rejects failed requests.
-
 ## Features
 
 <div style="overflow:hidden; margin-bottom: 30px;">
