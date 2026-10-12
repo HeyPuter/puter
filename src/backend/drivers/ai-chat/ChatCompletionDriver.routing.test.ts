@@ -30,6 +30,7 @@
 
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -220,6 +221,13 @@ const attemptsFor = async (
         }
     ).fields.attempts;
 };
+
+// Shaped like the Stainless SDKs' connection error: no status, only the class.
+class APIConnectionError extends Error {
+    constructor() {
+        super('Connection error.');
+    }
+}
 
 describe('ChatCompletionDriver gemini routing', () => {
     it('serves gemini models from Google, with the gateway only as fallback', async () => {
@@ -562,6 +570,47 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         await complete();
         expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
     });
+
+    describe('how long a failed route stays marked', () => {
+        let start: number;
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            start = Date.now();
+        });
+        afterEach(() => vi.useRealTimers());
+
+        const markedAfter = (seconds: number) => {
+            vi.setSystemTime(start + seconds * 1000);
+            return isRouteUnhealthy('deepseek', 'deepseek-v4-pro');
+        };
+
+        it.each([
+            [
+                'an upstream 5xx',
+                Object.assign(new Error('bad gateway'), { status: 502 }),
+            ],
+            [
+                'a rate limit',
+                Object.assign(new Error('slow down'), { status: 429 }),
+            ],
+            ['a dropped connection', new APIConnectionError()],
+        ])('a minute after %s', async (_kind, err) => {
+            await attemptsFor('deepseek-v4-pro', err);
+
+            expect(markedAfter(59)).toBe(true);
+            expect(markedAfter(61)).toBe(false);
+        });
+
+        it('ten minutes after bad credentials', async () => {
+            await attemptsFor(
+                'deepseek-v4-pro',
+                Object.assign(new Error('invalid api key'), { status: 401 }),
+            );
+
+            expect(markedAfter(61)).toBe(true);
+            expect(markedAfter(10 * 60 + 1)).toBe(false);
+        });
+    });
 });
 
 // A transport timeout carries no status, so the classifier used to lump a
@@ -615,13 +664,6 @@ describe('ChatCompletionDriver timeout classification across the chain', () => {
 // A dropped connection carries no status either; it is the provider's outage,
 // not our bug.
 describe('ChatCompletionDriver connection-failure classification across the chain', () => {
-    // Shaped like the Stainless SDKs' connection error: no status, only the class.
-    class APIConnectionError extends Error {
-        constructor() {
-            super('Connection error.');
-        }
-    }
-
     const completeShared = async () => {
         try {
             await withTestActor(() =>

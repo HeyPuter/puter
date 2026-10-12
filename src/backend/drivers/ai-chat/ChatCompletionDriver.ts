@@ -106,6 +106,8 @@ import {
 import {
     isRouteUnhealthy,
     markRouteUnhealthy,
+    TRANSIENT_UNHEALTHY_TTL_SEC,
+    UNHEALTHY_TTL_SEC,
 } from './utils/providerHealth.js';
 import { CATALOG_TTL_MS } from './utils/cachedRemoteCatalog.js';
 import { fromFinishReason } from './utils/stopReason.js';
@@ -333,6 +335,19 @@ const isRouteLevelFailure = (a: ProviderAttempt) =>
     isRateLimit(a) ||
     isAuthFailure(a) ||
     isUpstream5xx(a);
+
+/**
+ * A route-level failure that usually clears within a minute. Bad credentials
+ * and an exhausted account stay broken until someone fixes them.
+ */
+const isTransientFailure = (a: ProviderAttempt) =>
+    !isAuthFailure(a) &&
+    !isCreditExhaustion(a) &&
+    (isUpstream5xx(a) ||
+        isRateLimit(a) ||
+        a.status === 408 ||
+        a.timedOut === true ||
+        a.connectionFailed === true);
 
 // One bucket can hold the same model id under several providers *and* several
 // ids under one provider, so only the pair identifies an attempt.
@@ -792,7 +807,13 @@ export class ChatCompletionDriver extends PuterDriver {
             attempts.push(attempt);
             if (!isFreeModel(failed)) allModelsFree = false;
             if (isRouteLevelFailure(attempt)) {
-                markRouteUnhealthy(failed.provider!, failed.id);
+                markRouteUnhealthy(
+                    failed.provider!,
+                    failed.id,
+                    isTransientFailure(attempt)
+                        ? TRANSIENT_UNHEALTHY_TTL_SEC
+                        : UNHEALTHY_TTL_SEC,
+                );
             }
             return attempt;
         };
