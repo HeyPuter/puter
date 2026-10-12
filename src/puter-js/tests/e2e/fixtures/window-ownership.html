@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>puter-js test fixture: window ownership</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 16px; }
+        button { padding: 8px 12px; margin-right: 8px; font-size: 14px; }
+        #log { margin-top: 16px; padding: 8px; background: #f5f5f5; border: 1px solid #ddd; min-height: 60px; font-family: monospace; white-space: pre-wrap; }
+        .ready #status { color: green; }
+    </style>
+</head>
+<body>
+    <h1>puter-js window ownership fixture</h1>
+    <p id="status">Loading puter.js…</p>
+
+    <button id="own" disabled>Retitle and resize own window</button>
+    <button id="created" disabled>Retitle and move a created window</button>
+    <button id="child" disabled>Try to retitle and resize a launched child</button>
+
+    <div id="log" data-testid="log"></div>
+
+    <script>
+        window.PUTER_ORIGIN = 'http://puter.localhost:4100';
+        window.PUTER_API_ORIGIN = 'http://api.puter.localhost:4100';
+    </script>
+    <script src="/dist/puter.dev.js"></script>
+    <script>
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+
+        function log(entry) {
+            const line = document.createElement('div');
+            line.textContent = entry;
+            line.dataset.entry = entry;
+            logEl.appendChild(line);
+        }
+
+        // The desktop doesn't answer a call it refuses, so a refused call
+        // shows up as no reply.
+        const replyOrTimeout = (promise) => Promise.race([
+            promise.then(() => 'replied'),
+            new Promise(resolve => setTimeout(() => resolve('no-reply'), 2000)),
+        ]);
+
+        function bind(id, fn) {
+            const button = document.getElementById(id);
+            button.addEventListener('click', async () => {
+                try {
+                    await fn();
+                } catch (e) {
+                    log(`error:${e?.message ?? e}`);
+                }
+            });
+            button.disabled = false;
+        }
+
+        function runAsParent() {
+            bind('own', async () => {
+                log(`own-title:${await replyOrTimeout(puter.ui.setWindowTitle('own-retitled'))}`);
+                log(`own-size:${await replyOrTimeout(puter.ui.setWindowSize(640, 480))}`);
+            });
+
+            bind('created', async () => {
+                const win = await puter.ui.createWindow({ title: 'created-original', content: '<p>created</p>' });
+                log(`created-id:${win.id}`);
+                log(`created-title:${await replyOrTimeout(puter.ui.setWindowTitle('created-retitled', win))}`);
+                log(`created-position:${await replyOrTimeout(puter.ui.setWindowPosition(50, 60, win))}`);
+            });
+
+            bind('child', async () => {
+                // The desktop tells the parent its child's real window id in
+                // childAppLaunched; that id is what must not be usable here.
+                const launched = new Promise(resolve => window.addEventListener('message', e => {
+                    if ( e.data?.msg === 'childAppLaunched' ) resolve(e.data.child_instance_id);
+                }));
+                const child = await puter.ui.launchApp();
+                await new Promise(resolve => child.on('message', msg => msg?.kind === 'ready' && resolve()));
+                const childWindowId = await launched;
+                log(`child-id:${childWindowId}`);
+                log(`child-title:${await replyOrTimeout(puter.ui.setWindowTitle('hijacked', childWindowId))}`);
+                log(`child-width:${await replyOrTimeout(puter.ui.setWindowWidth(201, childWindowId))}`);
+            });
+        }
+
+        function ready() {
+            document.body.classList.add('ready');
+            const parent = puter.ui.parentApp();
+            statusEl.textContent = `Ready (role=${parent ? 'child' : 'parent'})`;
+            if (parent) parent.postMessage({ kind: 'ready' });
+            else runAsParent();
+        }
+
+        function waitForPuter() {
+            if (window.puter && puter.ui) ready();
+            else setTimeout(waitForPuter, 50);
+        }
+        waitForPuter();
+    </script>
+</body>
+</html>

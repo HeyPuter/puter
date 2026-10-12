@@ -26,12 +26,13 @@ import type { Cluster } from 'ioredis';
  *
  * Two key families: `dav:lock:<token>` → JSON `{ path, lockScope, lockType }`
  * (per-token metadata) `dav:locks:<path>` → JSON `{ <token>: { lockScope,
- * lockType }, ... }` (per-path map)
+ * lockType, expiresAt }, ... }` (per-path map)
  *
- * Both keys share the same TTL so they expire together.
+ * Each token key expires with its own lock; the path map lives as long as its
+ * longest-lived entry, and expired entries in it are ignored.
  */
 
-const DAV_LOCK_TTL_SECONDS = 30;
+export const MAX_LOCK_TIMEOUT_SECONDS = 3600;
 const LOCK_PREFIX = 'dav:lock:';
 const LOCKS_PREFIX = 'dav:locks:';
 
@@ -42,32 +43,51 @@ export interface LockInfo {
     path: string;
 }
 
+interface PathLockEntry {
+    lockScope: 'exclusive' | 'shared';
+    lockType: 'write';
+    /** Epoch ms. */
+    expiresAt: number;
+}
+
+type PathLockMap = Record<string, PathLockEntry>;
+
+/**
+ * Lock timeout to grant for a `Timeout` request header (RFC 4918 §10.7): the
+ * first `Second-N` entry, capped at the max. `Infinite` or no usable entry gets
+ * the max.
+ */
+export function parseLockTimeout(header: string | undefined): number {
+    for (const part of (header ?? '').split(',')) {
+        const match = part.trim().match(/^Second-(\d+)$/i);
+        if (!match) continue;
+        const seconds = Number(match[1]);
+        return Math.min(Math.max(seconds, 1), MAX_LOCK_TIMEOUT_SECONDS);
+    }
+    return MAX_LOCK_TIMEOUT_SECONDS;
+}
+
 export async function createLock(
     redis: Cluster,
     filePath: string,
     lockScope: 'exclusive' | 'shared',
-    lockType: 'write' = 'write',
+    timeoutSeconds: number = MAX_LOCK_TIMEOUT_SECONDS,
 ): Promise<string> {
     const lockToken = `urn:uuid:${randomUUID()}`;
+    const lockType = 'write';
     const meta = JSON.stringify({ path: filePath, lockScope, lockType });
 
     // Per-token metadata
-    await redis.set(
-        `${LOCK_PREFIX}${lockToken}`,
-        meta,
-        'EX',
-        DAV_LOCK_TTL_SECONDS,
-    );
+    await redis.set(`${LOCK_PREFIX}${lockToken}`, meta, 'EX', timeoutSeconds);
 
     // Per-path map — merge with any existing locks on this path
-    const existing = await getPathLockMap(redis, filePath);
-    existing[lockToken] = { lockScope, lockType };
-    await redis.set(
-        `${LOCKS_PREFIX}${filePath}`,
-        JSON.stringify(existing),
-        'EX',
-        DAV_LOCK_TTL_SECONDS,
-    );
+    const pathMap = await getPathLockMap(redis, filePath);
+    pathMap[lockToken] = {
+        lockScope,
+        lockType,
+        expiresAt: Date.now() + timeoutSeconds * 1000,
+    };
+    await writePathLockMap(redis, filePath, pathMap);
 
     return lockToken;
 }
@@ -81,16 +101,7 @@ export async function deleteLock(
         const meta = JSON.parse(raw) as { path: string };
         const pathMap = await getPathLockMap(redis, meta.path);
         delete pathMap[lockToken];
-        if (Object.keys(pathMap).length === 0) {
-            await redis.del(`${LOCKS_PREFIX}${meta.path}`);
-        } else {
-            await redis.set(
-                `${LOCKS_PREFIX}${meta.path}`,
-                JSON.stringify(pathMap),
-                'EX',
-                DAV_LOCK_TTL_SECONDS,
-            );
-        }
+        await writePathLockMap(redis, meta.path, pathMap);
     }
     await redis.del(`${LOCK_PREFIX}${lockToken}`);
 }
@@ -98,28 +109,27 @@ export async function deleteLock(
 export async function refreshLock(
     redis: Cluster,
     lockToken: string,
+    timeoutSeconds: number = MAX_LOCK_TIMEOUT_SECONDS,
 ): Promise<boolean> {
     const raw = await redis.get(`${LOCK_PREFIX}${lockToken}`);
     if (!raw) return false;
-    const meta = JSON.parse(raw) as { path: string };
+    const meta = JSON.parse(raw) as {
+        path: string;
+        lockScope: 'exclusive' | 'shared';
+        lockType: 'write';
+    };
 
-    // Re-set with fresh TTL
-    await redis.set(
-        `${LOCK_PREFIX}${lockToken}`,
-        raw,
-        'EX',
-        DAV_LOCK_TTL_SECONDS,
-    );
-    // Refresh the path map TTL too
-    const pathRaw = await redis.get(`${LOCKS_PREFIX}${meta.path}`);
-    if (pathRaw) {
-        await redis.set(
-            `${LOCKS_PREFIX}${meta.path}`,
-            pathRaw,
-            'EX',
-            DAV_LOCK_TTL_SECONDS,
-        );
-    }
+    await redis.set(`${LOCK_PREFIX}${lockToken}`, raw, 'EX', timeoutSeconds);
+
+    // Re-add the entry even if the path map expired, so the lock keeps
+    // blocking other writers.
+    const pathMap = await getPathLockMap(redis, meta.path);
+    pathMap[lockToken] = {
+        lockScope: meta.lockScope,
+        lockType: meta.lockType,
+        expiresAt: Date.now() + timeoutSeconds * 1000,
+    };
+    await writePathLockMap(redis, meta.path, pathMap);
     return true;
 }
 
@@ -139,9 +149,8 @@ export async function getFileLocks(
         for (const [token, info] of Object.entries(map)) {
             results.push({
                 lockToken: token,
-                lockScope: (info as { lockScope: 'exclusive' | 'shared' })
-                    .lockScope,
-                lockType: (info as { lockType: 'write' }).lockType,
+                lockScope: info.lockScope,
+                lockType: info.lockType,
                 path: current,
             });
         }
@@ -184,9 +193,7 @@ export async function hasWritePermission(
     if (!myLock) return false; // token expired or invalid
 
     // Token's path must match or be an ancestor of the target
-    if (!filePath.startsWith(myLock.path) && myLock.path !== filePath) {
-        return false;
-    }
+    if (!isSameOrDescendant(filePath, myLock.path)) return false;
 
     // Check lock scope rules
     for (const lock of locks) {
@@ -198,20 +205,51 @@ export async function hasWritePermission(
 
 // -- Internals -------------------------------------------------------
 
+function isSameOrDescendant(filePath: string, ancestor: string): boolean {
+    if (filePath === ancestor) return true;
+    const prefix = ancestor.endsWith('/') ? ancestor : `${ancestor}/`;
+    return filePath.startsWith(prefix);
+}
+
+/** The path's lock map with already-expired entries dropped. */
 async function getPathLockMap(
     redis: Cluster,
     filePath: string,
-): Promise<Record<string, { lockScope: string; lockType: string }>> {
+): Promise<PathLockMap> {
     const raw = await redis.get(`${LOCKS_PREFIX}${filePath}`);
     if (!raw) return {};
+    let map: PathLockMap;
     try {
-        return JSON.parse(raw) as Record<
-            string,
-            { lockScope: string; lockType: string }
-        >;
+        map = JSON.parse(raw) as PathLockMap;
     } catch {
         return {};
     }
+    const now = Date.now();
+    for (const [token, entry] of Object.entries(map)) {
+        // Entries without expiresAt predate per-entry expiry; refreshLock
+        // re-adds live ones.
+        if (!(entry.expiresAt > now)) {
+            delete map[token];
+        }
+    }
+    return map;
+}
+
+/** Store the map with a TTL covering its longest-lived entry, or drop it. */
+async function writePathLockMap(
+    redis: Cluster,
+    filePath: string,
+    map: PathLockMap,
+): Promise<void> {
+    const key = `${LOCKS_PREFIX}${filePath}`;
+    if (Object.keys(map).length === 0) {
+        await redis.del(key);
+        return;
+    }
+    const now = Date.now();
+    const latest = Math.max(...Object.values(map).map((e) => e.expiresAt));
+    const ttlSeconds = Math.max(1, Math.ceil((latest - now) / 1000));
+    await redis.set(key, JSON.stringify(map), 'EX', ttlSeconds);
 }
 
 /**

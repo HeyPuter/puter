@@ -246,8 +246,11 @@ The last two apply to an `fs:` permission request for a path that doesn't exist 
 | Concurrent requests | 10 | Per network |
 | Failed sign-ins | 10 per 15 min | Per account being signed into |
 | Failed sign-ins | 50 per 15 min | Per network |
+| Lock timeout | Up to 1 hour | Per lock |
 
 Successful sign-ins don't count. Over either sign-in limit, `dav` answers `429` until the window passes, even for the right password, so a client retrying a stale password keeps itself locked out: fix the password, then wait. This only affects `dav`; the desktop, the API and `puter.auth` keep working.
+
+A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response states the timeout granted. Refresh the lock before it runs out to keep it.
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.
 
