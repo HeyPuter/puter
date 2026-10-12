@@ -111,7 +111,8 @@ const extractUpstreamStatus = (e: {
     return undefined;
 };
 
-const translateProviderError = (err: unknown): unknown => {
+/** Maps a provider failure onto the error the `/drivers/call` caller sees. */
+export const translateProviderError = (err: unknown): unknown => {
     if (isHttpError(err)) return err;
     if (!err || typeof err !== 'object') return err;
     const e = err as {
