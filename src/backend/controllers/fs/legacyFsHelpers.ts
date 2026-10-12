@@ -574,6 +574,59 @@ export async function toLegacyEntry(
     return response;
 }
 
+// -- GUI item events --------------------------------------------------
+
+export type GuiItemEventName =
+    | 'outer.gui.item.added'
+    | 'outer.gui.item.updated'
+    | 'outer.gui.item.moved'
+    | 'outer.gui.item.removed';
+
+/**
+ * Tell the entry's owner's open clients about a change. The desktop reads the
+ * legacy entry shape plus per-event `extra` fields: `old_path` on moves,
+ * `descendants_only` on removes.
+ *
+ * `replaced` is what an overwriting copy or move took the place of. Its
+ * `removed` goes out first: the desktop hides rows by path, so arriving second
+ * it would hide the new row too.
+ */
+export async function emitGuiItemEvent(
+    eventClient: EventClient,
+    eventName: GuiItemEventName,
+    entry: FSEntry,
+    extra?: Record<string, unknown>,
+    replaced?: FSEntry | null,
+): Promise<void> {
+    // Moving an entry onto its own path replaces nothing.
+    if (replaced && replaced.uuid !== entry.uuid) {
+        await emitGuiItemEvent(eventClient, 'outer.gui.item.removed', replaced);
+    }
+    // `forOwner`: the audience is the owner, who can't read the actor's mask.
+    const response = {
+        ...(await toLegacyEntry(eventClient, entry, { forOwner: true })),
+        ...extra,
+        from_new_service: true,
+    };
+    eventClient.emit(eventName, { user_id_list: [entry.userId], response }, {});
+}
+
+/**
+ * The entry at `name` under `destinationParent`. An overwriting copy or move
+ * deletes it, so callers look it up first to announce its removal.
+ */
+export async function findOverwriteTarget(
+    fsEntryStore: FSEntryStore,
+    destinationParent: FSEntry,
+    name: string,
+): Promise<FSEntry | null> {
+    return fsEntryStore.getEntryByPath(
+        destinationParent.path === '/'
+            ? `/${name}`
+            : `${destinationParent.path}/${name}`,
+    );
+}
+
 export { normalizeAbsolutePath };
 
 // -- Signing ---------------------------------------------------------

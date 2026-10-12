@@ -1296,6 +1296,21 @@ describe('WebDAVController verbs', () => {
         }
     };
 
+    /** Index of the `eventName` GUI emit about `uid` among recorded calls. */
+    const guiEventIndex = (
+        calls: unknown[][],
+        eventName: string,
+        uid: string,
+    ): number =>
+        calls.findIndex(
+            ([name, data]) =>
+                name === eventName &&
+                (data as { response: Record<string, unknown> }).response.uid ===
+                    uid,
+        );
+    const guiResponse = (calls: unknown[][], index: number) =>
+        (calls[index]?.[1] as { response: Record<string, unknown> }).response;
+
     describe('GET / HEAD', () => {
         it('streams file bytes with a strong ETag and Last-Modified', async () => {
             const { actor, username } = await makeUser();
@@ -1897,20 +1912,49 @@ describe('WebDAVController verbs', () => {
             ).not.toBeNull();
         });
 
-        it('returns 204 when overwriting an existing destination', async () => {
+        it('overwrites an existing destination with 204 and announces the replaced entry', async () => {
             const { actor, username } = await makeUser();
             const source = `/${username}/Documents/copy-over-src.txt`;
             const destination = `/${username}/Documents/copy-over-dst.txt`;
             await putFile(actor, source, 'fresh');
             await putFile(actor, destination, 'stale');
 
-            const captured = await dispatch({
-                method: 'COPY',
-                path: source,
-                actor,
-                headers: { destination, host: 'dav.puter.localhost' },
-            });
+            const replaced =
+                (await server.stores.fsEntry.getEntryByPath(destination))!;
+
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            let captured: Awaited<ReturnType<typeof dispatch>>;
+            let removed: Record<string, unknown> | undefined;
+            try {
+                captured = await dispatch({
+                    method: 'COPY',
+                    path: source,
+                    actor,
+                    headers: { destination, host: 'dav.puter.localhost' },
+                });
+                const calls = emitSpy.mock.calls;
+                const added = () =>
+                    calls.findIndex(
+                        ([name]) => name === 'outer.gui.item.added',
+                    );
+                await vi.waitFor(() =>
+                    expect(added()).toBeGreaterThanOrEqual(0),
+                );
+                const removedAt = guiEventIndex(
+                    calls,
+                    'outer.gui.item.removed',
+                    replaced.uuid,
+                );
+                // Removal first: the desktop hides rows by path.
+                expect(removedAt).toBeGreaterThanOrEqual(0);
+                expect(removedAt).toBeLessThan(added());
+                removed = guiResponse(calls, removedAt);
+            } finally {
+                emitSpy.mockRestore();
+            }
             expect(captured.statusCode).toBe(204);
+            // Other clients drop the replaced entry's row by this.
+            expect(removed?.path).toBe(destination);
         });
 
         it('returns 412 when the destination exists and Overwrite is F', async () => {
@@ -1989,6 +2033,55 @@ describe('WebDAVController verbs', () => {
             expect(
                 await server.stores.fsEntry.getEntryByPath(destination),
             ).not.toBeNull();
+        });
+
+        it('overwrites an existing destination and announces both changes', async () => {
+            const { actor, username } = await makeUser();
+            const source = `/${username}/Documents/move-over-src.txt`;
+            const destination = `/${username}/Documents/move-over-dst.txt`;
+            await putFile(actor, source, 'fresh');
+            await putFile(actor, destination, 'stale');
+            const moving =
+                (await server.stores.fsEntry.getEntryByPath(source))!;
+            const replaced =
+                (await server.stores.fsEntry.getEntryByPath(destination))!;
+
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            let captured: Awaited<ReturnType<typeof dispatch>>;
+            let moved: Record<string, unknown> | undefined;
+            let removed: Record<string, unknown> | undefined;
+            try {
+                captured = await dispatch({
+                    method: 'MOVE',
+                    path: source,
+                    actor,
+                    headers: { destination, host: 'dav.puter.localhost' },
+                });
+                const calls = emitSpy.mock.calls;
+                const movedAt = () =>
+                    guiEventIndex(calls, 'outer.gui.item.moved', moving.uuid);
+                await vi.waitFor(() =>
+                    expect(movedAt()).toBeGreaterThanOrEqual(0),
+                );
+                const removedAt = guiEventIndex(
+                    calls,
+                    'outer.gui.item.removed',
+                    replaced.uuid,
+                );
+                // Removal first: the desktop hides rows by path.
+                expect(removedAt).toBeGreaterThanOrEqual(0);
+                expect(removedAt).toBeLessThan(movedAt());
+                moved = guiResponse(calls, movedAt());
+                removed = guiResponse(calls, removedAt);
+            } finally {
+                emitSpy.mockRestore();
+            }
+            expect(captured.statusCode).toBe(204);
+            expect(moved).toMatchObject({
+                path: destination,
+                old_path: source,
+            });
+            expect(removed?.path).toBe(destination);
         });
 
         it('returns 412 when the destination exists and Overwrite is F', async () => {
