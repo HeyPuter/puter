@@ -30,6 +30,7 @@
  */
 
 import { Readable } from 'node:stream';
+import { OpenAI } from 'openai';
 import {
     afterAll,
     afterEach,
@@ -851,6 +852,143 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
         });
         // The wallet check runs *before* the second upstream hit.
         expect(openai).not.toHaveBeenCalled();
+    });
+});
+
+// -- Upstream request shape ------------------------------------------
+// The OpenAI SDK is stubbed at its resource classes, the network boundary
+// every OpenAI-compatible provider shares, so the providers run for real.
+
+const chatCompletion = (content: string) => ({
+    choices: [
+        { message: { role: 'assistant', content }, finish_reason: 'stop' },
+    ],
+    usage: { prompt_tokens: 5, completion_tokens: 3 },
+});
+
+const moderationScores = (score: number) => ({
+    results: [{ category_scores: { violence: score, hate: 0 } }],
+});
+
+describe('ChatCompletionDriver moderation on the Azure route', () => {
+    beforeEach(() => clearUnhealthyRoutes());
+    const SHARED_MODEL = 'gpt-4o';
+
+    const completeModerated = (args: Record<string, unknown> = {}) =>
+        withTestActor(() =>
+            fullDriver.complete({
+                model: SHARED_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+                moderation: true,
+                ...args,
+            }),
+        );
+
+    it('serves a clean completion from Azure, checked by the OpenAI moderation call', async () => {
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('from azure') as never);
+        vi.spyOn(OpenAI.Moderations.prototype, 'create').mockResolvedValue(
+            moderationScores(0.1) as never,
+        );
+        const moderation = vi.spyOn(
+            OpenAiChatProvider.prototype,
+            'checkModeration',
+        );
+
+        const result = (await completeModerated()) as {
+            message: { content: string };
+        };
+
+        expect(result.message.content).toBe('from azure');
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(moderation).toHaveBeenCalledWith('from azure');
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+
+    it('refuses flagged output with moderation_flagged and no fallback attempt', async () => {
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('something awful') as never);
+        vi.spyOn(OpenAI.Moderations.prototype, 'create').mockResolvedValue(
+            moderationScores(0.95) as never,
+        );
+
+        await expect(completeModerated()).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_flagged',
+        });
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+
+    it('withholds the completion without a fallback when the moderation check fails', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('from azure') as never);
+        vi.spyOn(OpenAI.Moderations.prototype, 'create').mockRejectedValue(
+            Object.assign(new Error('moderation down'), { status: 503 }),
+        );
+
+        await expect(completeModerated()).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_unavailable',
+        });
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+
+    it('streams from Azure with moderation requested, without a fallback', async () => {
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(
+                (async function* () {
+                    yield { choices: [{ delta: { content: 'streamed' } }] };
+                    yield {
+                        choices: [],
+                        usage: { prompt_tokens: 5, completion_tokens: 1 },
+                    };
+                })() as never,
+            );
+
+        const result = (await completeModerated({
+            stream: true,
+        })) as unknown as { stream: Readable };
+        let body = '';
+        for await (const chunk of result.stream as AsyncIterable<Buffer>) {
+            body += chunk.toString('utf8');
+        }
+
+        expect(body).toContain('streamed');
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+});
+
+describe('ChatCompletionDriver output cap on xAI', () => {
+    it('sends xAI the cap the credit gate set from the balance', async () => {
+        // Enough for ~600 output tokens of grok-4.5 at 600 µ¢ per token.
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 360_000, held: 0 });
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('hi') as never);
+
+        await withTestActor(() =>
+            fullDriver.complete({
+                model: 'grok-4.5',
+                provider: 'xai',
+                messages: [{ role: 'user', content: 'write a long story' }],
+            }),
+        );
+
+        expect(create).toHaveBeenCalledTimes(1);
+        const sent = create.mock.calls[0]![0] as { max_tokens?: number };
+        expect(sent.max_tokens).toBeGreaterThan(0);
+        expect(sent.max_tokens).toBeLessThanOrEqual(600);
     });
 });
 

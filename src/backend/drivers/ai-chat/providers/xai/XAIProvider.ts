@@ -66,6 +66,7 @@ export class XAIProvider implements IChatProvider {
         stream,
         model,
         tools,
+        max_tokens,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
         const availableModels = this.models();
@@ -81,7 +82,7 @@ export class XAIProvider implements IChatProvider {
                     messages,
                     model: modelUsed.id,
                     ...(tools ? { tools } : {}),
-                    max_tokens: 1000,
+                    ...(max_tokens !== undefined ? { max_tokens } : {}),
                     stream,
                     ...(stream
                         ? {
