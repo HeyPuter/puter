@@ -488,7 +488,10 @@ describe('NeuralwattProvider.complete non-stream output', () => {
                 model: 'neuralwatt:deepseek-v4-flash',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
-        )) as { usage: Record<string, number | string> };
+        )) as {
+            usage: Record<string, number | string>;
+            usageCosts: Record<string, number>;
+        };
 
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
@@ -511,6 +514,16 @@ describe('NeuralwattProvider.complete non-stream output', () => {
         });
         expect(result.usage.usd_cents).toBe(0.0001 * 100);
         expect(result.usage.accounting_method).toBe('energy');
+        // The bill is reported against the tokens; energy takes none of it.
+        expect(result.usageCosts).toMatchObject({
+            energy_kwh: 0,
+            energy_joules: 0,
+        });
+        expect(
+            result.usageCosts.prompt_tokens +
+                result.usageCosts.completion_tokens +
+                result.usageCosts.cached_tokens,
+        ).toBe(10_000);
     });
 
     it('falls back to catalog token pricing when request_cost_usd is absent', async () => {

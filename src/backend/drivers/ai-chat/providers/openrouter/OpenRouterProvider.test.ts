@@ -48,6 +48,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
@@ -698,6 +699,67 @@ describe('OpenRouterProvider.complete non-stream output', () => {
         });
         expect(overrides.prompt).toBe(90 * 1000);
         expect(overrides.completion).toBe(50 * 3000);
+    });
+});
+
+describe('OpenRouterProvider billed cost through the driver', () => {
+    it('reports a billed completion to cost listeners split at the catalog rates', async () => {
+        const driver = new ChatCompletionDriver(
+            {
+                providers: {
+                    openrouter: { apiKey: 'test-key' },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        await driver.onServerStart();
+        const costEvents: Record<string, unknown>[] = [];
+        vi.spyOn(server.clients.event, 'emit').mockImplementation(
+            (key, data) => {
+                if (key === 'ai.prompt.cost-calculated') {
+                    costEvents.push(data as Record<string, unknown>);
+                }
+            },
+        );
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 50,
+                prompt_tokens_details: { cached_tokens: 10 },
+                cost: 0.0001,
+            },
+        });
+
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } finally {
+            driver.onServerShutdown();
+        }
+
+        // At 1000/3000 µ¢ per prompt/completion token the 10,000 µ¢ bill
+        // divides 90k + 10k (cached reads at the prompt rate) : 150k.
+        expect(costEvents).toHaveLength(1);
+        expect(costEvents[0]).toMatchObject({
+            input_tokens: 90,
+            output_tokens: 50,
+            input_ucents: 4000,
+            output_ucents: 6000,
+            total_ucents: 10_000,
+        });
     });
 });
 

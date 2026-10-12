@@ -36,9 +36,35 @@ export interface MeterChatUsageOptions {
 }
 
 /**
+ * Splits `total` whole µ¢ across the keys in proportion to their weights,
+ * summing exactly to `total`. Null when nothing carries weight.
+ */
+const apportion = (
+    total: number,
+    weights: Record<string, number>,
+): Record<string, number> | null => {
+    const weighted = Object.entries(weights).filter(([, w]) => w > 0);
+    const sum = weighted.reduce((acc, [, w]) => acc + w, 0);
+    if (!(sum > 0)) return null;
+    const exact = weighted.map(([key, w]) => [key, (total * w) / sum] as const);
+    const shares: Record<string, number> = Object.fromEntries(
+        exact.map(([key, share]) => [key, Math.floor(share)]),
+    );
+    let left = total - Object.values(shares).reduce((a, b) => a + b, 0);
+    // Largest remainder: the µ¢ lost to flooring go to the keys that lost most.
+    for (const [key] of [...exact].sort((a, b) => (b[1] % 1) - (a[1] % 1))) {
+        if (left <= 0) break;
+        shares[key] += 1;
+        left -= 1;
+    }
+    return shares;
+};
+
+/**
  * Records one completion's usage under `meteringKey` and returns the usage to
- * report along with the µ¢ each key was recorded at, so the driver can quote
- * the same cost the ledger holds.
+ * report along with the µ¢ each key costs, so the driver quotes the same total
+ * the ledger holds. An authoritative bill is recorded as one `billedUsage` line
+ * and reported spread over the usage keys at the model's relative rates.
  */
 export const meterChatUsage = (
     metering: Pick<MeteringService, 'utilRecordUsageObject'>,
@@ -48,19 +74,23 @@ export const meterChatUsage = (
     usage: Record<string, number>,
     { authoritativeUsd, costOverrides }: MeterChatUsageOptions = {},
 ): { usage: Record<string, number>; costs: Record<string, number> } => {
+    const priced = { ...buildCostsOverride(usage, model), ...costOverrides };
     if (authoritativeUsd !== undefined) {
         const billed = { ...usage, billedUsage: 1 };
-        const costs: Record<string, number> = Object.fromEntries(
+        const recorded: Record<string, number> = Object.fromEntries(
             Object.keys(billed).map((key) => [key, 0]),
         );
-        costs.billedUsage = authoritativeUsd * MICROCENTS_PER_USD;
-        metering.utilRecordUsageObject(billed, actor!, meteringKey, costs);
+        recorded.billedUsage = authoritativeUsd * MICROCENTS_PER_USD;
+        metering.utilRecordUsageObject(billed, actor!, meteringKey, recorded);
+        const split =
+            recorded.billedUsage > 0
+                ? apportion(Math.round(recorded.billedUsage), priced)
+                : null;
         return {
             usage: { ...billed, usd_cents: authoritativeUsd * 100 },
-            costs,
+            costs: split ? { ...recorded, ...split, billedUsage: 0 } : recorded,
         };
     }
-    const costs = { ...buildCostsOverride(usage, model), ...costOverrides };
-    metering.utilRecordUsageObject(usage, actor!, meteringKey, costs);
-    return { usage, costs };
+    metering.utilRecordUsageObject(usage, actor!, meteringKey, priced);
+    return { usage, costs: priced };
 };

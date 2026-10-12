@@ -31,6 +31,7 @@ import { ZAI_MODELS } from '../providers/zai/models.js';
 import type { IChatModel } from '../types.js';
 import { meterChatUsage } from './meterChatUsage.js';
 import { splitCachedPrompt } from './OpenAIUtil.js';
+import { usageCost } from './pricing.js';
 
 type Recorded = [Record<string, number>, string, Record<string, number>];
 
@@ -59,6 +60,22 @@ const model = {
     input_cost_key: 'prompt_tokens',
     output_cost_key: 'completion_tokens',
     costs: { tokens: 1_000_000, prompt_tokens: 3, completion_tokens: 15 },
+    max_tokens: 1024,
+} as IChatModel;
+
+/** Priced like a gateway catalog entry (OpenRouter, Infron). */
+const gatewayModel = {
+    id: 'gw',
+    costs_currency: 'usd-cents',
+    input_cost_key: 'prompt',
+    output_cost_key: 'completion',
+    costs: {
+        tokens: 1_000_000,
+        prompt: 200,
+        completion: 1000,
+        input_cache_read: 20,
+        request: 0,
+    },
     max_tokens: 1024,
 } as IChatModel;
 
@@ -118,7 +135,77 @@ describe('meterChatUsage', () => {
             billedUsage: 1,
             usd_cents: 25,
         });
-        expect(result.costs.billedUsage).toBe(25_000_000);
+    });
+
+    it('reports an authoritative bill split across input and output at the model rates', () => {
+        const { metering } = recordingMetering();
+        // 600·200 + 400·20 + 1·0 on the input side, 100·1000 on the output.
+        const result = meterChatUsage(
+            metering,
+            actor,
+            'gw:m',
+            gatewayModel,
+            { prompt: 600, completion: 100, input_cache_read: 400, request: 1 },
+            { authoritativeUsd: 0.0123 },
+        );
+
+        const cost = usageCost(result.usage, gatewayModel, result.costs);
+        expect(cost).toEqual({
+            inputMicroCents: 1_230_000 - 539_474,
+            outputMicroCents: Math.round((1_230_000 * 100_000) / 228_000),
+        });
+    });
+
+    it('reports exactly the billed µ¢ however the bill divides', () => {
+        const { metering } = recordingMetering();
+        for (const usd of [0.000012345, 0.0000001, 0.987654321]) {
+            const result = meterChatUsage(
+                metering,
+                actor,
+                'gw:m',
+                gatewayModel,
+                { prompt: 7, completion: 3, input_cache_read: 1, request: 1 },
+                { authoritativeUsd: usd },
+            );
+            const cost = usageCost(result.usage, gatewayModel, result.costs)!;
+            expect(cost.inputMicroCents + cost.outputMicroCents).toBe(
+                Math.round(usd * 100_000_000),
+            );
+            expect(cost.outputMicroCents).toBeGreaterThan(0);
+        }
+    });
+
+    it('reports a free authoritative bill as free', () => {
+        const { metering } = recordingMetering();
+        const result = meterChatUsage(
+            metering,
+            actor,
+            'gw:m',
+            gatewayModel,
+            { prompt: 10, completion: 2 },
+            { authoritativeUsd: 0 },
+        );
+        expect(usageCost(result.usage, gatewayModel, result.costs)).toEqual({
+            inputMicroCents: 0,
+            outputMicroCents: 0,
+        });
+    });
+
+    it('keeps an authoritative bill on the input side when the model has no rates', () => {
+        const { metering } = recordingMetering();
+        const unpriced = { ...gatewayModel, costs: {} } as IChatModel;
+        const result = meterChatUsage(
+            metering,
+            actor,
+            'gw:m',
+            unpriced,
+            { prompt: 10, completion: 2 },
+            { authoritativeUsd: 0.25 },
+        );
+        expect(usageCost(result.usage, unpriced, result.costs)).toEqual({
+            inputMicroCents: 25_000_000,
+            outputMicroCents: 0,
+        });
     });
 });
 

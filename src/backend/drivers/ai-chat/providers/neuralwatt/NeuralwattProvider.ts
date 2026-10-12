@@ -210,11 +210,13 @@ export class NeuralwattProvider extends OpenAICompatProvider {
             // Billed at `request_cost_usd` when Neuralwatt reports it, at the
             // catalog's token rates otherwise. Energy is recorded, never
             // priced.
-            meterOptions:
-                typeof requestCostUsd === 'number' &&
+            meterOptions: {
+                costOverrides: { energy_kwh: 0, energy_joules: 0 },
+                ...(typeof requestCostUsd === 'number' &&
                 Number.isFinite(requestCostUsd)
                     ? { authoritativeUsd: requestCostUsd }
-                    : { costOverrides: { energy_kwh: 0, energy_joules: 0 } },
+                    : {}),
+            },
         };
     }
 
