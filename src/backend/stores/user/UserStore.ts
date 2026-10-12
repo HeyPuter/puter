@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { isUniqueViolation } from '../../util/dbError.js';
 import { cleanEmail } from '../../util/email.js';
 import { normalizeReferralCode } from '../../util/referralCode.js';
 import { PuterStore } from '../types';
@@ -121,17 +122,12 @@ const EMAIL_OWNER_ORDER =
 export const OWNED_EMAIL_INDEX = 'idx_user_owned_email';
 
 export const isOwnedEmailConflict = (e: unknown): boolean => {
-    const err = e as { code?: string; message?: string } | null;
-    if (!err) return false;
-    const isUnique =
-        err.code === 'ER_DUP_ENTRY' ||
-        err.code === '23505' ||
-        (typeof err.code === 'string' &&
-            err.code.startsWith('SQLITE_CONSTRAINT'));
-    if (!isUnique) return false;
+    if (!isUniqueViolation(e)) return false;
     // Other unique columns on `user` (username, uuid, referral_code) raise the
     // same code and must keep their own error handling.
-    return (err.message ?? '').includes(OWNED_EMAIL_INDEX);
+    return ((e as { message?: string }).message ?? '').includes(
+        OWNED_EMAIL_INDEX,
+    );
 };
 // Cap on placeholders per `IN (?, ?, …)` query. SQLite's default parameter
 // limit is 999; staying well under that keeps `getByIds` portable across
