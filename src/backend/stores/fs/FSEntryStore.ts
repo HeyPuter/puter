@@ -2871,65 +2871,45 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * One page of a subtree by depth, then id. `asc` reaches every parent
-     * before its children (a copy can create them in that order) and `desc`
-     * every child before its parent (a delete can go page by page without the
-     * `parent_id` cascade taking a row it has not seen). Pass the previous
-     * page's last row as `after`. Owner-blind, like `listDescendantsByPath`.
-     *
-     * Not path order: MySQL sorts only the first `max_sort_length` bytes of a
-     * PAD SPACE key, so long paths tie and a child can sort past its parent.
-     * Each pattern group is paged with the same seek and merged, so a subtree
-     * past one group still pages in order.
+     * One page of the children of `parents`, by parent and then id; pass the
+     * previous page's last row as `after`. Keyed by `parent_uid`, which every
+     * row carries (old rows have no `parent_id`); on MySQL and SQLite its index
+     * ends in the id, so a page reads only its own rows. Owner-blind.
      */
-    async listDescendantsInOrder(
-        pathPrefix: string,
-        options: {
-            order: 'asc' | 'desc';
-            limit: number;
-            after?: FSEntry | null;
-        },
+    async listChildrenOfParents(
+        parents: FSEntry[],
+        options: { limit: number; after?: FSEntry | null },
     ): Promise<FSEntry[]> {
-        const likePattern = this.#descendantsPattern(pathPrefix);
+        if (parents.length === 0) return [];
         const { after } = options;
-        const dir = options.order === 'desc' ? 'DESC' : 'ASC';
-        const cmp = options.order === 'desc' ? '<' : '>';
-        // Segment count: a name can't contain `/`, which is one byte and one
-        // character in every engine.
-        const depth = "(LENGTH(path) - LENGTH(REPLACE(path, '/', '')))";
-        const afterDepth = after ? after.path.split('/').length - 1 : 0;
         const seek = after
-            ? `AND (${depth} ${cmp} ? OR (${depth} = ? AND id ${cmp} ?))`
+            ? 'AND (parent_uid > ? OR (parent_uid = ? AND id > ?))'
             : '';
-        const limit = Math.max(1, options.limit);
-        const rows = new Map<number, FSEntryRow>();
-        for (const patterns of await this.#subtreePatterns(
-            pathPrefix,
-            likePattern,
-        )) {
-            const group = (await this.clients.db.read(
-                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-                 WHERE ${this.#pathLikeAny(patterns)} ${seek}
-                 ORDER BY ${depth} ${dir}, id ${dir} LIMIT ?`,
-                [
-                    ...patterns,
-                    ...(after ? [afterDepth, afterDepth, after.id] : []),
-                    limit,
-                ],
-            )) as unknown as FSEntryRow[];
-            for (const row of group) rows.set(Number(row.id), row);
-        }
-        const sign = options.order === 'desc' ? -1 : 1;
-        return [...rows.values()]
-            .sort(
-                (a, b) =>
-                    sign *
-                    (this.#slashCount(String(a.path)) -
-                        this.#slashCount(String(b.path)) ||
-                        Number(a.id) - Number(b.id)),
-            )
-            .slice(0, limit)
-            .map((row) => this.#mapFSEntryRow(row));
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE parent_uid IN (${parents.map(() => '?').join(', ')}) ${seek}
+             ORDER BY parent_uid, id LIMIT ?`,
+            [
+                ...parents.map((parent) => parent.uuid),
+                ...(after ? [after.parentUid, after.parentUid, after.id] : []),
+                Math.max(1, options.limit),
+            ],
+        )) as unknown as FSEntryRow[];
+        const parentPaths = new Map(
+            parents.map((parent) => [parent.uuid, parent.path]),
+        );
+        return rows.map((row) => {
+            const entry = this.#mapFSEntryRow(row);
+            // Legacy rows can lack a path; the parent's says where they sit.
+            const parentPath = parentPaths.get(entry.parentUid ?? '');
+            if (!entry.path && parentPath) {
+                entry.path =
+                    parentPath === '/'
+                        ? `/${entry.name}`
+                        : `${parentPath}/${entry.name}`;
+            }
+            return entry;
+        });
     }
 
     #descendantsPattern(pathPrefix: string): string {

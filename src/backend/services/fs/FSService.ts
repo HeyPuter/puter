@@ -98,7 +98,7 @@ const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 /** Events-API dispatches one batch of changes runs at once. */
 const EVENT_DISPATCH_CONCURRENCY = 8;
-/** Inserts and S3 copies one level of a copy runs at once. */
+/** Inserts and S3 copies one page of a copy runs at once. */
 const COPY_CONCURRENCY = 8;
 
 /**
@@ -286,6 +286,13 @@ export class FSService extends PuterService {
      * Overridable so tests can cross a page boundary.
      */
     static SUBTREE_PAGE_SIZE = 1000;
+    /**
+     * Directories one query of a subtree walk reads children for. Kept under
+     * MySQL's `eq_range_index_dive_limit` (200), past which the planner sizes
+     * the IN list from index statistics and may sort all of its children.
+     * Overridable so tests can split a page of directories.
+     */
+    static SUBTREE_WALK_PARENTS = 100;
 
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
@@ -4457,26 +4464,85 @@ export class FSService extends PuterService {
 
     /**
      * Delete a directory's contents a page at a time, leaves first, so neither
-     * memory nor a single statement grows with the subtree.
+     * memory nor a single statement grows with the subtree: a page's files go
+     * as it is read, a directory once everything under it has.
      */
     async #removeDescendants(
         root: FSEntry,
         survivors: () => Promise<AncestorChain>,
     ): Promise<void> {
-        const limit = FSService.SUBTREE_PAGE_SIZE;
-        let after: FSEntry | undefined;
-        for (;;) {
-            const page = await this.stores.fsEntry.listDescendantsInOrder(
-                root.path,
-                { order: 'desc', limit, after },
-            );
-            if (page.length === 0) return;
+        const removeEntries = async (entries: FSEntry[]) => {
+            if (entries.length === 0) return;
             // S3 objects are batched per bucket+region.
-            await this.#removeDescendantsStorage(page);
-            await this.stores.fsEntry.deleteEntries(page);
-            this.#emitRemoveEvents(page, survivors);
-            if (page.length < limit) return;
-            after = page[page.length - 1];
+            await this.#removeDescendantsStorage(entries);
+            await this.stores.fsEntry.deleteEntries(entries);
+            this.#emitRemoveEvents(entries, survivors);
+        };
+        await this.#walkSubtree(
+            root,
+            async (page) => {
+                await removeEntries(page.filter((entry) => !entry.isDir));
+                return page.filter((entry) => entry.isDir);
+            },
+            removeEntries,
+        );
+    }
+
+    /**
+     * Walk `root`'s subtree a page of children at a time, depth first over
+     * batches of sibling directories, so memory stays within depth × page.
+     * `visit` gets each page after the page holding its parents and returns the
+     * directories to descend into; `leave` gets each such batch once everything
+     * under it has been visited.
+     */
+    async #walkSubtree(
+        root: FSEntry,
+        visit: (page: FSEntry[]) => Promise<FSEntry[]>,
+        leave: (dirs: FSEntry[]) => Promise<void>,
+    ): Promise<void> {
+        const limit = FSService.SUBTREE_PAGE_SIZE;
+        const batchSize = FSService.SUBTREE_WALK_PARENTS;
+        const stack: Array<{
+            dirs: FSEntry[];
+            after?: FSEntry;
+            done: boolean;
+        }> = [{ dirs: [root], done: false }];
+        while (stack.length > 0) {
+            const frame = stack[stack.length - 1]!;
+            if (frame.done) {
+                stack.pop();
+                // The root itself is the caller's.
+                if (stack.length > 0) await leave(frame.dirs);
+                continue;
+            }
+            const page = await this.stores.fsEntry.listChildrenOfParents(
+                frame.dirs,
+                { limit, after: frame.after },
+            );
+            frame.done = page.length < limit;
+            if (page.length === 0) continue;
+            frame.after = page[page.length - 1];
+            const dirs = await visit(page);
+            let batches: FSEntry[][] = [];
+            for (let i = 0; i < dirs.length; i += batchSize) {
+                batches.push(dirs.slice(i, i + batchSize));
+            }
+            if (batches.length > 1) {
+                // Probe sibling batches together, so the ones holding nothing
+                // finish without a round trip each.
+                const probes = await Promise.all(
+                    batches.map((batch) =>
+                        this.stores.fsEntry.listChildrenOfParents(batch, {
+                            limit: 1,
+                        }),
+                    ),
+                );
+                const empty = batches.filter((_, i) => !probes[i]?.length);
+                if (empty.length > 0) await leave(empty.flat());
+                batches = batches.filter((_, i) => probes[i]?.length);
+            }
+            for (const batch of batches)
+                stack.push({ dirs: batch, done: false });
         }
     }
 
@@ -5093,54 +5159,52 @@ export class FSService extends PuterService {
             { uid: newRoot.uid, path: newRoot.path },
         ]);
 
-        // Pages come shallowest first, so every parent is copied before its
-        // children; each depth in a page is one batch of inserts and S3 copies.
-        const newByOldPath = new Map<string, FSEntry>([[source.path, newRoot]]);
-        const limit = FSService.SUBTREE_PAGE_SIZE;
-        let after: FSEntry | undefined;
-        for (;;) {
-            const page = await this.stores.fsEntry.listDescendantsInOrder(
-                source.path,
-                { order: 'asc', limit, after },
-            );
-            const byDepth = new Map<number, FSEntry[]>();
-            for (const descendant of page) {
-                const depth = descendant.path.split('/').length;
-                byDepth.set(depth, [...(byDepth.get(depth) ?? []), descendant]);
-            }
-            for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
-                const items: CopyItem[] = [];
-                for (const descendant of byDepth.get(depth) ?? []) {
-                    const parent = newByOldPath.get(
-                        pathPosix.dirname(descendant.path),
-                    );
-                    // Its parent wasn't copied, so neither is it.
-                    if (!parent) continue;
-                    items.push({
-                        source: descendant,
-                        parent,
-                        name: descendant.name,
-                    });
-                }
+        // A page holds children of directories already copied, so it is one
+        // batch of inserts and S3 copies. Copies are keyed by source uuid and
+        // dropped once nothing under them is left to copy.
+        const copyOf = new Map<string, FSEntry>([[source.uuid, newRoot]]);
+        await this.#walkSubtree(
+            source,
+            async (page) => {
+                const items = page.flatMap((descendant): CopyItem[] => {
+                    const parent = copyOf.get(descendant.parentUid ?? '');
+                    return parent
+                        ? [
+                              {
+                                  source: descendant,
+                                  parent,
+                                  name: descendant.name,
+                              },
+                          ]
+                        : [];
+                });
                 const copied = await this.#copyEntries(
                     userId,
                     items,
                     publish,
                     allowance,
                 );
+                const dirs: FSEntry[] = [];
                 items.forEach((item, index) => {
                     const entry = copied[index];
                     if (!entry?.isDir) return;
-                    newByOldPath.set(item.source.path, entry);
+                    copyOf.set(item.source.uuid, entry);
                     aboveByNewPath.set(entry.path, [
                         { uid: entry.uid, path: entry.path },
                         ...(aboveByNewPath.get(item.parent.path) ?? []),
                     ]);
+                    dirs.push(item.source);
                 });
-            }
-            if (page.length < limit) break;
-            after = page[page.length - 1];
-        }
+                return dirs;
+            },
+            async (dirs) => {
+                for (const dir of dirs) {
+                    const copy = copyOf.get(dir.uuid);
+                    copyOf.delete(dir.uuid);
+                    if (copy) aboveByNewPath.delete(copy.path);
+                }
+            },
+        );
 
         return newRoot;
     }
