@@ -1129,6 +1129,81 @@ describe('SubdomainDriver associated_app derivation', () => {
     });
 });
 
+// -- Embedded apps get the launch gates a direct app read applies --
+
+describe('SubdomainDriver embedded app launch gates', () => {
+    const readRow = async (actor: Actor, uuid: string) =>
+        (await withActor(actor, () => driver.read({ uid: uuid }))) as Record<
+            string,
+            Record<string, unknown> | null
+        >;
+
+    it("withholds a private app_owner's index_url from a viewer without access", async () => {
+        const viewer = await makeUser();
+        const developer = await makeUser();
+        const indexUrl = `https://${uniqueSubdomain('priv')}.example.test/`;
+        const app = await createAppWithIndexUrl(developer.userId, indexUrl, {
+            isPrivate: true,
+        });
+        const row = await server.stores.subdomain.create({
+            userId: viewer.userId,
+            subdomain: uniqueSubdomain('embed-priv'),
+            appOwner: app.id,
+        });
+
+        const read = await readRow(viewer.actor, String(row.uuid));
+
+        expect(read.app_owner?.uid).toBe(app.uid);
+        expect(read.app_owner).not.toHaveProperty('index_url');
+        expect(read.app_owner?.privateAccess).toMatchObject({
+            hasAccess: false,
+        });
+    });
+
+    it('keeps index_url on a private app embedded for its own owner', async () => {
+        const { actor, userId } = await makeUser();
+        const indexUrl = `https://${uniqueSubdomain('own')}.example.test/`;
+        const app = await createAppWithIndexUrl(userId, indexUrl, {
+            isPrivate: true,
+        });
+        const row = await server.stores.subdomain.create({
+            userId,
+            subdomain: uniqueSubdomain('embed-own'),
+            appOwner: app.id,
+        });
+
+        const read = await readRow(actor, String(row.uuid));
+
+        expect(read.app_owner?.index_url).toBe(indexUrl);
+        expect(read.app_owner?.privateAccess).toMatchObject({
+            hasAccess: true,
+        });
+    });
+
+    it("withholds a hosted app_owner's index_url once its subdomain is gone", async () => {
+        const viewer = await makeUser();
+        const developer = await makeUser();
+        const gone = uniqueSubdomain('gone');
+        const app = await createAppWithIndexUrl(
+            developer.userId,
+            `https://${gone}.site.puter.localhost/`,
+        );
+        const row = await server.stores.subdomain.create({
+            userId: viewer.userId,
+            subdomain: uniqueSubdomain('embed-gone'),
+            appOwner: app.id,
+        });
+
+        const read = await readRow(viewer.actor, String(row.uuid));
+
+        expect(read.app_owner).not.toHaveProperty('index_url');
+        expect(read.app_owner?.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+});
+
 // -- associated_app derivation at scale --
 //
 // ~24 index_url candidates per subdomain: a page this size must be chunked

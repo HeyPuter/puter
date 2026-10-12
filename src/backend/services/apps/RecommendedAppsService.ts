@@ -18,8 +18,7 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import type { AppIconHostConfig } from '../../util/appIcon.js';
-import { getAppIconCdnUrl, getAppIconUrl } from '../../util/appIcon.js';
+import { toAppSummary } from '../../util/appView.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -64,36 +63,12 @@ export class RecommendedAppsService extends PuterService {
         await this.clients.event.emitAndWait('app.recommended', event, {});
 
         const apiBaseUrl = this.config.api_base_url as string | undefined;
-        const results: Array<Record<string, unknown>> = [];
-        for (const name of event.appNames) {
-            const app = await this.stores.app.getByName(name);
-            if (app) results.push(toAppSummary(app, apiBaseUrl, this.config));
-        }
-        return results;
+        const appsByName = await this.stores.app.getByNames(event.appNames);
+        return event.appNames.flatMap((name) => {
+            const app = appsByName.get(name);
+            return app
+                ? [toAppSummary(app, { apiBaseUrl, config: this.config })]
+                : [];
+        });
     }
-}
-
-function toAppSummary(
-    app: Record<string, unknown>,
-    apiBaseUrl: string | undefined,
-    config: AppIconHostConfig,
-): Record<string, unknown> {
-    return {
-        uuid: app.uid,
-        name: app.name,
-        title: app.title,
-        icon: getAppIconUrl(app, { apiBaseUrl }) ?? app.icon ?? null,
-        // Direct subdomain URL for the client to try before `icon`.
-        iconCdnUrl: getAppIconCdnUrl(app, config),
-        godmode: Boolean(app.godmode),
-        maximize_on_start: Boolean(app.maximize_on_start),
-        index_url: app.index_url,
-        // Launched straight from this summary as `app_obj` — see
-        // SuggestedAppsService.toAppSummary; the drawer's feedback control
-        // renders off this flag.
-        feedback_enabled: Boolean(app.feedback_enabled),
-        // An app with no owner isn't owned by a Puter user — it's an
-        // "external" (origin-bootstrapped) app.
-        external: app.owner_user_id == null || app.owner_user_id === '',
-    };
 }

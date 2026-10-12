@@ -39,8 +39,7 @@
  * moderation flags, and the private `index_url`.
  */
 
-/** A raw `apps` store row. */
-type AppRow = Record<string, unknown>;
+import { toAppView, type AppRow } from './appView.js';
 
 /** The safe field subset embedded in the shell. */
 export interface AppShellView {
@@ -71,24 +70,12 @@ export function toAppShellView(
     app: AppRow | null | undefined,
 ): AppShellView | null {
     if (!app) return null;
-
-    return {
-        uid: app.uid,
-        name: app.name,
-        title: app.title,
-        description: app.description,
-        icon: app.icon,
-        background: Boolean(app.background),
-        maximize_on_start: Boolean(app.maximize_on_start),
-        godmode: Boolean(app.godmode),
-        is_private: Boolean(app.is_private),
-        protected: Boolean(app.protected),
-        approved_for_listing: Boolean(app.approved_for_listing),
-        approved_for_opening_items: Boolean(app.approved_for_opening_items),
-        approved_for_incentive_program: Boolean(
-            app.approved_for_incentive_program,
-        ),
-        metadata: app.metadata ?? null,
-        created_at: app.created_at ?? app.timestamp,
-    };
+    const {
+        index_url: _indexUrl,
+        filetype_associations: _filetypes,
+        feedback_enabled: _feedbackEnabled,
+        privateAccess: _privateAccess,
+        ...view
+    } = toAppView(app, []);
+    return view;
 }
