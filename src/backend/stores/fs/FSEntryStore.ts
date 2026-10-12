@@ -131,9 +131,8 @@ const SUBTREE_PATTERNS_PER_STATEMENT = 500;
 const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 // Most entries whose invalidations one node broadcasts per broadcast flush
-// window. A flush reaches each peer as one POST (50 MB max, ~200 bytes an
-// entry); past the cap, invalidations stay local and peers wait out
-// ENTRY_CACHE_TTL_SECONDS.
+// window (~200 bytes an entry); past the cap, invalidations stay local and
+// peers wait out ENTRY_CACHE_TTL_SECONDS.
 export const ENTRY_BROADCAST_CAP = 10_000;
 // BroadcastService's default `broadcast.outbound_flush_ms`.
 const DEFAULT_BROADCAST_FLUSH_MS = 2_000;
