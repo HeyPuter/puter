@@ -161,8 +161,8 @@ export const isFreeModel = (model: IChatModel): boolean => {
  * A fallback [[UsageDetails]] for providers that haven't been taught to report
  * their own (every non-Claude provider, for now). `inputTokens` and
  * `outputTokens` reuse the same tracked-token accounting the credit gate and
- * `#computeCost` already agree on, so a provider with no detail of its own
- * still gets a usable breakdown.
+ * `usageCost` already agree on, so a provider with no detail of its own still
+ * gets a usable breakdown.
  */
 export const usageDetailsFromUsage = (
     usage: Record<string, unknown>,
@@ -171,6 +171,52 @@ export const usageDetailsFromUsage = (
     inputTokens: trackedInputTokens(usage, model),
     outputTokens: trackedOutputTokens(usage, model),
 });
+
+/** A usage key/amount pair that carries a price, rather than a scale or a label. */
+const isBillable = (key: string, amount: unknown): amount is number =>
+    key !== 'tokens' && key !== 'usd_cents' && isRate(amount);
+
+/**
+ * The µ¢ each usage key costs at the model's rates. A key the model doesn't
+ * price falls back to the output rate when it is output-denominated and the
+ * input rate otherwise; a key neither covers is left out.
+ */
+const priceUsage = (
+    trackedUsage: Record<string, unknown>,
+    model: IChatModel,
+): Record<string, number> => {
+    const { inputKey, outputKey } = costKeys(model);
+
+    const costs = model.costs ?? {};
+    const inputRate = isRate(costs[inputKey]) ? costs[inputKey] : undefined;
+    const outputRate = isRate(costs[outputKey]) ? costs[outputKey] : undefined;
+
+    const multipliers = longContextMultipliers(
+        model,
+        trackedInputTokens(trackedUsage, model),
+    );
+
+    const priced: Record<string, number> = {};
+    for (const [key, amount] of Object.entries(trackedUsage)) {
+        if (!isBillable(key, amount)) continue;
+
+        const isOutput = isOutputCostKey(key, outputKey);
+        const rate = isRate(costs[key])
+            ? costs[key]
+            : isOutput
+              ? outputRate
+              : inputRate;
+        if (rate === undefined) continue;
+
+        const multiplier = isPerCallCostKey(key)
+            ? 1
+            : isOutput
+              ? multipliers.output
+              : multipliers.input;
+        priced[key] = amount * rate * multiplier;
+    }
+    return priced;
+};
 
 /**
  * Prices a tracked-usage object against a model's cost table.
@@ -187,35 +233,51 @@ export const buildCostsOverride = (
     trackedUsage: Record<string, number>,
     model: IChatModel,
 ): Record<string, number> => {
-    const { inputKey, outputKey } = costKeys(model);
-
-    const costs = model.costs ?? {};
-    const inputRate = isRate(costs[inputKey]) ? costs[inputKey] : undefined;
-    const outputRate = isRate(costs[outputKey]) ? costs[outputKey] : undefined;
-
-    const multipliers = longContextMultipliers(
-        model,
-        trackedInputTokens(trackedUsage, model),
-    );
-
+    const priced = priceUsage(trackedUsage, model);
     const overrides: Record<string, number> = {};
-    for (const [key, amount] of Object.entries(trackedUsage)) {
+    for (const key of Object.keys(trackedUsage)) {
         // `tokens` is a scale descriptor ("costs expressed per N tokens"),
         // not a per-unit rate.
         if (key === 'tokens') continue;
-
-        const isOutput = isOutputCostKey(key, outputKey);
-        const rate = isRate(costs[key])
-            ? costs[key]
-            : ((isOutput ? outputRate : inputRate) ?? 0);
-
-        const multiplier = isPerCallCostKey(key)
-            ? 1
-            : isOutput
-              ? multipliers.output
-              : multipliers.input;
-        overrides[key] = amount * rate * multiplier;
+        overrides[key] = priced[key] ?? 0;
     }
-
     return overrides;
+};
+
+/**
+ * What a usage object costs in µ¢, split into its input and output sides.
+ * `recordedCosts` are the per-key costs a provider already metered with and win
+ * over the model's rates, so the figure matches the ledger. Null when nothing
+ * in the usage could be priced.
+ */
+export const usageCost = (
+    usage: Record<string, unknown>,
+    model: IChatModel,
+    recordedCosts?: Record<string, number>,
+): { inputMicroCents: number; outputMicroCents: number } | null => {
+    const { outputKey } = costKeys(model);
+    const priced = priceUsage(usage, model);
+    let input = 0;
+    let output = 0;
+    let sawAnyCost = false;
+    for (const [key, amount] of Object.entries(usage)) {
+        if (!isBillable(key, amount)) continue;
+        const recorded = recordedCosts?.[key];
+        // Advisor usage is priced at the advisor model's own rates, so only a
+        // recorded cost can price it here.
+        const cost = isRate(recorded)
+            ? recorded
+            : key.startsWith('advisor_')
+              ? undefined
+              : priced[key];
+        if (cost === undefined) continue;
+        sawAnyCost = true;
+        if (isOutputCostKey(key, outputKey)) output += cost;
+        else input += cost;
+    }
+    if (!sawAnyCost) return null;
+    return {
+        inputMicroCents: Math.max(0, Math.round(input)),
+        outputMicroCents: Math.max(0, Math.round(output)),
+    };
 };

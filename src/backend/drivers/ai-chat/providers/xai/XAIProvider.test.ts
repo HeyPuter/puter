@@ -149,6 +149,8 @@ describe('XAIProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.x.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });

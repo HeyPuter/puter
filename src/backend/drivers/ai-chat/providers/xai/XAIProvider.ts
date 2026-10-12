@@ -30,6 +30,7 @@ import type {
 import { XAI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 export class XAIProvider implements IChatProvider {
     #openai: OpenAI;
@@ -40,6 +41,7 @@ export class XAIProvider implements IChatProvider {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: 'https://api.x.ai/v1',
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
     }

@@ -25,12 +25,12 @@ import { withTestActor } from '../../integrationTestUtil.js';
 import {
     create_chat_stream_handler,
     create_chat_stream_handler_responses_api,
-    create_usage_calculator,
     extractMeteredUsage,
     handle_completion_output,
     handle_completion_output_responses_api,
     process_input_messages,
     process_input_messages_responses_api,
+    splitCachedPrompt,
     toOpenAIChatMessages,
     usageDetailsFromTrackedUsage,
 } from './OpenAIUtil.js';
@@ -777,36 +777,6 @@ describe('process_input_messages_responses_api', () => {
     });
 });
 
-// ── create_usage_calculator ─────────────────────────────────────────
-
-describe('create_usage_calculator', () => {
-    it('emits prompt + completion token rows priced by model_details.cost', () => {
-        const calc = create_usage_calculator({
-            model_details: {
-                id: 'gpt-test',
-                cost: { input: 0.01, output: 0.02 },
-            },
-        });
-        const tokens = calc({
-            usage: { prompt_tokens: 100, completion_tokens: 50 },
-        });
-        expect(tokens).toEqual([
-            {
-                type: 'prompt',
-                model: 'gpt-test',
-                amount: 100,
-                cost: 100 * 0.01,
-            },
-            {
-                type: 'completion',
-                model: 'gpt-test',
-                amount: 50,
-                cost: 50 * 0.02,
-            },
-        ]);
-    });
-});
-
 // ── extractMeteredUsage ─────────────────────────────────────────────
 
 describe('extractMeteredUsage', () => {
@@ -830,6 +800,73 @@ describe('extractMeteredUsage', () => {
             completion_tokens: 0,
             cached_tokens: 0,
         });
+    });
+});
+
+// ── splitCachedPrompt ───────────────────────────────────────────────
+
+describe('splitCachedPrompt', () => {
+    it('takes cached reads out of prompt_tokens', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3 },
+            }),
+        ).toEqual({
+            prompt_tokens: 7,
+            completion_tokens: 5,
+            cached_tokens: 3,
+        });
+    });
+
+    it('reads a missing usage as nothing used', () => {
+        expect(splitCachedPrompt(undefined)).toEqual({
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cached_tokens: 0,
+        });
+    });
+});
+
+// ── recorded usage costs ────────────────────────────────────────────
+
+describe('chat completion handlers carry the recorded usage costs', () => {
+    const usage_calculator = ({
+        usage,
+        setUsageCosts,
+    }: {
+        usage: Record<string, number>;
+        setUsageCosts: (costs: Record<string, number>) => void;
+    }) => {
+        setUsageCosts({ prompt_tokens: 42 });
+        return usage;
+    };
+
+    it('onto a non-stream result', async () => {
+        const result = await handle_completion_output({
+            stream: false,
+            completion: {
+                choices: [{ message: { content: 'hi' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            },
+            usage_calculator,
+        });
+        expect(result.usageCosts).toEqual({ prompt_tokens: 42 });
+    });
+
+    it('onto the chat stream', async () => {
+        const { chatStream } = makeCapturingChatStream();
+        await create_chat_stream_handler({
+            completion: asAsyncIterable([
+                {
+                    choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }],
+                    usage: { prompt_tokens: 1, completion_tokens: 1 },
+                },
+            ]),
+            usage_calculator,
+        })({ chatStream });
+        expect(chatStream.usageCosts).toEqual({ prompt_tokens: 42 });
     });
 });
 

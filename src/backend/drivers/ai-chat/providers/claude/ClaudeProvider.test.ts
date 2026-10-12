@@ -58,6 +58,7 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Anthropic SDK mock ──────────────────────────────────────────────
 
@@ -242,6 +243,8 @@ describe('ClaudeProvider construction', () => {
         expect(opts.apiKey).toBe('test-key');
         // ~10 minutes — long enough for slow Opus 4.7 thinking responses.
         expect(opts.timeout).toBeGreaterThan(60_000);
+        // The driver's fallback chain retries, not the SDK.
+        expect(opts.maxRetries).toBe(0);
     });
 });
 
@@ -279,7 +282,7 @@ describe('ClaudeProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of CLAUDE_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -300,7 +303,7 @@ describe('ClaudeProvider model catalog', () => {
 
     it('drops the deprecated claude-sonnet-4-5 and its aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('claude-sonnet-4-5-20250929');
         expect(ids).not.toContain('claude-sonnet-4-5');
         expect(ids).not.toContain('claude-sonnet-4.5');
@@ -1355,7 +1358,7 @@ describe('ClaudeProvider.complete non-stream output', () => {
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
             );
-            expect(await provider.list()).toContain(model);
+            expect(modelLookupNames(await provider.models())).toContain(model);
             const [args] = messagesCreateMock.mock.calls[0]!;
             expect(args.model).toBe(canonicalId);
             expect(args.max_tokens).toBe(128_000);
