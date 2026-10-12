@@ -535,6 +535,60 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         expect(row?.thumbnail).toBe(thumbnail);
     });
 
+    it('serves the new thumbnail from the entry cache on the next read', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/cached-thumb.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+        const before = await server.stores.fsEntry.getEntryByUuid(uuid);
+        expect(before?.thumbnail ?? null).toBeNull();
+
+        const thumbnail = 'data:image/png;base64,aGVsbG8=';
+        const { res } = makeRes();
+        await withActor(actor, () =>
+            controller.updateFsentryThumbnail(
+                makeReq({ body: { uid: uuid, thumbnail }, actor }),
+                res,
+            ),
+        );
+
+        expect(
+            (await server.stores.fsEntry.getEntryByUuid(uuid))?.thumbnail,
+        ).toBe(thumbnail);
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(path))?.thumbnail,
+        ).toBe(thumbnail);
+    });
+
+    it('lets a caller with write access to a shared file set its thumbnail', async () => {
+        const owner = await makeUser();
+        const writer = await makeUser();
+        const path = `/${owner.username}/Documents/shared-thumb.txt`;
+        const { uuid } = await writeFileEntry(owner.actor, path, 'body');
+        await server.services.permission.grantUserUserPermission(
+            owner.actor,
+            writer.username,
+            `fs:${uuid}:write`,
+            {},
+        );
+
+        const thumbnail = 'data:image/png;base64,aGVsbG8=';
+        const { res, captured } = makeRes();
+        await withActor(writer.actor, () =>
+            controller.updateFsentryThumbnail(
+                makeReq({
+                    body: { uid: uuid, thumbnail },
+                    actor: writer.actor,
+                }),
+                res,
+            ),
+        );
+
+        expect(captured.body).toEqual({ thumbnail });
+        expect(
+            (await server.stores.fsEntry.getEntryByUuid(uuid))?.thumbnail,
+        ).toBe(thumbnail);
+    });
+
     it('tells thumbnail listeners which entry the thumbnail is for', async () => {
         const { actor, username } = await makeUser();
         const path = `/${username}/Documents/bound-thumb.txt`;
