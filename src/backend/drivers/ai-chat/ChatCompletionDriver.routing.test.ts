@@ -152,15 +152,15 @@ const OPENROUTER_CATALOG = [
     created: 1_700_000_000,
 }));
 
+const catalogResponse = ({ url }: { url: string }) => ({
+    data: {
+        data: url.includes('openrouter') ? OPENROUTER_CATALOG : GATEWAY_CATALOG,
+    },
+});
+
 beforeAll(async () => {
     server = await setupTestServer();
-    axiosRequestMock.mockImplementation(({ url }: { url: string }) => ({
-        data: {
-            data: url.includes('openrouter')
-                ? OPENROUTER_CATALOG
-                : GATEWAY_CATALOG,
-        },
-    }));
+    axiosRequestMock.mockImplementation(catalogResponse);
 
     // Built once, not per-test: `#buildModelMap` mutates the catalogs
     // providers hand back (lowercasing ids, pushing `puterId` onto the
@@ -311,6 +311,82 @@ describe('ChatCompletionDriver hands providers their own catalog entry', () => {
 
         expect(catalog).not.toHaveBeenCalled();
         catalog.mockRestore();
+    });
+});
+
+describe('ChatCompletionDriver while a gateway catalog is loading', () => {
+    const SLOW_GATEWAY = 'https://slow-gateway.test/v1';
+
+    /** Hold the slow gateway's catalog response until the returned release. */
+    const holdCatalog = () => {
+        let release!: () => void;
+        const held = new Promise((resolve) => {
+            release = () => resolve(catalogResponse({ url: SLOW_GATEWAY }));
+        });
+        axiosRequestMock.mockImplementation((req: { url: string }) =>
+            req.url.startsWith(SLOW_GATEWAY) ? held : catalogResponse(req),
+        );
+        return release;
+    };
+
+    afterEach(() => {
+        axiosRequestMock.mockImplementation(catalogResponse);
+    });
+
+    it('serves a gateway model requested before its catalog arrives', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = new ChatCompletionDriver(
+            {
+                providers: {
+                    infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        slowDriver.onServerStart();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+        const reply = withTestActor(() =>
+            slowDriver.complete({
+                model: 'qwen/qwq-max',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+        releaseCatalog();
+
+        await expect(reply).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('Qwen/QwQ-Max');
+        slowDriver.onServerShutdown();
+    });
+
+    it('lets the drivers started after it register without waiting for the catalog', async () => {
+        const releaseCatalog = holdCatalog();
+        let booted: PuterServer | undefined;
+        try {
+            booted = await setupTestServer({
+                providers: {
+                    infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
+                    elevenlabs: { apiKey: 'test-key' },
+                },
+            } as never);
+            expect(await booted.drivers.aiTts.list()).toContain('elevenlabs');
+        } finally {
+            releaseCatalog();
+            await booted?.shutdown();
+        }
     });
 });
 

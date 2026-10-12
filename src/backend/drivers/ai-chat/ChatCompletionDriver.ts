@@ -556,6 +556,8 @@ export class ChatCompletionDriver extends PuterDriver {
     /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
     #catalogEntries = new WeakMap<IChatModel, IChatModel>();
     #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
+    /** The first model-map build, which requests arriving during it wait on. */
+    #modelMapBuilt: Promise<void> = Promise.resolve();
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -566,9 +568,11 @@ export class ChatCompletionDriver extends PuterDriver {
         );
     }
 
-    override async onServerStart() {
+    override onServerStart() {
         this.#registerProviders();
-        await this.#buildModelMap();
+        // Not awaited: a gateway catalog can take its whole fetch timeout, and
+        // the drivers started after this one shouldn't wait for it.
+        this.#modelMapBuilt = this.#buildModelMap();
         // Gateway catalogs change under us; rebuild once they've expired.
         this.#modelMapRefresh = setInterval(() => {
             void this.#buildModelMap();
@@ -583,6 +587,7 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Interface methods -------------------------------------------
 
     async models() {
+        await this.#modelMapBuilt;
         const seen = new Set<string>();
         return Object.values(this.#modelIdMap)
             .flat()
@@ -633,6 +638,7 @@ export class ChatCompletionDriver extends PuterDriver {
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
+        await this.#modelMapBuilt;
         const abortSignal = Context.get('abortSignal');
         abortSignal?.throwIfAborted();
         const actor = Context.get('actor');
@@ -1250,6 +1256,7 @@ export class ChatCompletionDriver extends PuterDriver {
     async [COUNT_TOKENS](
         args: ICompleteArguments,
     ): Promise<{ input_tokens: number }> {
+        await this.#modelMapBuilt;
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
             intendedProvider = 'azure-openai';

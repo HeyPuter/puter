@@ -153,7 +153,9 @@ describe('ChatCompletionDriver model catalog', () => {
         expect(ids).toEqual(['abuse', 'costly', 'fake']);
     });
 
-    it('getReportedCosts() emits one entry per (model, cost-key) pair and skips zero rates and the `tokens` scale descriptor', () => {
+    it('getReportedCosts() emits one entry per (model, cost-key) pair and skips zero rates and the `tokens` scale descriptor', async () => {
+        // The catalog loads in the background; this waits for it.
+        await driver.models();
         const reported = driver.getReportedCosts();
         // `fake` and `abuse` have 0-cost keys → skipped (not finite > 0
         // alone; the impl skips non-finite, and the cost map filters
@@ -202,9 +204,9 @@ describe('ChatCompletionDriver model map', () => {
         d.onServerShutdown();
     });
 
-    it('is built by the time onServerStart resolves', async () => {
+    it('lists the catalog to a caller that asks while it is still loading', async () => {
         const d = newDriver({ ollama: { enabled: false } });
-        await d.onServerStart();
+        d.onServerStart();
         expect((await d.models()).length).toBeGreaterThan(0);
         d.onServerShutdown();
     });
