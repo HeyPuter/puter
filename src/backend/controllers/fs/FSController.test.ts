@@ -1701,6 +1701,68 @@ describe('FSController GUI item events', () => {
         expect(removed!.path).toBe(replaced.path);
     });
 
+    it("sends no item.removed for an owner's Trash entry an overwriting move renamed around", async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const shared = await mkdir(
+            owner.actor,
+            `/${ownerName}/Documents/shared`,
+        );
+        const source = await touch(owner.actor, `${shared.path}/note.txt`);
+        const occupant = await touch(
+            owner.actor,
+            `/${ownerName}/Trash/note.txt`,
+        );
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        const announced = (eventName: string, uid: string) =>
+            emitSpy.mock.calls.some(
+                ([name, data]) =>
+                    name === eventName &&
+                    (data as { response: GuiResponse }).response.uuid === uid,
+            );
+        try {
+            await withActor(holder.actor, () =>
+                controller.moveEntry(
+                    makeReq({
+                        body: {
+                            source: { path: source.path },
+                            destination: { path: `/${ownerName}/Trash` },
+                            overwrite: true,
+                        },
+                        actor: holder.actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            // A replaced entry's removal goes out before the move's own event.
+            await vi.waitFor(() =>
+                expect(announced('outer.gui.item.moved', source.uuid)).toBe(
+                    true,
+                ),
+            );
+            expect(announced('outer.gui.item.removed', occupant.uuid)).toBe(
+                false,
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(occupant.uuid),
+        ).not.toBeNull();
+    });
+
     it('sends item.removed for the entry an overwriting copy replaces, first', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;

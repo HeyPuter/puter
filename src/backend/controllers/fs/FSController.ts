@@ -74,6 +74,7 @@ import {
     fsEntryMimeType,
     type GuiItemEventName,
     loadLegacyAssociatedApps,
+    replacedByMove,
     signEntryThumbnail,
 } from './legacyFsHelpers.js';
 import type {
@@ -1660,7 +1661,7 @@ export class FSController extends PuterController {
         const newMetadata = (body.newMetadata ??
             body.new_metadata ??
             undefined) as Record<string, unknown> | undefined;
-        const replaced = overwrite
+        const overwriteTarget = overwrite
             ? await findOverwriteTarget(
                   this.stores.fsEntry,
                   destinationParent,
@@ -1680,7 +1681,7 @@ export class FSController extends PuterController {
             'outer.gui.item.moved',
             moved,
             { old_path: source.path },
-            replaced,
+            replacedByMove(overwriteTarget, moved, newName ?? source.name),
         );
         res.json(this.#toClientEntry(moved));
     }
