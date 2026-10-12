@@ -29,6 +29,13 @@ describe('pagination util', () => {
             expect(decodeCursor('   ')).toBeUndefined();
         });
 
+        it('reads a stringified null cursor as none', () => {
+            expect(decodeCursor('null')).toBeUndefined();
+            expect(
+                decodeCursor(Buffer.from('null').toString('base64')),
+            ).toBeUndefined();
+        });
+
         it('passes through object cursors', () => {
             expect(decodeCursor({ id: 1 })).toEqual({ id: 1 });
         });
@@ -148,6 +155,8 @@ describe('pagination util', () => {
         it('returns null without a cursor', () => {
             expect(openIdCursor(undefined, secret)).toBeNull();
             expect(openIdCursor('', secret)).toBeNull();
+            expect(openIdCursor('null', secret)).toBeNull();
+            expect(openIdCursor('null', secret, { strict: true })).toBeNull();
         });
 
         it('reads the id from a sealed or plain cursor', () => {

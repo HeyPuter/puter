@@ -118,9 +118,10 @@ const entryCacheKey = (
     by: 'id' | 'uuid' | 'path',
     value: string | number,
 ): string => `prodfsv2:fsentry:${by === 'path' ? 'path:any' : by}:${value}`;
-// A renamed home's descendants stay cached under the old path until their TTL
-// (longer behind a lagging replica), and ACL grants a home by path prefix, so
-// no other account may take the vacated name until well after that.
+// A renamed home's descendants can stay cached under the old path until their
+// TTL (past the invalidation caps, or behind a lagging replica), and ACL grants
+// a home by path prefix, so no other account may take the vacated name until
+// well after that.
 const VACATED_HOME_HOLD_SECONDS = 60 * 60;
 const vacatedHomeKey = (username: string) =>
     `prodfsv2:vacated-home:${username.toLowerCase()}`;
@@ -137,6 +138,9 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 export const ENTRY_BROADCAST_CAP = 10_000;
 // BroadcastService's default `broadcast.outbound_flush_ms`.
 const DEFAULT_BROADCAST_FLUSH_MS = 2_000;
+// Most moved descendants a prefix rewrite invalidates by key; past it, the
+// rest wait out ENTRY_CACHE_TTL_SECONDS.
+const REBASED_INVALIDATION_MAX = 100_000;
 
 /**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
@@ -349,7 +353,7 @@ export class FSEntryStore extends PuterStore {
         };
     }
 
-    #entryCacheKeys(entry: FSEntry): string[] {
+    #entryCacheKeys(entry: Pick<FSEntry, 'id' | 'uuid' | 'path'>): string[] {
         return [
             entryCacheKey('id', entry.id),
             entryCacheKey('uuid', entry.uuid),
@@ -410,8 +414,10 @@ export class FSEntryStore extends PuterStore {
      * one event for the batch. The read-path `#writeEntryToCache` stays local
      * so backfills don't fan out.
      */
-    async #invalidateEntriesCache(entries: FSEntry[]): Promise<void> {
-        const keysOf = (batch: FSEntry[]) =>
+    async #invalidateEntriesCache(
+        entries: Array<Pick<FSEntry, 'id' | 'uuid' | 'path'>>,
+    ): Promise<void> {
+        const keysOf = (batch: typeof entries) =>
             batch.flatMap((entry) => this.#entryCacheKeys(entry));
         const broadcastCount = this.#takeBroadcastBudget(entries.length);
         await this.publishCacheKeys({
@@ -3490,11 +3496,11 @@ export class FSEntryStore extends PuterStore {
                 postgres: '? || SUBSTR(path, ?)',
                 otherwise: 'CONCAT(?, SUBSTR(path, ?))',
             });
-            for (const patterns of await this.#subtreePatterns(
-                oldPath,
-                likePattern,
-                { rootPaths: [oldPath, newPath], primary: true },
-            )) {
+            const groups = await this.#subtreePatterns(oldPath, likePattern, {
+                rootPaths: [oldPath, newPath],
+                primary: true,
+            });
+            for (const patterns of groups) {
                 await this.clients.db.write(
                     `UPDATE fsentries
                      SET path = ${rewrittenPath},
@@ -3503,11 +3509,10 @@ export class FSEntryStore extends PuterStore {
                     [newPath, oldLen + 1, now, userId, ...patterns],
                 );
             }
+            await this.#invalidateRebasedSubtree(oldPath, newPath, groups);
         }
 
-        // Invalidate root cache under both old and new keys; descendants
-        // rely on TTL (60s) to refresh — username rename is rare enough
-        // that a broad subtree invalidation isn't worth the round-trips.
+        // Invalidate root cache under both old and new keys.
         await this.#invalidateEntryCache(root);
         const refreshedRows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
@@ -3523,10 +3528,9 @@ export class FSEntryStore extends PuterStore {
         return refreshed;
     }
 
-    // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`.
-    // Used by move/rename when a directory is relocated. Cache for affected
-    // entries is invalidated coarsely afterwards by the caller. Pass
-    // `newUserId` when the subtree also changes hands.
+    // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`,
+    // and drops their cached copies. Used by move/rename when a directory is
+    // relocated. Pass `newUserId` when the subtree also changes hands.
     async updatePathPrefixForUser(
         userId: number,
         oldPrefix: string,
@@ -3562,11 +3566,11 @@ export class FSEntryStore extends PuterStore {
         // pointing at a path their parent no longer has. `idx_fsentries_path`
         // leads on `path`, so this is the same index range either way.
         let affected = 0;
-        for (const patterns of await this.#subtreePatterns(
-            normalizedOld,
-            likePattern,
-            { rootPaths: [normalizedOld, normalizedNew], primary: true },
-        )) {
+        const groups = await this.#subtreePatterns(normalizedOld, likePattern, {
+            rootPaths: [normalizedOld, normalizedNew],
+            primary: true,
+        });
+        for (const patterns of groups) {
             const result = await this.clients.db.write(
                 `UPDATE fsentries
                  SET path = ${rewrittenPath},
@@ -3583,7 +3587,56 @@ export class FSEntryStore extends PuterStore {
             );
             affected += this.#affectedRows(result);
         }
+        await this.#invalidateRebasedSubtree(
+            normalizedOld,
+            normalizedNew,
+            groups,
+        );
         return affected;
+    }
+
+    /**
+     * Drops every key a subtree just moved from `oldPrefix` to `newPrefix` was
+     * cached under. A stale copy still resolves the old path and reports it by
+     * id and uuid, so a write beneath it lands at a path its parent no longer
+     * has. Reads the moved rows from the primary through the rewrite's own
+     * pattern `groups`, shifted onto the new prefix.
+     */
+    async #invalidateRebasedSubtree(
+        oldPrefix: string,
+        newPrefix: string,
+        groups: string[][],
+    ): Promise<void> {
+        // Escaping is per character, so every pattern starts with this.
+        const escapedOld = this.#escapeLikePattern(oldPrefix);
+        const escapedNew = this.#escapeLikePattern(newPrefix);
+        let remaining = REBASED_INVALIDATION_MAX;
+        for (const group of groups) {
+            const patterns = group.map(
+                (pattern) => escapedNew + pattern.slice(escapedOld.length),
+            );
+            const rows = (await this.clients.db.pread(
+                `SELECT id, uuid, path FROM fsentries WHERE ${this.#pathLikeAny(patterns)} LIMIT ?`,
+                [...patterns, remaining],
+            )) as Array<{ id: number; uuid: string; path: string }>;
+            remaining -= rows.length;
+            const moved = rows.map((row) => ({
+                id: Number(row.id),
+                uuid: row.uuid,
+                path: oldPrefix + String(row.path).slice(newPrefix.length),
+            }));
+            await runWithConcurrencyLimit(
+                this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
+                DEFAULT_DB_CHUNK_CONCURRENCY,
+                (chunk) => this.#invalidateEntriesCache(chunk),
+            );
+            if (remaining <= 0) {
+                console.warn(
+                    `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
+                );
+                return;
+            }
+        }
     }
 
     async deleteEntry(entry: FSEntry): Promise<void> {

@@ -6802,20 +6802,18 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         const { user: leaver, actor: leaverActor } = await makeUserAndActor();
         const vacated = leaver.username;
         // Warm the entry cache under the old path, as any read would.
-        const docs = (await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        ))!;
+        await server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`);
         await controller.handleChangeUsername(
             makeReq({ new_username: `r_${uniq()}` }, { actor: leaverActor }),
             makeRes(),
         );
 
-        // The cache still maps the old path to the leaver's folder, so a new
-        // holder of the name would pass ACL on it.
-        const cached = await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        );
-        expect(cached?.uuid).toBe(docs.uuid);
+        // Dropped here, but a peer region or lagging replica can still map the
+        // old path to the leaver's folder, where a new holder of the name
+        // would pass ACL on it.
+        await expect(
+            server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`),
+        ).resolves.toBeNull();
 
         const { user: claimer, actor: claimerActor } = await makeUserAndActor();
         await expect(

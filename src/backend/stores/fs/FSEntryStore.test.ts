@@ -386,6 +386,56 @@ describe('FSEntryStore cache invalidation', () => {
         );
     });
 
+    it('drops every key of each descendant a prefix rewrite moves, here and in peer regions', async () => {
+        const user = await makeUser();
+        const oldDir = `${user.home}/Documents/pr-old`;
+        const newDir = `${user.home}/Documents/pr-new`;
+        await store.ensureDirectoriesForUserWithCreated(user.userId, [
+            { path: `${oldDir}/inner`, createPaths: true },
+        ]);
+        const dir = (await store.getEntryByPath(oldDir))!;
+        const inner = (await store.getEntryByPath(`${oldDir}/inner`))!;
+        const file = await createFile(user, `${oldDir}/inner/f.txt`);
+        await store.getEntryByUuid(file.uuid);
+
+        // The order FSService renames in: the directory, then what's below.
+        await store.updateEntry(dir.uuid, { name: 'pr-new', path: newDir });
+        const updates = await captureCacheUpdates(() =>
+            store.updatePathPrefixForUser(user.userId, oldDir, newDir),
+        );
+
+        expect(updates.flatMap((u) => u.cacheKey)).toEqual(
+            expect.arrayContaining([
+                ...entryCacheKeys(inner),
+                ...entryCacheKeys(file),
+            ]),
+        );
+        await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
+        await expect(
+            store.getEntryByPath(`${oldDir}/inner`),
+        ).resolves.toBeNull();
+        expect((await store.getEntryByUuid(file.uuid))?.path).toBe(
+            `${newDir}/inner/f.txt`,
+        );
+        expect((await store.getEntryById(inner.id))?.path).toBe(
+            `${newDir}/inner`,
+        );
+    });
+
+    it('drops the old keys of the descendants of a renamed home', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/hr.txt`);
+        await store.getEntryByUuid(file.uuid);
+        const newName = `${user.username}-hr`;
+
+        await store.renameUserHome(user.userId, newName);
+
+        await expect(store.getEntryByPath(file.path)).resolves.toBeNull();
+        expect((await store.getEntryByUuid(file.uuid))?.path).toBe(
+            `/${newName}/Documents/hr.txt`,
+        );
+    });
+
     it('tells peer regions to drop an overwritten file', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/po.txt`);
@@ -2303,12 +2353,21 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
             method: 'pread',
             params: ['/u/tree', '/u/renamed', expect.any(Number)],
         });
-        expect(db.statements).toHaveLength(1);
+        expect(db.statements).toHaveLength(2);
         expect(db.statements[0]!.params.slice(-4)).toEqual([
             '/u/tree/%',
             '/u/tree/🔥 a%',
             '/u/tree/😀 50!%!_off!!.png%',
             '/u/tree/🔥 a/🔥 b%',
+        ]);
+        // Then the moved rows, for their cache keys, by the same patterns
+        // under the new prefix.
+        expect(db.statements[1]!.method).toBe('pread');
+        expect(db.statements[1]!.params.slice(0, -1)).toEqual([
+            '/u/renamed/%',
+            '/u/renamed/🔥 a%',
+            '/u/renamed/😀 50!%!_off!!.png%',
+            '/u/renamed/🔥 a/🔥 b%',
         ]);
     });
 
@@ -2323,14 +2382,16 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
 
         await mysqlStore.updatePathPrefixForUser(1, '/u/tree', '/u/renamed');
 
-        const patternsPer = db.statements.map(
-            (statement) =>
-                statement.params.filter(
-                    (param) =>
-                        typeof param === 'string' &&
-                        param.startsWith('/u/tree/'),
-                ).length,
-        );
+        const patternsPer = db.statements
+            .filter((statement) => statement.method === 'write')
+            .map(
+                (statement) =>
+                    statement.params.filter(
+                        (param) =>
+                            typeof param === 'string' &&
+                            param.startsWith('/u/tree/'),
+                    ).length,
+            );
         expect(patternsPer).toEqual([500, 500, 201]);
 
         db.statements.length = 0;
