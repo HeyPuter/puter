@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import {
     afterEach,
     beforeAll,
@@ -20,6 +21,7 @@ import {
     requestAiCosts,
     withAiCostFactor,
     withAiCreditHold,
+    withStreamedAiCharge,
 } from './aiCostFactor.ts';
 
 type Listener = (
@@ -463,6 +465,104 @@ describe('AI cost factor', () => {
             } finally {
                 check.mockRestore();
             }
+        });
+    });
+    describe('withStreamedAiCharge', () => {
+        const usageType = 'elevenlabs:eleven_v3:character';
+
+        /** Streams `source` through the charge and reads it to the end. */
+        const relay = async (source: Readable) => {
+            const record = vi.fn();
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                const result = await withStreamedAiCharge(
+                    scoped,
+                    actor,
+                    usageType,
+                    1000,
+                    async () => ({
+                        dataType: 'stream',
+                        content_type: 'audio/mpeg',
+                        stream: source,
+                    }),
+                    record,
+                );
+                return { record, stream: result.stream };
+            } finally {
+                check.mockRestore();
+            }
+        };
+
+        const read = async (stream: Readable): Promise<Error | undefined> => {
+            try {
+                for await (const _chunk of stream) void _chunk;
+            } catch (e) {
+                return e as Error;
+            }
+            return undefined;
+        };
+
+        it('charges once the first byte arrives and releases the hold', async () => {
+            const { record, stream } = await relay(
+                Readable.from([Buffer.from('ab'), Buffer.from('cd')]),
+            );
+            expect(record).not.toHaveBeenCalled();
+
+            expect(await read(stream)).toBeUndefined();
+            expect(record).toHaveBeenCalledOnce();
+            await vi.waitFor(async () =>
+                expect(await metering.getOutstandingHolds(actor)).toBe(0),
+            );
+        });
+
+        it('charges nothing when the upstream fails before its first byte', async () => {
+            const { record, stream } = await relay(
+                new Readable({
+                    read() {
+                        this.destroy(new Error('upstream reset'));
+                    },
+                }),
+            );
+
+            expect((await read(stream))?.message).toBe('upstream reset');
+            expect(record).not.toHaveBeenCalled();
+            await vi.waitFor(async () =>
+                expect(await metering.getOutstandingHolds(actor)).toBe(0),
+            );
+        });
+
+        it('charges in full when the upstream fails after its first byte', async () => {
+            let sent = false;
+            const { record, stream } = await relay(
+                new Readable({
+                    read() {
+                        if (sent) {
+                            this.destroy(new Error('upstream reset'));
+                            return;
+                        }
+                        sent = true;
+                        this.push(Buffer.from('ab'));
+                    },
+                }),
+            );
+
+            expect((await read(stream))?.message).toBe('upstream reset');
+            expect(record).toHaveBeenCalledOnce();
+        });
+
+        it('charges in full when the caller hangs up before the first byte', async () => {
+            const source = new Readable({ read() {} });
+            const { record, stream } = await relay(source);
+
+            stream.destroy();
+            await vi.waitFor(() => expect(source.destroyed).toBe(true));
+
+            expect(record).toHaveBeenCalledOnce();
+            await vi.waitFor(async () =>
+                expect(await metering.getOutstandingHolds(actor)).toBe(0),
+            );
         });
     });
 });

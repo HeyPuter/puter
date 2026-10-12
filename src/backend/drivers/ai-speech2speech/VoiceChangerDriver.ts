@@ -24,7 +24,7 @@ import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-    withAiCreditHold,
+    withStreamedAiCharge,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput } from '../util/fileInput.js';
@@ -263,7 +263,7 @@ export class VoiceChangerDriver extends PuterDriver {
         if (search) url.search = search;
 
         const metering = this.#aiMetering;
-        return withAiCreditHold(
+        return withStreamedAiCharge(
             metering,
             actor,
             usageKey,
@@ -283,12 +283,6 @@ export class VoiceChangerDriver extends PuterDriver {
                         stream: true,
                     },
                 );
-                metering.incrementUsage(
-                    actor,
-                    usageKey,
-                    estimatedSeconds,
-                    estimatedCost,
-                );
                 return {
                     dataType: 'stream',
                     content_type:
@@ -296,6 +290,13 @@ export class VoiceChangerDriver extends PuterDriver {
                     stream: upstreamBodyStream(response),
                 };
             },
+            () =>
+                metering.incrementUsage(
+                    actor,
+                    usageKey,
+                    estimatedSeconds,
+                    estimatedCost,
+                ),
         );
     }
 }

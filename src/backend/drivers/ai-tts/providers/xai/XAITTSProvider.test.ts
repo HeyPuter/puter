@@ -44,7 +44,11 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { callerError, withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { XAITTSProvider } from './XAITTSProvider.js';
 import { XAI_TTS_COSTS } from './costs.js';
 
@@ -308,7 +312,9 @@ describe('XAITTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello world';
-        await withTestActor(() => provider.synthesize({ text }));
+        await readStreamResult(
+            await withTestActor(() => provider.synthesize({ text })),
+        );
 
         const expectedCost = XAI_TTS_COSTS['xai-tts'] * text.length;
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);

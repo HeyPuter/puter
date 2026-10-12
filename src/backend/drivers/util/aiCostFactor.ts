@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Readable } from 'node:stream';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor';
 import { Context } from '../../core/context.js';
@@ -27,6 +28,7 @@ import type {
     UsageByType,
     UsageInput,
 } from '../../services/metering/types';
+import type { DriverStreamResult } from '../meta.js';
 
 /** Anything past this is read as a mistake and the cost is left as-is. */
 export const MAX_AI_COST_FACTOR = 10;
@@ -355,4 +357,64 @@ export async function withAiCreditHold<T>(
     } finally {
         await hold.release();
     }
+}
+
+/**
+ * Holds `amount` while `open` starts an upstream audio stream, then charges it
+ * through `record` once the first byte arrives, or once the caller hangs up. An
+ * upstream that fails or ends before its first byte is not charged.
+ */
+export async function withStreamedAiCharge(
+    metering: AiMeteringService,
+    actor: Actor,
+    usageType: string,
+    amount: number,
+    open: () => Promise<DriverStreamResult>,
+    record: () => unknown,
+): Promise<DriverStreamResult> {
+    const hold = await metering.reserveAiCredits(actor, usageType, amount);
+    if (!hold) throw insufficientCreditsError();
+    let result: DriverStreamResult;
+    try {
+        result = await open();
+    } catch (e) {
+        await hold.release();
+        throw e;
+    }
+
+    let settled = false;
+    const settle = (charge: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (charge) record();
+        // A failed release leaves the hold to its TTL.
+        hold.release().catch(() => {});
+    };
+    const source = result.stream;
+    let chunks: AsyncIterator<unknown> | undefined;
+    const relay = new Readable({
+        async read() {
+            try {
+                chunks ??= source[Symbol.asyncIterator]();
+                const next = await chunks.next();
+                if (next.done) {
+                    settle(false);
+                    this.push(null);
+                    return;
+                }
+                settle(true);
+                this.push(next.value);
+            } catch (e) {
+                settle(false);
+                this.destroy(e as Error);
+            }
+        },
+        // Reached first by a caller hanging up, who is charged in full.
+        destroy(error, callback) {
+            settle(true);
+            source.destroy();
+            callback(error);
+        },
+    });
+    return { ...result, stream: relay };
 }

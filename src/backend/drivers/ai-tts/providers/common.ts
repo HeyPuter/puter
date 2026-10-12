@@ -20,7 +20,7 @@
 import type { Actor } from '../../../core/actor.js';
 import {
     type AiMeteringService,
-    withAiCreditHold,
+    withStreamedAiCharge,
 } from '../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../meta.js';
 
@@ -31,9 +31,9 @@ import type { DriverStreamResult } from '../../meta.js';
 export const TTS_UPSTREAM_TIMEOUT_MS = 120_000;
 
 /**
- * Runs `synthesize` under a hold on `text.length × ucentsPerChar`, then meters
- * exactly that once it succeeds. Per-character prices are known up front, so
- * the hold and the charge are the same amount.
+ * Runs `synthesize` under a hold on `text.length × ucentsPerChar` and meters
+ * exactly that once its audio starts arriving. Per-character prices are known
+ * up front, so the hold and the charge are the same amount.
  */
 export function meterPerCharacter(
     metering: AiMeteringService,
@@ -44,11 +44,14 @@ export function meterPerCharacter(
     synthesize: () => Promise<DriverStreamResult>,
 ): Promise<DriverStreamResult> {
     const cost = ucentsPerChar * text.length;
-    return withAiCreditHold(metering, actor, usageType, cost, async () => {
-        const result = await synthesize();
-        metering.incrementUsage(actor, usageType, text.length, cost);
-        return result;
-    });
+    return withStreamedAiCharge(
+        metering,
+        actor,
+        usageType,
+        cost,
+        synthesize,
+        () => metering.incrementUsage(actor, usageType, text.length, cost),
+    );
 }
 
 /** The cost-report lines for a `<model or engine> → ucents/char` table. */

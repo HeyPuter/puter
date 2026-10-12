@@ -49,7 +49,7 @@ import type { MeteringService } from '../../services/metering/MeteringService.js
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
-import { callerError } from '../integrationTestUtil.js';
+import { callerError, readStreamResult } from '../integrationTestUtil.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -296,34 +296,40 @@ describe('VoiceChangerDriver.convert success path', () => {
             heldDuringCall = await server.stores.creditHold.outstanding(
                 actor.user.uuid,
             );
-            return okResponse(new ArrayBuffer(0), 'audio/mpeg');
+            return okResponse(new ArrayBuffer(8), 'audio/mpeg');
         });
 
         // 32 KB audio at 16 kbit/s = 2 seconds.
-        await withActor(actor, () =>
-            driver.convert({
-                audio: dataUrl(Buffer.alloc(32_000), 'audio/mpeg'),
-            }),
+        await readStreamResult(
+            await withActor(actor, () =>
+                driver.convert({
+                    audio: dataUrl(Buffer.alloc(32_000), 'audio/mpeg'),
+                }),
+            ),
         );
 
         const perSecond =
             VOICE_CHANGER_COSTS['elevenlabs:eleven_multilingual_sts_v2:second'];
         expect(heldDuringCall).toBe(perSecond * 2);
-        expect(
-            await server.stores.creditHold.outstanding(actor.user.uuid),
-        ).toBe(0);
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user.uuid),
+            ).toBe(0),
+        );
     });
 
     it('meters one usage line at the per-second rate from costs.ts', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
-            okResponse(new ArrayBuffer(0), 'audio/mpeg'),
+            okResponse(new ArrayBuffer(8), 'audio/mpeg'),
         );
 
         // 32 KB audio at 16 kbit/s = 2 seconds rounded up.
         const buf = Buffer.alloc(32_000);
-        await withActor(actor, () =>
-            driver.convert({ audio: dataUrl(buf, 'audio/mpeg') }),
+        await readStreamResult(
+            await withActor(actor, () =>
+                driver.convert({ audio: dataUrl(buf, 'audio/mpeg') }),
+            ),
         );
 
         const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
@@ -338,6 +344,34 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect((actorArg as Actor).user.id).toBe(actor.user.id);
         expect(count).toBe(expectedSeconds);
         expect(cost).toBe(perSecond * expectedSeconds);
+    });
+
+    it('meters nothing when ElevenLabs breaks off before any audio', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                new ReadableStream({
+                    start(controller) {
+                        controller.error(new Error('connection reset'));
+                    },
+                }),
+                { status: 200, headers: { 'content-type': 'audio/mpeg' } },
+            ),
+        );
+
+        const result = await withActor(actor, () =>
+            driver.convert({
+                audio: dataUrl(Buffer.alloc(32_000), 'audio/mpeg'),
+            }),
+        );
+        await expect(readStreamResult(result)).rejects.toThrow();
+
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user.uuid),
+            ).toBe(0),
+        );
     });
 });
 

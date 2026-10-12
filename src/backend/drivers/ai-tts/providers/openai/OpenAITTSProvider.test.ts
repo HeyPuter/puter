@@ -46,7 +46,10 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { OpenAITTSProvider } from './OpenAITTSProvider.js';
 import { OPENAI_TTS_COSTS } from './costs.js';
 
@@ -303,13 +306,17 @@ describe('OpenAITTSProvider.synthesize credit gate', () => {
         });
 
         const text = 'hold me';
-        await withTestActor(
-            () => provider.synthesize({ text, model: 'tts-1' }),
-            actor,
+        await readStreamResult(
+            await withTestActor(
+                () => provider.synthesize({ text, model: 'tts-1' }),
+                actor,
+            ),
         );
 
         expect(heldDuringCall).toBe(OPENAI_TTS_COSTS['tts-1'] * text.length);
-        expect(await server.stores.creditHold.outstanding(userId)).toBe(0);
+        await vi.waitFor(async () =>
+            expect(await server.stores.creditHold.outstanding(userId)).toBe(0),
+        );
     });
 
     it('releases the hold when OpenAI fails', async () => {
@@ -437,8 +444,14 @@ describe('OpenAITTSProvider.synthesize metering', () => {
         speechCreateMock.mockResolvedValueOnce(mockAudioResponse());
 
         const text = 'hello';
-        await withTestActor(() =>
-            provider.synthesize({ text, model: 'tts-1-hd', voice: 'alloy' }),
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({
+                    text,
+                    model: 'tts-1-hd',
+                    voice: 'alloy',
+                }),
+            ),
         );
 
         // tts-1-hd costs 3000 ucents/char × 5 chars = 15000 ucents.

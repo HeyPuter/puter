@@ -45,12 +45,29 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-const audio = (): Promise<DriverStreamResult> =>
-    Promise.resolve({
-        dataType: 'stream',
-        content_type: 'audio/mpeg',
-        stream: Readable.from([]),
+const streamOf = (stream: Readable): Promise<DriverStreamResult> =>
+    Promise.resolve({ dataType: 'stream', content_type: 'audio/mpeg', stream });
+
+const audio = () => streamOf(Readable.from([Buffer.from('mp3')]));
+
+/** An upstream body that sends `chunks` and then breaks. */
+const breaksAfter = (chunks: Buffer[]) =>
+    new Readable({
+        read() {
+            const next = chunks.shift();
+            if (next) this.push(next);
+            else this.destroy(new Error('upstream reset mid-body'));
+        },
     });
+
+/** Reads a synthesized stream to its end, or to the error that ends it. */
+const drain = async (result: DriverStreamResult) => {
+    try {
+        for await (const _chunk of result.stream) void _chunk;
+    } catch {
+        // The caller sees the broken transfer; billing is what's asserted.
+    }
+};
 
 describe('meterPerCharacter', () => {
     const actor = makeActor({
@@ -69,13 +86,15 @@ describe('meterPerCharacter', () => {
             .mockResolvedValue(true);
         const record = vi.spyOn(server.services.metering, 'incrementUsage');
 
-        await meterPerCharacter(
-            metering(),
-            actor,
-            'openai:tts-1:character',
-            1500,
-            'hello',
-            audio,
+        await drain(
+            await meterPerCharacter(
+                metering(),
+                actor,
+                'openai:tts-1:character',
+                1500,
+                'hello',
+                audio,
+            ),
         );
 
         expect(check).toHaveBeenCalledWith(actor, 7500);
@@ -85,8 +104,84 @@ describe('meterPerCharacter', () => {
             5,
             7500,
         );
-        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(
-            0,
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+    });
+
+    it('meters nothing when the upstream breaks before any audio', async () => {
+        vi.spyOn(
+            server.services.metering,
+            'hasEnoughCredits',
+        ).mockResolvedValue(true);
+        const record = vi.spyOn(server.services.metering, 'incrementUsage');
+
+        await drain(
+            await meterPerCharacter(
+                metering(),
+                actor,
+                'openai:tts-1:character',
+                1500,
+                'hello',
+                () => streamOf(breaksAfter([])),
+            ),
+        );
+
+        expect(record).not.toHaveBeenCalled();
+    });
+
+    it('meters the full text once audio has started, even if the upstream then breaks', async () => {
+        vi.spyOn(
+            server.services.metering,
+            'hasEnoughCredits',
+        ).mockResolvedValue(true);
+        const record = vi.spyOn(server.services.metering, 'incrementUsage');
+
+        await drain(
+            await meterPerCharacter(
+                metering(),
+                actor,
+                'openai:tts-1:character',
+                1500,
+                'hello',
+                () => streamOf(breaksAfter([Buffer.from('mp3')])),
+            ),
+        );
+
+        expect(record).toHaveBeenCalledWith(
+            actor,
+            'openai:tts-1:character',
+            5,
+            7500,
+        );
+    });
+
+    it('meters the full text when the caller hangs up before any audio', async () => {
+        vi.spyOn(
+            server.services.metering,
+            'hasEnoughCredits',
+        ).mockResolvedValue(true);
+        const record = vi.spyOn(server.services.metering, 'incrementUsage');
+
+        const result = await meterPerCharacter(
+            metering(),
+            actor,
+            'openai:tts-1:character',
+            1500,
+            'hello',
+            () => streamOf(new Readable({ read() {} })),
+        );
+        result.stream.destroy();
+
+        await vi.waitFor(() =>
+            expect(record).toHaveBeenCalledWith(
+                actor,
+                'openai:tts-1:character',
+                5,
+                7500,
+            ),
         );
     });
 
