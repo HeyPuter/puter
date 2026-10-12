@@ -196,6 +196,7 @@ beforeEach(() => {
                 getEntryByPath: async (path: string) =>
                     path === anchorPath() ? anchorEntry() : null,
                 getEntryById: async () => null,
+                getAncestorChain: async () => [],
             },
             user: {
                 getById: async (id: number) => ({ id, uuid: `user-${id}` }),
@@ -221,7 +222,6 @@ beforeEach(() => {
                 announceGeneration: () => undefined,
             },
             socket: { send: vi.fn(), has: () => false },
-            fs: { getAncestorChain: async () => [] },
             acl: {
                 check: async () => true,
                 getSafeAclError: async () => ({

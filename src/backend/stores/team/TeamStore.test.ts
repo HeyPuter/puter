@@ -149,6 +149,24 @@ describe('TeamStore', () => {
         expect(await store.countOwned(loner.id)).toBe(0);
     });
 
+    it('reads many teams by id at once, soft-deleted included', async () => {
+        const kept = await store.create({ ownerUserId: owner.id, name: 'Kept' });
+        const gone = await store.create({ ownerUserId: owner.id, name: 'Gone' });
+        await store.softDelete(gone.uid);
+
+        const teams = await store.getByIdsIncludingDeleted([
+            kept.id,
+            gone.id,
+            kept.id,
+            -1,
+        ]);
+        expect([...teams.keys()].sort()).toEqual([kept.id, gone.id].sort());
+        expect(teams.get(gone.id)?.deleted_at).not.toBeNull();
+        await expect(store.getByIdIncludingDeleted(gone.id)).resolves.toMatchObject(
+            { uid: gone.uid },
+        );
+    });
+
     it('creates a team without a handle', async () => {
         const created = await store.create({
             ownerUserId: owner.id,
