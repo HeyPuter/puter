@@ -326,11 +326,10 @@ export class AppIconService extends PuterService {
             '',
         );
         if (apiBase) {
-            await this.clients.db.write(
-                "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",
-                [`${apiBase}/app-icon/${appUid}`, appUid],
+            await this.stores.app.replaceDataUrlIcon(
+                appUid,
+                `${apiBase}/app-icon/${appUid}`,
             );
-            await this.stores.app.invalidateByUid(appUid);
             this.clients.event.emit(
                 'app.changed',
                 {

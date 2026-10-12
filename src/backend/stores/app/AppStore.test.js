@@ -549,6 +549,24 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getById(app.id)).title).toBe('ByUid');
     });
 
+    it('replaceDataUrlIcon swaps an inline icon and leaves any other alone', async () => {
+        const inline = await createApp({ icon: 'data:image/png;base64,AAAA' });
+        const linked = await createApp({ icon: 'https://cdn.example/i.png' });
+        // Cached first, so a stale copy would show if the write didn't drop it.
+        await appStore.getByUid(inline.uid);
+        await appStore.getByUid(linked.uid);
+
+        await appStore.replaceDataUrlIcon(inline.uid, 'https://api/icon/a');
+        await appStore.replaceDataUrlIcon(linked.uid, 'https://api/icon/b');
+
+        expect((await appStore.getByUid(inline.uid)).icon).toBe(
+            'https://api/icon/a',
+        );
+        expect((await appStore.getByUid(linked.uid)).icon).toBe(
+            'https://cdn.example/i.png',
+        );
+    });
+
     it('invalidateById is a no-op for an app that does not exist', async () => {
         await expect(
             appStore.invalidateById(99999999),

@@ -579,13 +579,13 @@ export class PermissionService extends PuterService {
             return;
         }
 
+        const held = new Set(
+            await this.stores.permission.listAccessTokenPerms(
+                actor.accessToken.uid,
+            ),
+        );
         for (const permission of options) {
-            const hasTokenPerm =
-                await this.stores.permission.hasAccessTokenPerm(
-                    actor.accessToken.uid,
-                    permission,
-                );
-            if (!hasTokenPerm) continue;
+            if (!held.has(permission)) continue;
             const issuerReading = await this.scan(issuerActor, permission);
             reading.push({
                 $: 'path',
@@ -938,6 +938,82 @@ export class PermissionService extends PuterService {
     }
 
     // -- Grant / revoke orchestration ---------------------------------
+    //
+    // Each method keeps its own order of checks; these keep one wording per
+    // refusal.
+
+    /** The acting user's id: grants and revokes are issued as a user. */
+    #requireUserId(actor: Actor): number {
+        if (!actor.user?.id)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        return actor.user.id;
+    }
+
+    #refuseAppActor(actor: Actor): void {
+        if (actor.effectiveApp)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+    }
+
+    async #assertCanManage(actor: Actor, permission: string): Promise<void> {
+        if (!(await this.canManagePermission(actor, permission)))
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+    }
+
+    async #requireUser(username: string): Promise<UserRow> {
+        const user = await this.stores.user.getByUsername(username);
+        if (!user)
+            throw new HttpError(404, `user_does_not_exist: ${username}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        return user;
+    }
+
+    async #requireApp(appIdentifier: string) {
+        const app = await this.stores.app.resolveApp(appIdentifier);
+        if (!app) throw this.#appNotFound(appIdentifier);
+        return app;
+    }
+
+    #appNotFound(appIdentifier: string): HttpError {
+        return new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+            legacyCode: 'subject_does_not_exist',
+        });
+    }
+
+    /**
+     * Checked after the rewrite, which decides how wide the row is. Past the
+     * column, MySQL/Postgres fault on INSERT and SQLite stores an unmatchable
+     * row.
+     */
+    #assertFitsColumn(
+        permission: string,
+        message = 'Invalid `permission`',
+    ): void {
+        if (permission.length > PERMISSION_MAX_LEN)
+            throw new HttpError(400, message, { legacyCode: 'bad_request' });
+    }
+
+    /** Off the critical path; `what` names a failure worth logging. */
+    #audit(write: Promise<unknown>, what?: string): void {
+        void (async () => {
+            try {
+                await write;
+            } catch (err) {
+                if (what) {
+                    console.warn(
+                        `[PermissionService] failed to audit ${what}:`,
+                        err,
+                    );
+                }
+            }
+        })();
+    }
 
     async grantUserUserPermission(
         actor: Actor,
@@ -948,26 +1024,14 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermissionForActor(actor, permission);
         this.assertGrantableFsPermission(permission);
-        const user = await this.stores.user.getByUsername(username);
-        if (!user)
-            throw new HttpError(404, `user_does_not_exist: ${username}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
+        const user = await this.#requireUser(username);
         if (user.id === actor.user?.id)
             throw new HttpError(400, 'cannot grant permissions to yourself', {
                 legacyCode: 'bad_request',
             });
 
-        if (!(await this.canManagePermission(actor, permission))) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        }
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        const issuerId = actor.user.id;
+        await this.#assertCanManage(actor, permission);
+        const issuerId = this.#requireUserId(actor);
 
         // Durable row before the flat view, both awaited. A `manage:`-only
         // delegate's grant resolves via flat and not via the linked chain, so
@@ -985,9 +1049,9 @@ export class PermissionService extends PuterService {
             deleted: false,
         });
 
-        // Off the critical path, but a silent drop makes the log untrustworthy.
-        this.stores.permission
-            .auditUserUserPerm({
+        // Logged on failure: a silent drop makes the log untrustworthy.
+        this.#audit(
+            this.stores.permission.auditUserUserPerm({
                 holder_user_id: user.id,
                 issuer_user_id: issuerId,
                 permission,
@@ -996,13 +1060,9 @@ export class PermissionService extends PuterService {
                 extra: meta.appUid
                     ? { appUid: meta.appUid }
                     : this.#auditActorContext(actor),
-            })
-            .catch((err) => {
-                console.warn(
-                    '[PermissionService] failed to audit user-user grant:',
-                    err,
-                );
-            });
+            }),
+            'user-user grant',
+        );
 
         // Bust any cached "denied" reading so the grant is live immediately.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
@@ -1057,24 +1117,11 @@ export class PermissionService extends PuterService {
         // First: the rewrite decides the row's width and what a revoke matches.
         permission = await this.rewritePermissionForActor(actor, permission);
         this.assertGrantableFsPermission(permission);
-        if (permission.length > PERMISSION_MAX_LEN) {
-            throw new HttpError(400, 'permission is too long', {
-                legacyCode: 'bad_request',
-            });
-        }
+        this.#assertFitsColumn(permission, 'permission is too long');
         const groupId = await this.#requireGroupId(groupUid);
 
-        if (!(await this.canManagePermission(actor, permission))) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        }
-        if (!actor.user?.id) {
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        }
-        const issuerId = actor.user.id;
+        await this.#assertCanManage(actor, permission);
+        const issuerId = this.#requireUserId(actor);
 
         await this.stores.permission.upsertUserGroupPerm(
             groupId,
@@ -1083,22 +1130,18 @@ export class PermissionService extends PuterService {
             extra,
         );
 
-        // Off the critical path, but a silent drop makes the log untrustworthy.
-        this.stores.permission
-            .auditUserGroupPerm({
+        // Logged on failure: a silent drop makes the log untrustworthy.
+        this.#audit(
+            this.stores.permission.auditUserGroupPerm({
                 group_id: groupId,
                 issuer_user_id: issuerId,
                 permission,
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
                 extra: this.#auditActorContext(actor),
-            })
-            .catch((err) => {
-                console.warn(
-                    '[PermissionService] failed to audit user-group grant:',
-                    err,
-                );
-            });
+            }),
+            'user-group grant',
+        );
 
         await this.#bumpGroupCacheGeneration(groupId);
     }
@@ -1115,20 +1158,12 @@ export class PermissionService extends PuterService {
         permission = await this.rewritePermissionForActor(actor, permission);
         const groupId = await this.#requireGroupId(groupUid);
 
-        if (!actor.user?.id) {
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        }
+        const actorUserId = this.#requireUserId(actor);
         // Whose grant to clear; authority still comes from `actor`, so an owner
         // can withdraw a delegate's grant without impersonating them.
-        const issuerId = opts.issuerUserId ?? actor.user.id;
+        const issuerId = opts.issuerUserId ?? actorUserId;
 
-        if (!(await this.canManagePermission(actor, permission))) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        }
+        await this.#assertCanManage(actor, permission);
 
         const revoked = await this.stores.permission.deleteUserGroupPerm(
             groupId,
@@ -1136,21 +1171,17 @@ export class PermissionService extends PuterService {
             permission,
         );
 
-        this.stores.permission
-            .auditUserGroupPerm({
+        this.#audit(
+            this.stores.permission.auditUserGroupPerm({
                 group_id: groupId,
                 issuer_user_id: issuerId,
                 permission,
                 action: 'revoke',
                 reason: meta.reason ?? 'revoked via PermissionService',
                 extra: this.#auditActorContext(actor),
-            })
-            .catch((err) => {
-                console.warn(
-                    '[PermissionService] failed to audit user-group revoke:',
-                    err,
-                );
-            });
+            }),
+            'user-group revoke',
+        );
 
         // Bumped even when nothing matched: a cached allow must not survive.
         await this.#bumpGroupCacheGeneration(groupId);
@@ -1184,28 +1215,13 @@ export class PermissionService extends PuterService {
         opts: { issuerUserId?: number } = {},
     ): Promise<boolean> {
         permission = await this.rewritePermissionForActor(actor, permission);
-        const user = await this.stores.user.getByUsername(username);
-        if (!user)
-            throw new HttpError(404, `user_does_not_exist: ${username}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        const issuerId = actor.user.id;
+        const user = await this.#requireUser(username);
+        const issuerId = this.#requireUserId(actor);
 
         // Giving up access you hold needs no authority over the permission —
         // it can only ever narrow what you can reach.
-        const isSelfRevoke = user.id === issuerId;
-        if (
-            !isSelfRevoke &&
-            !(await this.canManagePermission(actor, permission))
-        ) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
+        if (user.id !== issuerId) {
+            await this.#assertCanManage(actor, permission);
         }
 
         // Awaited (unlike the grant-path upsert): the generation bump below
@@ -1242,21 +1258,17 @@ export class PermissionService extends PuterService {
 
         // Only record a revoke that happened.
         if (revoked) {
-            this.stores.permission
-                .auditUserUserPerm({
+            this.#audit(
+                this.stores.permission.auditUserUserPerm({
                     holder_user_id: user.id,
                     issuer_user_id: issuerId,
                     permission,
                     action: 'revoke',
                     reason: meta.reason ?? 'revoked via PermissionService',
                     extra: this.#auditActorContext(actor),
-                })
-                .catch((err) => {
-                    console.warn(
-                        '[PermissionService] failed to audit user-user revoke:',
-                        err,
-                    );
-                });
+                }),
+                'user-user revoke',
+            );
         }
 
         // Unconditional: the flat delete above can't report what it removed, so
@@ -1308,25 +1320,11 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<string[]> {
         permission = await this.rewritePermissionForActor(actor, permission);
-        const user = await this.stores.user.getByUsername(username);
-        if (!user)
-            throw new HttpError(404, `user_does_not_exist: ${username}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        const issuerId = actor.user.id;
+        const user = await this.#requireUser(username);
+        const issuerId = this.#requireUserId(actor);
 
-        const isSelfRevoke = user.id === issuerId;
-        if (
-            !isSelfRevoke &&
-            !(await this.canManagePermission(actor, permission))
-        ) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
+        if (user.id !== issuerId) {
+            await this.#assertCanManage(actor, permission);
         }
 
         const removed =
@@ -1337,8 +1335,8 @@ export class PermissionService extends PuterService {
             );
 
         for (const removedPermission of removed) {
-            this.stores.permission
-                .auditUserUserPerm({
+            this.#audit(
+                this.stores.permission.auditUserUserPerm({
                     holder_user_id: user.id,
                     issuer_user_id: issuerId,
                     permission: removedPermission,
@@ -1347,13 +1345,9 @@ export class PermissionService extends PuterService {
                     extra: meta.appUid
                         ? { appUid: meta.appUid }
                         : this.#auditActorContext(actor),
-                })
-                .catch((err) => {
-                    console.warn(
-                        '[PermissionService] failed to audit user-user revoke:',
-                        err,
-                    );
-                });
+                }),
+                'user-user revoke',
+            );
         }
 
         // Before the announcement, so whatever settles on it re-derives from a
@@ -1413,11 +1407,7 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         const rewritten = await this.#rewriteForUserAppWrite(actor, permission);
         this.assertGrantableFsPermission(rewritten);
-        if (rewritten.length > PERMISSION_MAX_LEN) {
-            throw new HttpError(400, 'Invalid `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
+        this.#assertFitsColumn(rewritten);
     }
 
     async grantUserAppPermission(
@@ -1432,30 +1422,14 @@ export class PermissionService extends PuterService {
         permission = await this.#rewriteForUserAppWrite(actor, permission);
         this.assertGrantableFsPermission(permission);
         await this.#assertReachableFsPath(actor, askedFor, permission);
-        // Checked after the rewrite, because the rewrite is what decides how
-        // wide the row actually is: `fs:/deep/path:read` collapses to
-        // `fs:<uuid>:read`. Reject here rather than let an oversized string
-        // reach the INSERT, where MySQL/Postgres fault after the caller has
-        // been told nothing and SQLite silently stores an unmatchable row.
-        if (permission.length > PERMISSION_MAX_LEN) {
-            throw new HttpError(400, 'Invalid `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app)
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        this.#assertFitsColumn(permission);
+        const app = await this.#requireApp(appIdentifier);
+        const userId = this.#requireUserId(actor);
 
         // Only this layer writes `grantedAs`, so revoke can trust it.
         const { grantedAs: _, ...rowExtra } = extra;
         const [existing] = await this.stores.permission.readUserAppPerms(
-            actor.user.id,
+            userId,
             app.id,
             [permission],
         );
@@ -1466,7 +1440,7 @@ export class PermissionService extends PuterService {
 
         try {
             await this.stores.permission.upsertUserAppPerm(
-                actor.user.id,
+                userId,
                 app.id,
                 permission,
                 grantedAs
@@ -1478,25 +1452,23 @@ export class PermissionService extends PuterService {
             // The row keys both the app and the user; ask which parent went
             // away, or a dead account gets a live app tombstoned instead.
             if (await this.stores.app.existsOnPrimary(app.id)) {
-                await this.stores.user.markDeletedById(actor.user.id);
+                await this.stores.user.markDeletedById(userId);
                 throw new HttpError(401, 'This account no longer exists.', {
                     legacyCode: 'unauthorized',
                 });
             }
             await this.stores.app.markDeleted(app);
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
+            throw this.#appNotFound(appIdentifier);
         }
-        this.stores.permission
-            .auditUserAppPerm({
-                user_id: actor.user.id,
+        this.#audit(
+            this.stores.permission.auditUserAppPerm({
+                user_id: userId,
                 app_id: app.id,
                 permission,
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
-            })
-            .catch(() => {});
+            }),
+        );
 
         // Bump the app-under-user cache generation so the grant takes
         // effect on the next check rather than after the cache TTL.
@@ -1511,10 +1483,7 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         // Before the rewrite: the pseudo-permission resolvers it runs refuse an
         // app actor themselves, and this says why in the caller's own terms.
-        if (actor.effectiveApp)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        this.#refuseAppActor(actor);
         const recordsSource = this.#recordsSource(permission);
         // The same rewrite the grant used, so this names the row it wrote.
         // A recorded source is looked up as asked instead, since it may now
@@ -1522,21 +1491,14 @@ export class PermissionService extends PuterService {
         let rewritten = recordsSource
             ? null
             : await this.#rewriteForUserAppWrite(actor, permission);
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app)
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        const app = await this.#requireApp(appIdentifier);
+        const userId = this.#requireUserId(actor);
 
         let removed: string[] = [];
         if (recordsSource) {
             const rows =
                 await this.stores.permission.listUserAppPermsFromPrimary(
-                    actor.user.id,
+                    userId,
                     app.id,
                 );
             removed = rows
@@ -1552,19 +1514,19 @@ export class PermissionService extends PuterService {
 
         for (const removedPermission of removed) {
             await this.stores.permission.deleteUserAppPerm(
-                actor.user.id,
+                userId,
                 app.id,
                 removedPermission,
             );
-            this.stores.permission
-                .auditUserAppPerm({
-                    user_id: actor.user.id,
+            this.#audit(
+                this.stores.permission.auditUserAppPerm({
+                    user_id: userId,
                     app_id: app.id,
                     permission: removedPermission,
                     action: 'revoke',
                     reason: meta.reason ?? 'revoked via PermissionService',
-                })
-                .catch(() => {});
+                }),
+            );
         }
 
         if (actor.user.uuid) {
@@ -1574,7 +1536,7 @@ export class PermissionService extends PuterService {
             );
         }
         for (const removedPermission of removed)
-            this.#announceRevoked(actor.user.id, app.uid, removedPermission);
+            this.#announceRevoked(userId, app.uid, removedPermission);
     }
 
     async revokeUserAppAll(
@@ -1582,30 +1544,20 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.effectiveApp)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app)
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        this.#refuseAppActor(actor);
+        const app = await this.#requireApp(appIdentifier);
+        const userId = this.#requireUserId(actor);
 
-        await this.stores.permission.deleteUserAppAll(actor.user.id, app.id);
-        this.stores.permission
-            .auditUserAppPerm({
-                user_id: actor.user.id,
+        await this.stores.permission.deleteUserAppAll(userId, app.id);
+        this.#audit(
+            this.stores.permission.auditUserAppPerm({
+                user_id: userId,
                 app_id: app.id,
                 permission: '*',
                 action: 'revoke',
                 reason: meta.reason ?? 'revoked all via PermissionService',
-            })
-            .catch(() => {});
+            }),
+        );
 
         if (actor.user.uuid) {
             await this.#bumpAppUnderUserCacheGeneration(
@@ -1613,7 +1565,7 @@ export class PermissionService extends PuterService {
                 app.uid,
             );
         }
-        this.#announceRevoked(actor.user.id, app.uid, null);
+        this.#announceRevoked(userId, app.uid, null);
     }
 
     async grantDevAppPermission(
@@ -1625,41 +1577,26 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         permission = await this.rewritePermissionForActor(actor, permission);
         this.assertGrantableFsPermission(permission);
-        // Post-rewrite, for the same reason as the user-app grant above.
-        if (permission.length > PERMISSION_MAX_LEN) {
-            throw new HttpError(400, 'Invalid `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app)
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!(await this.canManagePermission(actor, permission)))
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        this.#assertFitsColumn(permission);
+        const app = await this.#requireApp(appIdentifier);
+        await this.#assertCanManage(actor, permission);
+        const userId = this.#requireUserId(actor);
 
         await this.stores.permission.upsertDevAppPerm(
-            actor.user.id,
+            userId,
             app.id,
             permission,
             extra,
         );
-        this.stores.permission
-            .auditDevAppPerm({
-                user_id: actor.user.id,
+        this.#audit(
+            this.stores.permission.auditDevAppPerm({
+                user_id: userId,
                 app_id: app.id,
                 permission,
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
-            })
-            .catch(() => {});
+            }),
+        );
     }
 
     async revokeDevAppPermission(
@@ -1669,34 +1606,24 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermissionForActor(actor, permission);
-        if (actor.effectiveApp)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app)
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        this.#refuseAppActor(actor);
+        const app = await this.#requireApp(appIdentifier);
+        const userId = this.#requireUserId(actor);
 
         await this.stores.permission.deleteDevAppPerm(
-            actor.user.id,
+            userId,
             app.id,
             permission,
         );
-        this.stores.permission
-            .auditDevAppPerm({
-                user_id: actor.user.id,
+        this.#audit(
+            this.stores.permission.auditDevAppPerm({
+                user_id: userId,
                 app_id: app.id,
                 permission,
                 action: 'revoke',
                 reason: meta.reason ?? 'revoked via PermissionService',
-            })
-            .catch(() => {});
+            }),
+        );
     }
 
     async revokeDevAppAll(
@@ -1704,30 +1631,20 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.effectiveApp)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-        const app = await this.stores.app.resolveApp(appIdentifier);
-        if (!app)
-            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
+        this.#refuseAppActor(actor);
+        const app = await this.#requireApp(appIdentifier);
+        const userId = this.#requireUserId(actor);
 
-        await this.stores.permission.deleteDevAppAll(actor.user.id, app.id);
-        this.stores.permission
-            .auditDevAppPerm({
-                user_id: actor.user.id,
+        await this.stores.permission.deleteDevAppAll(userId, app.id);
+        this.#audit(
+            this.stores.permission.auditDevAppPerm({
+                user_id: userId,
                 app_id: app.id,
                 permission: '*',
                 action: 'revoke',
                 reason: meta.reason ?? 'revoked all via PermissionService',
-            })
-            .catch(() => {});
+            }),
+        );
     }
 
     // -- Issuer queries (share discovery et al) -----------------------
