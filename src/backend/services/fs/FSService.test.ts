@@ -6966,6 +6966,42 @@ describe('FSService subtree paging', () => {
         }
     });
 
+    it('refuses a directory whose only child links to it by uuid alone', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/page-uid-child`,
+        });
+        // The old backend wrote `parent_uid` and never `parent_id`.
+        const childUuid = uuidv4();
+        const now = Math.floor(Date.now() / 1000);
+        await server.clients.db.write(
+            `INSERT INTO fsentries
+             (uuid, user_id, parent_uid, name, path, is_dir, created, modified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                childUuid,
+                user.userId,
+                dir.uuid,
+                'old',
+                `${dir.path}/old`,
+                server.clients.db.booleanValue(true),
+                now,
+                now,
+            ],
+        );
+
+        const error = await caught(() =>
+            fs.remove(user.userId, { entry: dir }),
+        );
+
+        expect(error.statusCode).toBe(409);
+        expect(await entryAt(user, '/Documents/page-uid-child')).not.toBeNull();
+        await expect(
+            server.clients.db.read('SELECT id FROM fsentries WHERE uuid = ?', [
+                childUuid,
+            ]),
+        ).resolves.toHaveLength(1);
+    });
+
     it('copies a tree larger than a page, contents and all', async () => {
         const { root, descendants } = await makeTree('page-cp');
         const destination = (await entryAt(user, '/Desktop'))!;

@@ -2858,14 +2858,19 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Whether a directory has any child. Keyed by `parent_id`, so no path
-     * collation can hide one, and read from the primary because a missed child
-     * would be cascade-deleted with its parent.
+     * Whether a directory has any child. Keyed by parent link, so no path
+     * collation can hide one: `parent_uid`, the only one rows from the old
+     * backend carry, then `parent_id`, which the delete cascade follows. Two
+     * lookups, not an OR, which MySQL may answer with a table scan. Read from
+     * the primary because a missed child would be orphaned or cascaded.
      */
-    async hasChildren(entryId: number): Promise<boolean> {
+    async hasChildren(entry: FSEntry): Promise<boolean> {
         const rows = await this.clients.db.pread(
-            'SELECT 1 AS present FROM fsentries WHERE parent_id = ? LIMIT 1',
-            [entryId],
+            `SELECT 1 AS present FROM fsentries WHERE parent_uid = ?
+             UNION ALL
+             SELECT 1 AS present FROM fsentries WHERE parent_id = ?
+             LIMIT 1`,
+            [entry.uuid, entry.id],
         );
         return rows.length > 0;
     }
@@ -2967,14 +2972,15 @@ export class FSEntryStore extends PuterStore {
         if (pastRange) {
             const prefix = this.#normalizePath(pathPrefix);
             const rootPaths = options.rootPaths ?? [prefix];
-            let parents = `(SELECT id FROM fsentries WHERE path IN (${rootPaths.map(() => '?').join(', ')}))`;
+            let parents = `(SELECT uuid FROM fsentries WHERE path IN (${rootPaths.map(() => '?').join(', ')}))`;
             let parentParams: unknown[] = rootPaths;
-            let parentPaths = new Map<number, string>();
+            let parentPaths = new Map<string, string>();
             // A missed directory's own such children fall outside its pattern's
-            // range in turn, so walk down until none are left.
+            // range in turn, so walk down until none are left. Linked by
+            // `parent_uid`: rows from the old backend have no `parent_id`.
             while (patterns.length <= SUBTREE_PATTERNS_MAX) {
-                const sql = `SELECT id, parent_id, name, is_dir FROM fsentries
-                     WHERE parent_id IN ${parents} AND ${pastRange} LIMIT ?`;
+                const sql = `SELECT uuid, parent_uid, name, is_dir FROM fsentries
+                     WHERE parent_uid IN ${parents} AND ${pastRange} LIMIT ?`;
                 const params = [
                     ...parentParams,
                     SUBTREE_PATTERNS_MAX + 1 - patterns.length,
@@ -2984,16 +2990,16 @@ export class FSEntryStore extends PuterStore {
                         ? await this.clients.db.pread(sql, params)
                         : await this.clients.db.read(sql, params)
                 ) as Array<{
-                    id: number;
-                    parent_id: number;
+                    uuid: string;
+                    parent_uid: string;
                     name: string;
                     is_dir: number | boolean;
                 }>;
-                const dirs = new Map<number, string>();
+                const dirs = new Map<string, string>();
                 for (const row of rows) {
-                    const path = `${parentPaths.get(Number(row.parent_id)) ?? prefix}/${row.name}`;
+                    const path = `${parentPaths.get(row.parent_uid) ?? prefix}/${row.name}`;
                     patterns.push(`${this.#escapeLikePattern(path)}%`);
-                    if (row.is_dir) dirs.set(Number(row.id), path);
+                    if (row.is_dir) dirs.set(row.uuid, path);
                 }
                 if (dirs.size === 0) break;
                 parents = `(${[...dirs.keys()].map(() => '?').join(', ')})`;

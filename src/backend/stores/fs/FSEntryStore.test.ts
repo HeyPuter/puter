@@ -2094,7 +2094,8 @@ describe('FSEntryStore subtrees under names starting with a supplementary charac
 describe('FSEntryStore subtree patterns on MySQL', () => {
     interface FixtureRow {
         id: number;
-        parent_id: number | null;
+        uuid: string;
+        parent_uid: string | null;
         name: string;
         path: string;
         is_dir: number;
@@ -2144,22 +2145,22 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
             this.lookups.push({ method, params });
             const keys = params.slice(0, -1);
             const limit = Number(params[params.length - 1]);
-            const parentIds = query.includes('WHERE path IN')
+            const parentUids = query.includes('WHERE path IN')
                 ? this.rows
                       .filter((row) => keys.includes(row.path))
-                      .map((row) => row.id)
-                : keys.map(Number);
+                      .map((row) => row.uuid)
+                : keys;
             return this.rows
                 .filter(
                     (row) =>
-                        row.parent_id !== null &&
-                        parentIds.includes(row.parent_id) &&
+                        row.parent_uid !== null &&
+                        parentUids.includes(row.parent_uid) &&
                         row.name.codePointAt(0)! > 0xffff,
                 )
                 .slice(0, limit)
-                .map(({ id, parent_id, name, is_dir }) => ({
-                    id,
-                    parent_id,
+                .map(({ uuid, parent_uid, name, is_dir }) => ({
+                    uuid,
+                    parent_uid,
                     name,
                     is_dir,
                 }));
@@ -2173,7 +2174,8 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
         isDir = true,
     ): FixtureRow => ({
         id,
-        parent_id: parentId,
+        uuid: `uuid-${id}`,
+        parent_uid: parentId === null ? null : `uuid-${parentId}`,
         name: path.slice(path.lastIndexOf('/') + 1),
         path,
         is_dir: isDir ? 1 : 0,
@@ -2219,8 +2221,8 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
         // one below that.
         expect(db.lookups.map((lookup) => lookup.params.slice(0, -1))).toEqual([
             ['/u/tree'],
-            [2],
-            [3],
+            ['uuid-2'],
+            ['uuid-3'],
         ]);
     });
 
@@ -2854,9 +2856,9 @@ describe('FSEntryStore subtree walks', () => {
     });
 
     it('probes for children without listing them', async () => {
-        await expect(store.hasChildren(root.id)).resolves.toBe(true);
+        await expect(store.hasChildren(root)).resolves.toBe(true);
         const empty = await store.getEntryByPath(`${root.path}/empty`);
-        await expect(store.hasChildren(empty!.id)).resolves.toBe(false);
+        await expect(store.hasChildren(empty!)).resolves.toBe(false);
     });
 
     it('sees a child whose name starts outside the BMP', async () => {
@@ -2866,7 +2868,7 @@ describe('FSEntryStore subtree walks', () => {
             kind: 'directory',
         });
         await createFile(user, `${holder.path}/🔥 notes.txt`);
-        await expect(store.hasChildren(holder.id)).resolves.toBe(true);
+        await expect(store.hasChildren(holder)).resolves.toBe(true);
     });
 
     /** Every entry under `top`, `limit` children at a time, a level per pass. */

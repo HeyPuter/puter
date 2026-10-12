@@ -4424,7 +4424,7 @@ export class FSService extends PuterService {
 
         if (entry.isDir) {
             if (!input.recursive) {
-                if (await this.stores.fsEntry.hasChildren(entry.id)) {
+                if (await this.stores.fsEntry.hasChildren(entry)) {
                     throw new HttpError(409, 'Directory is not empty', {
                         legacyCode: 'conflict',
                     });
