@@ -67,6 +67,7 @@ import {
     getFileLocks,
     getLockIfValid,
     hasWritePermission,
+    parseLockTimeout,
     refreshLock,
 } from './locks.js';
 import {
@@ -1024,6 +1025,10 @@ export class WebDAVController extends PuterController {
         // and block writes for everyone else.
         await this.#assertWrite(actor, davPath);
 
+        const timeoutSeconds = parseLockTimeout(
+            req.headers.timeout as string | undefined,
+        );
+
         // Refresh existing lock
         if (headerToken) {
             const existing = await getLockIfValid(r, headerToken);
@@ -1031,14 +1036,19 @@ export class WebDAVController extends PuterController {
                 throw new HttpError(412, 'Lock token not found', {
                     legacyCode: 'conflict',
                 });
-            await refreshLock(r, headerToken);
+            await refreshLock(r, headerToken, timeoutSeconds);
             res.status(200)
                 .set({
                     'Content-Type': 'application/xml; charset=utf-8',
                     ...DAV_HEADERS,
                 })
                 .send(
-                    lockResponseXml(headerToken, davPath, existing.lockScope),
+                    lockResponseXml(
+                        headerToken,
+                        davPath,
+                        existing.lockScope,
+                        timeoutSeconds,
+                    ),
                 );
             return;
         }
@@ -1062,7 +1072,7 @@ export class WebDAVController extends PuterController {
             }
         }
 
-        const token = await createLock(r, davPath, lockScope);
+        const token = await createLock(r, davPath, lockScope, timeoutSeconds);
         const status = 200;
 
         res.status(status)
@@ -1071,7 +1081,7 @@ export class WebDAVController extends PuterController {
                 'Lock-Token': `<${token}>`,
                 ...DAV_HEADERS,
             })
-            .send(lockResponseXml(token, davPath, lockScope));
+            .send(lockResponseXml(token, davPath, lockScope, timeoutSeconds));
     }
 
     // -- UNLOCK ------------------------------------------------------
@@ -1382,6 +1392,7 @@ function lockResponseXml(
     token: string,
     path: string,
     scope: 'exclusive' | 'shared',
+    timeoutSeconds: number,
 ): string {
     return `<?xml version="1.0" encoding="utf-8"?>
 <D:prop xmlns:D="DAV:">
@@ -1391,7 +1402,7 @@ function lockResponseXml(
       <D:lockscope><D:${scope}/></D:lockscope>
       <D:depth>0</D:depth>
       <D:owner><D:href>webdav-user</D:href></D:owner>
-      <D:timeout>Second-7200</D:timeout>
+      <D:timeout>Second-${timeoutSeconds}</D:timeout>
       <D:locktoken><D:href>${escapeXml(token)}</D:href></D:locktoken>
       <D:lockroot><D:href>${escapeXml(encodeURI(path))}</D:href></D:lockroot>
     </D:activelock>

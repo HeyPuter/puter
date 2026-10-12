@@ -1163,6 +1163,64 @@ describe('WebDAVController', () => {
             const xml = cap2.body as string;
             expect(xml).toContain(lockToken);
         });
+
+        it('grants and reports the requested Timeout, on create and refresh', async () => {
+            const uniquePath = `/test/timeout-lock-${Date.now()}.txt`;
+            const actor = {
+                user: { id: 1, uuid: 'test-uuid', username: 'test' },
+            };
+            const { res: res1, captured: cap1 } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'LOCK',
+                    path: uniquePath,
+                    headers: { timeout: 'Second-120' },
+                    actor,
+                }),
+                res1,
+                noop,
+            );
+            expect(cap1.statusCode).toBe(200);
+            expect(cap1.body as string).toContain(
+                '<D:timeout>Second-120</D:timeout>',
+            );
+            const lockToken = cap1.headers['lock-token']!.replace(/[<>]/g, '');
+
+            const { res: res2, captured: cap2 } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'LOCK',
+                    path: uniquePath,
+                    headers: { if: `(<${lockToken}>)`, timeout: 'Second-300' },
+                    actor,
+                }),
+                res2,
+                noop,
+            );
+            expect(cap2.statusCode).toBe(200);
+            expect(cap2.body as string).toContain(
+                '<D:timeout>Second-300</D:timeout>',
+            );
+        });
+
+        it('reports the server max when no Timeout is requested', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'LOCK',
+                    path: `/test/default-timeout-${Date.now()}.txt`,
+                    actor: {
+                        user: { id: 1, uuid: 'test-uuid', username: 'test' },
+                    },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(200);
+            expect(captured.body as string).toContain(
+                '<D:timeout>Second-3600</D:timeout>',
+            );
+        });
     });
 
     describe('error handling', () => {
