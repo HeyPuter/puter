@@ -41,6 +41,7 @@ import {
     sharedViewLink,
 } from './shareDeepLink';
 import { NOTIFY_FANOUT_CAP } from '../../stores/team/TeamStore';
+import { abuseKey, cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { blocksAllShares, type ResolvedShare } from './ShareService';
 
 /**
@@ -603,9 +604,8 @@ export class ShareNotificationService extends PuterService {
     }
 
     #addressKey(email: string): string {
-        const canonical = this.clients.email.clean(email.trim().toLowerCase());
         return createHash('sha256')
-            .update(canonical)
+            .update(abuseKey(email.trim()))
             .digest('hex')
             .slice(0, 32);
     }
@@ -670,8 +670,8 @@ export class ShareNotificationService extends PuterService {
             skipped('recipient has unsubscribed', { holderId });
             return;
         }
-        if (!(await this.clients.email.validate(to))) {
-            skipped('address refused by validate', { holderId });
+        if (isBlockedEmail(to, this.config.blockedEmailDomains)) {
+            skipped('address is on a blocked domain', { holderId });
             return;
         }
 
@@ -1077,13 +1077,15 @@ export class ShareNotificationService extends PuterService {
             // Each address fails alone — one refused send must not cost the
             // next invitee their only channel.
             try {
-                if (!(await this.clients.email.validate(to))) {
-                    skipped('invite address refused by validate', { to });
+                if (isBlockedEmail(to, this.config.blockedEmailDomains)) {
+                    skipped('invite address is on a blocked domain', { to });
                     continue;
                 }
                 const mayOpen = await this.#claimInviteEmail(issuerId, to);
+                // Canonical, so a later share typed in another case or alias
+                // joins this digest instead of losing to the spent budget.
                 await this.#queueDigest(
-                    `invite:${to}`,
+                    `invite:${cleanEmail(to)}`,
                     { kind: 'invite', to },
                     issuer,
                     count,
