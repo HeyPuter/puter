@@ -363,6 +363,22 @@ describe('XAITTSProvider.synthesize error paths', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
+    it('names xAI in the fields of an upstream auth failure', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('{"error":"Invalid API key"}', { status: 401 }),
+        );
+
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+            message: 'Invalid API key',
+            fields: { provider: 'xai', upstreamStatus: 401 },
+        });
+    });
+
     it('maps upstream 429 to HttpError 429 upstream_rate_limited', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(

@@ -162,7 +162,7 @@ export class SpeechifyTTSProvider implements ITTSProvider {
             text,
             async () => {
                 const response = await upstreamFetch(
-                    'Speechify TTS',
+                    'speechify',
                     `${API_BASE}/v1/audio/speech`,
                     {
                         method: 'POST',
@@ -178,7 +178,10 @@ export class SpeechifyTTSProvider implements ITTSProvider {
                             audio_format: format,
                         }),
                     },
-                    { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS },
+                    {
+                        providerLabel: 'Speechify TTS',
+                        timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
+                    },
                 );
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any

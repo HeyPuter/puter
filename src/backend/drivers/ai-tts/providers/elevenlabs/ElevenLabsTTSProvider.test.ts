@@ -563,6 +563,7 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
         ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            fields: { provider: 'elevenlabs', upstreamStatus: 422 },
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });

@@ -93,7 +93,7 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
     ): Promise<Response> {
         const { method = 'GET', body, headers = {}, stream } = opts;
         return upstreamFetch(
-            'ElevenLabs',
+            'elevenlabs',
             `${this.baseUrl}${path}`,
             {
                 method,
@@ -104,7 +104,11 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
                 },
                 body: body ? JSON.stringify(body) : undefined,
             },
-            { timeoutMs: TTS_UPSTREAM_TIMEOUT_MS, stream },
+            {
+                providerLabel: 'ElevenLabs',
+                timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
+                stream,
+            },
         );
     }
 

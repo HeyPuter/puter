@@ -182,6 +182,7 @@ export class UpstreamResponseError extends Error {
     constructor(
         message: string,
         readonly status: number,
+        readonly provider: string,
         readonly code?: string,
     ) {
         super(message);
@@ -195,6 +196,7 @@ const stringOr = (...values: unknown[]): string | undefined =>
 /** Reads the message and code out of the error shapes providers send. */
 const upstreamResponseError = async (
     provider: string,
+    providerLabel: string,
     response: Response,
 ): Promise<UpstreamResponseError> => {
     let text = '';
@@ -222,23 +224,28 @@ const upstreamResponseError = async (
             body.detail,
             body.message,
             text.trim(),
-        ) ?? `${provider} request failed (status ${response.status})`;
+        ) ?? `${providerLabel} request failed (status ${response.status})`;
     const code = stringOr(error.code, detail.code, body.code);
-    return new UpstreamResponseError(message, response.status, code);
+    return new UpstreamResponseError(message, response.status, provider, code);
 };
 
 /**
  * `fetch` against a provider's own API, bounded by `timeoutMs` (body included).
  * With `stream`, the bound ends once the response is returned: the body drains
  * at the client's pace, and undici's body idle timeout catches a stall. A
- * non-2xx answer throws {@link UpstreamResponseError}; a timeout rejects with
- * `TimeoutError`, which the driver boundary maps to a 504.
+ * non-2xx answer throws {@link UpstreamResponseError} carrying `provider` (the
+ * id alarms name the vendor by); a timeout rejects with `TimeoutError`, which
+ * the driver boundary maps to a 504.
  */
 export async function upstreamFetch(
     provider: string,
     url: string | URL,
     init: RequestInit,
-    { timeoutMs, stream = false }: { timeoutMs: number; stream?: boolean },
+    {
+        providerLabel,
+        timeoutMs,
+        stream = false,
+    }: { providerLabel: string; timeoutMs: number; stream?: boolean },
 ): Promise<Response> {
     let timeout: AbortSignal;
     let streamDeadline: NodeJS.Timeout | undefined;
@@ -266,7 +273,7 @@ export async function upstreamFetch(
                 : timeout,
         });
         if (response.ok) return response;
-        throw await upstreamResponseError(provider, response);
+        throw await upstreamResponseError(provider, providerLabel, response);
     } finally {
         clearTimeout(streamDeadline);
     }

@@ -344,6 +344,7 @@ describe('SpeechifyTTSProvider.synthesize error paths', () => {
         ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            fields: { provider: 'speechify', upstreamStatus: 400 },
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });

@@ -122,13 +122,16 @@ export const translateProviderError = (err: unknown): unknown => {
         error?: { code?: string; type?: string; message?: string };
         code?: string;
         cause?: unknown;
+        provider?: unknown;
     };
     const status = extractUpstreamStatus(e);
     const msg = sanitizeUpstreamMessage(
         e.error?.message ?? e.message ?? 'Upstream provider error',
     );
     const upstreamCode = e.error?.code ?? e.code;
-    const fields = { upstreamStatus: status, upstreamCode };
+    // Provider-raised errors name their vendor so the alarm says which one.
+    const provider = typeof e.provider === 'string' ? e.provider : undefined;
+    const fields = { provider, upstreamStatus: status, upstreamCode };
 
     if (isCreditExhaustion(status, upstreamCode, msg)) {
         return new HttpError(503, 'AI provider out of credits', {

@@ -449,7 +449,7 @@ describe('CloudflareImageProvider.generate output extraction', () => {
             expect(callerError).toMatchObject({
                 statusCode,
                 legacyCode,
-                fields: { upstreamStatus },
+                fields: { provider: 'cloudflare', upstreamStatus },
             });
         },
     );

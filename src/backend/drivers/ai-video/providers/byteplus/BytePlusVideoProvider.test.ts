@@ -498,7 +498,7 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
             expect(await callerError()).toMatchObject({
                 statusCode,
                 legacyCode,
-                fields: { upstreamStatus, upstreamCode },
+                fields: { provider: 'byteplus', upstreamStatus, upstreamCode },
             });
             expect(fetchSpy).toHaveBeenCalledTimes(1);
             expect(incrementUsageSpy).not.toHaveBeenCalled();

@@ -498,6 +498,7 @@ export class CloudflareImageProvider implements IImageProvider {
             // The driver boundary maps the upstream status to the caller's.
             throw Object.assign(new Error(message), {
                 status: response.status,
+                provider: 'cloudflare',
             });
         }
 

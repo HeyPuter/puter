@@ -676,7 +676,7 @@ describe('XAISpeechToTextProvider error paths', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('tags upstream errors with the original status', async () => {
+    it('tags upstream errors with provider=xai and the original status', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
             new Response('boom', { status: 502 }),
@@ -691,7 +691,7 @@ describe('XAISpeechToTextProvider error paths', () => {
                 actor,
             ),
         ).toMatchObject({
-            fields: { upstreamStatus: 502 },
+            fields: { provider: 'xai', upstreamStatus: 502 },
         });
     });
 

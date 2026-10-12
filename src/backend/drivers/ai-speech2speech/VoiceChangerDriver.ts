@@ -270,14 +270,18 @@ export class VoiceChangerDriver extends PuterDriver {
             estimatedCost,
             async (): Promise<DriverStreamResult> => {
                 const response = await upstreamFetch(
-                    'ElevenLabs',
+                    'elevenlabs',
                     url,
                     {
                         method: 'POST',
                         headers: { 'xi-api-key': elevenlabs.apiKey },
                         body: formData,
                     },
-                    { timeoutMs: CONVERT_TIMEOUT_MS, stream: true },
+                    {
+                        providerLabel: 'ElevenLabs',
+                        timeoutMs: CONVERT_TIMEOUT_MS,
+                        stream: true,
+                    },
                 );
                 metering.incrementUsage(
                     actor,

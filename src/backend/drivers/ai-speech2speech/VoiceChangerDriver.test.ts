@@ -368,7 +368,7 @@ describe('VoiceChangerDriver.convert error mapping', () => {
         ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
-            fields: { upstreamStatus: 404 },
+            fields: { provider: 'elevenlabs', upstreamStatus: 404 },
         });
 
         // No metering should be recorded on a failed call.
