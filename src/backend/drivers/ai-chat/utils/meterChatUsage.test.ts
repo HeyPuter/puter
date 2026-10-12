@@ -252,3 +252,12 @@ describe('cached reads on OpenAI-compatible catalogs', () => {
         if (costs.prompt_tokens > 0) expect(cachedRate).toBeGreaterThan(0);
     });
 });
+
+
+it('uses the request instant for scheduled prices even when usage is recorded later', () => {
+    const { metering, calls } = recordingMetering();
+    const scheduled = { ...gatewayModel, pricingOverrides: [{ utcStart: 1630, utcEnd: 30, costs: { prompt: 400, completion: 1500 } }] };
+    meterChatUsage(metering, actor, 'scheduled', scheduled, { prompt: 100, completion: 10 },
+        { pricingTime: new Date('2026-10-12T16:30:00Z') });
+    expect(calls[0][2]).toEqual({ prompt: 40000, completion: 15000 });
+});

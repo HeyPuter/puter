@@ -19,6 +19,29 @@
 
 import type { IChatModel, ModelCost, UsageDetails } from '../types.js';
 
+/**
+ * Absent, negative and placeholder prices remain unpriced, including empty
+ * strings.
+ */
+export const catalogPrice = (
+    value: unknown,
+    multiplier = 1,
+): number | undefined => {
+    if (typeof value !== 'number' && typeof value !== 'string')
+        return undefined;
+    if (
+        typeof value === 'string' &&
+        !/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())
+    )
+        return undefined;
+    const price = Number(value);
+    if (!Number.isFinite(price) || price < 0) return undefined;
+    const converted = price * multiplier;
+    return Number.isFinite(converted) && !(price > 0 && converted === 0)
+        ? converted
+        : undefined;
+};
+
 const CENTS_PER_USD = 100;
 const MTOK = 1_000_000;
 
@@ -60,6 +83,34 @@ export const costKeys = (
     outputKey: (model.output_cost_key as string | undefined) ?? 'output_tokens',
 });
 
+/** Applies catalog conditions at the request instant; later matching rates win. */
+export const costsForRequest = (
+    model: IChatModel,
+    inputTokens: number,
+    now = new Date(),
+): ModelCost => {
+    const costs = { ...model.costs };
+    const clock = now.getUTCHours() * 100 + now.getUTCMinutes();
+    for (const override of model.pricingOverrides ?? []) {
+        if (
+            override.minPromptTokens !== undefined &&
+            inputTokens <= override.minPromptTokens
+        )
+            continue;
+        if (override.utcDays && !override.utcDays.includes(now.getUTCDay()))
+            continue;
+        if (override.utcStart !== undefined && override.utcEnd !== undefined) {
+            const inWindow =
+                override.utcStart < override.utcEnd
+                    ? clock >= override.utcStart && clock < override.utcEnd
+                    : clock >= override.utcStart || clock < override.utcEnd;
+            if (!inWindow) continue;
+        }
+        Object.assign(costs, override.costs);
+    }
+    return costs;
+};
+
 /**
  * Whether a usage key is priced at the output rate when the model has no rate
  * of its own for it.
@@ -77,7 +128,7 @@ export const isOutputCostKey = (key: string, outputKey: string): boolean =>
     key.endsWith('_output_tokens');
 
 export const isPerCallCostKey = (key: string): boolean =>
-    key.endsWith('_requests') || key.endsWith('_calls');
+    key === 'request' || key.endsWith('_requests') || key.endsWith('_calls');
 
 /**
  * The rate multipliers a request pays given how many input tokens it sent —
@@ -160,7 +211,23 @@ export const isFreeModel = (model: IChatModel): boolean => {
     const rates = Object.entries(model.costs ?? {}).filter(
         ([key]) => key !== 'tokens',
     );
-    return rates.length > 0 && rates.every(([, rate]) => Number(rate) === 0);
+    const { inputKey, outputKey } = costKeys(model);
+    if (
+        catalogPrice(
+            model.costs?.[inputKey] ?? model.costs?.['input-tokens'],
+        ) === undefined ||
+        catalogPrice(
+            model.costs?.[outputKey] ?? model.costs?.['output-tokens'],
+        ) === undefined
+    )
+        return false;
+    return (
+        rates.length > 0 &&
+        rates.every(([, rate]) => catalogPrice(rate) === 0) &&
+        (model.pricingOverrides ?? []).every((override) =>
+            Object.values(override.costs).every((rate) => rate === 0),
+        )
+    );
 };
 
 /**
@@ -190,10 +257,15 @@ const isBillable = (key: string, amount: unknown): amount is number =>
 const priceUsage = (
     trackedUsage: Record<string, unknown>,
     model: IChatModel,
+    now?: Date,
 ): Record<string, number> => {
     const { inputKey, outputKey } = costKeys(model);
 
-    const costs = model.costs ?? {};
+    const costs = costsForRequest(
+        model,
+        trackedInputTokens(trackedUsage, model),
+        now,
+    );
     const inputRate = isRate(costs[inputKey]) ? costs[inputKey] : undefined;
     const outputRate = isRate(costs[outputKey]) ? costs[outputKey] : undefined;
 
@@ -206,6 +278,7 @@ const priceUsage = (
     for (const [key, amount] of Object.entries(trackedUsage)) {
         if (!isBillable(key, amount)) continue;
 
+        if (key === 'request' && !isRate(costs.request)) continue;
         const isOutput = isOutputCostKey(key, outputKey);
         const rate = isRate(costs[key])
             ? costs[key]
@@ -238,14 +311,16 @@ const priceUsage = (
 export const buildCostsOverride = (
     trackedUsage: Record<string, number>,
     model: IChatModel,
+    now?: Date,
 ): Record<string, number> => {
-    const priced = priceUsage(trackedUsage, model);
+    const priced = priceUsage(trackedUsage, model, now);
     const overrides: Record<string, number> = {};
     for (const key of Object.keys(trackedUsage)) {
         // `tokens` is a scale descriptor ("costs expressed per N tokens"),
         // not a per-unit rate.
         if (key === 'tokens') continue;
-        overrides[key] = priced[key] ?? 0;
+        if (priced[key] !== undefined) overrides[key] = priced[key];
+        else if (trackedUsage[key] === 0) overrides[key] = 0;
     }
     return overrides;
 };

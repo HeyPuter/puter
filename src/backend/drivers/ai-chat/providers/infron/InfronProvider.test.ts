@@ -278,6 +278,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -715,4 +716,32 @@ describe('InfronProvider.checkModeration', () => {
             /not implemented/i,
         );
     });
+});
+
+
+describe('Infron catalog price validation', () => {
+    it('keeps missing tier prices unknown and preserves fractional microcents', async () => {
+        axiosRequestMock.mockResolvedValueOnce({ data: { data: [{ id: 'fixture/model', category_type: 'LLM',
+            supported_endpoint_types: ['openai'], providers: [{ service_tier: 'standard', prompt_price: 0.014 }],
+        }] } });
+        const { provider } = makeProvider();
+        const [model] = await provider.models();
+        expect(model.costs.prompt).toBeCloseTo(1.4);
+        expect(model.costs.completion).toBeUndefined();
+        expect(model.costs.request).toBeUndefined();
+        await expect(withTestActor(() => provider.complete({ model: model.id, messages: [] })))
+            .rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+});
+
+
+it('retains the last-good infron catalog after a malformed refresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { provider } = makeProvider();
+    const good = await provider.models();
+    vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+    axiosRequestMock.mockResolvedValueOnce({ data: {} });
+    expect(await provider.models()).toBe(good);
 });

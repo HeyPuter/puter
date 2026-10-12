@@ -808,18 +808,18 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(passed.max_tokens!).toBeGreaterThan(0);
     });
 
-    it('caps `max_tokens` at the long-context output rate for a prompt past the threshold', async () => {
+    it.each(['multipliers', 'catalog overrides'])('caps `max_tokens` at the conditional output rate using %s', async pricingKind => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
                 id: 'capme',
                 aliases: [],
                 costs_currency: 'usd-cents',
                 costs: { input_tokens: 1000, output_tokens: 2000 },
-                long_context_pricing: {
+                ...(pricingKind === 'multipliers' ? { long_context_pricing: {
                     threshold: 10,
                     input_multiplier: 2,
                     output_multiplier: 1.5,
-                },
+                } } : { pricingOverrides: [{ minPromptTokens: 10, costs: { input_tokens: 2000, output_tokens: 3000 } }] }),
                 max_tokens: 8192,
             },
         ]);
@@ -852,6 +852,19 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
         expect(passed.max_tokens!).toBeLessThanOrEqual(333);
         expect(passed.max_tokens!).toBeGreaterThan(0);
+    });
+
+    it('reserves a catalog fixed request fee before calling the provider', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([{
+            id: 'request-fee', costs_currency: 'usd-cents', max_tokens: 1000,
+            costs: { input_tokens: 1, output_tokens: 1, request: 1_000_001 },
+        }]);
+        const d = await makeDriver();
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        await expect(withTestActor(() => d.complete({ model: 'request-fee', messages: [{ role: 'user', content: 'hi' }] })))
+            .rejects.toMatchObject({ statusCode: 402 });
+        expect(completeSpy).not.toHaveBeenCalled();
     });
 
     it('throws 402 instead of leaving `max_tokens` unset when credits cannot afford one output token', async () => {

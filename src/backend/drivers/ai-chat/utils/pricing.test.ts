@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import type { IChatModel } from '../types.js';
 import {
     buildCostsOverride,
+    catalogPrice,
     isFreeModel,
     isOutputCostKey,
     longContextMultipliers,
@@ -126,13 +127,13 @@ describe('buildCostsOverride', () => {
         expect(overrides.cached_tokens).toBe(0);
     });
 
-    it('falls back to zero only when the model prices nothing at all', () => {
+    it('leaves missing prices unknown when the model prices nothing at all', () => {
         const overrides = buildCostsOverride(
             { prompt_tokens: 10, cached_tokens: 5 },
             model({}),
         );
 
-        expect(overrides).toEqual({ prompt_tokens: 0, cached_tokens: 0 });
+        expect(overrides).toEqual({});
     });
 
     it('skips the tokens scale descriptor', () => {
@@ -199,13 +200,21 @@ describe('trackedInputTokens / trackedOutputTokens skip per-call and advisor key
     const m = model({ input_tokens: 1, output_tokens: 1 });
 
     it('excludes a _requests count from both totals', () => {
-        const usage = { input_tokens: 10, output_tokens: 5, web_search_requests: 2 };
+        const usage = {
+            input_tokens: 10,
+            output_tokens: 5,
+            web_search_requests: 2,
+        };
         expect(trackedInputTokens(usage, m)).toBe(10);
         expect(trackedOutputTokens(usage, m)).toBe(5);
     });
 
     it('excludes a _calls count from both totals', () => {
-        const usage = { input_tokens: 10, output_tokens: 5, web_search_calls: 3 };
+        const usage = {
+            input_tokens: 10,
+            output_tokens: 5,
+            web_search_calls: 3,
+        };
         expect(trackedInputTokens(usage, m)).toBe(10);
         expect(trackedOutputTokens(usage, m)).toBe(5);
     });
@@ -242,7 +251,12 @@ describe('usageDetailsFromUsage', () => {
 
     it('ignores the tokens scale descriptor and usd_cents', () => {
         const details = usageDetailsFromUsage(
-            { prompt_tokens: 10, completion_tokens: 5, tokens: 1_000_000, usd_cents: 3 },
+            {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                tokens: 1_000_000,
+                usd_cents: 3,
+            },
             model({ prompt_tokens: 1, completion_tokens: 1 }),
         );
 
@@ -315,7 +329,11 @@ describe('long-context pricing', () => {
 
     it('keeps per-call tool fees flat on a long prompt', () => {
         const overrides = buildCostsOverride(
-            { prompt_tokens: 300_000, web_search_requests: 2, web_search_calls: 3 },
+            {
+                prompt_tokens: 300_000,
+                web_search_requests: 2,
+                web_search_calls: 3,
+            },
             longContext({
                 ...rates,
                 web_search_requests: 1_000_000,
@@ -362,7 +380,11 @@ describe('usageCost', () => {
     it('splits the priced usage into input and output sides', () => {
         expect(
             usageCost(
-                { prompt_tokens: 100, completion_tokens: 10, cached_tokens: 50 },
+                {
+                    prompt_tokens: 100,
+                    completion_tokens: 10,
+                    cached_tokens: 50,
+                },
                 rates,
             ),
         ).toEqual({ inputMicroCents: 315, outputMicroCents: 150 });
@@ -429,4 +451,37 @@ describe('usageCost', () => {
             ),
         ).toEqual({ inputMicroCents: 30, outputMicroCents: 0 });
     });
+});
+
+it('does not reinterpret an absent per-request fee as a token price', () => {
+    expect(
+        buildCostsOverride(
+            { prompt_tokens: 1, request: 1 },
+            model({ prompt_tokens: 100 }),
+        ),
+    ).toEqual({ prompt_tokens: 100 });
+});
+
+it('does not advertise a partially priced or conditionally paid model as free', () => {
+    expect(isFreeModel(model({ prompt_tokens: 0 }))).toBe(false);
+    expect(
+        isFreeModel({
+            ...model({ prompt_tokens: 0, completion_tokens: 0 }),
+            pricingOverrides: [
+                { minPromptTokens: 10, costs: { prompt_tokens: 1 } },
+            ],
+        }),
+    ).toBe(false);
+});
+
+
+it('preserves free classification for legacy hyphenated token keys', () => {
+    expect(isFreeModel(model({ 'input-tokens': 0, 'output-tokens': 0 }))).toBe(true);
+});
+
+
+it('leaves overflowing catalog unit conversions unknown', () => {
+    expect(catalogPrice(1e308, 100)).toBeUndefined();
+    expect(catalogPrice(0, 100)).toBe(0);
+    expect(catalogPrice('0.0000000014', 100_000_000)).toBeCloseTo(0.14);
 });

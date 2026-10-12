@@ -40,6 +40,7 @@ import {
     meterChatUsage,
     type MeterChatUsageOptions,
 } from '../utils/meterChatUsage.js';
+import { catalogPrice, costKeys } from '../utils/pricing.js';
 import { normalizeModelKey } from '../utils/modelRouting.js';
 import * as OpenAIUtil from '../utils/OpenAIUtil.js';
 import {
@@ -83,6 +84,7 @@ export interface OpenAICompatOptions {
     defaultModel: string;
     /** A static catalog; a gateway overrides `models()` instead. */
     models?: () => IChatModel[];
+    requireTokenPrices?: boolean;
     /** Usage is recorded under `<prefix>:<id>`; the bare id when omitted. */
     meteringPrefix?: string;
     /** Stripped from the catalog id to get the model name on the wire. */
@@ -158,6 +160,17 @@ export class OpenAICompatProvider implements IChatProvider {
     ): Promise<IChatCompleteResult> {
         const options = this.#options;
         const model = resolved ?? (await this.resolveModel(args.model));
+        if (options.requireTokenPrices) {
+            const { inputKey, outputKey } = costKeys(model);
+            if (
+                catalogPrice(model.costs[inputKey]) === undefined ||
+                catalogPrice(model.costs[outputKey]) === undefined
+            ) {
+                throw new HttpError(503, 'Model pricing is unavailable', {
+                    legacyCode: 'model_pricing_unavailable',
+                });
+            }
+        }
         const actor = Context.get('actor');
         const signal = Context.get('abortSignal');
 
@@ -213,6 +226,7 @@ export class OpenAICompatProvider implements IChatProvider {
         };
         const params = this.vendorParams(shared, args, model, actor);
 
+        let pricingTime = new Date();
         let completion;
         try {
             completion = await options.client.chat.completions.create(
@@ -228,6 +242,7 @@ export class OpenAICompatProvider implements IChatProvider {
                       )
                     : undefined;
             if (!retryParams) throw e;
+            pricingTime = new Date();
             completion = await options.client.chat.completions.create(
                 retryParams as never,
                 { signal },
@@ -254,7 +269,7 @@ export class OpenAICompatProvider implements IChatProvider {
                     this.meteringModelKey(model.id),
                     model,
                     usage,
-                    meterOptions,
+                    { ...meterOptions, pricingTime },
                 );
                 source.setUsageCosts(metered.costs);
                 return this.reportedUsage(metered.usage);

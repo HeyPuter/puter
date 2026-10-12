@@ -98,7 +98,9 @@ import {
 } from './utils/normalizeToOpenAI.js';
 import { isToolChoice, toolChoiceFromWire } from './utils/openaiParams.js';
 import {
+    catalogPrice,
     costKeys,
+    costsForRequest,
     isFreeModel,
     longContextMultipliers,
     trackedOutputTokens,
@@ -1385,17 +1387,19 @@ export class ChatCompletionDriver extends PuterDriver {
             actor,
             this.#meteringModelKey(model),
         );
+        const requestCosts = costsForRequest(model, promptTokenEstimate);
         // `|| 0` also catches NaN from a malformed cost table.
         const inputTokenCost =
-            (Number(model.costs?.[inputKey] ?? 0) || 0) *
+            (Number(requestCosts[inputKey] ?? 0) || 0) *
             multipliers.input *
             costFactor;
         const outputTokenCost =
-            (Number(model.costs?.[outputKey] ?? 0) || 0) *
+            (Number(requestCosts[outputKey] ?? 0) || 0) *
             multipliers.output *
             costFactor;
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
-        const extras = (pricing.extraCost ?? 0) * costFactor;
+        const requestFee = catalogPrice(requestCosts.request) ?? 0;
+        const extras = ((pricing.extraCost ?? 0) + requestFee) * costFactor;
         const minimumCredits = Number(model.minimumCredits || 1);
         const needed = Math.max(approximateInputCost + extras, minimumCredits);
 

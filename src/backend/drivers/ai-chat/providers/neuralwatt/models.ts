@@ -18,7 +18,7 @@
  */
 
 import type { IChatModel } from '../../types.js';
-import { usdPerMToken } from '../../utils/pricing.js';
+import { catalogPrice } from '../../utils/pricing.js';
 
 export const NEURALWATT_ID_PREFIX = 'neuralwatt:';
 export const NEURALWATT_DEFAULT_MODEL = 'neuralwatt:deepseek-v4-flash';
@@ -104,15 +104,18 @@ export const mapNeuralwattApiModel = (
     const pricing = model.metadata?.pricing;
     if (pricing?.pricing_tbd) return null;
 
-    const inputUsd = Number(pricing?.input_per_million ?? 0);
-    const outputUsd = Number(pricing?.output_per_million ?? 0);
-    const costs = usdPerMToken(
-        inputUsd,
-        outputUsd,
-        Number(pricing?.cached_input_per_million ?? 0),
-    );
-    // No published cache price: cached reads bill at the input rate.
-    if (pricing?.cached_input_per_million == null) delete costs.cached_tokens;
+    const costs: IChatModel['costs'] = { tokens: 1_000_000 };
+    if (pricing?.currency === 'USD') {
+        for (const [key, value] of Object.entries({
+            prompt_tokens: pricing.input_per_million,
+            completion_tokens: pricing.output_per_million,
+            cached_tokens: pricing.cached_input_per_million,
+            cached_output_tokens: pricing.cached_output_per_million,
+        })) {
+            const price = catalogPrice(value, 100);
+            if (price !== undefined) costs[key] = price;
+        }
+    }
 
     const caps = model.metadata?.capabilities;
     const limits = model.metadata?.limits;
@@ -152,13 +155,6 @@ export const mapNeuralwattApiModel = (
             : {}),
         ...(model.metadata?.description
             ? { description: model.metadata.description }
-            : {}),
-        ...(model.created
-            ? {
-                  release_date: new Date(model.created * 1000)
-                      .toISOString()
-                      .slice(0, 10),
-              }
             : {}),
     };
 };

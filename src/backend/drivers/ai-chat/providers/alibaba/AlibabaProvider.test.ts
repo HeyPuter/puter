@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for AlibabaProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs AlibabaProvider directly against the live
- * wired `MeteringService` so the recording side is exercised end-to-
- * end. Alibaba is OpenAI-compatible so the OpenAI SDK is mocked at
- * the module boundary; that's the real network egress point. The
- * companion integration test (AlibabaProvider.integration.test.ts)
- * exercises the real DashScope endpoint.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs AlibabaProvider directly against the live wired `MeteringService`
+ * so the recording side is exercised end-to- end. Alibaba is OpenAI-compatible
+ * so the OpenAI SDK is mocked at the module boundary; that's the real network
+ * egress point. The companion integration test
+ * (AlibabaProvider.integration.test.ts) exercises the real DashScope endpoint.
  */
 
 import { Writable } from 'node:stream';
@@ -48,16 +47,20 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { mapAlibabaCatalogModel, type AlibabaApiModel } from './catalog.js';
+import page1 from './fixtures/page1.json';
+import page2 from './fixtures/page2.json';
+import { CATALOG_TTL_MS } from '../../utils/cachedRemoteCatalog.js';
 import { ALIBABA_MODELS } from './models.js';
 import { AlibabaProvider } from './AlibabaProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
-const { createMock, openAICtor } = vi.hoisted(() => {
+const { createMock, openAICtor, axiosGetMock } = vi.hoisted(() => {
     const createMock = vi.fn();
     const openAICtor = vi.fn();
-    return { createMock, openAICtor };
+    return { createMock, openAICtor, axiosGetMock: vi.fn() };
 });
 
 vi.mock('openai', () => {
@@ -70,6 +73,8 @@ vi.mock('openai', () => {
     });
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
+
+vi.mock('axios', () => ({ default: { get: axiosGetMock } }));
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -121,12 +126,15 @@ const makeCapturingChatStream = () => {
 };
 
 beforeEach(() => {
+    axiosGetMock.mockReset();
+    axiosGetMock.mockRejectedValue(new Error('Catalog unavailable'));
     createMock.mockReset();
     openAICtor.mockReset();
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -138,8 +146,7 @@ describe('AlibabaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledTimes(1);
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
-            baseURL:
-                'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+            baseURL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
             maxRetries: 0,
             timeout: 10 * 60 * 1000,
         });
@@ -164,9 +171,9 @@ describe('AlibabaProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('qwen-plus-latest');
     });
 
-    it('exposes the static ALIBABA_MODELS list verbatim from models()', () => {
+    it('uses the curated catalog when the initial fetch fails', async () => {
         const { provider } = makeProvider();
-        expect(provider.models()).toBe(ALIBABA_MODELS);
+        expect(await provider.models()).toBe(ALIBABA_MODELS);
     });
 
     it('list() flattens canonical ids and aliases', async () => {
@@ -591,9 +598,7 @@ describe('AlibabaProvider.complete non-stream output', () => {
             }),
         );
 
-        const model = ALIBABA_MODELS.find(
-            (m) => m.id === 'qwen3.8-max',
-        )!;
+        const model = ALIBABA_MODELS.find((m) => m.id === 'qwen3.8-max')!;
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
         // Cached reads come out of `prompt_tokens`; they're priced once.
         expect(usage).toEqual({
@@ -767,4 +772,230 @@ describe('AlibabaProvider.checkModeration', () => {
             /not implemented/i,
         );
     });
+});
+
+describe('Alibaba official catalog', () => {
+    const seedPages = () => {
+        axiosGetMock.mockReset();
+        axiosGetMock
+            .mockResolvedValueOnce({ data: page1 })
+            .mockResolvedValueOnce({ data: page2 });
+    };
+
+    it('fetches all official pages, deduplicates ids and preserves curated aliases and prices', async () => {
+        seedPages();
+        const { provider } = makeProvider();
+        const [models, concurrent] = await Promise.all([
+            provider.models(),
+            provider.models(),
+        ]);
+        expect(concurrent).toBe(models);
+        expect(axiosGetMock).toHaveBeenCalledTimes(2);
+        expect(axiosGetMock.mock.calls.map((call) => call[0])).toEqual([
+            'https://dashscope-intl.aliyuncs.com/api/v1/models',
+            'https://dashscope-intl.aliyuncs.com/api/v1/models',
+        ]);
+        expect(
+            axiosGetMock.mock.calls.map((call) => call[1].params.page_no),
+        ).toEqual([1, 2]);
+        expect(axiosGetMock.mock.calls[0][1]).toMatchObject({
+            headers: { Authorization: 'Bearer test-key' },
+            params: { page_size: 100, language: 'en-US' },
+            signal: expect.any(AbortSignal),
+        });
+        expect(
+            models.filter((model) => model.id === 'qwen-catalog-fixture'),
+        ).toHaveLength(1);
+        expect(models.some((model) => model.id === 'qwen-image-fixture')).toBe(
+            false,
+        );
+        const plus = models.find((model) => model.id === 'qwen-plus')!;
+        const original = ALIBABA_MODELS.find(
+            (model) => model.id === 'qwen-plus',
+        )!;
+        expect(plus.costs).toBe(original.costs);
+        expect(plus.aliases).toEqual(original.aliases);
+        expect(plus.puterId).toBe(original.puterId);
+        expect(plus.release_date).toBe(original.release_date);
+        expect(models.some((model) => model.id === 'qwen-max')).toBe(true);
+        expect(await provider.models()).toBe(models);
+        expect(axiosGetMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('normalizes capabilities, limits, release and retirement metadata', () => {
+        const model = mapAlibabaCatalogModel(
+            page1.output.models[1] as AlibabaApiModel,
+        );
+        expect(model).toMatchObject({
+            id: 'qwen-catalog-fixture',
+            context: 131072,
+            max_tokens: 16384,
+            maxInputTokens: 130048,
+            maxReasoningTokens: 8192,
+            reasoningMaxInputTokens: 64000,
+            reasoningMaxOutputTokens: 8192,
+            tool_call: true,
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            release_date: '2026-08-01',
+            equivalentSnapshot: 'qwen-catalog-fixture-0801',
+            retirementDates: { international: '2027-01-01 00:00:00' },
+        });
+    });
+
+    it('normalizes unit denominators and preserves unknown currency, cache prices and abbreviated boundaries', () => {
+        const model = mapAlibabaCatalogModel(
+            page1.output.models[1] as AlibabaApiModel,
+        )!;
+        expect(model.costs).toEqual({ tokens: 1_000_000 });
+        expect(model.catalogPricing).toMatchObject([
+            {
+                minInputTokensExclusive: 0,
+                maxInputTokensInclusive: 32768,
+                prices: [
+                    { amount: 0.002, tokens: 1000, perMillionTokens: 2 },
+                    { amount: 8, tokens: 1_000_000, perMillionTokens: 8 },
+                    { amount: undefined, perMillionTokens: undefined },
+                ],
+            },
+            { name: '32k<Input<=128k' },
+        ]);
+        const tiers =
+            model.catalogPricing as import('./catalog.js').AlibabaCatalogTier[];
+        expect(tiers[0].prices[0].currency).toBeUndefined();
+        expect(tiers[1].minInputTokensExclusive).toBeUndefined();
+        expect(tiers[1].maxInputTokensInclusive).toBeUndefined();
+    });
+
+    it.each([null, '', -1, 'TBD'])(
+        'keeps ambiguous price %s unknown',
+        (value) => {
+            const model = mapAlibabaCatalogModel({
+                model: 'fixture',
+                capabilities: ['TG'],
+                prices: [
+                    {
+                        range_name: 'Default',
+                        prices: [
+                            {
+                                type: 'input_token',
+                                price: value,
+                                price_unit: 'per million tokens',
+                            },
+                        ],
+                    },
+                ],
+            })!;
+            expect(model.catalogPricing).toMatchObject([
+                {
+                    prices: [
+                        { amount: undefined, perMillionTokens: undefined },
+                    ],
+                },
+            ]);
+            expect(model.costs).toEqual({ tokens: 1_000_000 });
+        },
+    );
+
+    it('does not infer limits or release dates from missing, null or zero fields', () => {
+        const model = mapAlibabaCatalogModel({
+            model: 'fixture',
+            capabilities: ['TG'],
+            published_time: '0',
+            model_info: { context_window: null, max_output_tokens: 0 },
+        })!;
+        expect(model.release_date).toBeUndefined();
+        expect(model.context).toBeUndefined();
+        expect(model.max_tokens).toBe(0);
+        expect(model.costs).toEqual({ tokens: 1_000_000 });
+    });
+
+    it('refuses inference with unverified catalog prices', async () => {
+        seedPages();
+        const { provider } = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'qwen-catalog-fixture',
+                    messages: [],
+                }),
+            ),
+        ).rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(createMock).not.toHaveBeenCalled();
+        expect(recordSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(['failed', 'malformed', 'empty', 'repeated'])(
+        'keeps the full last-good catalog after a %s refresh page',
+        async (failure) => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            seedPages();
+            const { provider } = makeProvider();
+            const good = await provider.models();
+            vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
+            axiosGetMock.mockResolvedValueOnce({ data: page1 });
+            if (failure === 'failed')
+                axiosGetMock.mockRejectedValueOnce(new Error('unavailable'));
+            else if (failure === 'malformed')
+                axiosGetMock.mockResolvedValueOnce({
+                    data: { success: false },
+                });
+            else if (failure === 'empty')
+                axiosGetMock.mockResolvedValueOnce({
+                    data: {
+                        success: true,
+                        output: { total: 4, page_no: 2, models: [] },
+                    },
+                });
+            else
+                axiosGetMock.mockResolvedValueOnce({
+                    data: { ...page1, output: { ...page1.output, page_no: 2 } },
+                });
+            expect(await provider.models()).toBe(good);
+            expect(await provider.models()).toBe(good);
+            expect(axiosGetMock).toHaveBeenCalledTimes(4);
+        },
+    );
+});
+
+
+it('keeps previously discovered Alibaba models when a successful refresh omits them', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    axiosGetMock.mockReset();
+    axiosGetMock.mockResolvedValueOnce({ data: page1 }).mockResolvedValueOnce({ data: page2 });
+    const { provider } = makeProvider();
+    await provider.models();
+    vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
+    axiosGetMock.mockResolvedValueOnce({ data: { success: true, output: { total: 0, page_no: 1, models: [] } } });
+    expect((await provider.models()).some(model => model.id === 'qwen-catalog-fixture')).toBe(true);
+});
+
+
+it.each([
+    ['per token', 1, 2000], ['per thousand tokens', 1000, 2],
+    ['per million tokens', 1_000_000, 0.002], ['per image', undefined, undefined],
+])('normalizes Alibaba unit %s without assigning a currency', (unit, tokens, perMillionTokens) => {
+    const model = mapAlibabaCatalogModel({ model: 'fixture', capabilities: ['TG'], prices: [{
+        range_name: 'Default', prices: [{ type: 'input_token', price: '0.002', price_unit: unit }],
+    }] })!;
+    const [tier] = model.catalogPricing as import('./catalog.js').AlibabaCatalogTier[];
+    expect(tier.prices[0].tokens).toBe(tokens);
+    expect(tier.prices[0].perMillionTokens).toBe(perMillionTokens);
+    expect(tier.prices[0].currency).toBeUndefined();
+});
+
+it.each(['100<Input<=10', '9007199254740992<Input<=9007199254740993'])('keeps invalid Alibaba range %s unresolved', range => {
+    const model = mapAlibabaCatalogModel({ model: 'fixture', capabilities: ['TG'], prices: [{ range_name: range }] })!;
+    const [tier] = model.catalogPricing as import('./catalog.js').AlibabaCatalogTier[];
+    expect(tier.minInputTokensExclusive).toBeUndefined();
+    expect(tier.maxInputTokensInclusive).toBeUndefined();
+});
+
+
+it('uses the official Alibaba catalog path behind a configured proxy prefix', async () => {
+    axiosGetMock.mockReset();
+    axiosGetMock.mockResolvedValueOnce({ data: page1 }).mockResolvedValueOnce({ data: page2 });
+    const { provider } = makeProvider({ apiBaseUrl: 'https://custom.endpoint/proxy/compatible-mode/v1' });
+    await provider.models();
+    expect(axiosGetMock.mock.calls[0][0]).toBe('https://custom.endpoint/proxy/api/v1/models');
 });
