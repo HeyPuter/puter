@@ -23,6 +23,7 @@
 // window system and there is no cross-window z-index juggling.
 
 import { fetchAllEventsWorkers, eventsWorkerLabel } from '../helpers/eventsWorkers.js';
+import { forgetGodmodeTokens } from '../helpers/godmodeTokens.js';
 
 // Hand-rolled UA → {browser, os} extractor. Covers Chrome/Edge/Firefox/
 // Safari/Opera + Windows/macOS/iOS/Android/Linux. The backend already
@@ -578,6 +579,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                         },
                         body: JSON.stringify({ uuid: session.uuid, anti_csrf }),
                     });
+                    forgetGodmodeTokens();
                     if ( resp.ok ) {
                         // Full reload — cascade may have killed children
                         // we'd otherwise have to detach by hand.
