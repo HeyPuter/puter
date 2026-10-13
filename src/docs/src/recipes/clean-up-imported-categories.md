@@ -1,35 +1,19 @@
 ---
-title: Clean Up Imported Categories With AI
-description: "Learn how to have AI suggest tidy categories for rows imported from a CSV file, let the user review the suggestions, and apply and export the result with ordinary code."
+title: Clean Up Imported Categories
+description: "Learn how to clean up inconsistent categories in imported spreadsheet rows with Puter.js, so users get one consistent set of categories they've checked before exporting."
 tags: [ai]
 order: 70
 ---
 
-Rows imported from a bank or budgeting export rarely agree on categories:
-`groceries`, `Groceries ` with a trailing space, `coffee shops`, `???`. In this
-recipe, [`puter.ai.chat()`](/AI/chat/) suggests a category for each distinct
-label, the user reviews the suggestions, and plain code applies them and exports
-a new CSV file.
+Rows imported from a bank or budgeting export rarely agree on categories. One
+file can hold `groceries`, `Groceries ` with a trailing space, `coffee shops`,
+and `???`. In this recipe, [`puter.ai.chat()`](/AI/chat/) suggests a category
+for each distinct label, the user reviews the suggestions in your app, and plain
+code applies the approved categories and writes a new CSV file.
 
-The AI only sees the distinct labels, never dates, descriptions or amounts, and
-only makes suggestions. Nothing is applied until a person approves it.
-
-## Set Up the Page
-
-Put the code blocks from the rest of this recipe, in order, in `clean-up.js`:
-
-```html
-<!DOCTYPE html>
-<html>
-<body>
-    <p id="status"></p>
-    <div id="review"></div>
-
-    <script src="https://js.puter.com/v2/"></script>
-    <script src="clean-up.js"></script>
-</body>
-</html>
-```
+The AI only sees the distinct labels, never dates, descriptions, or amounts. Its
+reply is only a suggestion, so no row changes until the user approves the
+review.
 
 ## Start From Parsed Rows
 
@@ -48,54 +32,12 @@ const rows = [
 ];
 ```
 
-## Check the Rows
+Only the `category` column is sent. If people can type free text into it, check
+what it holds before sending it anywhere.
 
-The cleaned category goes in a new `cleanCategory` column, so stop if the file
-already has one:
+## Ask for Suggestions
 
-```js
-const CLEAN_COLUMN = 'cleanCategory';
-
-function checkColumns (rows) {
-    if ( rows.some(row => Object.hasOwn(row, CLEAN_COLUMN)) ) {
-        throw new Error(`The file already has a ${ CLEAN_COLUMN } column. Rename it and try again.`);
-    }
-}
-```
-
-## Collect the Distinct Labels
-
-Ask about each label once, exactly as written, so `'Groceries '` is its own
-label and a missing category is `''`. The limits keep the request small and the
-review short enough to actually check:
-
-```js
-const MAX_LABELS = 100;
-const MAX_LABEL_LENGTH = 80;
-
-function labelOf (row) {
-    const label = row.category ?? '';
-    if ( typeof label !== 'string' ) {
-        throw new Error('Every category must be text. Parse the file with type conversion off.');
-    }
-    return label;
-}
-
-function distinctLabels (rows) {
-    const labels = [...new Set(rows.map(labelOf))].sort();
-    if ( labels.length > MAX_LABELS ) {
-        throw new Error(`Found ${ labels.length } different categories. Clean up at most ${ MAX_LABELS } at a time.`);
-    }
-    if ( labels.some(label => label.length > MAX_LABEL_LENGTH) ) {
-        throw new Error(`Category names can be at most ${ MAX_LABEL_LENGTH } characters long.`);
-    }
-    return labels;
-}
-```
-
-## Ask for a Proposed Mapping
-
-Send the labels with the categories your app uses:
+Send the distinct labels with the categories your app uses:
 
 ```js
 const CATEGORIES = ['Groceries', 'Dining', 'Transport', 'Income', 'Shopping', 'Other'];
@@ -145,11 +87,13 @@ async function proposeMapping (labels) {
 }
 ```
 
-`outputFormat` asks for JSON matching the schema, and `normalize: true` makes
-`message.content` a string for every model. To pick a model other than the
-default, pass `model` (see the [AI models list](https://developer.puter.com/ai/models/)).
-Not every model enforces the schema strictly, and a label can contain
-instructions, so the reply is checked next and still goes through human review.
+The [`outputFormat`](/AI/chat/) schema asks for JSON that only uses the given
+labels and categories, and [`normalize: true`](/AI/chat/#response-normalization)
+makes the reply text a string for every model. To pick a model other than the
+default, pass [`model`](/AI/chat/) with a name from the
+[AI models list](https://developer.puter.com/ai/models/). Not every model
+enforces the schema strictly, and a label can contain instructions, so the next
+step checks the reply.
 
 ## Check the Proposal
 
@@ -197,98 +141,106 @@ function parseProposal (content, labels) {
 }
 ```
 
-## Keep Going When the Request Fails
+## Prepare the Review
 
-`puter.ai.chat()` rejects when the request can't be completed. The user can
-still choose every category by hand:
+The `prepareReview()` function checks the rows before anything is sent. The
+cleaned category goes in a new `cleanCategory` column, so a file that already
+has one is rejected. Each label is asked about once, exactly as written, so
+`'Groceries '` is its own label and a missing category is `''`. The limits keep
+the request small and the review short enough to actually check.
+
+If [`puter.ai.chat()`](/AI/chat/) rejects, the review starts with every label
+unresolved, and the user can still choose each category by hand:
 
 ```js
-async function proposeOrStartEmpty (labels) {
+const CLEAN_COLUMN = 'cleanCategory';
+const MAX_LABELS = 100;
+const MAX_LABEL_LENGTH = 80;
+
+function checkColumns (rows) {
+    if ( rows.some(row => Object.hasOwn(row, CLEAN_COLUMN)) ) {
+        throw new Error(`The file already has a ${ CLEAN_COLUMN } column. Rename it and try again.`);
+    }
+}
+
+function labelOf (row) {
+    const label = row.category ?? '';
+    if ( typeof label !== 'string' ) {
+        throw new Error('Every category must be text. Parse the file with type conversion off.');
+    }
+    return label;
+}
+
+function distinctLabels (rows) {
+    const labels = [...new Set(rows.map(labelOf))].sort();
+    if ( labels.length > MAX_LABELS ) {
+        throw new Error(`Found ${ labels.length } different categories. Clean up at most ${ MAX_LABELS } at a time.`);
+    }
+    if ( labels.some(label => label.length > MAX_LABEL_LENGTH) ) {
+        throw new Error(`Category names can be at most ${ MAX_LABEL_LENGTH } characters long.`);
+    }
+    return labels;
+}
+
+async function prepareReview (rows) {
+    if ( rows.length === 0 ) {
+        throw new Error('There are no rows to clean up.');
+    }
+    checkColumns(rows);
+    const labels = distinctLabels(rows);
+
+    let proposal;
     try {
-        return await proposeMapping(labels);
+        proposal = await proposeMapping(labels);
     } catch ( error ) {
         const reason = error?.message ?? error?.error?.message ?? 'the request failed';
-        return {
+        proposal = {
             mapping: new Map(labels.map(label => [label, null])),
             problems: [`No AI suggestions (${ reason }). Choose each category by hand.`],
         };
     }
-}
-```
 
-## Let the User Review It
-
-Show one dropdown per label, preset to the suggestion, and resolve with the
-user's choices only when they click Apply:
-
-```js
-function reviewMapping (container, rows, proposal) {
     const counts = new Map();
-    for ( const row of rows ) {
-        counts.set(labelOf(row), (counts.get(labelOf(row)) ?? 0) + 1);
+    for ( const label of rows.map(labelOf) ) {
+        counts.set(label, (counts.get(label) ?? 0) + 1);
     }
-
-    const notes = proposal.problems.map(problem => {
-        const note = document.createElement('p');
-        note.textContent = problem;
-        return note;
+    const entries = labels.map(label => {
+        const proposed = proposal.mapping.get(label);
+        return { label, count: counts.get(label), proposed, category: proposed };
     });
-
-    const table = document.createElement('table');
-    const selects = new Map();
-    for ( const [label, category] of proposal.mapping ) {
-        const select = document.createElement('select');
-        select.append(new Option('(unresolved)', ''), ...CATEGORIES.map(name => new Option(name, name)));
-        select.value = category ?? '';
-        selects.set(label, select);
-
-        const tableRow = table.insertRow();
-        tableRow.insertCell().textContent = JSON.stringify(label);
-        tableRow.insertCell().textContent = `rows: ${ counts.get(label) }`;
-        tableRow.insertCell().append(select);
-    }
-
-    const apply = document.createElement('button');
-    apply.textContent = 'Apply';
-    container.replaceChildren(...notes, table, apply);
-
-    return new Promise(resolve => {
-        apply.addEventListener('click', () => {
-            const approved = new Map();
-            for ( const [label, select] of selects ) {
-                approved.set(label, select.value || null);
-            }
-            resolve(approved);
-        }, { once: true });
-    });
+    return { entries, problems: proposal.problems };
 }
 ```
 
-## Apply the Approved Mapping
-
-Applying the mapping is a lookup per row, with no AI involved. Unresolved rows
-get an empty `cleanCategory` and are counted:
+Prepare the review from the parsed rows:
 
 ```js
-function applyMapping (rows, approved) {
-    checkColumns(rows);
-    for ( const category of approved.values() ) {
-        if ( category !== null && ! CATEGORIES.includes(category) ) {
-            throw new Error(`Refusing to apply unknown category ${ JSON.stringify(category) }.`);
-        }
-    }
+const review = await prepareReview(rows);
+```
 
-    let unresolved = 0;
-    const cleaned = rows.map(row => {
-        const cleanCategory = approved.get(labelOf(row)) ?? '';
-        if ( ! cleanCategory ) unresolved++;
-        return { ...row, [CLEAN_COLUMN]: cleanCategory };
-    });
-    return { rows: cleaned, unresolved };
+The review is plain data. If the AI leaves out `Groceries ` and suggests an
+unknown category for `???`, the review for the sample rows looks like this:
+
+```json
+{
+    "entries": [
+        { "label": "???", "count": 1, "proposed": null, "category": null },
+        { "label": "Groceries ", "count": 1, "proposed": null, "category": null },
+        { "label": "Salary", "count": 1, "proposed": "Income", "category": "Income" },
+        { "label": "Transport", "count": 1, "proposed": "Transport", "category": "Transport" },
+        { "label": "coffee shops", "count": 1, "proposed": "Dining", "category": "Dining" },
+        { "label": "groceries", "count": 1, "proposed": "Groceries", "category": "Groceries" }
+    ],
+    "problems": ["Ignored unknown category \"Fraud\" for \"???\"."]
 }
 ```
 
-## Export a CSV File
+Your app's UI shows the problems and one control per entry, preset to its
+`category`, with a choice for unresolved (`null`). The `proposed` value stays
+as the AI's suggestion, so the UI can mark the entries the user changed. Render
+labels as text, since they come straight from the file.
+
+## Write the CSV
 
 Quote every field and double any quotes inside it:
 
@@ -311,69 +263,86 @@ function toCsv (rows, columns) {
 ```
 
 Spreadsheet apps can run a cell starting with `=`, `+`, `-` or `@` as a formula,
-so `csvField()` prefixes those values, and ones starting with a control
-character, with `'`. Plain numbers such as `-42.10` are written as they were.
+so the `csvField()` function prefixes those values, and ones starting with a
+control character, with `'`. Plain numbers such as `-42.10` are written as they
+were. The prefix is only in the exported file, so keep the original file if you
+need the exact source values. A spreadsheet can still reformat amounts or dates
+when it opens the file.
 
-## Put It Together
+## Apply the Approved Review
 
-The rows are checked before anything is sent. Each run replaces the previous
-download link, so the previous object URL is released at that point:
+When the user clicks Apply in your review UI, read the controls back into
+`{ label, category }` entries and pass them to `applyReview()`. Nothing is
+applied before that call. The recipe can't confirm that a person looked at each
+entry, so call `applyReview()` only from the user's approval action.
+
+The `applyReview()` function checks the rows again, then requires exactly one
+entry per label with a known category or `null`, and throws otherwise. Applying
+is a lookup per row with no AI involved. Each result row is a copy of the
+original with a `cleanCategory` column added, so amounts keep their original
+strings. Unresolved rows get an empty `cleanCategory` and are counted:
 
 ```js
-let downloadUrl = null;
-
-async function cleanUpCategories (rows, container, status) {
-    if ( rows.length === 0 ) {
-        status.textContent = 'There are no rows to clean up.';
-        return;
-    }
+function applyReview (rows, entries) {
     checkColumns(rows);
     const labels = distinctLabels(rows);
+    if ( ! Array.isArray(entries) || entries.length !== labels.length ) {
+        throw new Error('The review must have exactly one entry per category label.');
+    }
 
-    status.textContent = 'Asking for suggestions...';
-    const proposal = await proposeOrStartEmpty(labels);
+    const approved = new Map();
+    for ( const entry of entries ) {
+        const { label, category } = entry ?? {};
+        if ( ! labels.includes(label) || approved.has(label) ) {
+            throw new Error(`Refusing to apply an unknown or repeated label ${ JSON.stringify(label) }.`);
+        }
+        if ( category !== null && ! CATEGORIES.includes(category) ) {
+            throw new Error(`Refusing to apply unknown category ${ JSON.stringify(category) }.`);
+        }
+        approved.set(label, category);
+    }
 
-    status.textContent = 'Check each category, then click Apply.';
-    const approved = await reviewMapping(container, rows, proposal);
-    const result = applyMapping(rows, approved);
-
-    status.textContent = result.unresolved
-        ? `${ result.unresolved } rows are still unresolved and have an empty cleanCategory.`
-        : 'Every row has a category.';
-
+    let unresolved = 0;
+    const cleaned = rows.map(row => {
+        const cleanCategory = approved.get(labelOf(row)) ?? '';
+        if ( ! cleanCategory ) unresolved++;
+        return { ...row, [CLEAN_COLUMN]: cleanCategory };
+    });
     const columns = [...new Set(rows.flatMap(row => Object.keys(row))), CLEAN_COLUMN];
-    const csv = toCsv(result.rows, columns);
-    if ( downloadUrl ) URL.revokeObjectURL(downloadUrl);
-    downloadUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = 'categorized.csv';
-    link.textContent = 'Download categorized.csv';
-    container.replaceChildren(link);
+    return { rows: cleaned, unresolved, csv: toCsv(cleaned, columns) };
 }
 ```
 
-Call it with the parsed rows and the two elements from the page, and show any
-error that stops the flow:
+In the sample review, the user sets `Groceries ` to `Shopping` and leaves `???`
+unresolved. These are the entries the review UI passes in:
 
 ```js
-const statusLine = document.querySelector('#status');
+const approved = [
+    { label: '???', category: null },
+    { label: 'Groceries ', category: 'Shopping' },
+    { label: 'Salary', category: 'Income' },
+    { label: 'Transport', category: 'Transport' },
+    { label: 'coffee shops', category: 'Dining' },
+    { label: 'groceries', category: 'Groceries' },
+];
 
-cleanUpCategories(rows, document.querySelector('#review'), statusLine)
-    .catch(error => {
-        statusLine.textContent = error.message;
-    });
+const result = applyReview(rows, approved);
 ```
 
-## Notes
+For these entries, `result.unresolved` is `1` and `result.csv` holds this text:
 
-- The `'` prefix is only in the exported file. Keep the original file if you
-  need the exact source values.
-- A spreadsheet may still reformat amounts or dates when it opens the file; the
-  file holds them as imported.
-- If people can type free text into the category column, check what it holds
-  before sending it anywhere.
-- To skip the AI step for labels the user already approved, save the approved
-  mapping with [`puter.kv`](/KV/) and only ask about new labels next time. See
-  [Save User Settings](/recipes/save-user-settings/).
+```text
+"date","description","amount","category","cleanCategory"
+"2026-09-01","Corner Grocery","-42.10","groceries","Groceries"
+"2026-09-02","City Transit","-2.75","Transport","Transport"
+"2026-09-03","Cafe ""Bean"", Main St","-4.50","coffee shops","Dining"
+"2026-09-04","Payroll","1,250.00","Salary","Income"
+"2026-09-05","Hardware store","-18.90","Groceries ","Shopping"
+"2026-09-06","'=HYPERLINK(""https://example.com"",""Refund"")","-0.01","???",""
+```
+
+Save the string or offer it as a download with whatever your platform provides.
+To skip the AI step next time for labels the user already approved, save the
+approved entries with [`puter.kv`](/KV/), as in
+[Save User Settings](/recipes/save-user-settings/), and only ask about new
+labels.
