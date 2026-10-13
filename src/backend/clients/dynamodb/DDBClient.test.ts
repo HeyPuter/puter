@@ -18,8 +18,11 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
+import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+//@ts-expect-error - no types available for dynalite
+import dynalite from 'dynalite';
 import {
     afterAll,
     afterEach,
@@ -546,6 +549,104 @@ describe('DDBClient — credentialled configuration', () => {
         // Same in-memory store: the recreated client sees earlier writes.
         const result = await client.get(TABLE, { pk: 'recreate', sk: 'a' });
         expect(result.Item?.v).toBe(1);
+    });
+});
+
+// Two emulators stand in for the local and home replicas of a global table;
+// nothing replicates between them, so each read shows where a write went.
+describe('DDBClient — home replica', () => {
+    const servers: Server[] = [];
+    let local: DDBClient;
+    let home: DDBClient;
+    let client: DDBClient;
+
+    const awsConfig = (endpoint: string, extra: object = {}): IConfig =>
+        ({
+            port: 0,
+            extensions: [],
+            dynamo: {
+                aws: { access_key: 'a', secret_key: 'b', region: 'eu-west-2' },
+                endpoint,
+                bootstrapTables: true,
+                ...extra,
+            },
+        }) as unknown as IConfig;
+
+    const startEmulator = async (): Promise<string> => {
+        const server = dynalite({ createTableMs: 0 }).listen(0, '127.0.0.1');
+        await once(server, 'listening');
+        servers.push(server);
+        return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    };
+
+    beforeAll(async () => {
+        const [localEndpoint, homeEndpoint] = await Promise.all([
+            startEmulator(),
+            startEmulator(),
+        ]);
+        local = new DDBClient(awsConfig(localEndpoint));
+        home = new DDBClient(awsConfig(homeEndpoint));
+        for (const replica of [local, home]) {
+            await replica.createTableIfNotExists(tableSchema);
+            await awaitTable(replica, TABLE, { pk: 'ready', sk: 'ready' });
+        }
+        client = new DDBClient(
+            awsConfig(localEndpoint, {
+                home: { region: 'us-west-2', endpoint: homeEndpoint },
+            }),
+        );
+        client.pinToHome(TABLE, (key) => String(key.pk).startsWith('pinned'));
+    });
+
+    afterAll(() => {
+        for (const server of servers) server.close();
+    });
+
+    it("sends a pinned item's writes and consistent reads to the home replica", async () => {
+        const key = { pk: 'pinned-a', sk: 'a' };
+        await client.put(TABLE, { ...key, v: 1 });
+        await client.update(TABLE, key, 'SET v = v + :one', { ':one': 1 });
+
+        expect((await home.get(TABLE, key)).Item?.v).toBe(2);
+        expect((await local.get(TABLE, key)).Item).toBeUndefined();
+        expect((await client.get(TABLE, key, true)).Item?.v).toBe(2);
+        // Eventually consistent reads stay on the local replica.
+        expect((await client.get(TABLE, key)).Item).toBeUndefined();
+
+        await client.del(TABLE, key);
+        expect((await home.get(TABLE, key)).Item).toBeUndefined();
+    });
+
+    it('leaves items that are not pinned on the local replica', async () => {
+        const key = { pk: 'plain-a', sk: 'a' };
+        await client.put(TABLE, { ...key, v: 1 });
+
+        expect((await local.get(TABLE, key)).Item?.v).toBe(1);
+        expect((await home.get(TABLE, key)).Item).toBeUndefined();
+        expect((await client.get(TABLE, key, true)).Item?.v).toBe(1);
+    });
+
+    it('splits batches between the replicas', async () => {
+        await client.batchPut([
+            { table: TABLE, item: { pk: 'pinned-b', sk: 'b', v: 1 } },
+            { table: TABLE, item: { pk: 'plain-b', sk: 'b', v: 2 } },
+        ]);
+
+        expect(
+            (await home.get(TABLE, { pk: 'pinned-b', sk: 'b' })).Item?.v,
+        ).toBe(1);
+        expect(
+            (await local.get(TABLE, { pk: 'plain-b', sk: 'b' })).Item?.v,
+        ).toBe(2);
+
+        const { Responses } = await client.batchGet(
+            [
+                { table: TABLE, items: { pk: 'pinned-b', sk: 'b' } },
+                { table: TABLE, items: { pk: 'plain-b', sk: 'b' } },
+            ],
+            true,
+        );
+        expect(Responses[TABLE]?.map((item) => item.v).sort()).toEqual([1, 2]);
     });
 });
 

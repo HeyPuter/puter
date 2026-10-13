@@ -37,6 +37,13 @@ export interface IDynamoConfig {
     inMemory?: boolean;
     /** Create missing tables at startup. Off by default; for local emulators. */
     bootstrapTables?: boolean;
+    /**
+     * The global-table replica that takes every write (and consistent read) to
+     * items pinned with `pinToHome`, so increments to them from different
+     * regions can't overwrite each other. Only applies with `aws`; unset, every
+     * request goes to the local replica.
+     */
+    home?: { region: string; endpoint?: string };
 }
 
 export interface IRedisConfig {

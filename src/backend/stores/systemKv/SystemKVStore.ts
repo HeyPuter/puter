@@ -188,6 +188,20 @@ const KV_CACHE_BROADCAST_CHUNK = 500;
  */
 export const KV_PRIVATE_ATTR = 'noShare';
 
+/**
+ * Prefix of the attribute where a fenced `incr` records the last token it
+ * applied for its writer. Beside `value`, so readers never see it.
+ */
+const KV_FENCE_ATTR_PREFIX = 'fence_';
+
+/**
+ * An `incr` refused because the item already holds its writer's token, or a
+ * later one: the write was applied before, so it must not be applied again.
+ */
+export class KvFencedWriteError extends Error {
+    override name = 'KvFencedWriteError';
+}
+
 /** `[key]` when the item carries the private flag, else nothing. */
 const privateKeys = (
     key: string,
@@ -1187,6 +1201,7 @@ export class SystemKVStore extends PuterStore {
     #cache: KvCacheSettings = resolveKvCacheSettings(this.config);
     #pendingInvalidations = new Set<string>();
     #invalidationTimer: ReturnType<typeof setTimeout> | null = null;
+    #homePrefixes: string[] = [];
 
     override async onServerStart(): Promise<void> {
         if (this.#cache.enabled) this.#subscribeRemoteInvalidations();
@@ -1208,6 +1223,23 @@ export class SystemKVStore extends PuterStore {
             'ttl',
         );
         await this.initialized;
+    }
+
+    /**
+     * Pin system keys under `keyPrefixes` to the `dynamo.home` replica, for
+     * items that every region increments; see `DDBClient.pinToHome`.
+     */
+    pinToHome(keyPrefixes: string[]): void {
+        this.#homePrefixes.push(...keyPrefixes);
+        this.clients.dynamo.pinToHome(
+            this.tableName,
+            (item) =>
+                item.namespace === SYSTEM_NAMESPACE &&
+                typeof item.key === 'string' &&
+                this.#homePrefixes.some((prefix) =>
+                    (item.key as string).startsWith(prefix),
+                ),
+        );
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -2677,12 +2709,24 @@ export class SystemKVStore extends PuterStore {
         return { res: true, usage: addUsage(probeUsage, usage) };
     }
 
+    /**
+     * `fence` makes the increment apply at most once per token: it is refused
+     * with `KvFencedWriteError` when the item already holds `fence.token` or a
+     * later one from the same writer. A writer's tokens must increase in the
+     * order its writes to a key are applied.
+     */
     async incr<T extends Record<string, number>>(
         {
             key,
             pathAndAmountMap,
             expireAt,
-        }: { key: string; pathAndAmountMap: T; expireAt?: number | null },
+            fence,
+        }: {
+            key: string;
+            pathAndAmountMap: T;
+            expireAt?: number | null;
+            fence?: { writer: string; token: number };
+        },
         opts?: KVOpts,
     ): Promise<
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
@@ -2724,20 +2768,42 @@ export class SystemKVStore extends PuterStore {
             renderer.names['#ttl'] = 'ttl';
         }
 
+        if (fence) {
+            setStatements.push('#fence = :fenceToken');
+            valueAttributeValues[':fenceToken'] = fence.token;
+            renderer.names['#fence'] = `${KV_FENCE_ATTR_PREFIX}${fence.writer}`;
+        }
+
         const updateExpression = `SET ${setStatements.join(', ')}`;
         // Only applies to a writable (or missing) row — a stale expired one,
         // or a legacy row whose ttl a condition can't read, refuses so the
         // caller settles it instead of building on top of it.
-        const runUpdate = () => {
+        const runUpdate = async () => {
             const live = writableRowFilter(Date.now() / 1000);
-            return this.clients.dynamo.update(
-                this.tableName,
-                { key, namespace },
-                updateExpression,
-                { ...valueAttributeValues, ...live.values },
-                { ...renderer.names, ...live.names },
-                { condition: live.expression },
-            );
+            const condition = fence
+                ? `(${live.expression}) AND (attribute_not_exists(#fence) OR #fence < :fenceToken)`
+                : live.expression;
+            try {
+                return await this.clients.dynamo.update(
+                    this.tableName,
+                    { key, namespace },
+                    updateExpression,
+                    { ...valueAttributeValues, ...live.values },
+                    { ...renderer.names, ...live.names },
+                    { condition },
+                );
+            } catch (e) {
+                if (
+                    fence &&
+                    isConditionRefused(e) &&
+                    (await this.#holdsFence(namespace, key, fence))
+                ) {
+                    throw new KvFencedWriteError(
+                        `kv: ${key} already applied token ${fence.token}`,
+                    );
+                }
+                throw e;
+            }
         };
 
         // Most increments land on an item whose parent maps already exist (a
@@ -2787,6 +2853,22 @@ export class SystemKVStore extends PuterStore {
         );
 
         return { res: response.Attributes?.value, usage };
+    }
+
+    /** Whether a live `key` already holds `fence.token` or a later one. */
+    async #holdsFence(
+        namespace: string,
+        key: string,
+        fence: { writer: string; token: number },
+    ): Promise<boolean> {
+        const { Item: item } = await this.clients.dynamo.get(
+            this.tableName,
+            { namespace, key },
+            true,
+        );
+        if (!item || isExpiredTtl(item.ttl, Date.now() / 1000)) return false;
+        const held = item[`${KV_FENCE_ATTR_PREFIX}${fence.writer}`];
+        return typeof held === 'number' && held >= fence.token;
     }
 
     async decr<T extends Record<string, number>>(
@@ -3004,6 +3086,7 @@ export class SystemKVStore extends PuterStore {
             key,
             pathAndValueMap,
             ttl,
+            onlyIfAbsent,
         }: {
             key: string;
             pathAndValueMap: Record<string, unknown>;
@@ -3012,6 +3095,11 @@ export class SystemKVStore extends PuterStore {
              * key's TTL; `null` removes it.
              */
             ttl?: number | null;
+            /**
+             * Leave paths that already hold a value as they are. The returned
+             * value shows which value each path ended up with.
+             */
+            onlyIfAbsent?: boolean;
         },
         opts?: KVOpts,
     ): Promise<KVResult<unknown>> {
@@ -3038,7 +3126,9 @@ export class SystemKVStore extends PuterStore {
         const renderer = new PathExpressionRenderer();
         const setStatements = pathTokens.map((tokens, idx) => {
             const attrName = renderer.path(tokens);
-            return `${attrName} = :value${idx}`;
+            return onlyIfAbsent
+                ? `${attrName} = if_not_exists(${attrName}, :value${idx})`
+                : `${attrName} = :value${idx}`;
         });
         const valueAttributeValues: Record<string, unknown> = Object.entries(
             pathAndValueMap,

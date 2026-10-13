@@ -3094,6 +3094,9 @@ describe('MeteringService', () => {
             return `${prefix}:actor:${chargeActor.user!.uuid}:${month}`;
         };
 
+        // A claim taken by this code holds a random token at least this big.
+        const CLAIM_TOKEN_MIN = 2 ** 32;
+
         const claimOf = async (chargeActor: Actor) => {
             const { res } = await server.stores.kv.get({
                 key: monthKey(chargeActor),
@@ -3184,7 +3187,7 @@ describe('MeteringService', () => {
             );
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
         });
 
         it('does not charge again for a month another deployment already claimed', async () => {
@@ -3202,8 +3205,8 @@ describe('MeteringService', () => {
 
             expect(listener).not.toHaveBeenCalled();
             expect(usage.total).toBe(60);
-            // The claim counts every attempt, so the loser is visible as 2.
-            expect(await claimOf(actor)).toBe(2);
+            // The other deployment's claim is left as it was.
+            expect(await claimOf(actor)).toBe(1);
         });
 
         it('skips the claim entirely when nothing is listening', async () => {
@@ -3230,15 +3233,15 @@ describe('MeteringService', () => {
 
         it('retries on the next call when the claim write fails', async () => {
             const listener = chargeOnce(600);
-            const incr = vi
-                .spyOn(server.stores.kv, 'incr')
+            const update = vi
+                .spyOn(server.stores.kv, 'update')
                 .mockRejectedValueOnce(new Error('kv unavailable'));
 
             const first = await target.incrementUsage(actor, 'kv:read', 1, 100);
             expect(listener).not.toHaveBeenCalled();
             expect(first.total).toBe(100);
 
-            incr.mockRestore();
+            update.mockRestore();
             const second = await target.incrementUsage(
                 actor,
                 'kv:read',
@@ -3248,6 +3251,62 @@ describe('MeteringService', () => {
 
             expect(listener).toHaveBeenCalledTimes(1);
             expect(second.total).toBe(800);
+        });
+
+        it('charges once when a claim write lands but its answer is lost', async () => {
+            const listener = chargeOnce(600);
+            const kv = server.stores.kv;
+            const realUpdate = kv.update.bind(kv);
+            const update = vi
+                .spyOn(kv, 'update')
+                .mockImplementationOnce(async (...args) => {
+                    await realUpdate(...args);
+                    throw new Error('request timed out');
+                });
+
+            const first = await target.incrementUsage(actor, 'kv:read', 1, 100);
+            expect(listener).not.toHaveBeenCalled();
+            expect(first.total).toBe(100);
+            const landed = await claimOf(actor);
+            expect(landed).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+
+            // The buffered view now carries the claim this node took.
+            update.mockRestore();
+            await server.stores.meteringBuffer.flushCycle();
+            const second = await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                100,
+            );
+
+            expect(listener).toHaveBeenCalledTimes(1);
+            expect(second.total).toBe(800);
+            expect(await claimOf(actor)).toBe(landed);
+        });
+
+        it('does not charge for a claim another attempt took after this one failed', async () => {
+            const listener = chargeOnce(600);
+            const update = vi
+                .spyOn(server.stores.kv, 'update')
+                .mockRejectedValueOnce(new Error('kv unavailable'));
+
+            await target.incrementUsage(actor, 'kv:read', 1, 100);
+            update.mockRestore();
+            await server.stores.kv.update({
+                key: monthKey(actor),
+                pathAndValueMap: { monthlyChargesApplied: CLAIM_TOKEN_MIN },
+            });
+
+            const second = await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                100,
+            );
+
+            expect(listener).not.toHaveBeenCalled();
+            expect(second.total).toBe(200);
         });
 
         // An actor with usage earlier in the month has a buffered view already
@@ -3275,7 +3334,7 @@ describe('MeteringService', () => {
             const usage = await target.incrementUsage(actor, 'kv:read', 1, 100);
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
             // Metering itself rather than pushing onto `charges` means the
             // cost lands on the record but misses the total this call already
             // computed — visible from the next read on.
@@ -3304,7 +3363,7 @@ describe('MeteringService', () => {
 
             expect(listener).toHaveBeenCalledTimes(1);
             expect(usage.total).toBe(315);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
         });
 
         it('merges every listener into one amount map and one increment', async () => {
@@ -3405,7 +3464,7 @@ describe('MeteringService', () => {
             );
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
         });
 
         it('hands listeners a user-scoped actor', async () => {
@@ -3441,7 +3500,7 @@ describe('MeteringService', () => {
             const usage = await target.incrementUsage(actor, 'kv:read', 1, 50);
 
             expect(usage.total).toBe(50);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
         });
 
         // The v1 → v2 claim shim: September's claim stays on the v1 key so a
@@ -3474,9 +3533,7 @@ describe('MeteringService', () => {
 
                 expect(listener).not.toHaveBeenCalled();
                 expect(usage.total).toBe(10);
-                // The claim counts every attempt, so a pre-existing claim of
-                // 1 reads back as 2 once this call's own attempt lands.
-                expect(await claimOf(septActor)).toBe(2);
+                expect(await claimOf(septActor)).toBe(1);
             });
 
             it('charges a user with no v1 September claim exactly once', async () => {
@@ -3505,9 +3562,9 @@ describe('MeteringService', () => {
                 );
                 expect(listener).toHaveBeenCalledTimes(1);
                 expect(second.total).toBe(520);
-                // Every attempt bumps the v1 counter, win or lose, so the
-                // second (losing) attempt reads back as 2.
-                expect(await claimOf(septActor)).toBe(2);
+                expect(await claimOf(septActor)).toBeGreaterThanOrEqual(
+                    CLAIM_TOKEN_MIN,
+                );
             });
 
             it('claims on the v2 key in October and charges exactly once', async () => {
@@ -3540,7 +3597,7 @@ describe('MeteringService', () => {
                 expect(
                     (v2Record as { monthlyChargesApplied?: number } | null)
                         ?.monthlyChargesApplied,
-                ).toBe(1);
+                ).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
 
                 // Nothing this month ever touches the v1 key.
                 const v1Key = `${METRICS_PREFIX}:actor:${octActor.user!.uuid}:2026-10`;
@@ -3580,7 +3637,9 @@ describe('MeteringService', () => {
 
                 expect([first, second].filter(Boolean)).toHaveLength(1);
                 expect(listener).toHaveBeenCalledTimes(1);
-                expect(await claimOf(raceActor)).toBe(2);
+                expect(await claimOf(raceActor)).toBeGreaterThanOrEqual(
+                    CLAIM_TOKEN_MIN,
+                );
             });
         });
     });
