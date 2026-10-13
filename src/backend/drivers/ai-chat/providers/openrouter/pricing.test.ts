@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import type { IChatModel } from '../../types.js';
 import { buildCostsOverride, costsForRequest } from '../../utils/pricing.js';
 import { mapOpenRouterPricing } from './pricing.js';
-import fixture from './fixtures/pricing.json';
+import fixture from './fixtures/pricing.test.json';
 
 const catalogModel = (): IChatModel => {
     const pricing = mapOpenRouterPricing(fixture);
