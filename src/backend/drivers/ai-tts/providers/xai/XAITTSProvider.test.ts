@@ -115,15 +115,18 @@ describe('XAITTSProvider catalog', () => {
         }
     });
 
-    it('listEngines reports a single xai-tts engine with pricing_per_million_chars', async () => {
+    it('listEngines reports a single xai-tts engine priced in dollars per 1M chars', async () => {
         const provider = makeProvider();
         const engines = await provider.listEngines();
         expect(engines).toHaveLength(1);
         expect(engines[0]).toMatchObject({
             id: 'xai-tts',
             provider: 'xai',
-            pricing_per_million_chars: 1500,
+            pricing_per_million_chars: 15,
         });
+        expect(engines[0].pricing_per_million_chars).toBe(
+            XAI_TTS_COSTS['xai-tts'] / 100,
+        );
     });
 });
 

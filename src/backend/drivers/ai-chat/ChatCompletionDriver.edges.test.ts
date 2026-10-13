@@ -55,6 +55,8 @@ import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
+import { XAI_CHAT_MODELS } from './providers/xai/catalog.js';
+import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { handle_completion_output } from './utils/OpenAIUtil.js';
 import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 
@@ -126,6 +128,10 @@ beforeAll(async () => {
     );
     vi.spyOn(NeuralwattProvider.prototype, 'models').mockResolvedValue(
         aggregatorCatalog('neuralwatt-only-model') as never,
+    );
+    // xAI reprices its curated catalog over HTTP; serve the curated one.
+    vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+        XAI_CHAT_MODELS,
     );
     fullDriver = await makeDriver(FULL_PROVIDER_CONFIG);
     fakeOnlyDriver = await makeDriver({
@@ -969,6 +975,9 @@ describe('ChatCompletionDriver output cap on xAI', () => {
             server.services.metering,
             'getUsageHeadroom',
         ).mockResolvedValue({ balance: 360_000, held: 0 });
+        vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+            XAI_CHAT_MODELS,
+        );
         const create = vi
             .spyOn(OpenAI.Chat.Completions.prototype, 'create')
             .mockResolvedValue(chatCompletion('hi') as never);

@@ -218,6 +218,28 @@ describe('ElevenLabsTTSProvider catalog', () => {
         );
     });
 
+    it('prices each engine from the cost table in dollars per 1M chars', async () => {
+        const provider = makeProvider();
+        const engines = await provider.listEngines();
+        // toBe considers NaN equal to itself, so assert finiteness separately.
+        for (const cost of Object.values(ELEVENLABS_TTS_COSTS)) {
+            expect(Number.isFinite(cost)).toBe(true);
+        }
+        for (const engine of engines) {
+            expect(Number.isFinite(engine.pricing_per_million_chars)).toBe(
+                true,
+            );
+            expect(engine.pricing_per_million_chars).toBe(
+                ELEVENLABS_TTS_COSTS[engine.id] / 100,
+            );
+        }
+        const byId = Object.fromEntries(
+            engines.map((e) => [e.id, e.pricing_per_million_chars]),
+        );
+        expect(byId.eleven_multilingual_v2).toBe(162);
+        expect(byId.eleven_flash_v2_5).toBe(81);
+    });
+
     it.each(['eleven_turbo_v2_5', 'eleven_turbo_v2'])(
         'drops the deprecated %s from the listing',
         async (model) => {

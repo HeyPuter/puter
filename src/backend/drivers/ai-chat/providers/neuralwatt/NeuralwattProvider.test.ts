@@ -20,9 +20,9 @@
 /**
  * Offline unit tests for NeuralwattProvider.
  *
- * Boots a real PuterServer and constructs NeuralwattProvider against the
- * live MeteringService. The OpenAI SDK and axios (catalog + quota) are
- * mocked at their module boundaries.
+ * Boots a real PuterServer and constructs NeuralwattProvider against the live
+ * MeteringService. The OpenAI SDK and axios (catalog + quota) are mocked at
+ * their module boundaries.
  */
 
 import { Writable } from 'node:stream';
@@ -94,6 +94,7 @@ const SAMPLE_API_MODELS = [
             display_name: 'DeepSeek V4 Flash',
             description: 'Fast tool-calling model',
             pricing: {
+                currency: 'USD',
                 input_per_million: 0.14,
                 output_per_million: 0.28,
                 cached_input_per_million: 0.014,
@@ -115,6 +116,7 @@ const SAMPLE_API_MODELS = [
         metadata: {
             display_name: 'GLM 5.1',
             pricing: {
+                currency: 'USD',
                 input_per_million: 0.35,
                 output_per_million: 1.38,
                 cached_input_per_million: 0.035,
@@ -136,6 +138,7 @@ const SAMPLE_API_MODELS = [
         metadata: {
             display_name: 'Coming Soon',
             pricing: {
+                currency: 'USD',
                 input_per_million: 0,
                 output_per_million: 0,
                 pricing_tbd: true,
@@ -150,6 +153,7 @@ const SAMPLE_API_MODELS = [
             display_name: 'Old',
             deprecated: true,
             pricing: {
+                currency: 'USD',
                 input_per_million: 1,
                 output_per_million: 2,
                 pricing_tbd: false,
@@ -228,6 +232,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -269,6 +274,7 @@ describe('Neuralwatt model mapping helpers', () => {
             metadata: {
                 display_name: 'Gemma 4 31B',
                 pricing: {
+                    currency: 'USD',
                     input_per_million: 0.1,
                     output_per_million: 0.2,
                     pricing_tbd: false,
@@ -637,4 +643,85 @@ describe('NeuralwattProvider.complete streaming', () => {
             energy_kwh: 0,
         });
     });
+});
+
+describe('Neuralwatt catalog price validation', () => {
+    it.each([null, undefined, -1, NaN])(
+        'does not fabricate prices from %s',
+        (value) => {
+            const mapped = mapNeuralwattApiModel({
+                id: 'fixture',
+                created: 0,
+                metadata: {
+                    pricing: {
+                        currency: 'USD',
+                        input_per_million: value as number,
+                        output_per_million: 1,
+                    },
+                },
+            })!;
+            expect(mapped.costs.prompt_tokens).toBeUndefined();
+            expect(mapped.costs.completion_tokens).toBe(100);
+            expect(mapped.costs.cached_tokens).toBeUndefined();
+            expect(mapped.costs.cached_output_tokens).toBeUndefined();
+            expect(mapped.release_date).toBeUndefined();
+        },
+    );
+
+    it.each(['CNY', undefined])(
+        'keeps unverified currency %s unpriced',
+        (currency) => {
+            expect(
+                mapNeuralwattApiModel({
+                    id: 'fixture',
+                    metadata: {
+                        pricing: {
+                            currency,
+                            input_per_million: 1,
+                            output_per_million: 2,
+                        },
+                    },
+                })!.costs,
+            ).toEqual({ tokens: 1_000_000 });
+        },
+    );
+
+    it('preserves explicit zero and numeric cached-output prices separately', () => {
+        const mapped = mapNeuralwattApiModel({
+            id: 'fixture',
+            metadata: {
+                pricing: {
+                    currency: 'USD',
+                    input_per_million: 0,
+                    output_per_million: 2,
+                    cached_input_per_million: 0,
+                    cached_output_per_million: 0.25,
+                },
+            },
+        })!;
+        expect(mapped.costs).toEqual({
+            tokens: 1_000_000,
+            prompt_tokens: 0,
+            completion_tokens: 200,
+            cached_tokens: 0,
+            cached_output_tokens: 25,
+        });
+    });
+
+    it('does not use registration timestamps as model release dates', () => {
+        expect(
+            mapNeuralwattApiModel(SAMPLE_API_MODELS[0]!)!.release_date,
+        ).toBeUndefined();
+    });
+});
+
+
+it('retains the last-good neuralwatt catalog after a malformed refresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { provider } = makeProvider();
+    const good = await provider.models();
+    vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+    axiosRequestMock.mockResolvedValueOnce({ data: {} });
+    expect(await provider.models()).toBe(good);
 });

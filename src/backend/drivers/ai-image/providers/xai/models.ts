@@ -24,15 +24,12 @@ export type XaiImageModel = IImageModel & {
     defaultEditQuality?: string;
 };
 
-// Costs are in usd-cents (1 = $0.01). xAI's "Grok Imagine" image API bills a
-// per-image output rate by resolution tier (1k/2k) plus, for edits, a
-// per-input-image "media input" rate. Rates per the xAI Imagine pricing table:
-// https://docs.x.ai/developers/pricing
-//   grok-imagine-image          media $0.002  | 1k $0.02 | 2k $0.02
-//   grok-imagine-image-2.0      media $0.01   | low 1k $0.04, 2k $0.06 | medium 1k $0.06, 2k $0.08
-// The pricing page only prints a flat $0.04 for 2.0 while the models listing
-// reports $0.06; the release notes say images bill at the quality served, so
-// the 2.0 tiers above are the best public reading, not a vendor table.
+// Costs are in usd-cents (1 = $0.01): a per-image output rate by resolution
+// (and, for 2.0, quality) plus a per-input-image `media_input` rate on edits.
+// Rates per https://docs.x.ai/developers/pricing. The 2.0 output tiers are
+// refreshed from the `pricing` matrix of GET /v1/image-generation-models (see
+// catalog.ts); every other rate here is curated, since the endpoint lists no
+// media-input price and its `image_price` unit is ambiguous.
 export const XAI_IMAGE_GENERATION_MODELS: XaiImageModel[] = [
     {
         puterId: 'x-ai:x-ai/grok-imagine-image',

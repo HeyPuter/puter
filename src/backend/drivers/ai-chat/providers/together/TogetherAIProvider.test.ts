@@ -160,6 +160,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -758,4 +759,31 @@ describe('TogetherAIProvider.checkModeration', () => {
             /not implemented/i,
         );
     });
+});
+
+
+describe('Together catalog price validation', () => {
+    it('does not fabricate missing prices or round fractional microcents away', async () => {
+        modelsListMock.mockResolvedValueOnce([{ id: 'fixture/model', type: 'chat', context_length: 1000,
+            pricing: { input: 0.014, output: null, cached_input: -1 } }]);
+        const { provider } = makeProvider();
+        const [model] = await provider.models();
+        expect(model.costs.input).toBeCloseTo(1.4);
+        expect(model.costs.output).toBeUndefined();
+        expect(model.costs.cached_input).toBeUndefined();
+        await expect(withTestActor(() => provider.complete({ model: model.id, messages: [] })))
+            .rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+});
+
+
+it('retains the last-good together catalog after a malformed refresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { provider } = makeProvider();
+    const good = await provider.models();
+    vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+    modelsListMock.mockResolvedValueOnce({});
+    expect(await provider.models()).toBe(good);
 });

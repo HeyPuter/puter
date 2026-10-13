@@ -210,6 +210,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -267,7 +268,7 @@ describe('OpenRouterProvider model catalog', () => {
         expect(ids).not.toContain('qwen/qwen3-max');
     });
 
-    it('coerces string prices and skips the structured overrides entry', async () => {
+    it('coerces string prices and normalizes conditional tiers', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
         const sol = models.find((m) => m.id === 'openrouter:openai/gpt-6.1-sol')!;
@@ -275,8 +276,11 @@ describe('OpenRouterProvider model catalog', () => {
             tokens: 1_000_000,
             prompt: 200,
             completion: 1000,
-            request: 0,
         });
+        expect(sol.pricingOverrides).toEqual([{
+            minPromptTokens: 272000,
+            costs: { prompt: 400, completion: 1500 },
+        }]);
     });
 
     it('caches the coerced model list after the first axios round-trip', async () => {
@@ -333,22 +337,11 @@ describe('OpenRouterProvider model catalog', () => {
         expect(capped.max_tokens).toBe(16000);
     });
 
-    it('maps OpenRouter created timestamps to release_date metadata', async () => {
+    it('does not reinterpret catalog-added timestamps as release dates', async () => {
         const { provider } = makeProvider();
-        const models = await provider.models();
-        expect(models).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    id: 'openrouter:openai/gpt-6-luna',
-                    release_date: '2024-05-01',
-                }),
-                expect.objectContaining({
-                    id: 'openrouter:anthropic/claude-haiku-4.5',
-                    release_date: '2025-10-15',
-                }),
-            ]),
-        );
+        expect((await provider.models()).every(model => model.release_date === undefined)).toBe(true);
     });
+
 });
 
 // ── Disallowed model gate ───────────────────────────────────────────
@@ -981,5 +974,34 @@ describe('OpenRouterProvider.checkModeration', () => {
         expect(() => provider.checkModeration('anything')).toThrow(
             /not implemented/i,
         );
+    });
+});
+
+
+describe('OpenRouter catalog refresh validation', () => {
+    it('keeps missing model fields and prices unknown and blocks unpriced inference', async () => {
+        axiosRequestMock.mockResolvedValue({ data: { data: [{ id: 'fixture/model', name: 'Fixture' }] } });
+        const { provider } = makeProvider();
+        const [model] = await provider.models();
+        expect(model.costs).toEqual({ tokens: 1_000_000 });
+        expect(model.context).toBeUndefined();
+        expect(model.max_tokens).toBe(0);
+        await expect(withTestActor(() => provider.complete({ model: 'openrouter:fixture/model', messages: [] })))
+            .rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['malformed', 'failed', 'ambiguous conditional price'])('retains last-good data after a %s refresh', async failure => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { provider } = makeProvider();
+        const good = await provider.models();
+        vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+        if (failure === 'failed') axiosRequestMock.mockRejectedValueOnce(new Error('unavailable'));
+        else if (failure === 'malformed') axiosRequestMock.mockResolvedValueOnce({ data: {} });
+        else axiosRequestMock.mockResolvedValueOnce({ data: { data: [{ ...SAMPLE_API_MODELS[0], pricing: {
+            prompt: '0.000002', overrides: [{ min_prompt_tokens: 10, prompt: '' }],
+        } }] } });
+        expect(await provider.models()).toBe(good);
     });
 });

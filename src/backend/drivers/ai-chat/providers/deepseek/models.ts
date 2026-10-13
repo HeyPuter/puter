@@ -19,9 +19,9 @@
 
 import type { IChatModel } from '../../types.js';
 
-// Hardcoded from https://api-docs.deepseek.com/quick_start/pricing. DeepSeek
-// bills half price off-peak; we charge the peak rate since the window isn't
-// known when a request is priced.
+// Peak rates from https://api-docs.deepseek.com/quick_start/pricing. Direct
+// DeepSeek always bills at these rates, including off-peak hours, weekends and
+// holidays, so keep conditional `pricingOverrides` off these models.
 export const DEEPSEEK_MODELS: IChatModel[] = [
     {
         puterId: 'deepseek:deepseek/deepseek-flash',

@@ -23,6 +23,8 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { catalogPrice } from '../../utils/pricing.js';
+import { mapOpenRouterPricing } from './pricing.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -33,18 +35,6 @@ import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 
 type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
-};
-
-const openRouterReleaseDate = (created: unknown): string | undefined => {
-    const seconds = Number(created);
-    if (!Number.isFinite(seconds) || seconds <= 0) {
-        return undefined;
-    }
-    const date = new Date(seconds * 1000);
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
 };
 
 export class OpenRouterProvider extends OpenAICompatProvider {
@@ -58,6 +48,7 @@ export class OpenRouterProvider extends OpenAICompatProvider {
                 baseURL: apiBaseUrl,
                 ...sdkClientOptions(),
             }),
+            requireTokenPrices: true,
             defaultModel: 'openrouter:openai/gpt-6-luna',
             idPrefix: 'openrouter:',
             passthrough: ['temperature'],
@@ -105,11 +96,17 @@ export class OpenRouterProvider extends OpenAICompatProvider {
             method: 'GET',
             url: `${this.#apiBaseUrl}/models`,
             signal,
+            maxContentLength: 8 * 1024 * 1024,
         });
-        const models = resp.data.data ?? [];
+        if (!Array.isArray(resp.data?.data))
+            throw new Error('Invalid OpenRouter catalog');
+        const models = resp.data.data;
         const coerced_models: IChatModel[] = [];
         for (const model of models) {
-            if ((model.id as string).includes('openrouter/auto')) {
+            if (
+                typeof model.id !== 'string' ||
+                model.id.includes('openrouter/auto')
+            ) {
                 continue;
             }
             // OpenRouter sets expiration_date on deprecated models scheduled for removal.
@@ -119,32 +116,13 @@ export class OpenRouterProvider extends OpenAICompatProvider {
             const overridenModel = OPEN_ROUTER_MODEL_OVERRIDES.find(
                 (m) => m.id === `openrouter:${model.id}`,
             );
-            const microcentCosts = Object.fromEntries(
-                Object.entries(model.pricing)
-                    // Skip structured entries like the long-context `overrides` tier list.
-                    .filter(
-                        ([, v]) =>
-                            (typeof v === 'string' || typeof v === 'number') &&
-                            Number.isFinite(Number(v)),
-                    )
-                    .map(([k, v]) => [
-                        k,
-                        Math.round(
-                            ((v as number) < 0 ? 1 : (v as number)) *
-                                1_000_000 *
-                                100,
-                        ),
-                    ]),
-            );
-            if (!microcentCosts.request) {
-                microcentCosts.request = 0;
-            }
+            const pricing = mapOpenRouterPricing(model.pricing ?? {});
             coerced_models.push({
                 id: `openrouter:${model.id}`,
-                name: `${model.name} (OpenRouter)`,
+                name: `${model.name ?? model.id} (OpenRouter)`,
                 aliases: [
                     model.id,
-                    model.name,
+                    ...(typeof model.name === 'string' ? [model.name] : []),
                     `openrouter/${model.id}`,
                     model.id.split('/').slice(1).join('/'),
                 ],
@@ -152,16 +130,28 @@ export class OpenRouterProvider extends OpenAICompatProvider {
                 // OpenRouter leaves max_completion_tokens null when a model
                 // declares no output cap separate from its context window.
                 max_tokens:
-                    model.top_provider.max_completion_tokens ??
-                    model.context_length,
+                    model.top_provider?.max_completion_tokens ??
+                    model.context_length ??
+                    0,
                 costs_currency: 'usd-cents',
                 input_cost_key: 'prompt',
                 output_cost_key: 'completion',
                 costs: {
                     tokens: 1_000_000,
-                    ...microcentCosts,
+                    ...pricing.costs,
                 },
-                release_date: openRouterReleaseDate(model.created),
+                pricingOverrides: pricing.overrides,
+                modalities: model.architecture
+                    ? {
+                          input: model.architecture.input_modalities ?? [
+                              'text',
+                          ],
+                          output: model.architecture.output_modalities ?? [
+                              'text',
+                          ],
+                      }
+                    : undefined,
+                tool_call: model.supported_parameters?.includes('tools'),
                 ...overridenModel,
             });
         }
@@ -184,12 +174,12 @@ export class OpenRouterProvider extends OpenAICompatProvider {
                 input_cache_read:
                     usage.prompt_tokens_details?.cached_tokens ?? 0,
                 request:
-                    (usage as unknown as Record<string, number>).request || 1,
+                    (usage as unknown as Record<string, number>).request ?? 1,
             },
             // What OpenRouter billed, when it says; the catalog's prices
             // otherwise.
             meterOptions:
-                typeof usage.cost === 'number'
+                catalogPrice(usage.cost) !== undefined
                     ? { authoritativeUsd: usage.cost }
                     : {},
         };

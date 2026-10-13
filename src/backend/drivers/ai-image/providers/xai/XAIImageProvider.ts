@@ -29,6 +29,8 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { toUrlOrDataUri } from '../../inputImage.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { cachedRemoteCatalog } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
+import { fetchXaiImageCatalog } from './catalog.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
 // xAI's Grok Imagine edit endpoint accepts up to 5 source images per request.
@@ -41,6 +43,12 @@ interface XaiImageResponse {
 export class XAIImageProvider implements IImageProvider {
     #client: OpenAI;
     #meteringService: AiMeteringService;
+    /**
+     * The catalog last handed to the driver; generate() bills from it so a
+     * hold, its metering and the advertised price always agree.
+     */
+    #models: XaiImageModel[] = XAI_IMAGE_GENERATION_MODELS;
+    #catalog: () => Promise<XaiImageModel[]>;
 
     constructor(
         config: { apiKey: string },
@@ -55,10 +63,17 @@ export class XAIImageProvider implements IImageProvider {
             apiKey: config.apiKey,
             baseURL: 'https://api.x.ai/v1',
         });
+        this.#catalog = cachedRemoteCatalog({
+            name: 'xAI image pricing',
+            fallback: XAI_IMAGE_GENERATION_MODELS,
+            fetch: (signal, previous) =>
+                fetchXaiImageCatalog(config.apiKey, signal, previous),
+        });
     }
 
-    models(): XaiImageModel[] {
-        return XAI_IMAGE_GENERATION_MODELS;
+    async models(): Promise<XaiImageModel[]> {
+        this.#models = await this.#catalog();
+        return this.#models;
     }
 
     getDefaultModel(): string {
@@ -248,7 +263,7 @@ export class XAIImageProvider implements IImageProvider {
     }
 
     #getModel(model?: string) {
-        const models = this.models();
+        const models = this.#models;
         const found = models.find(
             (m) => m.id === model || m.aliases?.includes(model ?? ''),
         );

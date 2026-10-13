@@ -21,6 +21,7 @@ import { Together } from 'together-ai';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { catalogPrice } from '../../utils/pricing.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -40,6 +41,7 @@ export class TogetherAIProvider extends OpenAICompatProvider {
         });
         super(meteringService, {
             client: together,
+            requireTokenPrices: true,
             defaultModel: 'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
             idPrefix: 'togetherai:',
             passthrough: ['temperature'],
@@ -64,6 +66,8 @@ export class TogetherAIProvider extends OpenAICompatProvider {
             query: { serverless: 'true' },
             signal,
         });
+        if (!Array.isArray(apiModels))
+            throw new Error('Invalid Together catalog');
         const models: IChatModel[] = [];
         for (const model of apiModels) {
             if (
@@ -88,8 +92,13 @@ export class TogetherAIProvider extends OpenAICompatProvider {
                     costs: {
                         tokens: 1_000_000,
                         ...Object.fromEntries(
-                            Object.entries(model.pricing ?? {}).map(
-                                ([k, v]) => [k, (v as number) * 100],
+                            Object.entries(model.pricing ?? {}).flatMap(
+                                ([key, value]) => {
+                                    const price = catalogPrice(value, 100);
+                                    return price === undefined
+                                        ? []
+                                        : [[key, price]];
+                                },
                             ),
                         ),
                     },

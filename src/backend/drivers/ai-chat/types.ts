@@ -31,6 +31,16 @@ export interface ModelModalities {
     output: string[];
 }
 
+export interface ModelPricingOverride {
+    /** Applies above this many input tokens, or at it too when inclusive. */
+    minPromptTokens?: number;
+    minPromptTokensInclusive?: boolean;
+    utcStart?: number;
+    utcEnd?: number;
+    utcDays?: number[];
+    costs: ModelCost;
+}
+
 export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     string,
     unknown
@@ -54,6 +64,7 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
         input_multiplier: number;
         output_multiplier: number;
     };
+    pricingOverrides?: ModelPricingOverride[];
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;

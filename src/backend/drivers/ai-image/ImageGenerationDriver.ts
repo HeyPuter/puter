@@ -33,6 +33,7 @@ import {
     saveGeneratedMediaToFS,
 } from '../util/generatedMedia.js';
 import { ModelCatalog } from '../util/modelCatalog.js';
+import { CATALOG_TTL_MS } from '../ai-chat/utils/cachedRemoteCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
@@ -86,6 +87,13 @@ export class ImageGenerationDriver extends PuterDriver {
         { provider: string; reason?: string }
     >();
     #catalog = new ModelCatalog<IImageModel>([], [], 'aiImage');
+    #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
+    /**
+     * The model map rebuild in flight. Providers adopt their refreshed prices
+     * as each catalog lands, before the map is swapped, so generate() waits
+     * this out to bill only prices the driver publishes.
+     */
+    #modelMapBuild: Promise<void> | undefined;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -98,12 +106,16 @@ export class ImageGenerationDriver extends PuterDriver {
 
     override async onServerStart() {
         this.#registerProviders();
-        await this.#buildModelMap();
-        this.#catalog = new ModelCatalog(
-            this.#listModels(),
-            Object.values(this.#modelIdMap).flat(),
-            'aiImage',
-        );
+        await this.#refreshModelMap();
+        // Remote price catalogs expire; rebuild so listings track billing.
+        this.#modelMapRefresh = setInterval(() => {
+            void this.#refreshModelMap();
+        }, CATALOG_TTL_MS);
+        this.#modelMapRefresh.unref?.();
+    }
+
+    override onServerShutdown() {
+        clearInterval(this.#modelMapRefresh);
     }
 
     async models(): Promise<IImageModel[]> {
@@ -179,6 +191,10 @@ export class ImageGenerationDriver extends PuterDriver {
         const resolvedOutputPath = puterOutputPath
             ? await resolveOutputPath(this.services, actor, puterOutputPath)
             : undefined;
+
+        // Last await before provider.generate() takes its price snapshot:
+        // from here routing and pricing both read the published map.
+        while (this.#modelMapBuild) await this.#modelMapBuild.catch(() => {});
 
         let modelId =
             typeof args.model === 'string'
@@ -431,21 +447,34 @@ export class ImageGenerationDriver extends PuterDriver {
         }
     }
 
+    /** Rebuilds the model map; overlapping callers share one rebuild. */
+    #refreshModelMap(): Promise<void> {
+        this.#modelMapBuild ??= this.#buildModelMap().finally(() => {
+            this.#modelMapBuild = undefined;
+        });
+        return this.#modelMapBuild;
+    }
+
     async #buildModelMap() {
+        const catalogs = await Promise.all(
+            Object.entries(this.#providers).map(
+                async ([providerName, provider]) =>
+                    [providerName, provider, await provider.models()] as const,
+            ),
+        );
+        // Everything below is synchronous, so requests never see a half-built map.
         this.#modelIdMap = Object.create(null);
         this.#excludedModelIdMap = Object.create(null);
         this.#retiredModelAliases.clear();
         const models: IImageModel[] = [];
-        for (const [providerName, provider] of Object.entries(
-            this.#providers,
-        )) {
+        for (const [providerName, provider, entries] of catalogs) {
             for (const alias of provider.retiredModelAliases ?? []) {
                 this.#retiredModelAliases.set(alias.trim().toLowerCase(), {
                     provider: providerName,
                     reason: provider.retiredModelReasons?.[alias],
                 });
             }
-            for (const entry of await provider.models()) {
+            for (const entry of entries) {
                 models.push({ ...entry, provider: providerName });
             }
         }
@@ -494,6 +523,11 @@ export class ImageGenerationDriver extends PuterDriver {
                 register(alias, model);
             }
         }
+        this.#catalog = new ModelCatalog(
+            this.#listModels(),
+            Object.values(this.#modelIdMap).flat(),
+            'aiImage',
+        );
     }
 
     #resolveModel(modelId: string, provider?: string): IImageModel | null {

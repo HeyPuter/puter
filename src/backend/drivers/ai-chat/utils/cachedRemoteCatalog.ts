@@ -23,7 +23,7 @@ export const CATALOG_TTL_MS = 15 * 60 * 1000;
 export interface CachedRemoteCatalogOptions<T> {
     /** Names the catalog in the warning a failed fetch logs. */
     name: string;
-    fetch: (signal: AbortSignal) => Promise<T>;
+    fetch: (signal: AbortSignal, previous?: T) => Promise<T>;
     /** What callers get when the first fetch fails. */
     fallback: T;
     ttlMs?: number;
@@ -56,7 +56,10 @@ export const cachedRemoteCatalog = <T>({
 
     const load = async (): Promise<T> => {
         try {
-            const value = await fetch(AbortSignal.timeout(timeoutMs));
+            const value = await fetch(
+                AbortSignal.timeout(timeoutMs),
+                last?.value,
+            );
             last = { value };
             freshUntil = Date.now() + ttlMs;
             failing = false;

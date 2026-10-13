@@ -36,6 +36,7 @@ import {
     expect,
     it,
     vi,
+    type Mock,
     type MockInstance,
 } from 'vitest';
 
@@ -45,8 +46,11 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
+import { CATALOG_TTL_MS } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
+import { ImageGenerationDriver } from '../../ImageGenerationDriver.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
+import modelSearchFixture from './fixtures/model-search.json';
 import { translateProviderError } from '../../../../controllers/drivers/DriverController.js';
 
 // Keep URL downloads offline; other input parsing stays real.
@@ -62,7 +66,13 @@ vi.mock('../../inputImage.js', async (orig) => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let fetchSpy: MockInstance<typeof fetch>;
+/**
+ * Every outbound request; `fetchSpy` and `modelSearchFetch` each see one
+ * endpoint's share.
+ */
+let globalFetchSpy: MockInstance<typeof fetch>;
+let fetchSpy: Mock<typeof fetch>;
+let modelSearchFetch: Mock<typeof fetch>;
 let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
@@ -102,7 +112,17 @@ const makeProvider = (
 
 beforeEach(() => {
     fetchImageBytesMock.mockReset();
-    fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
+    fetchSpy = vi.fn<typeof fetch>();
+    modelSearchFetch = vi.fn<typeof fetch>(async () =>
+        okJsonResponse(modelSearchFixture),
+    );
+    globalFetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) =>
+            String(input).includes('/ai/models/search')
+                ? modelSearchFetch(input, init)
+                : fetchSpy(input, init),
+        );
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -125,7 +145,7 @@ const okJsonResponse = (body: unknown) =>
 describe('CloudflareImageProvider construction', () => {
     it('does not call out at construction (lazy fetch)', () => {
         makeProvider();
-        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(globalFetchSpy).not.toHaveBeenCalled();
     });
 });
 
@@ -139,9 +159,20 @@ describe('CloudflareImageProvider model catalog', () => {
         );
     });
 
-    it('exposes the static CLOUDFLARE_IMAGE_GENERATION_MODELS list verbatim', () => {
-        const provider = makeProvider();
-        expect(provider.models()).toBe(CLOUDFLARE_IMAGE_GENERATION_MODELS);
+    it('lists the curated models at the live model-search prices', async () => {
+        // The live prices match the curated ones; flux models stay unpriced upstream.
+        expect(await makeProvider().models()).toEqual(
+            CLOUDFLARE_IMAGE_GENERATION_MODELS,
+        );
+        expect(modelSearchFetch).toHaveBeenCalledOnce();
+    });
+
+    it('falls back to the curated models when model search fails', async () => {
+        modelSearchFetch.mockRejectedValueOnce(new Error('offline'));
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        expect(await makeProvider().models()).toBe(
+            CLOUDFLARE_IMAGE_GENERATION_MODELS,
+        );
     });
 });
 
@@ -814,5 +845,248 @@ describe('Cloudflare priced legacy models', () => {
         fetchSpy.mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }));
         await withTestActor(() => makeProvider().generate({ model: '@cf/leonardo/lucid-origin', prompt: 'A cup', imageSize: { kind: 'pixels', w: 512, h: 512 }, steps: 1 }));
         expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 713200);
+    });
+});
+
+describe('Cloudflare model-search pricing', () => {
+    /** The live fixture with Phoenix's paid rates changed upstream. */
+    const repricedPhoenix = () => {
+        const body = structuredClone(modelSearchFixture);
+        const phoenix = body.result.find(
+            (model) => model.name === '@cf/leonardo/phoenix-1.0',
+        )!;
+        phoenix.properties = [
+            {
+                property_id: 'price',
+                value: [
+                    {
+                        unit: 'per 512 by 512 tile',
+                        price: 0.01,
+                        currency: 'USD',
+                    },
+                    { unit: 'per step', price: 0.000202, currency: 'USD' },
+                ],
+            },
+        ];
+        return body;
+    };
+
+    const runPhoenix = (provider: CloudflareImageProvider) => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: 'AAAA' } }),
+        );
+        return withTestActor(() =>
+            provider.generate({
+                model: '@cf/leonardo/phoenix-1.0',
+                prompt: 'A cup',
+                // 1024x600 rounds up to 2x2 tiles.
+                imageSize: { kind: 'pixels', w: 1024, h: 600 },
+                steps: 10,
+            }),
+        );
+    };
+
+    it('quotes, bills, and lists the same changed paid rates over unchanged geometry', async () => {
+        modelSearchFetch.mockImplementation(async () =>
+            okJsonResponse(repricedPhoenix()),
+        );
+        const provider = makeProvider();
+        const listed = (await provider.models()).find(
+            (model) => model.id === '@cf/leonardo/phoenix-1.0',
+        );
+        await runPhoenix(provider);
+
+        expect(listed?.costs).toEqual({ tile_512: 1_000_000, step: 20_200 });
+        expect(hasCreditsSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            4 * 1_000_000 + 10 * 20_200,
+        );
+        expect(batchIncrementUsagesSpy.mock.calls[0]![1]).toEqual([
+            expect.objectContaining({
+                usageType:
+                    'cloudflare:workers-ai:leonardo/phoenix-1.0:tile_512',
+                usageAmount: 4,
+                costOverride: 4_000_000,
+            }),
+            expect.objectContaining({
+                usageType: 'cloudflare:workers-ai:leonardo/phoenix-1.0:step',
+                usageAmount: 10,
+                costOverride: 202_000,
+            }),
+        ]);
+        expect(modelSearchFetch).toHaveBeenCalledOnce();
+        // The shared curated table is never written through.
+        expect(
+            CLOUDFLARE_IMAGE_GENERATION_MODELS.find(
+                (model) => model.id === '@cf/leonardo/phoenix-1.0',
+            )?.costs,
+        ).toEqual({ tile_512: 583000, step: 11000 });
+    });
+
+    it('bills curated rates without a model search until a catalog is published', async () => {
+        modelSearchFetch.mockImplementation(async () =>
+            okJsonResponse(repricedPhoenix()),
+        );
+        await runPhoenix(makeProvider());
+
+        expect(modelSearchFetch).not.toHaveBeenCalled();
+        expect(hasCreditsSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            4 * 583_000 + 10 * 11_000,
+        );
+    });
+
+    it('keeps billing the published rates while a refresh is in flight', async () => {
+        const provider = makeProvider();
+        await provider.models();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        modelSearchFetch.mockImplementation(async () => {
+            await gate;
+            return okJsonResponse(repricedPhoenix());
+        });
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60 * 60 * 1000);
+        const refresh = provider.models();
+        await vi.waitFor(() =>
+            expect(modelSearchFetch).toHaveBeenCalledTimes(2),
+        );
+        await runPhoenix(provider);
+        release();
+        await refresh;
+        await runPhoenix(provider);
+
+        expect(hasCreditsSpy.mock.calls.map(([, cost]) => cost)).toEqual([
+            2_442_000, 4_202_000,
+        ]);
+    });
+
+    it('keeps the last good rates when a later refresh fails', async () => {
+        modelSearchFetch.mockImplementationOnce(async () =>
+            okJsonResponse(repricedPhoenix()),
+        );
+        const provider = makeProvider();
+        await provider.models();
+
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 60 * 60 * 1000);
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        modelSearchFetch.mockResolvedValueOnce(
+            new Response('upstream down', { status: 503 }),
+        );
+        await provider.models();
+        await runPhoenix(provider);
+
+        expect(modelSearchFetch).toHaveBeenCalledTimes(2);
+        expect(hasCreditsSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            4_202_000,
+        );
+    });
+
+    it('bills what the driver lists across a failed refresh and its recovery', async () => {
+        vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const driver = new ImageGenerationDriver(
+            {
+                providers: {
+                    'cloudflare-image-generation': {
+                        apiToken: 'cf-test-token',
+                        accountId: 'acct-test',
+                    },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        const listedPhoenix = async () =>
+            (await driver.models()).find(
+                (model) => model.id === '@cf/leonardo/phoenix-1.0',
+            )?.costs;
+        const generate = async () => {
+            fetchSpy.mockResolvedValueOnce(
+                okJsonResponse({ result: { image: 'AAAA' } }),
+            );
+            await withTestActor(() =>
+                driver.generate({
+                    model: '@cf/leonardo/phoenix-1.0',
+                    prompt: 'A cup',
+                    ratio: { w: 1024, h: 600 },
+                    steps: 10,
+                } as never),
+            );
+            return hasCreditsSpy.mock.lastCall![1];
+        };
+        const settle = () => new Promise((resolve) => setImmediate(resolve));
+        const OLD = { tile_512: 583_000, step: 11_000 };
+        const NEW = { tile_512: 1_000_000, step: 20_200 };
+        try {
+            await driver.onServerStart();
+            expect(await listedPhoenix()).toEqual(OLD);
+            expect(await generate()).toBe(2_442_000);
+
+            // The driver's scheduled refresh fails: it keeps listing the old rates.
+            modelSearchFetch.mockResolvedValueOnce(
+                new Response('upstream down', { status: 503 }),
+            );
+            await vi.advanceTimersByTimeAsync(CATALOG_TTL_MS);
+            await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+            await settle();
+            expect(modelSearchFetch).toHaveBeenCalledTimes(2);
+            expect(await listedPhoenix()).toEqual(OLD);
+
+            // Upstream recovers and reprices after the failure backoff, but
+            // until the driver republishes, requests bill what it lists.
+            modelSearchFetch.mockImplementation(async () =>
+                okJsonResponse(repricedPhoenix()),
+            );
+            await vi.advanceTimersByTimeAsync(31_000);
+            expect(await generate()).toBe(2_442_000);
+            expect(modelSearchFetch).toHaveBeenCalledTimes(2);
+
+            await vi.advanceTimersByTimeAsync(CATALOG_TTL_MS - 31_000);
+            await vi.waitFor(async () =>
+                expect(await listedPhoenix()).toEqual(NEW),
+            );
+            expect(await generate()).toBe(4_202_000);
+            expect(modelSearchFetch).toHaveBeenCalledTimes(3);
+        } finally {
+            driver.onServerShutdown();
+            vi.useRealTimers();
+        }
+    });
+
+    it('charges curated rates for models the live response leaves unpriced', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: 'AAAA' } }),
+        );
+        const provider = makeProvider();
+        await provider.models();
+        await withTestActor(() =>
+            provider.generate({
+                model: '@cf/black-forest-labs/flux-1-schnell',
+                prompt: 'A cup',
+            }),
+        );
+        expect(modelSearchFetch).toHaveBeenCalledOnce();
+        expect(hasCreditsSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            4 * 5280 + 4 * 10560,
+        );
+    });
+
+    it('searches models through the configured apiBaseUrl with the provider token', async () => {
+        await makeProvider({
+            apiBaseUrl:
+                'https://gateway.example/v1/acct/gw/workers-ai/client/v4',
+        }).models();
+
+        const [url, init] = modelSearchFetch.mock.calls[0]!;
+        expect(String(url)).toBe(
+            'https://gateway.example/v1/acct/gw/workers-ai/client/v4/accounts/acct-test/ai/models/search?per_page=100&page=1',
+        );
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+            'Bearer cf-test-token',
+        );
     });
 });

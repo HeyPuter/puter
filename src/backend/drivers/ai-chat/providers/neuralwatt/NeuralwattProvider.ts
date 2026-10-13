@@ -28,6 +28,7 @@ import {
     modelSupportsVision,
 } from '../../utils/mediaParts.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { catalogPrice } from '../../utils/pricing.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -72,6 +73,7 @@ export class NeuralwattProvider extends OpenAICompatProvider {
                 baseURL: apiBaseUrl,
                 ...sdkClientOptions(),
             }),
+            requireTokenPrices: true,
             defaultModel: NEURALWATT_DEFAULT_MODEL,
             idPrefix: NEURALWATT_ID_PREFIX,
             passthrough: ['temperature'],
@@ -120,10 +122,12 @@ export class NeuralwattProvider extends OpenAICompatProvider {
                     Authorization: `Bearer ${this.#apiKey}`,
                 },
                 signal,
+                maxContentLength: 8 * 1024 * 1024,
             });
+            if (!Array.isArray(resp.data?.data))
+                throw new Error('Invalid Neuralwatt catalog');
             const coerced: IChatModel[] = [];
-            for (const model of (resp.data.data ??
-                []) as NeuralwattApiModel[]) {
+            for (const model of resp.data.data as NeuralwattApiModel[]) {
                 if (model.metadata?.deprecated) continue;
                 const mapped = mapNeuralwattApiModel(model);
                 if (mapped) coerced.push(mapped);
@@ -212,8 +216,7 @@ export class NeuralwattProvider extends OpenAICompatProvider {
             // priced.
             meterOptions: {
                 costOverrides: { energy_kwh: 0, energy_joules: 0 },
-                ...(typeof requestCostUsd === 'number' &&
-                Number.isFinite(requestCostUsd)
+                ...(catalogPrice(requestCostUsd) !== undefined
                     ? { authoritativeUsd: requestCostUsd }
                     : {}),
             },

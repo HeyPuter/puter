@@ -46,6 +46,7 @@ import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { TTSDriver } from './TTSDriver.js';
+import pollyPriceList from './providers/awsPolly/fixtures/us-west-2.json';
 
 // ── SDK mocks ──────────────────────────────────────────────────────
 //
@@ -144,7 +145,15 @@ beforeEach(() => {
     openaiSpeechCreateMock.mockReset();
     geminiGenerateContentMock.mockReset();
     pollySendMock.mockReset();
-    fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
+    // Polly loads its public price list through fetch; serve the recording.
+    const realFetch = globalThis.fetch;
+    fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) =>
+            String(input).startsWith('https://pricing.us-east-1.amazonaws.com/')
+                ? Promise.resolve(Response.json(pollyPriceList))
+                : realFetch(input, init),
+        ) as MockInstance<typeof fetch>;
 });
 
 afterEach(() => {

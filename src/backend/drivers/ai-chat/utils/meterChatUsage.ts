@@ -31,6 +31,7 @@ export interface MeterChatUsageOptions {
      * line instead of pricing the tokens, which are still recorded at zero.
      */
     authoritativeUsd?: number;
+    pricingTime?: Date;
     /** Per-key µ¢ costs that win over the model's rates. */
     costOverrides?: Record<string, number>;
 }
@@ -72,9 +73,16 @@ export const meterChatUsage = (
     meteringKey: string,
     model: IChatModel,
     usage: Record<string, number>,
-    { authoritativeUsd, costOverrides }: MeterChatUsageOptions = {},
+    {
+        authoritativeUsd,
+        costOverrides,
+        pricingTime,
+    }: MeterChatUsageOptions = {},
 ): { usage: Record<string, number>; costs: Record<string, number> } => {
-    const priced = { ...buildCostsOverride(usage, model), ...costOverrides };
+    const priced = {
+        ...buildCostsOverride(usage, model, pricingTime),
+        ...costOverrides,
+    };
     if (authoritativeUsd !== undefined) {
         const billed = { ...usage, billedUsage: 1 };
         const recorded: Record<string, number> = Object.fromEntries(

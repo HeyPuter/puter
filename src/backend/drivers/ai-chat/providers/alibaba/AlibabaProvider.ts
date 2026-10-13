@@ -19,6 +19,9 @@
 
 import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { IChatModel } from '../../types.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { fetchAlibabaCatalog } from './catalog.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -27,6 +30,8 @@ import {
 import { ALIBABA_MODELS } from './models.js';
 
 export class AlibabaProvider extends OpenAICompatProvider {
+    #apiBaseUrl: string;
+    #apiKey: string;
     constructor(config: ChatProviderConfig, meteringService: MeteringService) {
         super(meteringService, {
             client: new OpenAI({
@@ -36,11 +41,34 @@ export class AlibabaProvider extends OpenAICompatProvider {
                     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
                 ...sdkClientOptions(),
             }),
+            requireTokenPrices: true,
             defaultModel: 'qwen-plus-latest',
-            models: () => ALIBABA_MODELS,
             meteringPrefix: 'alibaba',
             defaultMaxTokens: 1000,
             passthrough: ['temperature'],
         });
+        this.#apiBaseUrl = (
+            config.apiBaseUrl ??
+            'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
+        )
+            .replace(/\/(?:compatible-mode\/)?v1\/?$/, '')
+            .replace(/\/$/, '');
+        this.#apiKey = config.apiKey;
     }
+
+    override async models(): Promise<IChatModel[]> {
+        return this.#catalog();
+    }
+
+    #catalog = cachedRemoteCatalog({
+        name: 'Alibaba catalog',
+        fallback: ALIBABA_MODELS,
+        fetch: (signal, previous) =>
+            fetchAlibabaCatalog(
+                this.#apiBaseUrl,
+                this.#apiKey,
+                signal,
+                previous,
+            ),
+    });
 }
