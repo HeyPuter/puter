@@ -4,8 +4,9 @@ import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 // Executes the recipe's own JS blocks, in order, so the tests cover exactly the
-// code readers copy. The context has no DOM, and `puter.ai.chat` and `puter.kv`
-// are in-memory mocks. Every receipt is synthetic text, not a real image.
+// code readers copy. The context has no DOM, and `puter.ai.chat`, `puter.kv`,
+// the `puter.ui` pickers, and `FileReader` are in-memory mocks. Every receipt is
+// synthetic bytes behind an image signature, not a real image.
 const markdown = readFileSync(new URL('./build-an-expense-report-from-receipts.md', import.meta.url), 'utf8');
 const source = [...markdown.matchAll(/^```js(?:;[\w-]+)?\n([\s\S]*?)^```$/gm)].map(([, code]) => code).join('\n');
 const companion = readFileSync(new URL('../playground/examples/build-an-expense-report-from-receipts.html', import.meta.url), 'utf8');
@@ -22,7 +23,17 @@ const reply = fields => ({ message: { content: JSON.stringify(fields) } });
 const imageOf = text => `data:image/png;base64,${ Buffer.from(text).toString('base64') }`;
 const idOf = image => createHash('sha256').update(image).digest('hex');
 
-const SAMPLE_IMAGE = imageOf('synthetic receipt: corner cafe');
+const SIGNATURES = {
+    'image/png': Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+    'image/jpeg': Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]),
+    'image/webp': Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x24, 0, 0, 0]), Buffer.from('WEBP')]),
+};
+const imageBytes = (type, text) => Buffer.concat([SIGNATURES[type], Buffer.from(text)]);
+const dataUrlOf = (type, bytes) => `data:${ type };base64,${ bytes.toString('base64') }`;
+const MAX_IMAGE_BYTES = 3_700_000;
+
+const SAMPLE_BYTES = imageBytes('image/png', 'synthetic receipt: corner cafe');
+const SAMPLE_IMAGE = dataUrlOf('image/png', SAMPLE_BYTES);
 const OTHER_IMAGE = imageOf('synthetic receipt: city transit');
 const THIRD_IMAGE = imageOf('synthetic receipt: hardware store');
 const FOURTH_IMAGE = imageOf('synthetic receipt: bakery');
@@ -94,6 +105,68 @@ const persistThenReject = kv => async (key, value) => {
     throw new Error('connection reset');
 };
 
+/** Reads a Blob the way the browser's FileReader does, with the Blob's type in the data URL. */
+class FakeFileReader {
+    readAsDataURL (blob) {
+        blob.arrayBuffer().then(buffer => {
+            this.result = dataUrlOf(blob.type || 'application/octet-stream', Buffer.from(buffer));
+            this.onload?.();
+        }, error => {
+            this.error = error;
+            this.onerror?.();
+        });
+    }
+}
+
+/** Picker promises as `puter.ui` returns them, with `undefinedOnCancel` attached. */
+function pickerResolving (value) {
+    const request = Promise.resolve(value);
+    request.undefinedOnCancel = Promise.resolve(value);
+    return request;
+}
+
+function pickerCancelled () {
+    const request = new Promise(() => {});
+    request.undefinedOnCancel = Promise.resolve(undefined);
+    return request;
+}
+
+function pickerRejecting (error) {
+    const request = Promise.reject(error);
+    request.undefinedOnCancel = new Promise(() => {});
+    return request;
+}
+
+/** A website popup cancel, which resolves the picker's own promise with the popup's message. */
+function pickerPopupCancelled (msg) {
+    const request = Promise.resolve({ msg, original_msg_id: 1 });
+    request.undefinedOnCancel = new Promise(() => {});
+    return request;
+}
+
+/** A picked file shaped like an `FSItem`, whose `read()` resolves to a Blob. */
+function fakeFile (name, bytes, { type = 'image/png', size = bytes.length, ...rest } = {}) {
+    return {
+        name,
+        path: `/test-user/Desktop/${ name }`,
+        size,
+        isDir: false,
+        read: vi.fn(async () => new Blob([bytes], { type })),
+        ...rest,
+    };
+}
+
+const savedItem = name => ({ name, path: `/test-user/Desktop/${ name }`, isDir: false });
+
+function fakeUi ({ file = fakeFile('receipt.png', SAMPLE_BYTES) } = {}) {
+    return {
+        showOpenFilePicker: vi.fn(() => pickerResolving(file)),
+        showSaveFilePicker: vi.fn((content, name) => pickerResolving(savedItem(name))),
+    };
+}
+
+const browserGlobals = () => ({ crypto: globalThis.crypto, TextEncoder, Blob, FileReader: FakeFileReader });
+
 const REPORT_ID_LINE = `const REPORT_ID = '${ KEY }';`;
 
 /**
@@ -101,34 +174,35 @@ const REPORT_ID_LINE = `const REPORT_ID = '${ KEY }';`;
  * steps, and returns its top-level declarations. A `reportId` replaces the
  * recipe's `REPORT_ID` value, as a reader configuring another report would.
  */
-async function loadRecipe ({ reportId = KEY } = {}) {
+async function loadRecipe ({
+    reportId = KEY,
+    ui = fakeUi(),
+    sampleChat = vi.fn(async () => reply(SAMPLE_REPLY)),
+    sampleKv = memoryKv(),
+} = {}) {
     if ( ! source.includes(REPORT_ID_LINE) ) {
         throw new Error(`The recipe no longer declares ${ REPORT_ID_LINE }`);
     }
-    const sampleChat = vi.fn(async () => reply(SAMPLE_REPLY));
-    const sampleKv = memoryKv();
     const context = vm.createContext({
-        puter: { ai: { chat: sampleChat }, kv: sampleKv },
-        crypto: globalThis.crypto,
-        TextEncoder,
-        receiptImage: SAMPLE_IMAGE,
+        puter: { ai: { chat: sampleChat }, kv: sampleKv, ui },
+        ...browserGlobals(),
     });
     const configured = source.replace(REPORT_ID_LINE, `const REPORT_ID = ${ JSON.stringify(reportId) };`);
     const recipe = await vm.runInContext(
         `(async () => {\n${ configured }\nreturn { ${ topLevelNames.join(', ') }, currentDraft: () => draft };\n})()`,
         context,
     );
-    return { recipe, context, sampleChat, sampleKv };
+    return { recipe, context, sampleChat, sampleKv, ui };
 }
 
 /** Loads the recipe, then points it at fresh mocks and reopens the report from them. */
-async function setup ({ chat = vi.fn(async () => reply(FULL_REPLY)), stored, kv = memoryKv(stored), open = true, reportId } = {}) {
+async function setup ({ chat = vi.fn(async () => reply(FULL_REPLY)), stored, kv = memoryKv(stored), open = true, reportId, ui = fakeUi() } = {}) {
     const { recipe, context } = await loadRecipe({ reportId });
-    context.puter = { ai: { chat }, kv };
+    context.puter = { ai: { chat }, kv, ui };
     if ( open ) {
         await recipe.openDraft();
     }
-    return { recipe, chat, kv };
+    return { recipe, chat, kv, ui, context };
 }
 
 function deferredChat () {
@@ -212,53 +286,527 @@ describe('sample flow', () => {
         expect(history.snapshots.map(({ key }) => orderOf(key))).toEqual([3, 2, 1]);
         expect(history.snapshots.map(({ report }) => report.revision)).toEqual([3, 2, 1]);
     });
-});
 
-describe('playground companion', () => {
-    /** Runs the companion's module script against a minimal DOM whose reply element rejects HTML. */
-    async function runCompanion (chat) {
-        const output = { textContent: '' };
-        Object.defineProperty(output, 'innerHTML', {
-            set () {
-                throw new Error('the reply must be rendered as text');
-            },
-        });
-        const canvas = { getContext: () => ({ fillRect () {}, fillText () {} }), toDataURL: vi.fn(() => SAMPLE_IMAGE) };
-        const document = { createElement: () => canvas, getElementById: () => output, body: { prepend () {} } };
-        const context = vm.createContext({ puter: { ai: { chat } }, document });
-        await vm.runInContext(`(async () => {\n${ companionScript }\n})()`, context);
-        return { output, canvas };
-    }
+    it('picks the receipt from Puter before sending it, and saves the CSV through the save dialog', async () => {
+        const { recipe, ui, sampleChat } = await loadRecipe();
 
-    it('sends the drawn receipt with the same prompt and options as the recipe', async () => {
-        const { sampleChat } = await loadRecipe();
-        const chat = vi.fn(async () => reply(SAMPLE_REPLY));
-
-        const { canvas } = await runCompanion(chat);
-
-        expect(chat).toHaveBeenCalledTimes(1);
-        const [prompt, image, options] = plain(chat.mock.calls[0]);
-        const [recipePrompt, , recipeOptions] = plain(sampleChat.mock.calls[0]);
-        expect(image).toBe(canvas.toDataURL.mock.results[0].value);
-        expect(prompt).toBe(recipePrompt);
-        expect(options).toEqual(recipeOptions);
+        expect(plain(ui.showOpenFilePicker.mock.calls)).toEqual([[{ multiple: false, accept: 'image/*' }]]);
+        expect(ui.showOpenFilePicker.mock.invocationCallOrder[0]).toBeLessThan(sampleChat.mock.invocationCallOrder[0]);
+        expect(recipe.receiptImage).toBe(SAMPLE_IMAGE);
+        expect(ui.showSaveFilePicker.mock.calls).toEqual([[SAMPLE_CSV, 'expense-report.csv']]);
+        expect(plain(recipe.savedFile)).toEqual(savedItem('expense-report.csv'));
     });
 
-    it('shows the raw reply as text', async () => {
-        const content = '<img src=x onerror="alert(1)">';
-        const { output } = await runCompanion(vi.fn(async () => ({ message: { content } })));
-        expect(output.textContent).toBe(content);
+    it('stops on cancel without sending, saving, approving, or exporting', async () => {
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerCancelled()) };
+        const sampleChat = vi.fn(async () => reply(SAMPLE_REPLY));
+        const sampleKv = memoryKv();
+
+        await expect(loadRecipe({ ui, sampleChat, sampleKv })).rejects.toThrow('No receipt image was picked.');
+        expect(sampleChat).not.toHaveBeenCalled();
+        expect(sampleKv.list).not.toHaveBeenCalled();
+        expect(sampleKv.incr).not.toHaveBeenCalled();
+        expect(sampleKv.set).not.toHaveBeenCalled();
+        expect(ui.showSaveFilePicker).not.toHaveBeenCalled();
+    });
+});
+
+describe('picking a receipt image', () => {
+    it.each([
+        ['receipt.png', 'image/png', 'image/png'],
+        ['receipt.PNG', 'image/png', 'application/octet-stream'],
+        ['receipt.jpg', 'image/jpeg', 'image/jpeg'],
+        ['receipt.JPEG', 'image/jpeg', ''],
+        ['receipt.webp', 'image/webp', 'image/webp'],
+        ['receipt.webp', 'image/webp', 'application/octet-stream'],
+    ])('reads %s as a %s data URL when storage reports %j', async (name, type, reported) => {
+        const bytes = imageBytes(type, `synthetic ${ name }`);
+        const file = fakeFile(name, bytes, { type: reported });
+        const { recipe, chat, kv } = await setup({ ui: fakeUi({ file }), open: false });
+
+        const image = await recipe.pickReceiptImage();
+
+        expect(image).toBe(dataUrlOf(type, bytes));
+        expect(() => recipe.checkImage(image)).not.toThrow();
+        expect(file.read).toHaveBeenCalledTimes(1);
+        expect(chat).not.toHaveBeenCalled();
+        expect(kv.list).not.toHaveBeenCalled();
     });
 
     it.each([
-        ['an empty response', vi.fn(async () => ({}))],
-        ['a rejected request', vi.fn(async () => {
+        ['undefinedOnCancel', () => pickerCancelled()],
+        ['a website popup cancel message', () => pickerPopupCancelled('fileOpenCanceled')],
+    ])('resolves to null on a cancel through %s without reading, sending, or saving anything', async (_, cancel) => {
+        const file = fakeFile('receipt.png', SAMPLE_BYTES);
+        const ui = { ...fakeUi({ file }), showOpenFilePicker: vi.fn(cancel) };
+        const { recipe, chat, kv } = await setup({ ui, open: false });
+
+        expect(await recipe.pickReceiptImage()).toBeNull();
+        expect(file.read).not.toHaveBeenCalled();
+        expect(chat).not.toHaveBeenCalled();
+        expect(kv.list).not.toHaveBeenCalled();
+        expect(kv.set).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [new Error('The popup was blocked')],
+        ['This API is not compatible in Web Workers.'],
+    ])('rejects when the picker rejects with %j', async (failure) => {
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerRejecting(failure)) };
+        const { recipe, chat } = await setup({ ui, open: false });
+
+        await expect(recipe.pickReceiptImage()).rejects.toBe(failure);
+        expect(chat).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['two files', () => [fakeFile('a.png', SAMPLE_BYTES), fakeFile('b.png', SAMPLE_BYTES)]],
+        ['a list with one file', () => [fakeFile('a.png', SAMPLE_BYTES)]],
+        ['a directory', () => fakeFile('receipts.png', SAMPLE_BYTES, { isDir: true })],
+        ['an item without read()', () => ({ name: 'a.png', isDir: false })],
+        ['a GIF', () => fakeFile('receipt.gif', SAMPLE_BYTES, { type: 'image/gif' })],
+        ['an SVG', () => fakeFile('receipt.svg', SAMPLE_BYTES, { type: 'image/svg+xml' })],
+        ['a PDF', () => fakeFile('receipt.pdf', SAMPLE_BYTES, { type: 'application/pdf' })],
+        ['a name without an extension', () => fakeFile('png', SAMPLE_BYTES)],
+        ['an extension that is an object key', () => fakeFile('receipt.constructor', SAMPLE_BYTES)],
+        ['an item without a name', () => fakeFile(undefined, SAMPLE_BYTES)],
+        ['null', () => null],
+        ['a save cancel message', () => ({ msg: 'fileSaveCanceled', original_msg_id: 1 })],
+        ['another popup message', () => ({ msg: 'fileOpened', original_msg_id: 1 })],
+    ])('rejects %s without reading it', async (_, makePick) => {
+        const picked = makePick();
+        const { recipe, chat } = await setup({ ui: fakeUi({ file: picked }), open: false });
+
+        await expect(recipe.pickReceiptImage()).rejects.toThrow('Pick one PNG, JPEG, or WebP image.');
+        for ( const item of [picked].flat() ) {
+            if ( item?.read ) {
+                expect(item.read).not.toHaveBeenCalled();
+            }
+        }
+        expect(chat).not.toHaveBeenCalled();
+    });
+
+    it('rejects an image over the cap by its reported size without reading it', async () => {
+        const file = fakeFile('receipt.png', SAMPLE_BYTES, { size: MAX_IMAGE_BYTES + 1 });
+        const { recipe } = await setup({ ui: fakeUi({ file }), open: false });
+
+        await expect(recipe.pickReceiptImage()).rejects.toThrow(/at most 3,700,000 bytes/);
+        expect(file.read).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a small reported size', 10],
+        ['no reported size', null],
+    ])('rejects read bytes over the cap with %s', async (_, size) => {
+        const bytes = Buffer.concat([SIGNATURES['image/png'], Buffer.alloc(MAX_IMAGE_BYTES)]);
+        const file = fakeFile('receipt.png', bytes, { size });
+        const { recipe } = await setup({ ui: fakeUi({ file }), open: false });
+
+        await expect(recipe.pickReceiptImage()).rejects.toThrow(/at most 3,700,000 bytes/);
+        expect(file.read).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts an image at the byte cap, and its data URL passes checkImage()', async () => {
+        const bytes = Buffer.concat([SIGNATURES['image/png'], Buffer.alloc(MAX_IMAGE_BYTES - 8, 1)]);
+        const { recipe } = await setup({ ui: fakeUi({ file: fakeFile('receipt.png', bytes) }), open: false });
+
+        const image = await recipe.pickReceiptImage();
+
+        expect(image.length).toBeLessThanOrEqual(5_000_000);
+        expect(() => recipe.checkImage(image)).not.toThrow();
+    });
+
+    it.each([
+        ['a different image type', 'receipt.png', SAMPLE_BYTES, 'image/gif'],
+        ['a JPEG type for a PNG name', 'receipt.png', SAMPLE_BYTES, 'image/jpeg'],
+        ['an HTML type', 'receipt.png', SAMPLE_BYTES, 'text/html'],
+        ['JPEG bytes behind a PNG name', 'receipt.png', imageBytes('image/jpeg', 'synthetic'), 'application/octet-stream'],
+        ['text behind a PNG name', 'receipt.png', Buffer.from('<svg onload="alert(1)"></svg>'), ''],
+        ['a RIFF file that is not WebP', 'receipt.webp', Buffer.from('RIFF\x24\x00\x00\x00WAVEfmt '), 'image/webp'],
+        ['an empty file', 'receipt.jpg', Buffer.alloc(0), 'image/jpeg'],
+    ])('rejects %s', async (_, name, bytes, type) => {
+        const { recipe, chat } = await setup({ ui: fakeUi({ file: fakeFile(name, bytes, { type }) }), open: false });
+
+        await expect(recipe.pickReceiptImage()).rejects.toThrow('Pick one PNG, JPEG, or WebP image.');
+        expect(chat).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['text instead of a Blob', async () => SAMPLE_IMAGE, /could not be read/],
+        ['nothing', async () => undefined, /could not be read/],
+        ['a rejection', async () => {
             throw new Error('offline');
-        })],
-    ])('shows a text message for %s', async (_, chat) => {
-        const { output } = await runCompanion(chat);
-        expect(typeof output.textContent).toBe('string');
-        expect(output.textContent).not.toBe('');
+        }, /offline/],
+    ])('rejects when read() gives %s', async (_, read, message) => {
+        const file = { ...fakeFile('receipt.png', SAMPLE_BYTES), read: vi.fn(read) };
+        const { recipe } = await setup({ ui: fakeUi({ file }), open: false });
+
+        await expect(recipe.pickReceiptImage()).rejects.toThrow(message);
+    });
+
+    it('rejects when the FileReader fails', async () => {
+        const { recipe, context } = await setup({ open: false });
+        context.FileReader = class {
+            readAsDataURL () {
+                this.error = new Error('The file could not be decoded');
+                queueMicrotask(() => this.onerror());
+            }
+        };
+
+        await expect(recipe.pickReceiptImage()).rejects.toThrow('The file could not be decoded');
+    });
+
+    it('feeds the picked image into the review and approval flow', async () => {
+        const { recipe, chat, kv } = await setup({ chat: vi.fn(async () => reply(SAMPLE_REPLY)) });
+
+        const image = await recipe.pickReceiptImage();
+        const review = await recipe.extractReceipt(image);
+
+        expect(chat).toHaveBeenCalledTimes(1);
+        expect(chat.mock.calls[0][1]).toBe(SAMPLE_IMAGE);
+        expect(review.receiptId).toBe(idOf(SAMPLE_IMAGE));
+        expect(latest(kv).expenses).toEqual([]);
+        await recipe.approveExpense(review.receiptId, VALID);
+        expect(recipe.exportCsv()).toBe(SAMPLE_CSV);
+    });
+});
+
+describe('saving the CSV file', () => {
+    it.each([
+        ['undefinedOnCancel', () => pickerCancelled()],
+        ['a website popup cancel message', () => pickerPopupCancelled('fileSaveCanceled')],
+    ])('resolves to null when the user cancels through %s, and leaves the report unchanged', async (_, cancel) => {
+        const ui = { ...fakeUi(), showSaveFilePicker: vi.fn(cancel) };
+        const { recipe, kv } = await setup({ ui, stored: storedReport({ expenses: [expenseRow(SAMPLE_IMAGE)] }) });
+        const before = new Map(kv.store);
+
+        expect(await recipe.saveCsvFile(recipe.exportCsv(), 'expense-report.csv')).toBeNull();
+        expect(ui.showSaveFilePicker).toHaveBeenCalledWith(SAMPLE_CSV, 'expense-report.csv');
+        expect(kv.store).toEqual(before);
+        expect(recipe.currentDraft()).not.toBeNull();
+    });
+
+    it.each([
+        ['an empty object', {}],
+        ['an item without a name', { path: '/test-user/Desktop/expense-report.csv', isDir: false }],
+        ['an item with an empty name', savedItem('')],
+        ['a non-string name', { name: 42 }],
+        ['an open cancel message', { msg: 'fileOpenCanceled', original_msg_id: 1 }],
+        ['another popup message', { msg: 'fileSaved', original_msg_id: 1 }],
+        ['null', null],
+        ['a string', 'expense-report.csv'],
+    ])('rejects %s as an unconfirmed save, and leaves the report unchanged', async (_, value) => {
+        const ui = { ...fakeUi(), showSaveFilePicker: vi.fn(() => pickerResolving(value)) };
+        const { recipe, kv } = await setup({ ui, stored: storedReport({ expenses: [expenseRow(SAMPLE_IMAGE)] }) });
+        const before = new Map(kv.store);
+
+        await expect(recipe.saveCsvFile(recipe.exportCsv(), 'expense-report.csv')).rejects.toThrow(/could not be confirmed/);
+        expect(kv.store).toEqual(before);
+        expect(recipe.exportCsv()).toBe(SAMPLE_CSV);
+    });
+
+    it.each([
+        [new Error('Storage is full')],
+        ['This API is not compatible in Web Workers.'],
+    ])('rejects when the save rejects with %j, and the report can still be exported', async (failure) => {
+        const ui = { ...fakeUi(), showSaveFilePicker: vi.fn(() => pickerRejecting(failure)) };
+        const { recipe, kv } = await setup({ ui, stored: storedReport({ expenses: [expenseRow(SAMPLE_IMAGE)] }) });
+        const before = new Map(kv.store);
+
+        await expect(recipe.saveCsvFile(recipe.exportCsv(), 'expense-report.csv')).rejects.toBe(failure);
+        expect(kv.store).toEqual(before);
+        expect(recipe.exportCsv()).toBe(SAMPLE_CSV);
+    });
+});
+
+// -- Playground companion --
+
+/** A DOM element stub that renders text only and records listeners. */
+function fakeElement (tag) {
+    let text = '';
+    return {
+        tag,
+        children: [],
+        listeners: {},
+        value: '',
+        disabled: false,
+        hidden: false,
+        get textContent () {
+            return text + this.children.map(child => child.textContent).join('');
+        },
+        set textContent (value) {
+            text = String(value);
+            this.children = [];
+        },
+        set innerHTML (_) {
+            throw new Error('The companion must render text, not HTML.');
+        },
+        append (...nodes) {
+            this.children.push(...nodes);
+        },
+        replaceChildren (...nodes) {
+            this.children = [...nodes];
+        },
+        addEventListener (type, listener) {
+            (this.listeners[type] ??= []).push(listener);
+        },
+    };
+}
+
+const fire = (element, type) => Promise.all((element.listeners[type] ?? []).map(listener => listener({ type })));
+
+describe('playground companion', () => {
+    /** Runs the companion's module script against the stub DOM, then drives it like a user. */
+    async function runCompanion ({ chat = vi.fn(async () => reply(SAMPLE_REPLY)), kv = memoryKv(), ui = fakeUi() } = {}) {
+        const elements = new Map();
+        const byId = id => {
+            if ( ! elements.has(id) ) {
+                elements.set(id, fakeElement(`#${ id }`));
+            }
+            return elements.get(id);
+        };
+        const document = { getElementById: byId, createElement: tag => fakeElement(tag) };
+        const context = vm.createContext({ puter: { ai: { chat }, kv, ui }, document, ...browserGlobals() });
+        await vm.runInContext(`(async () => {\n${ companionScript }\n})()`, context);
+        return {
+            chat,
+            kv,
+            ui,
+            byId,
+            click: id => fire(byId(id), 'click'),
+            status: () => byId('status').textContent,
+            problems: () => byId('problems').children.map(item => item.textContent),
+            fields: () => Object.fromEntries(['merchant', 'date', 'currency', 'total'].map(name => [name, byId(name).value])),
+            type: values => Object.entries(values).forEach(([name, value]) => {
+                byId(name).value = value;
+            }),
+        };
+    }
+
+    const kvCalls = kv => kv.list.mock.calls.length + kv.get.mock.calls.length + kv.set.mock.calls.length + kv.incr.mock.calls.length;
+
+    it('makes no Puter call until the user picks a receipt', async () => {
+        const page = await runCompanion();
+
+        expect(page.ui.showOpenFilePicker).not.toHaveBeenCalled();
+        expect(page.ui.showSaveFilePicker).not.toHaveBeenCalled();
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(kvCalls(page.kv)).toBe(0);
+        expect(page.byId('pick').disabled).toBe(false);
+        expect(page.byId('approve').disabled).toBe(true);
+        expect(page.byId('save').disabled).toBe(true);
+    });
+
+    it('sends and saves nothing when the user cancels the picker', async () => {
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerCancelled()) };
+        const page = await runCompanion({ ui });
+
+        await page.click('pick');
+
+        expect(page.status()).toMatch(/No image was picked, so nothing was sent/);
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(kvCalls(page.kv)).toBe(0);
+    });
+
+    it.each([
+        ['a GIF', fakeFile('receipt.gif', SAMPLE_BYTES, { type: 'image/gif' }), /PNG, JPEG, or WebP/],
+        ['an oversize image', fakeFile('receipt.png', SAMPLE_BYTES, { size: MAX_IMAGE_BYTES + 1 }), /3,700,000 bytes/],
+    ])('rejects %s without sending it or opening the report', async (_, file, message) => {
+        const page = await runCompanion({ ui: fakeUi({ file }) });
+
+        await page.click('pick');
+
+        expect(page.status()).toMatch(message);
+        expect(page.status()).toMatch(/Nothing was sent/);
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(kvCalls(page.kv)).toBe(0);
+    });
+
+    it('reads the picked receipt with the recipe request, and presets only checked fields for review', async () => {
+        const { sampleChat } = await loadRecipe();
+        const page = await runCompanion();
+
+        await page.click('pick');
+
+        expect(plain(page.ui.showOpenFilePicker.mock.calls)).toEqual([[{ multiple: false, accept: 'image/*' }]]);
+        expect(page.chat).toHaveBeenCalledTimes(1);
+        expect(plain(page.chat.mock.calls[0])).toEqual(plain(sampleChat.mock.calls[0]));
+        expect(page.fields()).toEqual({ merchant: 'Corner Cafe', date: '', currency: '', total: '12.40' });
+        expect(page.problems()).toEqual([
+            'Ignored the suggested date. It must be a real date written as YYYY-MM-DD.',
+            'Fill in from the receipt: date, currency.',
+        ]);
+        expect(page.byId('preview').src).toBe(SAMPLE_IMAGE);
+        expect(page.byId('preview').hidden).toBe(false);
+        expect(latest(page.kv).expenses).toEqual([]);
+        expect(latest(page.kv).reviews.map(review => review.receiptId)).toEqual([idOf(SAMPLE_IMAGE)]);
+        expect(page.byId('approve').disabled).toBe(false);
+        expect(page.byId('save').disabled).toBe(true);
+    });
+
+    it('approves only the checked values the user confirms, then saves the approved CSV', async () => {
+        const page = await runCompanion();
+        await page.click('pick');
+
+        await page.click('approve');
+        expect(page.status()).toMatch(/The date must be/);
+        expect(page.status()).toMatch(/The currency must be/);
+        expect(page.kv.set).toHaveBeenCalledTimes(1);
+        expect(latest(page.kv).expenses).toEqual([]);
+
+        page.type({ date: '2026-09-30', currency: 'EUR' });
+        await page.click('approve');
+
+        expect(latest(page.kv).expenses).toEqual([expenseRow(SAMPLE_IMAGE)]);
+        expect(latest(page.kv).reviews).toEqual([]);
+        expect(page.fields()).toEqual({ merchant: '', date: '', currency: '', total: '' });
+        expect(page.byId('approve').disabled).toBe(true);
+        expect(page.byId('save').disabled).toBe(false);
+        expect(page.ui.showSaveFilePicker).not.toHaveBeenCalled();
+
+        await page.click('save');
+
+        expect(page.ui.showSaveFilePicker.mock.calls).toEqual([[SAMPLE_CSV, 'expense-report.csv']]);
+        expect(page.status()).toMatch(/Saved the report as expense-report\.csv/);
+        expect(page.chat).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a cancelled or failed CSV save without claiming success, and saves on retry', async () => {
+        const ui = fakeUi();
+        const page = await runCompanion({ ui });
+        await page.click('pick');
+        page.type({ date: '2026-09-30', currency: 'EUR' });
+        await page.click('approve');
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerCancelled());
+        await page.click('save');
+        expect(page.status()).toMatch(/Save cancelled\. No CSV file was saved\./);
+        expect(page.byId('save').disabled).toBe(false);
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerRejecting(new Error('Storage is full')));
+        await page.click('save');
+        expect(page.status()).toBe('Save could not be confirmed (Storage is full). Check the destination before retrying.');
+        expect(page.status()).not.toMatch(/Saved the report/);
+        expect(latest(page.kv).expenses).toEqual([expenseRow(SAMPLE_IMAGE)]);
+        expect(page.byId('save').disabled).toBe(false);
+
+        await page.click('save');
+        expect(page.status()).toMatch(/Saved the report as expense-report\.csv/);
+        expect(ui.showSaveFilePicker.mock.calls.map(([csv]) => csv)).toEqual([SAMPLE_CSV, SAMPLE_CSV, SAMPLE_CSV]);
+    });
+
+    it('sends and saves nothing when the user cancels the website popup picker', async () => {
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerPopupCancelled('fileOpenCanceled')) };
+        const page = await runCompanion({ ui });
+
+        await page.click('pick');
+
+        expect(page.status()).toBe('No image was picked, so nothing was sent.');
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(kvCalls(page.kv)).toBe(0);
+        expect(page.byId('approve').disabled).toBe(true);
+    });
+
+    it('reports a website popup save cancel as cancelled and an unexpected save result as unconfirmed', async () => {
+        const ui = fakeUi();
+        const page = await runCompanion({ ui });
+        await page.click('pick');
+        page.type({ date: '2026-09-30', currency: 'EUR' });
+        await page.click('approve');
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerPopupCancelled('fileSaveCanceled'));
+        await page.click('save');
+        expect(page.status()).toBe('Save cancelled. No CSV file was saved.');
+        expect(page.byId('save').disabled).toBe(false);
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerResolving({}));
+        await page.click('save');
+        expect(page.status()).toMatch(/^Save could not be confirmed \(.*could not be confirmed\.\)\. Check the destination before retrying\.$/);
+        expect(page.status()).not.toMatch(/Saved the report|No CSV file was saved/);
+        expect(latest(page.kv).expenses).toEqual([expenseRow(SAMPLE_IMAGE)]);
+        expect(page.byId('save').disabled).toBe(false);
+
+        await page.click('save');
+        expect(page.status()).toMatch(/Saved the report as expense-report\.csv/);
+    });
+
+    it('requires reopening the report after an unconfirmed approval, then approves once', async () => {
+        const page = await runCompanion();
+        await page.click('pick');
+        page.type({ date: '2026-09-30', currency: 'EUR' });
+        page.kv.set.mockResolvedValueOnce(false);
+
+        await page.click('approve');
+        expect(page.status()).toMatch(/was not confirmed/);
+        expect(page.status()).toMatch(/Use Open report/);
+        expect(page.byId('reopen').disabled).toBe(false);
+        expect(page.byId('save').disabled).toBe(true);
+
+        const sets = page.kv.set.mock.calls.length;
+        await page.click('approve');
+        expect(page.status()).toMatch(/Open the report again/);
+        expect(page.kv.set).toHaveBeenCalledTimes(sets);
+
+        await page.click('reopen');
+        expect(page.status()).toBe('The report is open.');
+        expect(page.byId('reopen').disabled).toBe(true);
+        expect(page.fields()).toEqual(VALID);
+        await page.click('approve');
+
+        expect(latest(page.kv).expenses).toEqual([expenseRow(SAMPLE_IMAGE)]);
+        expect(page.chat).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a review whose save failed, and approves it after reopening', async () => {
+        const page = await runCompanion();
+        page.kv.set.mockRejectedValueOnce(new Error('offline'));
+
+        await page.click('pick');
+
+        expect(page.status()).toMatch(/The review may not be saved\. The save was not confirmed \(offline\)/);
+        expect(page.fields()).toEqual({ merchant: 'Corner Cafe', date: '', currency: '', total: '12.40' });
+        await page.click('reopen');
+        page.type({ date: '2026-09-30', currency: 'EUR' });
+        await page.click('approve');
+
+        expect(latest(page.kv).expenses).toEqual([expenseRow(SAMPLE_IMAGE)]);
+        expect(page.chat).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts with every field empty when the AI request fails', async () => {
+        const page = await runCompanion({ chat: vi.fn(async () => {
+            throw new Error('offline');
+        }) });
+
+        await page.click('pick');
+
+        expect(page.fields()).toEqual({ merchant: '', date: '', currency: '', total: '' });
+        expect(page.problems()[0]).toBe('No AI suggestions (offline). Fill in each field from the receipt.');
+        expect(latest(page.kv).expenses).toEqual([]);
+    });
+
+    it('shows AI text that looks like markup only as input values and text', async () => {
+        const markup = '<img src=x onerror="globalThis.pwned = true">';
+        const page = await runCompanion({ chat: vi.fn(async () => reply({ ...SAMPLE_REPLY, merchant: markup, currency: markup })) });
+
+        await page.click('pick');
+
+        expect(page.fields().merchant).toBe(markup);
+        expect(page.fields().currency).toBe('');
+        expect(page.problems()).toContain('Ignored the suggested currency. It must be a three-letter code in capitals, such as EUR.');
+        expect(globalThis.pwned).toBeUndefined();
+    });
+
+    it('shows an error when the report cannot be opened, without sending the image', async () => {
+        const kv = memoryKv(storedReport({ version: 2 }));
+        const page = await runCompanion({ kv });
+
+        await page.click('pick');
+
+        expect(page.status()).toMatch(/version 1/);
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(page.kv.set).not.toHaveBeenCalled();
+        expect(page.byId('reopen').disabled).toBe(false);
     });
 });
 

@@ -6,23 +6,122 @@ order: 71
 ---
 
 An expense report usually starts as a pile of receipt photos, and typing in each
-merchant, date, and total by hand is slow. In this recipe,
-[`puter.ai.chat()`](/AI/chat/) reads one receipt image and suggests four fields.
-The user checks them in your app, and only approved expenses go into the report.
-The report is saved with [`puter.kv`](/KV/), a key-value store in the user's
-Puter account, so an unfinished report is still there when the user comes back.
-The finished report is exported as a CSV file. The receipt image is sent to the
-AI but never saved.
+merchant, date, and total by hand is slow. In this recipe, the user picks a
+receipt photo from their Puter account, [`puter.ai.chat()`](/AI/chat/) reads it
+and suggests four fields, and the user checks them in your app. Only approved
+expenses go into the report. The report is saved with [`puter.kv`](/KV/), a
+key-value store in the user's Puter account, so an unfinished report is still
+there when the user comes back. The finished report is saved as a CSV file in
+the user's Puter account. The receipt image is sent to the AI but never saved.
+
+## Pick a Receipt Image
+
+The user picks the photo with
+[`puter.ui.showOpenFilePicker()`](/UI/showOpenFilePicker/), which opens the
+Puter file picker on the user's Desktop folder and resolves to an
+[`FSItem`](/Objects/fsitem/) for the chosen file. The
+[`read()`](/Objects/fsitem/#read) method of that item resolves to a `Blob` with
+the file's contents. When the user closes the picker in the Puter desktop, the
+promise from [`puter.ui.showOpenFilePicker()`](/UI/showOpenFilePicker/) stays
+pending, and its `undefinedOnCancel` promise resolves to `undefined` instead.
+When your app runs as a website, the picker opens in a popup window. Closing
+that popup resolves the picker's own promise to an object whose `msg` is
+`'fileOpenCanceled'`. The `pickReceiptImage()` function waits for whichever
+settles first and treats both forms as a cancel, so it resolves to `null` when
+the user cancels and rejects when the picker fails.
+
+The `accept: 'image/*'` option only filters what the picker shows, so the
+function checks the file itself. It accepts one PNG, JPEG, or WebP file of at
+most 3,700,000 bytes, going by its extension, the type and size of the `Blob` it
+reads, and the first bytes of the image. Storage can report any file as
+`application/octet-stream`, so that type is accepted when the extension and the
+first bytes match. The function then turns the image into a base64 data URL of
+the right type with
+[`FileReader.readAsDataURL()`](https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsDataURL).
+The byte cap keeps the data URL under the 5,000,000-character cap in
+[Check the Image](#check-the-image):
+
+```js;build-an-expense-report-from-receipts
+const IMAGE_TYPES = new Map([['png', 'image/png'], ['jpg', 'image/jpeg'], ['jpeg', 'image/jpeg'], ['webp', 'image/webp']]);
+// Types storage can report for any file, accepted when the extension and the first bytes match.
+const GENERIC_TYPES = ['', 'application/octet-stream'];
+const IMAGE_SIGNATURES = {
+    'image/png': /^\x89PNG\r\n\x1A\n/,
+    'image/jpeg': /^\xFF\xD8\xFF/,
+    'image/webp': /^RIFF[\s\S]{4}WEBP/,
+};
+// Base64 adds a third, so this keeps the data URL under the cap of checkImage().
+const MAX_IMAGE_BYTES = 3_700_000;
+const NOT_AN_IMAGE = 'Pick one PNG, JPEG, or WebP image.';
+const IMAGE_TOO_LARGE = 'Pick an image of at most 3,700,000 bytes. Scale a larger photo down first.';
+
+function readAsDataUrl (blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error ?? new Error('The image could not be read.'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function pickReceiptImage () {
+    const request = puter.ui.showOpenFilePicker({ multiple: false, accept: 'image/*' });
+    // A failure only rejects the picker's own promise. A desktop cancel settles undefinedOnCancel,
+    // and a website popup cancel resolves the picker's own promise with a cancel message.
+    const file = await Promise.race([request, request.undefinedOnCancel]);
+    if ( file === undefined || file?.msg === 'fileOpenCanceled' ) {
+        return null;
+    }
+    const type = IMAGE_TYPES.get(/\.([a-z]+)$/i.exec(String(file?.name))?.[1].toLowerCase());
+    if ( Array.isArray(file) || file?.isDir || typeof file?.read !== 'function' || type === undefined ) {
+        throw new Error(NOT_AN_IMAGE);
+    }
+    if ( typeof file.size === 'number' && file.size > MAX_IMAGE_BYTES ) {
+        throw new Error(IMAGE_TOO_LARGE);
+    }
+    const blob = await file.read();
+    if ( ! (blob instanceof Blob) ) {
+        throw new Error('The image could not be read.');
+    }
+    // The reported size can be stale, so the bytes actually read are checked too.
+    if ( blob.size > MAX_IMAGE_BYTES ) {
+        throw new Error(IMAGE_TOO_LARGE);
+    }
+    const head = String.fromCharCode(...new Uint8Array(await blob.slice(0, 12).arrayBuffer()));
+    if ( (blob.type !== type && ! GENERIC_TYPES.includes(blob.type)) || ! IMAGE_SIGNATURES[type].test(head) ) {
+        throw new Error(NOT_AN_IMAGE);
+    }
+    // A generic Blob type would end up in the data URL, so the image type is set first.
+    return readAsDataUrl(new Blob([blob], { type }));
+}
+```
+
+Call `pickReceiptImage()` from your Add Receipt button's click handler, before
+any other `await`, so the browser allows the picker popup. If it throws, show
+the error and keep the reviews the user already has. The rest of this recipe
+works on the picked image, so this code stops before anything is sent when the
+user cancels. In a click handler, return instead of throwing:
+
+```js
+const receiptImage = await pickReceiptImage();
+if ( receiptImage === null ) {
+    throw new Error('No receipt image was picked.');
+}
+```
+
+To try the whole flow with a receipt image from your Puter account, run the
+first code block in this section in the playground. It sends an image only after
+you pick one, lets you correct and approve the fields, and saves the report CSV
+to your Puter account.
 
 ## Read a Receipt
 
-Your app passes each receipt as one base64 data URL. In a browser,
-[`FileReader.readAsDataURL()`](https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsDataURL)
-gives you one. In Node.js, put `data:image/jpeg;base64,` in front of the file's
-base64 contents. The `requestExtraction()` function sends the image with the
-prompt and returns the reply text, or `null` if there's none:
+The `requestExtraction()` function sends one receipt as a base64 data URL with
+the prompt, and returns the reply text, or `null` if there's none. In Node.js,
+put `data:image/jpeg;base64,` in front of the file's base64 contents to get a
+data URL:
 
-```js;build-an-expense-report-from-receipts
+```js
 const FIELDS = ['merchant', 'date', 'currency', 'total'];
 const PROMPT = 'Read this receipt. Return the merchant name, the purchase date as YYYY-MM-DD '
     + 'only if the printed date is unambiguous, the currency only if its three-letter code is '
@@ -49,8 +148,7 @@ async function requestExtraction (image) {
 }
 ```
 
-Send the receipt when the user adds it. Here `receiptImage` is the data URL from
-your app's file picker or camera:
+Send the receipt the user picked:
 
 ```js
 const receiptReply = await requestExtraction(receiptImage);
@@ -66,9 +164,7 @@ If the AI reads a cafe receipt, leaves out the currency, and suggests the date
 The [`outputFormat`](/AI/chat/) schema asks for the four fields as text or
 `null`, and [`normalize: true`](/AI/chat/#response-normalization) makes the
 reply text a string for every model. The other options are listed on
-[`puter.ai.chat()`](/AI/chat/). To try this request in the playground, run the
-first code block in this section. The playground draws a sample receipt and
-shows the AI's raw reply.
+[`puter.ai.chat()`](/AI/chat/).
 
 ## Check the Image
 
@@ -742,6 +838,45 @@ For the sample expense, `csv` holds this text:
 "2026-09-30","Corner Cafe","EUR","12.40"
 ```
 
-Save the string or offer it as a download with whatever your platform provides.
-To start a new report after the export, set `REPORT_ID` to a new id the next
+To save the CSV in the user's Puter account, pass it to
+[`puter.ui.showSaveFilePicker()`](/UI/showSaveFilePicker/). It opens the Puter
+save dialog, where the user picks a folder and a file name, and writes the text
+to the file the user chose. When the user closes the dialog in the Puter
+desktop, its promise stays pending, and its `undefinedOnCancel` promise resolves
+to `undefined` instead. In a website, closing the save popup resolves the
+dialog's own promise to an object whose `msg` is `'fileSaveCanceled'`. The
+`saveCsvFile()` function treats both forms as a cancel and resolves to `null`.
+It resolves to the [`FSItem`](/Objects/fsitem/) of the saved file only when the
+result has a file name. It rejects when the save fails or the result doesn't
+name a saved file:
+
+```js
+async function saveCsvFile (csv, suggestedName) {
+    const request = puter.ui.showSaveFilePicker(csv, suggestedName);
+    // A desktop cancel settles undefinedOnCancel, and a website popup cancel resolves with a cancel message.
+    const saved = await Promise.race([request, request.undefinedOnCancel]);
+    if ( saved === undefined || saved?.msg === 'fileSaveCanceled' ) {
+        return null;
+    }
+    // Only a result that names the saved file confirms the save.
+    if ( typeof saved?.name !== 'string' || saved.name === '' ) {
+        throw new Error('The save dialog did not return the saved file, so the save could not be confirmed.');
+    }
+    return saved;
+}
+```
+
+In your Save button's click handler, call `exportCsv()` and then
+`saveCsvFile()` before any other `await`, so the browser allows the dialog
+popup. Tell the user the file is saved only when the call resolves to an item.
+When it resolves to `null`, the user canceled and no file was saved. A rejection
+can come after the file was written, so tell the user the save could not be
+confirmed and to check the destination before retrying. The report in
+[`puter.kv`](/KV/) doesn't change in either case, so the user can save again:
+
+```js
+const savedFile = await saveCsvFile(csv, 'expense-report.csv');
+```
+
+To start a new report after saving the CSV, set `REPORT_ID` to a new id the next
 time this code runs, as in [Save the Report](#save-the-report).
