@@ -47,6 +47,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { costsForRequest, usageCost } from '../../utils/pricing.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { DEEPSEEK_MODELS } from './models.js';
 import { DeepSeekProvider } from './DeepSeekProvider.js';
@@ -619,6 +620,141 @@ describe('DeepSeekProvider.complete non-stream output', () => {
         expect(usage.cached_tokens).toBe(0);
         expect(overrides).toMatchObject({ cached_tokens: 0 });
     });
+});
+
+// ── Peak-only pricing ───────────────────────────────────────────────
+
+describe('DeepSeekProvider peak-only pricing', () => {
+    // 1M prompt tokens of which 250k are cache hits, plus 100k output.
+    const upstreamUsage = {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 100_000,
+        prompt_tokens_details: { cached_tokens: 250_000 },
+    };
+    const meteredUsage = {
+        prompt_tokens: 750_000,
+        completion_tokens: 100_000,
+        cached_tokens: 250_000,
+    };
+
+    // µ¢ per token equals cents per 1M tokens.
+    const peakCosts = {
+        'deepseek-flash': {
+            prompt_tokens: 750_000 * 30,
+            completion_tokens: 100_000 * 120,
+            cached_tokens: 250_000 * 0.6,
+        },
+        'deepseek-v4-pro': {
+            prompt_tokens: 750_000 * 132,
+            completion_tokens: 100_000 * 396,
+            cached_tokens: 250_000 * 4.4,
+        },
+    };
+
+    // DeepSeek's peak windows are 01:00-04:00 and 06:00-10:00 UTC on
+    // weekdays, excluding Chinese public holidays; every instant still
+    // bills at peak rates.
+    const requestTimes = {
+        'last instant before the 01:00 peak': '2026-10-14T00:59:59.999Z',
+        '01:00 peak start': '2026-10-14T01:00:00.000Z',
+        'last instant of the 01:00-04:00 peak': '2026-10-14T03:59:59.999Z',
+        '04:00 peak end': '2026-10-14T04:00:00.000Z',
+        'last instant before the 06:00 peak': '2026-10-14T05:59:59.999Z',
+        '06:00 peak start': '2026-10-14T06:00:00.000Z',
+        'last instant of the 06:00-10:00 peak': '2026-10-14T09:59:59.999Z',
+        '10:00 peak end': '2026-10-14T10:00:00.000Z',
+        'weekday off-peak between windows': '2026-10-14T05:00:00.000Z',
+        'weekday off-peak evening': '2026-10-14T20:00:00.000Z',
+        'Saturday 02:00': '2026-10-17T02:00:00.000Z',
+        'Sunday 08:00': '2026-10-18T08:00:00.000Z',
+        'Chinese National Day (Thursday) 02:00': '2026-10-01T02:00:00.000Z',
+        'Spring Festival holiday (Monday) 08:00': '2027-02-08T08:00:00.000Z',
+    };
+
+    const cases = Object.keys(peakCosts).flatMap((modelId) =>
+        Object.entries(requestTimes).map(([label, iso]) => ({
+            modelId: modelId as keyof typeof peakCosts,
+            label,
+            iso,
+        })),
+    );
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('carries the published peak rates per 1M tokens', () => {
+        const rates = Object.fromEntries(
+            DEEPSEEK_MODELS.map((m) => [m.id, m.costs]),
+        );
+        expect(rates).toEqual({
+            'deepseek-flash': {
+                tokens: 1_000_000,
+                prompt_tokens: 30,
+                cached_tokens: 0.6,
+                completion_tokens: 120,
+            },
+            'deepseek-v4-pro': {
+                tokens: 1_000_000,
+                prompt_tokens: 132,
+                cached_tokens: 4.4,
+                completion_tokens: 396,
+            },
+        });
+        for (const m of DEEPSEEK_MODELS) {
+            expect(m.pricingOverrides).toBeUndefined();
+        }
+    });
+
+    it.each(cases)(
+        'bills $modelId at peak rates for a $label request',
+        async ({ modelId, iso }) => {
+            vi.useFakeTimers({ toFake: ['Date'], now: new Date(iso) });
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { content: 'ok', role: 'assistant' },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: upstreamUsage,
+            });
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: modelId,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            expect(recordSpy).toHaveBeenCalledTimes(1);
+            const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe(`deepseek:${modelId}`);
+            expect(usage).toEqual(meteredUsage);
+            expect(overrides).toEqual(peakCosts[modelId]);
+        },
+    );
+
+    it.each(cases)(
+        'quotes $modelId at peak rates for a $label request',
+        ({ modelId, iso }) => {
+            vi.useFakeTimers({ toFake: ['Date'], now: new Date(iso) });
+            const model = DEEPSEEK_MODELS.find((m) => m.id === modelId)!;
+            const expected = peakCosts[modelId];
+            // The credit gate prices the request at the current instant.
+            expect(costsForRequest(model, 1_000_000)).toEqual(model.costs);
+            // The reported usd_cents, from recorded costs or the model's rates.
+            for (const recorded of [expected, undefined]) {
+                expect(usageCost(meteredUsage, model, recorded)).toEqual({
+                    inputMicroCents: Math.round(
+                        expected.prompt_tokens + expected.cached_tokens,
+                    ),
+                    outputMicroCents: expected.completion_tokens,
+                });
+            }
+        },
+    );
 });
 
 // ── Streaming deltas ────────────────────────────────────────────────
