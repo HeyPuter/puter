@@ -263,8 +263,7 @@ export class OpenAiChatProvider implements IChatProvider {
                 const cacheWriteTokens =
                     (
                         usage.prompt_tokens_details as
-                            | { cache_write_tokens?: number }
-                            | undefined
+                            { cache_write_tokens?: number } | undefined
                     )?.cache_write_tokens ?? 0;
                 const trackedUsage = {
                     prompt_tokens:

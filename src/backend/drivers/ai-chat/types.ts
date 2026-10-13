@@ -87,13 +87,7 @@ export type PuterMessage = any;
  * `output_config.effort`.
  */
 export type ReasoningEffort =
-    | 'none'
-    | 'minimal'
-    | 'low'
-    | 'medium'
-    | 'high'
-    | 'xhigh'
-    | 'max';
+    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /** Normalized tool choice, Anthropic vocabulary. */
 export type ToolChoice =
@@ -228,12 +222,7 @@ export interface ICompleteArguments {
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        | 'auto'
-        | 'default'
-        | 'flex'
-        | 'scale'
-        | 'priority'
-        | undefined;
+        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;

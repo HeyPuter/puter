@@ -67,8 +67,7 @@ export class GeminiChatProvider extends OpenAICompatProvider {
             | Array<{ message?: { extra_content?: GroundingContent } }>
             | undefined;
         const extraContent = source.extra_content as
-            | GroundingContent
-            | undefined;
+            GroundingContent | undefined;
 
         const cached_tokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
         // Thinking tokens are a subset of completion_tokens billed at a different rate

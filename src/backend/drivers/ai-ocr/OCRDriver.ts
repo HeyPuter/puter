@@ -163,8 +163,7 @@ const toMistralResponseFormat = (
 ): Record<string, unknown> => {
     const format = value as Record<string, unknown> | null;
     const jsonSchema = (format?.jsonSchema ?? format?.json_schema) as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
     const schema = jsonSchema?.schemaDefinition ?? jsonSchema?.schema;
     if (
         !format ||
@@ -296,11 +295,9 @@ export class OCRDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
 
         const textract = providers['aws-textract'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAccessKey = textractAws?.access_key as string | undefined;
         const textractSecretKey = textractAws?.secret_key as string | undefined;
         const textractRegion =

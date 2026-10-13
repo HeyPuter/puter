@@ -100,8 +100,7 @@ const MISTRAL_FINISH_REASON_MAP: Record<string, string> = {
 // totals include cache hits, which must be removed before billing input.
 const coerceMistralUsage = (usage: UsageInfo) => {
     const details = usage.additionalProperties?.prompt_tokens_details as
-        | { cached_tokens?: number }
-        | undefined;
+        { cached_tokens?: number } | undefined;
     const cachedTokens = details?.cached_tokens ?? 0;
     return {
         prompt_tokens: (usage.promptTokens ?? 0) - cachedTokens,

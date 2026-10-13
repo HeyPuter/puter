@@ -21,10 +21,7 @@ import murmurhash from 'murmurhash';
 import { PendingUploadCreateInput, PendingUploadSession } from './FSEntry.js';
 
 export type PendingUploadSessionStatus =
-    | 'pending'
-    | 'completed'
-    | 'failed'
-    | 'aborted';
+    'pending' | 'completed' | 'failed' | 'aborted';
 
 export const PENDING_UPLOAD_SESSION_KEY_PREFIX = 'prodfsv2:upload-session:';
 

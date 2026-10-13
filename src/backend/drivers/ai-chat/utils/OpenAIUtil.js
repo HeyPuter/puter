@@ -453,8 +453,7 @@ export const extractMeteredUsage = (usage) => {
  * inside its count, so they come out of it and are priced only once, under
  * `cached_tokens`.
  *
- * @param {import('openai/resources/completions.mjs').CompletionUsage
- *     | undefined} usage
+ * @param {import('openai/resources/completions.mjs').CompletionUsage | undefined} usage
  */
 export const splitCachedPrompt = (usage) => {
     const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;

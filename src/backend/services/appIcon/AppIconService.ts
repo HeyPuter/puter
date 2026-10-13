@@ -106,8 +106,7 @@ export class AppIconService extends PuterService {
                 if (d.action === 'icon-migrated') return;
                 const app = await this.stores.app.getByUid(String(d.app_uid));
                 const icon = (app as Record<string, unknown> | null)?.icon as
-                    | string
-                    | undefined;
+                    string | undefined;
                 if (icon?.startsWith('data:')) {
                     await this.#scheduleIcon(
                         { app_uid: d.app_uid, data_url: icon },

@@ -28,12 +28,7 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    | 'body'
-    | 'header'
-    | 'x-api-key'
-    | 'cookie'
-    | 'query'
-    | 'handshake';
+    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
 
 /** Express router methods plus the WebDAV verbs some endpoints use. */
 export type RouteMethod =
@@ -364,8 +359,7 @@ type AuthImplyingOptions =
     | { requireCardVerified: true }
     | {
           requireAnyVerified:
-              | readonly VerificationFactor[]
-              | VerificationFactor[];
+              readonly VerificationFactor[] | VerificationFactor[];
       }
     | { requireSubscription: true | readonly string[] | string[] }
     | { requireReputation: string };

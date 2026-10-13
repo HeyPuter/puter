@@ -399,8 +399,7 @@ export class DDBClient extends PuterClient {
                             );
                             capacity.add(response.ConsumedCapacity);
                             return response.UnprocessedItems as
-                                | BatchWriteItems
-                                | undefined;
+                                BatchWriteItems | undefined;
                         },
                     );
                     if (!drained) {
@@ -784,8 +783,7 @@ export class DDBClient extends PuterClient {
             );
 
             lastEvaluatedKey = scan.LastEvaluatedKey as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
             const items = scan.Items;
             if (!items || items.length === 0) continue;
 

@@ -75,8 +75,7 @@ export interface ResolvedFileInput {
  * uuid? }`.
  */
 export type FileInputRef =
-    | string
-    | { path?: string; uid?: string; uuid?: string };
+    string | { path?: string; uid?: string; uuid?: string };
 
 export interface OpenedFileInput {
     body: Readable;

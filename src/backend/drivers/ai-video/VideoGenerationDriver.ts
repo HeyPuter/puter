@@ -322,11 +322,9 @@ export class VideoGenerationDriver extends PuterDriver {
         // pair its missing apiBaseUrl with the shared block's key (or vice
         // versa) and point a region-scoped key at the wrong endpoint.
         const byteplusVideoCfg = providers['byteplus-video-generation'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusKey = readProviderKey(
             byteplusVideoCfg,
             byteplusSharedCfg,
@@ -338,8 +336,7 @@ export class VideoGenerationDriver extends PuterDriver {
                         apiKey: byteplusKey,
                         apiBaseUrl: (byteplusVideoCfg?.apiBaseUrl ??
                             byteplusSharedCfg?.apiBaseUrl) as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );
