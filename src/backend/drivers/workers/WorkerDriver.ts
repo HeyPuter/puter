@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { v4 as uuidv4 } from 'uuid';
 import type { EventMetadata } from '../../clients/event/types.js';
 import {
     assertActorEmailVerified,
@@ -414,11 +415,19 @@ export class WorkerDriver extends PuterDriver {
         let authorization: string | undefined = undefined;
         const appOwnerId = boundApp?.id;
         const omitOwnerToken = deployTarget?.omitOwnerToken === true;
+        // The token is bound to the row it deploys under, which a new worker
+        // only gets further down, so its uuid is picked here.
+        const workerUid = deployTarget
+            ? undefined
+            : existingSub
+              ? String(existingSub.uuid)
+              : uuidv4();
         if (boundApp && !omitOwnerToken) {
             authorization = await this.services.auth.createWorkerAppToken(
                 actor,
                 boundApp.uid,
                 workerName,
+                { workerUid },
             );
         }
         if (!authorization && !omitOwnerToken) {
@@ -434,6 +443,8 @@ export class WorkerDriver extends PuterDriver {
                 actor,
                 userRow,
                 workerName,
+                {},
+                { workerUid },
             );
             authorization = session.token;
         }
@@ -490,6 +501,7 @@ export class WorkerDriver extends PuterDriver {
             // than letting the driver error escape as a 500.
             try {
                 await this.stores.subdomain.create({
+                    uuid: workerUid,
                     userId: actor.user.id!,
                     subdomain: subdomainName,
                     rootDirId: loaded.fsEntry.sqlId,
@@ -572,6 +584,7 @@ export class WorkerDriver extends PuterDriver {
         await this.stores.subdomain.deleteByUuid(row.uuid, {
             userId: actor.user.id,
         });
+        await this.services.auth.deleteWorkerSessionsByName(workerName);
         return cfResult;
     }
 
@@ -1076,6 +1089,14 @@ export class WorkerDriver extends PuterDriver {
                         err,
                     );
                 });
+                void this.services.auth
+                    .deleteWorkerSessionsByName(workerName)
+                    .catch((err) => {
+                        console.warn(
+                            `[workers] session cleanup failed for ${workerName}`,
+                            err,
+                        );
+                    });
             },
         );
     }
@@ -1145,6 +1166,11 @@ export class WorkerDriver extends PuterDriver {
                             ownerActor,
                             app.uid,
                             workerName,
+                            {
+                                workerUid: row.uuid
+                                    ? String(row.uuid)
+                                    : undefined,
+                            },
                         );
                 } else {
                     const session =
@@ -1152,6 +1178,12 @@ export class WorkerDriver extends PuterDriver {
                             ownerActor,
                             ownerUser,
                             workerName,
+                            {},
+                            {
+                                workerUid: row.uuid
+                                    ? String(row.uuid)
+                                    : undefined,
+                            },
                         );
 
                     authorization = session.token;
@@ -1325,6 +1357,7 @@ export class WorkerDriver extends PuterDriver {
                     userId,
                 });
             }
+            await this.services.auth.deleteWorkerSessionsByName(workerName);
         } catch (err) {
             console.warn(
                 `[workers] source cleanup failed for ${workerName}`,

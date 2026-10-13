@@ -33,12 +33,14 @@ import {
     GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
+import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
 import { PuterService } from '../types';
 import type {
@@ -401,7 +403,11 @@ export class AuthService extends PuterService {
         user: UserRow,
         sessionUuid: string,
         authId: string,
-        opts: { worker?: boolean; workerName?: string } = {},
+        opts: {
+            worker?: boolean;
+            workerName?: string;
+            workerUid?: string;
+        } = {},
     ): string {
         const claims: Record<string, unknown> = {
             type,
@@ -416,6 +422,7 @@ export class AuthService extends PuterService {
         };
         if (opts.worker) claims.worker = true;
         if (opts.workerName) claims.worker_name = opts.workerName;
+        if (opts.workerUid) claims.worker_uid = opts.workerUid;
         return this.services.token.sign('auth', claims);
     }
 
@@ -426,13 +433,15 @@ export class AuthService extends PuterService {
      * the row and returns the same stable token. Expires after
      * `WORKER_WINDOW_SECONDS` (effectively infinite). The emitted JWT carries
      * `worker: true` and `worker_name` so downstream code can tell a worker
-     * session from a user-driven one without a DB round-trip.
+     * session from a user-driven one without a DB round-trip. `workerUid` binds
+     * the token to the worker's subdomain row, so it stops working with it.
      */
     async createWorkerSessionToken(
         actor: Actor,
         user: UserRow,
         workerName: string,
         meta: Record<string, unknown> = {},
+        { workerUid }: { workerUid?: string } = {},
     ): Promise<{
         session: Record<string, unknown>;
         token: string;
@@ -464,14 +473,14 @@ export class AuthService extends PuterService {
             user,
             session.uuid as string,
             auth_id,
-            { worker: true, workerName },
+            { worker: true, workerName, workerUid },
         );
         const gui_token = this.#signSessionTypeToken(
             'gui',
             user,
             session.uuid as string,
             auth_id,
-            { worker: true, workerName },
+            { worker: true, workerName, workerUid },
         );
 
         return { session, token, gui_token };
@@ -489,13 +498,18 @@ export class AuthService extends PuterService {
      * handler runs deep; `expiresInSeconds` bounds a token that carries one.
      * Refuses an actor that is itself running behind a handler — the minted
      * token would outlive any one run, so stamping it with the caller's depth
-     * would only delay the escape, not close it.
+     * would only delay the escape, not close it. `workerUid` binds the token to
+     * the worker's subdomain row, so it stops working with it.
      */
     async createWorkerAppToken(
         actor: Actor,
         appUid: string,
         workerName: string,
-        options: { handlerDepth?: number; expiresInSeconds?: number } = {},
+        options: {
+            handlerDepth?: number;
+            expiresInSeconds?: number;
+            workerUid?: string;
+        } = {},
     ): Promise<string> {
         if (!actor.user) {
             throw new HttpError(403, 'Actor must be a user', {
@@ -546,6 +560,7 @@ export class AuthService extends PuterService {
                 auth_id,
                 worker: true,
                 worker_name: workerName,
+                ...(options.workerUid ? { worker_uid: options.workerUid } : {}),
                 ...(options.handlerDepth
                     ? { handler_depth: options.handlerDepth }
                     : {}),
@@ -888,6 +903,50 @@ export class AuthService extends PuterService {
             this.#announceRevocation(
                 await this.stores.session.revokeCascade(row.uuid as string),
             );
+        }
+    }
+
+    /**
+     * Delete every session of a worker that no longer exists, whoever minted
+     * it: worker names are unique, so nothing else can be using them.
+     */
+    async deleteWorkerSessionsByName(workerName: string): Promise<void> {
+        if (!workerName) return;
+        await this.#deleteWorkerSessions({ workerName });
+    }
+
+    /**
+     * Delete the sessions of the workers an app deployed for this user, e.g.
+     * when the user uninstalls it. The workers themselves keep running.
+     */
+    async deleteWorkerSessionsForApp(
+        userId: number,
+        appUid: string,
+    ): Promise<void> {
+        if (!userId || !appUid) return;
+        await this.#deleteWorkerSessions({ userId, appUid });
+    }
+
+    async #deleteWorkerSessions(filter: {
+        workerName?: string;
+        userId?: number;
+        appUid?: string;
+    }): Promise<void> {
+        const deleted = (await this.stores.session.deleteWorkerSessions(
+            filter,
+        )) as { uuid: string; userId: number; accessTokenUid: string | null }[];
+        const byUser = new Map<number, string[]>();
+        for (const row of deleted) {
+            byUser.set(row.userId, [
+                ...(byUser.get(row.userId) ?? []),
+                row.uuid,
+            ]);
+            if (row.accessTokenUid) {
+                await this.#dropAccessTokenGrants(row.accessTokenUid);
+            }
+        }
+        for (const [userId, uuids] of byUser) {
+            this.#announceRevocation({ userId, uuids });
         }
     }
 
@@ -2272,6 +2331,30 @@ export class AuthService extends PuterService {
         }
     }
 
+    /**
+     * A worker credential lives only as long as the worker it was minted for.
+     * Tokens minted before `worker_uid` existed are held to the worker's name
+     * and owner instead.
+     */
+    async #workerStillDeployed(
+        decoded: {
+            worker?: boolean;
+            worker_name?: string;
+            worker_uid?: string;
+        },
+        userId: number,
+    ): Promise<boolean> {
+        if (!decoded.worker) return true;
+        // Events handler sessions have no worker row; EventsService retires them.
+        if (decoded.worker_name === EVENTS_WORKER_SESSION_NAME) return true;
+        if (!decoded.worker_name) return false;
+        const row = await this.stores.subdomain.getBySubdomain(
+            `${WORKER_SUBDOMAIN_PREFIX}${decoded.worker_name}`,
+        );
+        if (!row || Number(row.user_id) !== Number(userId)) return false;
+        return !decoded.worker_uid || row.uuid === decoded.worker_uid;
+    }
+
     async #actorFromSessionToken(
         decoded: SessionTokenPayload,
         ctx: AuthenticateContext = {},
@@ -2302,6 +2385,9 @@ export class AuthService extends PuterService {
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+        if (!(await this.#workerStillDeployed(decoded, user.id as number))) {
+            return { invalid: true };
+        }
 
         void this.#touchSession(session.uuid, user.id, ctx);
 
@@ -2345,6 +2431,9 @@ export class AuthService extends PuterService {
         const createdAt = Number(session.created_at);
         if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
             return { reauth: { reason: 'session_revoked' } };
+        }
+        if (!(await this.#workerStillDeployed(decoded, user.id as number))) {
+            return { invalid: true };
         }
 
         void this.#touchSession(session.uuid, user.id, ctx);
