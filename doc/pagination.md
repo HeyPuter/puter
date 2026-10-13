@@ -28,9 +28,6 @@ Paginated responses are an envelope:
   `cursor` is still returned. Never use `items.length < limit` as an
   end-of-list signal.
 
-New request params are camelCase (`includeTotal`, `fetchUntilFull`).
-Pre-existing snake_case params stay for compatibility.
-
 ## Backward compatibility
 
 Requests without pagination params keep returning the full result in the

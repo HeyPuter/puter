@@ -19,15 +19,7 @@
 
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
-
-const isUniqueConstraintError = (e) => {
-    return (
-        e?.message?.includes('UNIQUE') ||
-        e?.code === 'SQLITE_CONSTRAINT' ||
-        e?.code === 'ER_DUP_ENTRY' ||
-        e?.code === '23505'
-    );
-};
+import { isUniqueViolation } from '../../util/dbError.js';
 
 /**
  * CRUD over the `user_oidc_providers` table.
@@ -38,14 +30,17 @@ const isUniqueConstraintError = (e) => {
 export class OIDCStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByProviderSub(provider, providerSub) {
+    /** Pass `primary` when the row may be newer than the replica. */
+    async getByProviderSub(provider, providerSub, { primary = false } = {}) {
         // Ordered so a sub that predates the UNIQUE index (two callbacks for the
         // same new identity used to be able to both insert) always resolves to
         // the same link, instead of bouncing the user between two accounts.
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1',
-            [provider, providerSub],
-        );
+        const sql =
+            'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1';
+        const params = [provider, providerSub];
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
         return rows[0] ?? null;
     }
 
@@ -66,14 +61,17 @@ export class OIDCStore extends PuterStore {
             );
             return;
         } catch (e) {
-            if (!isUniqueConstraintError(e)) throw e;
+            if (!isUniqueViolation(e)) throw e;
         }
 
         // UNIQUE(provider, provider_sub) collision — either we're re-linking
         // the same (user, provider, sub) triple (idempotent no-op), or the
         // sub already belongs to a DIFFERENT user. The latter must fail loudly
         // so callers don't assume success and act on an unrelated account.
-        const existing = await this.getByProviderSub(provider, providerSub);
+        // The primary: it rejected the insert, so it has the row.
+        const existing = await this.getByProviderSub(provider, providerSub, {
+            primary: true,
+        });
         if (!existing) return;
         if (existing.user_id !== userId) {
             // The caller is told there is a conflict, not whose.
@@ -89,13 +87,6 @@ export class OIDCStore extends PuterStore {
                 { legacyCode: 'conflict' },
             );
         }
-    }
-
-    async unlinkByUserId(userId, provider) {
-        await this.clients.db.write(
-            'DELETE FROM `user_oidc_providers` WHERE `user_id` = ? AND `provider` = ?',
-            [userId, provider],
-        );
     }
 
     async unlinkAllByUserId(userId) {

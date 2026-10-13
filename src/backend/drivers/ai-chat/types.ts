@@ -87,7 +87,13 @@ export type PuterMessage = any;
  * `output_config.effort`.
  */
 export type ReasoningEffort =
-    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max';
 
 /** Normalized tool choice, Anthropic vocabulary. */
 export type ToolChoice =
@@ -222,7 +228,12 @@ export interface ICompleteArguments {
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
+        | 'auto'
+        | 'default'
+        | 'flex'
+        | 'scale'
+        | 'priority'
+        | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
@@ -291,9 +302,15 @@ export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
-    list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
-    complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
+    /**
+     * `model` is this provider's own catalog entry for `arg.model`, as the
+     * driver resolved it; a provider resolves `arg.model` itself without it.
+     */
+    complete(
+        arg: ICompleteArguments,
+        model?: IChatModel,
+    ): Promise<IChatCompleteResult>;
     checkModeration(
         text: string,
     ): Promise<{ flagged: boolean; categories?: string[] }> | void;

@@ -20,17 +20,23 @@
 import { GoogleGenAI } from '@google/genai';
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
-import type { AiMeteringService } from '../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
-import { TTSProvider } from '../TTSProvider.js';
+import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import type {
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+    ITTSProvider,
+} from '../../types.js';
 import { GEMINI_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'gemini-3.8-flash-tts';
 const DEFAULT_VOICE = 'Kore';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const GEMINI_TTS_MODELS = [
     {
@@ -81,16 +87,15 @@ const GEMINI_TTS_VOICES = [
  * `responseModalities: ["AUDIO"]` and `speechConfig` to synthesize speech.
  * Returns raw PCM audio wrapped in a WAV container.
  */
-export class GeminiTTSProvider extends TTSProvider {
+export class GeminiTTSProvider implements ITTSProvider {
     readonly providerName = 'gemini';
 
     #client: GoogleGenAI;
 
     constructor(
-        meteringService: AiMeteringService,
+        private readonly meteringService: AiMeteringService,
         config: { apiKey: string },
     ) {
-        super(meteringService, config);
         if (!config.apiKey) {
             throw new Error('Gemini TTS requires an API key');
         }
@@ -115,7 +120,7 @@ export class GeminiTTSProvider extends TTSProvider {
         }));
     }
 
-    override getReportedCosts(): Record<string, unknown>[] {
+    getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(GEMINI_TTS_COSTS).map(([model, costs]) => ({
             usageType: `gemini:${model}:tts`,
             ucentsInputPerToken: this.#toMicroCents(costs.input / 1_000_000),
@@ -212,114 +217,114 @@ export class GeminiTTSProvider extends TTSProvider {
             estimatedInputCostCents + estimatedOutputCostCents,
         );
 
-        const hold = await this.meteringService.reserveAiCredits(
+        return withAiCreditHold(
+            this.meteringService,
             actor,
             `gemini:${model}`,
             estimatedTotalMicroCents,
-        );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
+            async (): Promise<DriverStreamResult> => {
+                // The TTS models require the text to be framed as a transcript
+                // to read aloud. Prefixing with "Say:" prevents the model from
+                // trying to generate conversational text instead of audio.
+                const inputText = instructions
+                    ? `${instructions}\n\nSay the following text aloud:\n${text}`
+                    : `Say the following text aloud:\n${text}`;
 
-        try {
-            // The TTS models require the text to be framed as a transcript
-            // to read aloud. Prefixing with "Say:" prevents the model from
-            // trying to generate conversational text instead of audio.
-            const inputText = instructions
-                ? `${instructions}\n\nSay the following text aloud:\n${text}`
-                : `Say the following text aloud:\n${text}`;
-
-            // Let Google GenAI `ApiError`s bubble — they carry `.status` and
-            // are mapped to `upstream_*` HttpErrors by the driver-boundary
-            // translator. Catching here and wrapping as 502 hid the upstream
-            // status and caused 4xx validation errors to page.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const response: any = await this.#client.models.generateContent({
-                model,
-                contents: [{ parts: [{ text: inputText }] }],
-                config: {
-                    responseModalities: ['AUDIO'],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: voice },
+                // Let Google GenAI `ApiError`s bubble — they carry `.status` and
+                // are mapped to `upstream_*` HttpErrors by the driver-boundary
+                // translator. Catching here and wrapping as 502 hid the upstream
+                // status and caused 4xx validation errors to page.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const response: any = await this.#client.models.generateContent(
+                    {
+                        model,
+                        contents: [{ parts: [{ text: inputText }] }],
+                        config: {
+                            responseModalities: ['AUDIO'],
+                            speechConfig: {
+                                voiceConfig: {
+                                    prebuiltVoiceConfig: { voiceName: voice },
+                                },
+                            },
                         },
                     },
-                },
-            });
-
-            // Extract audio data from response
-            const part = response?.candidates?.[0]?.content?.parts?.[0];
-            if (!part?.inlineData?.data) {
-                throw new HttpError(
-                    400,
-                    'Gemini TTS did not return audio data',
-                    {
-                        legacyCode: 'upstream_bad_request',
-                        fields: { provider: 'gemini' },
-                    },
                 );
-            }
 
-            const audioBase64: string = part.inlineData.data;
-            const mimeType: string =
-                part.inlineData.mimeType || 'audio/L16;rate=24000';
+                // Extract audio data from response
+                const part = response?.candidates?.[0]?.content?.parts?.[0];
+                if (!part?.inlineData?.data) {
+                    throw new HttpError(
+                        400,
+                        'Gemini TTS did not return audio data',
+                        {
+                            legacyCode: 'upstream_bad_request',
+                            fields: { provider: 'gemini' },
+                        },
+                    );
+                }
 
-            // Convert base64 PCM to a WAV buffer for broad client compatibility
-            const pcmBuffer = Buffer.from(audioBase64, 'base64');
-            let outputBuffer: Buffer;
-            let contentType: string;
+                const audioBase64: string = part.inlineData.data;
+                const mimeType: string =
+                    part.inlineData.mimeType || 'audio/L16;rate=24000';
 
-            if (mimeType.startsWith('audio/L16') || mimeType === 'audio/pcm') {
-                // Wrap raw PCM (16-bit LE, 24kHz, mono) in a WAV container
-                outputBuffer = this.#wrapPcmInWav(pcmBuffer, 24000, 1, 16);
-                contentType = 'audio/wav';
-            } else {
-                // If the API returns encoded audio (unlikely today), pass through
-                outputBuffer = pcmBuffer;
-                contentType = mimeType;
-            }
+                // Convert base64 PCM to a WAV buffer for broad client compatibility
+                const pcmBuffer = Buffer.from(audioBase64, 'base64');
+                let outputBuffer: Buffer;
+                let contentType: string;
 
-            // Meter actual usage from response metadata
-            const usage = response.usageMetadata;
-            const actualInputTokens =
-                typeof usage?.promptTokenCount === 'number'
-                    ? usage.promptTokenCount
-                    : estimatedInputTokens;
-            const actualOutputTokens =
-                typeof usage?.candidatesTokenCount === 'number'
-                    ? usage.candidatesTokenCount
-                    : estimatedOutputTokens;
+                if (
+                    mimeType.startsWith('audio/L16') ||
+                    mimeType === 'audio/pcm'
+                ) {
+                    // Wrap raw PCM (16-bit LE, 24kHz, mono) in a WAV container
+                    outputBuffer = this.#wrapPcmInWav(pcmBuffer, 24000, 1, 16);
+                    contentType = 'audio/wav';
+                } else {
+                    // If the API returns encoded audio (unlikely today), pass through
+                    outputBuffer = pcmBuffer;
+                    contentType = mimeType;
+                }
 
-            const inputCostCents =
-                (actualInputTokens / 1_000_000) * costs.input;
-            const outputCostCents =
-                (actualOutputTokens / 1_000_000) * costs.output_audio;
+                // Meter actual usage from response metadata
+                const usage = response.usageMetadata;
+                const actualInputTokens =
+                    typeof usage?.promptTokenCount === 'number'
+                        ? usage.promptTokenCount
+                        : estimatedInputTokens;
+                const actualOutputTokens =
+                    typeof usage?.candidatesTokenCount === 'number'
+                        ? usage.candidatesTokenCount
+                        : estimatedOutputTokens;
 
-            const usagePrefix = `gemini:${model}`;
-            this.meteringService.batchIncrementUsages(actor, [
-                {
-                    usageType: `${usagePrefix}:input`,
-                    usageAmount: Math.max(actualInputTokens, 1),
-                    costOverride: this.#toMicroCents(inputCostCents),
-                },
-                {
-                    usageType: `${usagePrefix}:output:audio`,
-                    usageAmount: Math.max(actualOutputTokens, 1),
-                    costOverride: this.#toMicroCents(outputCostCents),
-                },
-            ]);
+                const inputCostCents =
+                    (actualInputTokens / 1_000_000) * costs.input;
+                const outputCostCents =
+                    (actualOutputTokens / 1_000_000) * costs.output_audio;
 
-            const stream = Readable.from(outputBuffer);
+                const usagePrefix = `gemini:${model}`;
+                this.meteringService.batchIncrementUsages(actor, [
+                    {
+                        usageType: `${usagePrefix}:input`,
+                        usageAmount: Math.max(actualInputTokens, 1),
+                        costOverride: this.#toMicroCents(inputCostCents),
+                    },
+                    {
+                        usageType: `${usagePrefix}:output:audio`,
+                        usageAmount: Math.max(actualOutputTokens, 1),
+                        costOverride: this.#toMicroCents(outputCostCents),
+                    },
+                ]);
 
-            return {
-                dataType: 'stream',
-                content_type: contentType,
-                chunked: true,
-                stream,
-            };
-        } finally {
-            await hold.release();
-        }
+                const stream = Readable.from(outputBuffer);
+
+                return {
+                    dataType: 'stream',
+                    content_type: contentType,
+                    chunked: true,
+                    stream,
+                };
+            },
+        );
     }
 
     /** Wrap raw PCM samples in a WAV container so browsers can play it. */

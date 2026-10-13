@@ -285,8 +285,8 @@ export interface IThumbnailStoreConfig {
  */
 export interface IAIProviderConfig {
     /**
-     * API key. Sole canonical name — drivers no longer accept
-     * `secret_key`/`api_key`/`key` aliases.
+     * API key, the canonical name. `readProviderKey` also takes `secret_key`,
+     * `api_key` or `key` from older configs, the same way in every AI driver.
      */
     apiKey?: string;
     /**
@@ -410,6 +410,12 @@ export interface IBroadcastConfig {
      * 2000ms.
      */
     outbound_flush_ms?: number;
+    /**
+     * Largest outbound POST body in bytes; a flush over it goes out as several
+     * POSTs, and a peer that is down is owed at most four bodies' worth.
+     * Default 4 MiB.
+     */
+    outboundMaxBodyBytes?: number;
 }
 
 /** Cloudflare Workers deployment config used by `WorkerDriver`. */
@@ -431,7 +437,12 @@ export interface IWorkersConfig {
      * worker logs.
      */
     loggingUrl?: string;
-    [key: string]: string | undefined;
+    /**
+     * Let locally run workers reach private-network (LAN) addresses. Off by
+     * default; public addresses and this machine are always reachable.
+     */
+    allowLanAccess?: boolean;
+    [key: string]: string | boolean | undefined;
 }
 
 /**
@@ -1088,7 +1099,7 @@ interface IConfigOptional {
      * are coerced before use.
      *
      * Server-only by default. Flags are surfaced to clients via `/whoami` only
-     * if their key is on the allowlist in `extensions/whoami.ts`
+     * if their key is on the allowlist in `util/userDetails.ts`
      * (`CLIENT_VISIBLE_FEATURE_FLAGS`). New flags should be assumed internal —
      * add them to the allowlist explicitly if (and only if) the client needs to
      * read them.

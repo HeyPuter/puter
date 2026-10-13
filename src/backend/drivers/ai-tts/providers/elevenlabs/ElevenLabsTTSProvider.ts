@@ -17,20 +17,76 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
-import { TTSProvider } from '../TTSProvider.js';
+import {
+    upstreamBodyStream,
+    upstreamFetch,
+} from '../../../util/upstreamErrors.js';
+import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import type {
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+    ITTSProvider,
+} from '../../types.js';
+import {
+    characterCostReport,
+    meterPerCharacter,
+    TTS_UPSTREAM_TIMEOUT_MS,
+} from '../common.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
-const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // "Rachel" sample voice
+const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
+const VOICES_TTL_MS = 10 * 60 * 1000;
+// ElevenLabs voice IDs are 20 alphanumeric characters.
+const VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
+const VOICE_SEARCH_MAX_PAGES = 5;
+// https://elevenlabs.io/docs/api-reference/text-to-speech/convert
+// mp3_44100_192 needs the Creator tier; pcm/wav at 44.1 kHz need Pro.
+const OUTPUT_FORMATS = new Set([
+    'alaw_8000',
+    'mp3_22050_32',
+    'mp3_24000_48',
+    'mp3_44100_32',
+    'mp3_44100_64',
+    'mp3_44100_96',
+    'mp3_44100_128',
+    'mp3_44100_192',
+    'opus_48000_32',
+    'opus_48000_64',
+    'opus_48000_96',
+    'opus_48000_128',
+    'opus_48000_192',
+    'pcm_8000',
+    'pcm_16000',
+    'pcm_22050',
+    'pcm_24000',
+    'pcm_32000',
+    'pcm_44100',
+    'pcm_48000',
+    'ulaw_8000',
+    'wav_8000',
+    'wav_16000',
+    'wav_22050',
+    'wav_24000',
+    'wav_32000',
+    'wav_44100',
+    'wav_48000',
+]);
+// OpenAI-style `response_format` names. ElevenLabs ignored the body field
+// these used to travel in, so callers passing them always got MP3; map them to
+// the closest native format instead of letting the vendor reject them.
+const OUTPUT_FORMAT_SHORTHANDS: Record<string, string> = {
+    mp3: DEFAULT_OUTPUT_FORMAT,
+    opus: 'opus_48000_128',
+    pcm: 'pcm_24000',
+    wav: 'wav_24000',
+};
 
 const ELEVENLABS_TTS_MODELS = [
     { id: DEFAULT_MODEL, name: 'Eleven Multilingual v2' },
@@ -46,107 +102,78 @@ const ELEVENLABS_TTS_MODELS = [
  * ElevenLabs TTS provider. Uses the ElevenLabs REST API to synthesize speech
  * and returns audio as a DriverStreamResult.
  */
-export class ElevenLabsTTSProvider extends TTSProvider {
+export class ElevenLabsTTSProvider implements ITTSProvider {
     readonly providerName = 'elevenlabs';
 
     private apiKey: string;
     private baseUrl: string;
     private defaultVoiceId: string;
+    private voicesCache: {
+        voices: Promise<ITTSVoice[]>;
+        expires: number;
+    } | null = null;
 
     constructor(
-        meteringService: AiMeteringService,
+        private readonly meteringService: AiMeteringService,
         config: {
             apiKey: string;
             apiBaseUrl?: string;
             defaultVoiceId?: string;
         },
     ) {
-        super(meteringService, config);
-
         this.apiKey = config.apiKey;
         this.baseUrl = config.apiBaseUrl ?? 'https://api.elevenlabs.io';
         this.defaultVoiceId = config.defaultVoiceId ?? DEFAULT_VOICE_ID;
     }
 
-    private async request(
+    private request(
         path: string,
         opts: {
             method?: string;
             body?: unknown;
             headers?: Record<string, string>;
+            stream?: boolean;
         } = {},
     ): Promise<Response> {
-        const { method = 'GET', body, headers = {} } = opts;
-
-        const response = await fetch(`${this.baseUrl}${path}`, {
-            method,
-            headers: {
-                'xi-api-key': this.apiKey,
-                ...(body ? { 'Content-Type': 'application/json' } : {}),
-                ...headers,
-            },
-            body: body ? JSON.stringify(body) : undefined,
-        });
-
-        if (response.ok) {
-            return response;
-        }
-
-        let detail: unknown = null;
-        try {
-            detail = await response.json();
-        } catch {
-            // ignore
-        }
-
-        console.error('[ElevenLabsTTSProvider] request failed', {
-            path,
-            status: response.status,
-            detail,
-        });
-
-        // Map upstream status to an `upstream_*` HttpError so the alarm
-        // gate skips it. Anything 4xx from ElevenLabs (voice_not_found,
-        // invalid model, bad payload, auth) is a user-caused error from
-        // our perspective — expose as 400. 5xx is an outage on their
-        // side — also expose as 400 (`upstream_provider_unavailable`)
-        // since the user can't act on it but it's not our bug.
-        const upstreamCode =
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (detail as any)?.detail?.code ?? (detail as any)?.code;
-        const upstreamMessage =
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (detail as any)?.detail?.message ?? (detail as any)?.message;
-        const legacyCode =
-            response.status >= 500
-                ? 'upstream_provider_unavailable'
-                : response.status === 401 || response.status === 403
-                  ? 'upstream_auth_failed'
-                  : response.status === 429
-                    ? 'upstream_rate_limited'
-                    : 'upstream_bad_request';
-        const exposedStatus =
-            legacyCode === 'upstream_rate_limited'
-                ? 429
-                : legacyCode === 'upstream_auth_failed'
-                  ? 500
-                  : 400;
-        throw new HttpError(
-            exposedStatus,
-            upstreamMessage ??
-                `ElevenLabs request failed (status ${response.status})`,
+        const { method = 'GET', body, headers = {}, stream } = opts;
+        return upstreamFetch(
+            'elevenlabs',
+            `${this.baseUrl}${path}`,
             {
-                legacyCode,
-                fields: {
-                    provider: 'elevenlabs',
-                    upstreamStatus: response.status,
-                    upstreamCode,
+                method,
+                headers: {
+                    'xi-api-key': this.apiKey,
+                    ...(body ? { 'Content-Type': 'application/json' } : {}),
+                    ...headers,
                 },
+                body: body ? JSON.stringify(body) : undefined,
+            },
+            {
+                providerLabel: 'ElevenLabs',
+                timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
+                stream,
             },
         );
     }
 
+    /**
+     * The account's voices, cached for {@link VOICES_TTL_MS} so voice listings
+     * don't call ElevenLabs on every request. A failed fetch isn't cached.
+     */
     async listVoices(): Promise<ITTSVoice[]> {
+        const cached = this.voicesCache;
+        if (cached && Date.now() < cached.expires) return cached.voices;
+        const voices = this.fetchVoices();
+        this.voicesCache = { voices, expires: Date.now() + VOICES_TTL_MS };
+        try {
+            return await voices;
+        } catch (e) {
+            if (this.voicesCache?.voices === voices) this.voicesCache = null;
+            throw e;
+        }
+    }
+
+    private async fetchVoices(): Promise<ITTSVoice[]> {
         const res = await this.request('/v1/voices');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = await res.json();
@@ -173,6 +200,72 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         );
     }
 
+    private async resolveVoiceId(voice: string): Promise<string> {
+        // Voice IDs go straight to synthesis: the account's library listing
+        // omits voices that still synthesize (the default voice among them)
+        // and runs to megabytes, so it can't gate IDs.
+        if (VOICE_ID_PATTERN.test(voice)) return voice;
+
+        const voices = await this.searchVoices(voice);
+        const byId = voices.find((entry) => entry.voice_id === voice);
+        if (byId) return byId.voice_id;
+
+        // Exact full names first; premade voices are named "Bella - Professional,
+        // Bright, Warm", so their short name before " - " also resolves. Library
+        // voices don't get the short form: "Rachel" would land on whichever
+        // community voice happens to share it.
+        let matches = voices.filter((entry) => entry.name === voice);
+        if (matches.length === 0) {
+            matches = voices.filter(
+                (entry) =>
+                    entry.category === 'premade' &&
+                    entry.name.split(' - ')[0].trim() === voice,
+            );
+        }
+        if (matches.length === 1) return matches[0].voice_id;
+
+        throw new HttpError(
+            400,
+            matches.length > 1
+                ? 'Ambiguous ElevenLabs voice name. Use a voice ID from listVoices.'
+                : 'Unknown ElevenLabs voice. Use a voice ID or exact name from listVoices.',
+            { legacyCode: 'field_invalid', fields: { key: 'voice' } },
+        );
+    }
+
+    private async searchVoices(
+        search: string,
+    ): Promise<{ voice_id: string; name: string; category?: string }[]> {
+        const voices: { voice_id: string; name: string; category?: string }[] =
+            [];
+        let pageToken: string | undefined;
+        for (let page = 0; page < VOICE_SEARCH_MAX_PAGES; page++) {
+            const params = new URLSearchParams({
+                search,
+                page_size: '100',
+                include_total_count: 'false',
+            });
+            if (pageToken) params.set('next_page_token', pageToken);
+            const res = await this.request(`/v2/voices?${params}`);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const data: any = await res.json();
+            for (const entry of Array.isArray(data?.voices)
+                ? data.voices
+                : []) {
+                if (
+                    typeof entry?.voice_id === 'string' &&
+                    typeof entry?.name === 'string'
+                ) {
+                    voices.push(entry);
+                }
+            }
+            if (!data?.has_more || typeof data?.next_page_token !== 'string')
+                break;
+            pageToken = data.next_page_token;
+        }
+        return voices;
+    }
+
     async listEngines(): Promise<ITTSEngine[]> {
         return ELEVENLABS_TTS_MODELS.map((model) => ({
             id: model.id,
@@ -182,15 +275,8 @@ export class ElevenLabsTTSProvider extends TTSProvider {
         }));
     }
 
-    override getReportedCosts(): Record<string, unknown>[] {
-        return Object.entries(ELEVENLABS_TTS_COSTS).map(
-            ([model, ucentsPerUnit]) => ({
-                usageType: `elevenlabs:${model}:character`,
-                ucentsPerUnit,
-                unit: 'character',
-                source: 'driver:aiTts/elevenlabs',
-            }),
-        );
+    getReportedCosts(): Record<string, unknown>[] {
+        return characterCostReport('elevenlabs', ELEVENLABS_TTS_COSTS);
     }
 
     async synthesize(
@@ -218,7 +304,6 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             });
         }
 
-        const voiceId = voiceArg || this.defaultVoiceId;
         const modelId = modelArg || DEFAULT_MODEL;
 
         // Gate on the cost table rather than the advertised model list: an id
@@ -236,66 +321,64 @@ export class ElevenLabsTTSProvider extends TTSProvider {
             );
         }
 
-        const desiredFormat =
+        const requestedFormat =
             output_format || response_format || DEFAULT_OUTPUT_FORMAT;
-
-        const actor = Context.get('actor')!;
-        const usageKey = `elevenlabs:${modelId}:character`;
-        const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId];
-        const totalCost = ucentsPerChar * text.length;
-
-        const hold = await this.meteringService.reserveAiCredits(
-            actor,
-            usageKey,
-            totalCost,
-        );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const payload: any = {
-                text,
-                model_id: modelId,
-                output_format: desiredFormat,
-            };
-
-            const finalVoiceSettings = voice_settings ?? voiceSettings;
-            if (finalVoiceSettings) {
-                payload.voice_settings = finalVoiceSettings;
-            }
-
-            const response = await this.request(
-                `/v1/text-to-speech/${voiceId}`,
+        const desiredFormat = Object.hasOwn(
+            OUTPUT_FORMAT_SHORTHANDS,
+            requestedFormat,
+        )
+            ? OUTPUT_FORMAT_SHORTHANDS[requestedFormat]
+            : requestedFormat;
+        if (!OUTPUT_FORMATS.has(desiredFormat)) {
+            const expected = [...OUTPUT_FORMATS];
+            throw new HttpError(
+                400,
+                `Invalid output_format: ${requestedFormat}. Expected: ${expected.join(', ')}`,
                 {
-                    method: 'POST',
-                    body: payload,
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: output_format
+                            ? 'output_format'
+                            : 'response_format',
+                        expected,
+                        got: requestedFormat,
+                    },
                 },
             );
-
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            const stream = Readable.from(buffer);
-
-            this.meteringService.incrementUsage(
-                actor,
-                usageKey,
-                text.length,
-                totalCost,
-            );
-
-            const contentType =
-                response.headers.get('content-type') || 'audio/mpeg';
-
-            return {
-                dataType: 'stream',
-                content_type: contentType,
-                chunked: true,
-                stream,
-            };
-        } finally {
-            await hold.release();
         }
+
+        const payload: Record<string, unknown> = {
+            text,
+            model_id: modelId,
+        };
+        const finalVoiceSettings = voice_settings ?? voiceSettings;
+        if (finalVoiceSettings) payload.voice_settings = finalVoiceSettings;
+        const searchParams = new URLSearchParams({
+            output_format: desiredFormat,
+        });
+
+        return meterPerCharacter(
+            this.meteringService,
+            Context.get('actor')!,
+            `elevenlabs:${modelId}:character`,
+            ELEVENLABS_TTS_COSTS[modelId],
+            text,
+            async () => {
+                const voiceId = voiceArg
+                    ? await this.resolveVoiceId(voiceArg)
+                    : this.defaultVoiceId;
+                const response = await this.request(
+                    `/v1/text-to-speech/${encodeURIComponent(voiceId)}?${searchParams}`,
+                    { method: 'POST', body: payload, stream: true },
+                );
+                return {
+                    dataType: 'stream',
+                    content_type:
+                        response.headers.get('content-type') || 'audio/mpeg',
+                    chunked: true,
+                    stream: upstreamBodyStream(response),
+                };
+            },
+        );
     }
 }

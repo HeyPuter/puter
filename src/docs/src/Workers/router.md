@@ -39,7 +39,7 @@ Route handlers receive a single object as their parameter, which can be destruct
 When writing worker code, you have access to these global objects:
 
 - `router` - The router object for defining API endpoints
-- `me` - An object representing you, the worker's owner. It has a `puter` property (`me.puter`) that gives you access to your own Puter resources — KV, FS, AI, etc.
+- `me` - An object representing you, the worker's owner. It has a `puter` property (`me.puter`) that gives you access to your own Puter resources — KV, FS, AI, etc. `me` is set up when the first request arrives, so use it inside route handlers (or functions they call), not at the top level of your script.
 
 ## Integration with Puter.js
 

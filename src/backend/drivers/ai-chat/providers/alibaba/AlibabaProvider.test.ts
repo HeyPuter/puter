@@ -50,6 +50,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { ALIBABA_MODELS } from './models.js';
 import { AlibabaProvider } from './AlibabaProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -139,6 +140,8 @@ describe('AlibabaProvider construction', () => {
             apiKey: 'test-key',
             baseURL:
                 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -147,6 +150,8 @@ describe('AlibabaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.endpoint/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -166,7 +171,7 @@ describe('AlibabaProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of ALIBABA_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -183,15 +188,16 @@ describe('AlibabaProvider model catalog', () => {
         ['qwen3.8-flash', 15, 47, 1.6],
         ['qwen3.8-omni-flash', 15, 47, 1.6],
         ['qwen3.8-max-0902', 200, 600, 25],
-        ['qwen3.7-max-2026-05-17', 250, 750, 0],
-        ['deepseek-v4.1-flash', 30, 120, 0],
+        // No cache discount: cached reads bill at the input rate.
+        ['qwen3.7-max-2026-05-17', 250, 750, undefined],
+        ['deepseek-v4.1-flash', 30, 120, undefined],
     ])('exposes %s at its list price', (id, input, output, cached) => {
         const model = ALIBABA_MODELS.find((m) => m.id === id);
         expect(model?.costs).toMatchObject({
             prompt_tokens: input,
             completion_tokens: output,
-            cached_tokens: cached,
         });
+        expect(model?.costs.cached_tokens).toBe(cached);
     });
 
     it.each([
@@ -204,7 +210,7 @@ describe('AlibabaProvider model catalog', () => {
         'deepseek-v4-flash',
     ])('drops %s, which Model Studio is retiring', async (id) => {
         const { provider } = makeProvider();
-        expect(await provider.list()).not.toContain(id);
+        expect(modelLookupNames(await provider.models())).not.toContain(id);
     });
 });
 
@@ -298,7 +304,7 @@ describe('AlibabaProvider.complete request shape', () => {
         expect('tools' in args).toBe(false);
     });
 
-    it('passes tool definitions through unchanged when supplied', async () => {
+    it('sends function tools in the OpenAI shape', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -319,7 +325,7 @@ describe('AlibabaProvider.complete request shape', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[0]![0].tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -589,14 +595,15 @@ describe('AlibabaProvider.complete non-stream output', () => {
             (m) => m.id === 'qwen3.8-max',
         )!;
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
+        // Cached reads come out of `prompt_tokens`; they're priced once.
         expect(usage).toEqual({
-            prompt_tokens: 50,
+            prompt_tokens: 35,
             completion_tokens: 20,
             cached_tokens: 15,
         });
         expect(prefix).toBe('alibaba:qwen3.8-max');
         expect(overrides).toEqual({
-            prompt_tokens: 50 * Number(model.costs.prompt_tokens),
+            prompt_tokens: 35 * Number(model.costs.prompt_tokens),
             completion_tokens: 20 * Number(model.costs.completion_tokens),
             cached_tokens: 15 * Number(model.costs.cached_tokens ?? 0),
         });

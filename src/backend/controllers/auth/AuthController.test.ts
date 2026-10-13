@@ -1391,6 +1391,26 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    it('hands back the whoami account shape, without the phone number', async () => {
+        const user = await server.stores.user.getByUsername(username, {
+            force: true,
+        });
+        await server.stores.user.update(user!.id, { phone: '+15550100' });
+        const res = makeRes();
+        await controller.handleLogin(makeReq({ username, password }), res);
+        const body = res.body as { user: Record<string, unknown> };
+        expect(body.user).not.toHaveProperty('phone');
+        expect(body.user).toMatchObject({
+            username,
+            uuid: user!.uuid,
+            oidc_only: false,
+            otp: false,
+            is_user_token: true,
+        });
+        expect(body.user.directories).toBeTypeOf('object');
+        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
+    });
+
     // A deleted row still answering from cache reaches the session INSERT.
     it('answers 401 rather than 500 when the account row is gone but still cached', async () => {
         const goneName = `lg_${Math.random().toString(36).slice(2, 10)}`;
@@ -2237,6 +2257,62 @@ describe('AuthController grant flows', () => {
         expect(
             (rows as Array<{ permission: string }>).map((r) => r.permission),
         ).not.toContain(permission);
+    });
+
+    it('revoke-user-app `*`: deletes the worker sessions that app deployed for the user, and only those', async () => {
+        const app = await server.stores.app.create(
+            {
+                name: `tr-worker-${uuidv4()}`,
+                title: 'TestRevokeWorkerApp',
+                index_url: `https://tr-worker-${uuidv4()}.example.test/`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const workerName = () => `wk-${uuidv4().slice(0, 8)}`;
+        const appWorker = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: app.uid, workerName: workerName() },
+        );
+        const otherApp = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: `app-${uuidv4()}`, workerName: workerName() },
+        );
+        const userScoped = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: null, workerName: workerName() },
+        );
+        const exists = async (uuid: string) =>
+            (
+                await server.clients.db.read(
+                    'SELECT 1 FROM `sessions` WHERE `uuid` = ?',
+                    [uuid],
+                )
+            ).length > 0;
+
+        // A single permission leaves the app's workers running as before.
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: 'service:x:ii:read' },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await exists(appWorker.uuid)).toBe(true);
+
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: '*' },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await exists(appWorker.uuid)).toBe(false);
+        expect(await exists(otherApp.uuid)).toBe(true);
+        expect(await exists(userScoped.uuid)).toBe(true);
     });
 
     it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
@@ -6223,6 +6299,104 @@ describe('AuthController password recovery', () => {
         expect(after!.pass_recovery_token).toBeFalsy();
     });
 
+    // `system` is seeded by migration; `admin` only by the self-hosted boot.
+    const builtInAdmin = async (username: 'admin' | 'system') => {
+        const existing = await server.stores.user.getByUsername(username);
+        const row =
+            existing ??
+            (await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: await bcrypt.hash('admin-password', 8),
+                email: null,
+                requires_email_confirmation: false,
+            }));
+        await server.stores.user.update(row.id, {
+            email: `${username}_${uniq()}@test.local`,
+            pass_recovery_token: null,
+        });
+        return (await server.stores.user.getById(row.id, { force: true }))!;
+    };
+
+    it('send-pass-recovery-email: sends nothing for a built-in admin account and alarms with the requester IP', async () => {
+        const ip = '203.0.113.7';
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(undefined as never);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            for (const name of ['admin', 'system'] as const) {
+                const admin = await builtInAdmin(name);
+                for (const body of [
+                    { username: name },
+                    { email: admin.email },
+                ]) {
+                    const res = makeRes();
+                    await controller.handleSendPassRecoveryEmail(
+                        makeReq(body, { ip }),
+                        res,
+                    );
+                    expect((res.body as { message: string }).message).toMatch(
+                        /If that account exists/i,
+                    );
+                }
+                const after = await server.stores.user.getById(admin.id, {
+                    force: true,
+                });
+                expect(after!.pass_recovery_token).toBeFalsy();
+                expect(alarm).toHaveBeenCalledWith(
+                    `auth:admin-pass-recovery-attempt:${ip}`,
+                    expect.any(String),
+                    expect.objectContaining({ target: name, ip }),
+                    'critical',
+                    { dedup: true },
+                );
+            }
+            expect(send).not.toHaveBeenCalled();
+            expect(alarm).toHaveBeenCalledTimes(4);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
+
+    it('set-pass-using-token: refuses a recovery token for a built-in admin account', async () => {
+        const admin = await builtInAdmin('admin');
+        const recoveryToken = uuidv4();
+        await server.stores.user.update(admin.id, {
+            pass_recovery_token: recoveryToken,
+        });
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token: recoveryToken,
+                user_uid: admin.uuid,
+                email: admin.email,
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+
+        await expect(
+            controller.handleVerifyPassRecoveryToken(
+                makeReq({ token: jwt }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({ token: jwt, password: 'a-brand-new-password' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        const after = await server.stores.user.getById(admin.id, {
+            force: true,
+        });
+        expect(after!.password).toBe(admin.password);
+    });
+
     it('verify-pass-recovery-token: 400 on missing token', async () => {
         await expect(
             controller.handleVerifyPassRecoveryToken(makeReq({}), makeRes()),
@@ -6684,20 +6858,18 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         const { user: leaver, actor: leaverActor } = await makeUserAndActor();
         const vacated = leaver.username;
         // Warm the entry cache under the old path, as any read would.
-        const docs = (await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        ))!;
+        await server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`);
         await controller.handleChangeUsername(
             makeReq({ new_username: `r_${uniq()}` }, { actor: leaverActor }),
             makeRes(),
         );
 
-        // The cache still maps the old path to the leaver's folder, so a new
-        // holder of the name would pass ACL on it.
-        const cached = await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        );
-        expect(cached?.uuid).toBe(docs.uuid);
+        // Dropped here, but a peer region or lagging replica can still map the
+        // old path to the leaver's folder, where a new holder of the name
+        // would pass ACL on it.
+        await expect(
+            server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`),
+        ).resolves.toBeNull();
 
         const { user: claimer, actor: claimerActor } = await makeUserAndActor();
         await expect(

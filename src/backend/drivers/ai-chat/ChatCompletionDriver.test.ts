@@ -54,11 +54,13 @@ import { withTestActor } from '../integrationTestUtil.js';
 import { COUNT_TOKENS, ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
+import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import type {
     IChatCompleteResult,
     IChatProvider,
     ICompleteArguments,
 } from './types.js';
+import { clearUnhealthyRoutes } from './utils/providerHealth.js';
 import type { AIChatStream } from './utils/Streaming.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -78,17 +80,8 @@ const makeDriver = async () => {
         server.stores,
         server.services,
     );
-    d.onServerStart();
-    // `onServerStart` kicks off `#buildModelMap` without awaiting it.
-    // Poll `models()` until the map is populated — production never
-    // serves a request before the kernel has finished booting, but in
-    // tests we hit the driver before microtasks have drained.
-    for (let i = 0; i < 200; i++) {
-        const m = await d.models();
-        if (m.length > 0) return d;
-        await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error('ChatCompletionDriver model map never populated in test');
+    await d.onServerStart();
+    return d;
 };
 
 beforeAll(async () => {
@@ -160,7 +153,9 @@ describe('ChatCompletionDriver model catalog', () => {
         expect(ids).toEqual(['abuse', 'costly', 'fake']);
     });
 
-    it('getReportedCosts() emits one entry per (model, cost-key) pair and skips zero rates and the `tokens` scale descriptor', () => {
+    it('getReportedCosts() emits one entry per (model, cost-key) pair and skips zero rates and the `tokens` scale descriptor', async () => {
+        // The catalog loads in the background; this waits for it.
+        await driver.models();
         const reported = driver.getReportedCosts();
         // `fake` and `abuse` have 0-cost keys → skipped (not finite > 0
         // alone; the impl skips non-finite, and the cost map filters
@@ -181,6 +176,74 @@ describe('ChatCompletionDriver model catalog', () => {
         expect(costly.ucentsPerUnit).toBe(1000);
         expect(costly.unit).toBe('token');
         expect(costly.source).toBe('driver:aiChat/fake-chat');
+    });
+});
+
+describe('ChatCompletionDriver model map', () => {
+    const newDriver = (providers: Record<string, unknown>) =>
+        new ChatCompletionDriver(
+            { providers } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+
+    it('registers a keyed provider under its name, read from its config key', async () => {
+        const d = newDriver({
+            gemini: { apiKey: 'k' },
+            // Registered as `moonshotai`, configured as `moonshot`.
+            moonshot: { apiKey: 'k' },
+            xai: { secret_key: 'k' },
+            ollama: { enabled: false },
+        });
+        await d.onServerStart();
+        const providers = new Set((await d.models()).map((m) => m.provider));
+        expect(providers).toEqual(
+            new Set(['gemini', 'moonshotai', 'xai', 'fake-chat']),
+        );
+        d.onServerShutdown();
+    });
+
+    it('lists the catalog to a caller that asks while it is still loading', async () => {
+        const d = newDriver({ ollama: { enabled: false } });
+        d.onServerStart();
+        expect((await d.models()).length).toBeGreaterThan(0);
+        d.onServerShutdown();
+    });
+
+    it('leaves out a provider whose catalog fails instead of failing the build', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(OllamaChatProvider.prototype, 'models').mockRejectedValue(
+            new Error('catalog down'),
+        );
+        const d = newDriver({ ollama: {} });
+        await d.onServerStart();
+        expect((await d.models()).map((m) => m.provider)).toContain(
+            'fake-chat',
+        );
+        d.onServerShutdown();
+    });
+
+    it('rebuilds on a timer, picking up catalog changes', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+        try {
+            const real = FakeChatProvider.prototype.models;
+            const models = vi.spyOn(FakeChatProvider.prototype, 'models');
+            const d = newDriver({ ollama: { enabled: false } });
+            await d.onServerStart();
+            expect(await d.list()).not.toContain('added-later');
+
+            models.mockImplementation(async function (this: FakeChatProvider) {
+                const catalog = await real.call(this);
+                return [{ ...catalog[0]!, id: 'added-later' }, ...catalog];
+            });
+            await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+            expect(await d.list()).toContain('added-later');
+            d.onServerShutdown();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -206,6 +269,7 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         expect('usage' in result && result.usage).toMatchObject({
             input_tokens: 0,
             output_tokens: 1,
+            cost: 0,
         });
     });
 
@@ -1133,13 +1197,8 @@ describe('ChatCompletionDriver Claude usage.thinking_tokens', () => {
             server.stores,
             server.services,
         );
-        d.onServerStart();
-        for (let i = 0; i < 200; i++) {
-            const m = await d.models();
-            if (m.some((model) => model.id === THINKING_MODEL)) return d;
-            await new Promise((r) => setTimeout(r, 5));
-        }
-        throw new Error('claude driver model map never populated in test');
+        await d.onServerStart();
+        return d;
     };
 
     it('adds thinking_tokens to the non-stream wire usage, priced only off the real output', async () => {
@@ -1660,6 +1719,74 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
             .fields.attempts;
         expect(attempts).toHaveLength(1);
         expect(attempts[0].timedOut).toBe(true);
+    });
+
+    it("returns HTTP 400 upstream_provider_unavailable when the only route's connection resets", async () => {
+        // The reset happens under the real OpenAI SDK DeepSeek is built on.
+        const realFetch = globalThis.fetch;
+        let deepseekCalls = 0;
+        vi.stubGlobal(
+            'fetch',
+            async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = String(
+                    input instanceof Request ? input.url : input,
+                );
+                if (!url.includes('api.deepseek.com')) {
+                    return realFetch(input, init);
+                }
+                deepseekCalls++;
+                throw new TypeError('fetch failed', {
+                    cause: Object.assign(new Error('read ECONNRESET'), {
+                        code: 'ECONNRESET',
+                    }),
+                });
+            },
+        );
+        try {
+            // Built after the stub: the SDK picks up `fetch` when constructed.
+            const d = new ChatCompletionDriver(
+                {
+                    providers: {
+                        deepseek: { apiKey: 'test-key' },
+                        ollama: { enabled: false },
+                    },
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            await d.onServerStart();
+
+            let caught: HttpError | undefined;
+            try {
+                await withTestActor(() =>
+                    d.complete({
+                        model: 'deepseek-flash',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                );
+            } catch (e) {
+                caught = e as HttpError;
+            }
+
+            expect(caught).toBeInstanceOf(HttpError);
+            expect(caught).toMatchObject({
+                statusCode: 400,
+                legacyCode: 'upstream_provider_unavailable',
+            });
+            const attempts = (
+                caught as unknown as {
+                    fields: { attempts: { connectionFailed?: boolean }[] };
+                }
+            ).fields.attempts;
+            expect(attempts).toHaveLength(1);
+            expect(attempts[0].connectionFailed).toBe(true);
+            // The driver's fallback chain owns retries, not the SDK.
+            expect(deepseekCalls).toBe(1);
+        } finally {
+            vi.unstubAllGlobals();
+            clearUnhealthyRoutes();
+        }
     });
 
     it('returns HTTP 500 with the failure history in `fields.attempts` when all providers fail', async () => {

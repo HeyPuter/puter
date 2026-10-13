@@ -371,6 +371,39 @@ describe('AppDriver.read', () => {
             withActor(actor, () => driver.read({ uid: 'app-nonexistent' })),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
+
+    it('reads the uid alias only when the direct lookup misses', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('alias-read'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const kvGet = vi.spyOn(server.stores.kv, 'get');
+        const aliasReads = () =>
+            kvGet.mock.calls.filter((call) =>
+                String((call[0] as { key?: string })?.key).startsWith(
+                    'app:canonicalUidAlias:',
+                ),
+            ).length;
+        try {
+            await withActor(actor, () => driver.read({ uid: created.uid }));
+            expect(aliasReads()).toBe(0);
+
+            await expect(
+                withActor(actor, () =>
+                    driver.read({ uid: `app-${uuidv4()}` }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(aliasReads()).toBe(1);
+        } finally {
+            kvGet.mockRestore();
+        }
+    });
 });
 
 // ── select ──────────────────────────────────────────────────────────

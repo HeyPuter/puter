@@ -371,7 +371,7 @@ export class PuterAIController extends PuterController {
     }
 
     #modelDetails(driverKey: 'aiChat' | 'aiImage' | 'aiVideo') {
-        return async (_req: Request, res: Response): Promise<void> => {
+        return async (req: Request, res: Response): Promise<void> => {
             const driver = this.drivers[driverKey];
             if (!driver?.models)
                 throw new HttpError(501, 'Model details not available', {
@@ -379,7 +379,12 @@ export class PuterAIController extends PuterController {
                 });
             const models = await driver.models();
             res.json({
-                models: models?.filter((m) => !HIDDEN_MODELS.includes(m.id)),
+                models: models?.filter(
+                    (m) =>
+                        !HIDDEN_MODELS.includes(m.id) &&
+                        (typeof req.query?.provider !== 'string' ||
+                            m.provider === req.query.provider),
+                ),
             });
         };
     }
@@ -534,7 +539,8 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -682,7 +688,8 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -736,7 +743,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,

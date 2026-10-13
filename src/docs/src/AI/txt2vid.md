@@ -28,7 +28,7 @@ Test mode still resolves the `model` you asked for and still validates (and writ
 
 #### `options` (Object) (optional)
 
-Additional settings for the generation request. Puter copies this object before resolving aliases and output paths; frozen options are supported. The options below carry the same meaning on every provider; each provider then accepts a few extras, listed in the sections that follow. Any option a provider does not recognize is ignored.
+Additional settings for the generation request.
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -51,7 +51,7 @@ Additional settings for the generation request. Puter copies this object before 
 
 Model ids are matched case-insensitively, and every model answers to a few spellings: the fully qualified id, the `org/model` form and the bare model name. `'togetherai:wan-ai/wan2.7-t2v'`, `'wan-ai/wan2.7-t2v'` and `'wan2.7-t2v'` all select the same model. When a bare name is served by more than one provider Puter picks the cheaper listing; pass `provider` or the fully qualified id to choose explicitly.
 
-When you pass no model, Puter uses Wan 2.7 text-to-video on Together AI (`wan2.7-t2v`). A self-hosted Puter without a Together AI key falls back to the first provider it has a key for.
+When you pass no model, Puter uses Wan 2.7 text-to-video on Together AI (`wan2.7-t2v`).
 
 Google's Veo 3.1 preview models (`veo-3.1-generate-preview`, `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview`) are no longer offered: Google deprecated them with a shutdown on October 22, 2026, and requests for those ids fail with `Model not found`. Veo 3.1 and Veo 3.1 Lite remain available through Together AI (see below).
 

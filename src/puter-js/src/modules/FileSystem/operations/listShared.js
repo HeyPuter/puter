@@ -23,7 +23,7 @@ const listShared = defineOperation({
     request (options) {
         const query = new URLSearchParams();
         if ( options.limit !== undefined ) query.set('limit', String(options.limit));
-        if ( options.cursor !== undefined ) query.set('cursor', String(options.cursor));
+        if ( options.cursor ) query.set('cursor', String(options.cursor));
         if ( firstDefined(options, 'includeTotal', 'include_total') ) {
             query.set('includeTotal', 'true');
         }

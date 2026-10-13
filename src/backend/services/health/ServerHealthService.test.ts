@@ -198,7 +198,7 @@ describe('ServerHealthService.addCheck', () => {
             expect.stringContaining('"hangs" failed'),
             expect.objectContaining({
                 message:
-                    'Health check timed out (event loop blocked up to 0ms)',
+                    'Health check timed out (event loop blocked 0ms total, longest 0ms)',
             }),
         );
         service.onServerShutdown();
@@ -221,7 +221,7 @@ describe('ServerHealthService.addCheck', () => {
             expect.stringContaining('"stalls" failed'),
             expect.objectContaining({
                 message:
-                    'Health check timed out (event loop blocked up to 3000ms)',
+                    'Health check timed out (event loop blocked 3000ms total, longest 3000ms)',
             }),
         );
         service.onServerShutdown();
@@ -292,7 +292,9 @@ describe('ServerHealthService — default checks', () => {
 
         expect(await uncachedStatus(service)).toEqual({ ok: true });
         expect(warnSpy).toHaveBeenCalledWith(
-            expect.stringContaining('event loop was blocked for 40ms'),
+            expect.stringContaining(
+                'event loop blocked 40ms total, longest 40ms',
+            ),
         );
         service.onServerShutdown();
     });
@@ -319,8 +321,82 @@ describe('ServerHealthService — default checks', () => {
             expect.stringContaining('database-liveness'),
             expect.objectContaining({
                 message: expect.stringContaining(
-                    'event loop blocked up to 20ms',
+                    'event loop blocked 20ms total, longest 20ms',
                 ),
+            }),
+        );
+        service.onServerShutdown();
+    });
+
+    it('passes a slow probe when many short stalls add up to the difference', async () => {
+        const { service, dbRead } = makeService();
+        // A saturated loop: six 500ms stalls, the loop turning for 100ms after
+        // each. No single stall covers the 2100ms over the 1500ms threshold.
+        dbRead.mockImplementation(async () => {
+            for (let i = 0; i < 6; i++) {
+                vi.setSystemTime(Date.now() + 500);
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+        await runCycle();
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(await uncachedStatus(service)).toEqual({ ok: true });
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[server-health] database-liveness took 3600ms but passed (event loop blocked 3000ms total, longest 500ms)',
+        );
+        service.onServerShutdown();
+    });
+
+    it('fails a database that is slow on its own while the loop is idle', async () => {
+        const { service, dbRead } = makeService();
+        dbRead.mockImplementation(
+            () =>
+                new Promise((resolve) =>
+                    setTimeout(() => resolve([{ ok: 1 }]), 3600),
+                ),
+        );
+        service.onServerStart();
+        await runCycle();
+        await vi.advanceTimersByTimeAsync(3700);
+
+        expect(await uncachedStatus(service)).toEqual({
+            ok: false,
+            failed: ['database-liveness'],
+        });
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('database-liveness'),
+            expect.objectContaining({
+                message:
+                    'database liveness latency 3600ms > threshold 1500ms (event loop blocked 0ms total, longest 0ms)',
+            }),
+        );
+        service.onServerShutdown();
+    });
+
+    it('does not count timer jitter as a stall', async () => {
+        const { service, dbRead } = makeService({
+            server_health: { db_liveness_latency_fail_ms: 10 },
+        });
+        // Every tick lands 5ms late: under twice the watch interval.
+        dbRead.mockImplementation(async () => {
+            for (let i = 0; i < 3; i++) {
+                vi.setSystemTime(Date.now() + 5);
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+        await runCycle();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('database-liveness'),
+            expect.objectContaining({
+                message:
+                    'database liveness latency 45ms > threshold 10ms (event loop blocked 0ms total, longest 0ms)',
             }),
         );
         service.onServerShutdown();

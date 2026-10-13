@@ -712,6 +712,19 @@ describe('MeteringService', () => {
             expect(result['kv:read']).toMatchObject({ units: 1 });
         });
 
+        it.each([
+            ['infinite', Number.POSITIVE_INFINITY],
+            ['NaN', Number.NaN],
+        ])('counts an %s usageAmount as one unit', async (_label, amount) => {
+            const result = await target.incrementUsage(
+                actor,
+                'kv:read',
+                amount,
+                10,
+            );
+            expect(result['kv:read']).toMatchObject({ units: 1, cost: 10 });
+        });
+
         it('normalizes a negative costOverride to 1 and raises an alarm', async () => {
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
             const result = await target.incrementUsage(
@@ -796,6 +809,113 @@ describe('MeteringService', () => {
                 expect(addons.consumedPurchaseCredits).toBe(1_000_000);
             });
         });
+
+        it('reads addons once while no purchased credit is left, again after a grant', async () => {
+            const spender: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(spender);
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            try {
+                await target.incrementUsage(spender, 'kv:read', 1, 10);
+                await target.incrementUsage(spender, 'kv:read', 1, 10);
+                expect(addonsSpy).toHaveBeenCalledTimes(1);
+
+                // A grant drops it, and the next overage draws on the grant.
+                await target.updateAddonCredit(spender.user.uuid!, 5_000_000);
+                await target.incrementUsage(
+                    spender,
+                    'kv:read',
+                    1,
+                    sub.monthUsageAllowance,
+                );
+                expect(addonsSpy).toHaveBeenCalledTimes(2);
+                await waitFor(async () => {
+                    const addons = await target.getActorAddons(spender);
+                    expect(addons.consumedPurchaseCredits).toBe(20);
+                });
+            } finally {
+                addonsSpy.mockRestore();
+            }
+        });
+
+        it('reads addons on every increment while purchased credit is left', async () => {
+            const holder: Actor = { user: makeUser() };
+            await target.updateAddonCredit(holder.user.uuid!, 5_000_000);
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            try {
+                await target.incrementUsage(holder, 'kv:read', 1, 10);
+                await target.incrementUsage(holder, 'kv:read', 1, 10);
+                expect(addonsSpy).toHaveBeenCalledTimes(2);
+            } finally {
+                addonsSpy.mockRestore();
+            }
+        });
+
+        it.each([
+            [
+                'on this node',
+                (uuid: string) => target.updateAddonCredit(uuid, 5_000_000),
+            ],
+            [
+                'by another node',
+                async (uuid: string) => {
+                    await server.stores.kv.incr({
+                        key: `${POLICY_PREFIX}:actor:${uuid}:addons`,
+                        pathAndAmountMap: { purchasedCredits: 5_000_000 },
+                    });
+                    server.clients.event.emit(
+                        'outer.pubsub.metering.credits-changed',
+                        { userUuid: uuid },
+                        {},
+                    );
+                },
+            ],
+        ])(
+            'draws overage from a top-up made %s once a stale first read after it catches up',
+            async (_label, grant) => {
+                const buyer: Actor = { user: makeUser() };
+                const uuid = buyer.user.uuid!;
+                const sub = await target.getActorSubscription(buyer);
+                // Allowance spent with no purchased credit left.
+                await target.incrementUsage(
+                    buyer,
+                    'kv:read',
+                    1,
+                    sub.monthUsageAllowance,
+                );
+
+                await grant(uuid);
+
+                // The first addons read after the grant comes from a replica
+                // that hasn't seen it yet, so the record isn't there.
+                const addonsKey = `${POLICY_PREFIX}:actor:${uuid}:addons`;
+                const realGet = server.clients.dynamo.get.bind(
+                    server.clients.dynamo,
+                );
+                let lagging = true;
+                const replicaLag = vi
+                    .spyOn(server.clients.dynamo, 'get')
+                    .mockImplementation(async (...args) => {
+                        const response = await realGet(...args);
+                        if (!lagging || args[1].key !== addonsKey)
+                            return response;
+                        lagging = false;
+                        return { ...response, Item: undefined };
+                    });
+                try {
+                    await target.incrementUsage(buyer, 'kv:read', 1, 1_000_000);
+                    await target.incrementUsage(buyer, 'kv:read', 1, 1_000_000);
+                } finally {
+                    replicaLag.mockRestore();
+                }
+                expect(lagging).toBe(false);
+
+                await waitFor(async () => {
+                    const addons = await target.getActorAddons(buyer);
+                    expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+                });
+                expect(await target.hasAnyUsageCached(buyer)).toBe(true);
+            },
+        );
     });
 
     // ── overuse alarm ────────────────────────────────────────────────
@@ -872,10 +992,10 @@ describe('MeteringService', () => {
                 // The account is named by email — what someone reading the
                 // alert needs to look it up.
                 expect.stringContaining(overActor.user!.email!),
-                expect.stringContaining('exceeded their usage allowance'),
+                expect.stringContaining('exceeded their credits'),
                 expect.objectContaining({ totalUsage: expect.any(Number) }),
-                // Chat-only severity — records and de-dupes but doesn't page.
-                'info',
+                // Low-urgency page, not a chat-only record.
+                'warning',
             );
             alarmSpy.mockRestore();
         });
@@ -995,9 +1115,9 @@ describe('MeteringService', () => {
 
             expect(alarmSpy).toHaveBeenCalledWith(
                 expect.stringContaining('usage exceeded'),
-                expect.stringContaining('exceeded their usage allowance'),
+                expect.stringContaining('exceeded their credits'),
                 expect.objectContaining({ purchasedCredits: credit }),
-                'info',
+                'warning',
             );
             alarmSpy.mockRestore();
         });
@@ -2604,16 +2724,23 @@ describe('MeteringService', () => {
             expect(entry.hasCredits).toBe(false);
             entry.expiresAt = Date.now() - 1;
 
-            const failing = vi
-                .spyOn(server.stores.kv, 'get')
-                .mockRejectedValue(new Error('store down'));
+            // The month record too: the spent addons are memoized, so the
+            // refresh no longer reads them.
+            const failing = [
+                vi
+                    .spyOn(server.stores.kv, 'get')
+                    .mockRejectedValue(new Error('store down')),
+                vi
+                    .spyOn(server.stores.meteringBuffer, 'get')
+                    .mockRejectedValue(new Error('store down')),
+            ];
             try {
                 // Stale: answers with the old (broke) value while the
                 // refresh behind it fails.
                 expect(await target.hasAnyUsageCached(actor)).toBe(false);
                 await creditRefreshes().get(actor.user.uuid!);
             } finally {
-                failing.mockRestore();
+                for (const spy of failing) spy.mockRestore();
             }
 
             const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =

@@ -17,11 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { bodyRecord } from '../../core/http/requestBody.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { EVENTS_WORKERS_LIST_LIMIT_CAP } from '../../stores/events/EventHandlerStore.js';
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
@@ -75,7 +75,7 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         const { sub } = await this.services.events.subscribeDurable(
             actor,
-            this.#body(req),
+            bodyRecord(req),
         );
         res.json(sub);
     }
@@ -147,7 +147,7 @@ export class EventsController extends PuterController {
     })
     async unsubscribe(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        await this.services.events.unsubscribeDurable(actor, this.#body(req));
+        await this.services.events.unsubscribeDurable(actor, bodyRecord(req));
         res.json({});
     }
 
@@ -171,7 +171,7 @@ export class EventsController extends PuterController {
     async mintKvHandle(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.mintKvHandle(actor, this.#body(req)),
+            await this.services.events.mintKvHandle(actor, bodyRecord(req)),
         );
     }
 
@@ -236,7 +236,7 @@ export class EventsController extends PuterController {
     async publishHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.publishHandler(actor, this.#body(req)),
+            await this.services.events.publishHandler(actor, bodyRecord(req)),
         );
     }
 
@@ -251,7 +251,7 @@ export class EventsController extends PuterController {
         res.json({
             handlers: await this.services.events.publishHandlers(
                 actor,
-                this.#body(req),
+                bodyRecord(req),
             ),
         });
     }
@@ -283,7 +283,7 @@ export class EventsController extends PuterController {
     async removeHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.removeHandler(actor, this.#body(req)),
+            await this.services.events.removeHandler(actor, bodyRecord(req)),
         );
     }
 
@@ -335,7 +335,7 @@ export class EventsController extends PuterController {
         res.json(
             await this.services.events.destroyEventsWorker(
                 actor,
-                this.#body(req),
+                bodyRecord(req),
             ),
         );
     }
@@ -348,6 +348,7 @@ export class EventsController extends PuterController {
      */
     @Post('/worker/rehydrate', {
         subdomain: 'api',
+        internalAuth: (config) => config.events?.internalSecret,
         // The shared secret is what gates this route, so the limit is only a
         // guessing-rate bound — hence per-IP and deliberately high. The caller
         // fans in from every edge location behind a small set of egress
@@ -360,8 +361,7 @@ export class EventsController extends PuterController {
         },
     })
     async rehydrateWorker(req: Request, res: Response): Promise<void> {
-        this.#requireInternalAuth(req);
-        const body = this.#body(req);
+        const body = bodyRecord(req);
         const script = String(body.script ?? '');
         const appUid = String(body.appUid ?? '');
         if (!EVENTS_SCRIPT_REGEX.test(script) || !APP_UID_REGEX.test(appUid))
@@ -428,25 +428,6 @@ export class EventsController extends PuterController {
         return this.#deployer;
     }
 
-    /**
-     * Constant-time, so the secret cannot be recovered a byte at a time.
-     * Compares Buffer byte lengths, not string lengths — a string length
-     * compares UTF-16 code units, which can differ from the byte length
-     * `timingSafeEqual` actually requires to match.
-     */
-    #requireInternalAuth(req: Request): void {
-        const expected = Buffer.from(this.config.events?.internalSecret ?? '');
-        const offered = Buffer.from(
-            String(req.headers['x-puter-internal-auth'] ?? ''),
-        );
-        const ok =
-            expected.length > 0 &&
-            expected.length === offered.length &&
-            timingSafeEqual(expected, offered);
-        if (!ok)
-            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
-    }
-
     #requireActor(req: Request): Actor {
         const actor = req.actor;
         if (!actor?.user)
@@ -454,14 +435,5 @@ export class EventsController extends PuterController {
                 legacyCode: 'unauthorized',
             });
         return actor;
-    }
-
-    #body(req: Request): Record<string, unknown> {
-        const body = req.body;
-        if (!body || typeof body !== 'object' || Array.isArray(body))
-            throw new HttpError(400, 'body must be an object', {
-                legacyCode: 'bad_request',
-            });
-        return body as Record<string, unknown>;
     }
 }

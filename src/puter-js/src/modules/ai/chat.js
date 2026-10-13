@@ -288,6 +288,7 @@ export async function chat (
         driver: 'ai-chat',
         method: 'complete',
         argNames: ['messages'],
+        signal: userParams.signal,
         puter,
         testMode: testMode ?? false,
         transform: async (result) => {

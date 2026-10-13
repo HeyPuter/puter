@@ -17,28 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type {
-    IChatModel,
-    IChatProvider,
-    ICompleteArguments,
-    IChatCompleteResult,
-} from '../types.js';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+
+// Only has to stay unknown to callers for the life of the process.
+const COMPARE_KEY = randomBytes(32);
+
+const digest = (value: string | Buffer): Buffer =>
+    createHmac('sha256', COMPARE_KEY).update(value).digest();
 
 /**
- * Abstract base for AI chat providers. Each provider wraps a single upstream
- * API (Anthropic, OpenAI, …) and exposes the unified `IChatProvider` contract.
+ * Constant-time equality for secrets, tokens and signatures. Both sides are
+ * HMACed to a fixed-length digest first, so neither the inputs' lengths nor
+ * where they first differ shows in the timing, and unequal lengths need no
+ * early return.
  */
-export class ChatProvider implements IChatProvider {
-    getDefaultModel(): string {
-        return '';
-    }
-    models(): IChatModel[] | Promise<IChatModel[]> {
-        return [];
-    }
-    list(): string[] | Promise<string[]> {
-        return [];
-    }
-    async complete(_arg: ICompleteArguments): Promise<IChatCompleteResult> {
-        throw new Error('Method not implemented.');
-    }
+export function secretsEqual(a: string | Buffer, b: string | Buffer): boolean {
+    return timingSafeEqual(digest(a), digest(b));
 }

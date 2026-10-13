@@ -129,6 +129,13 @@ export interface KVOpts {
      * only after its cross-app permission check has passed.
      */
     namespaceAppUuid?: string;
+    /**
+     * Files system data under its own partition of the system namespace, so a
+     * high-volume key family doesn't share one partition key with the rest of
+     * the internal state. Honored only for the system actor; reads must name
+     * the same partition.
+     */
+    systemPartition?: string;
 }
 
 export interface RecursiveRecord<T> {
@@ -140,6 +147,8 @@ export interface RecursiveRecord<T> {
 /** Namespace app component for an actor acting without an app. */
 export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
+// The extra segment keeps a partition from parsing as a user's namespace.
+const SYSTEM_PARTITION_PREFIX = `${SYSTEM_NAMESPACE}:`;
 const MAX_KEY_BYTES = 1024;
 
 /**
@@ -345,7 +354,11 @@ const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
 // than the driver treating it as app-scoped while the store files its data
 // under the shared global key.
 const getNamespace = (actor: Actor, opts?: KVOpts): string => {
-    if (isSystemActor(actor)) return SYSTEM_NAMESPACE;
+    if (isSystemActor(actor)) {
+        return opts?.systemPartition
+            ? `${SYSTEM_PARTITION_PREFIX}${opts.systemPartition}`
+            : SYSTEM_NAMESPACE;
+    }
     const appUuid =
         opts?.namespaceAppUuid ??
         actor.effectiveApp?.uid ??
@@ -357,6 +370,11 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
 /** The namespace one user's data for one app lives in. */
 export const kvNamespace = (userUuid: string, appUid: string): string =>
     `v1:${userUuid}:${appUid}`;
+
+/** The system namespace or one of its partitions. */
+const isSystemNamespace = (namespace: string): boolean =>
+    namespace === SYSTEM_NAMESPACE ||
+    namespace.startsWith(SYSTEM_PARTITION_PREFIX);
 
 /** Split a namespace back into its parts, or `null` if it is not one. */
 export const parseKvNamespace = (
@@ -408,7 +426,8 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
     });
 
 type PathToken =
-    { type: 'key'; value: string } | { type: 'index'; value: number };
+    | { type: 'key'; value: string }
+    | { type: 'index'; value: number };
 
 const invalidPathError = (): HttpError =>
     new HttpError(400, 'kv: path has invalid syntax', {
@@ -1214,7 +1233,7 @@ export class SystemKVStore extends PuterStore {
      * to opt in or out: the namespace already says which kind of data it is.
      */
     #cacheable(namespace: string): boolean {
-        return this.#cache.enabled && namespace !== SYSTEM_NAMESPACE;
+        return this.#cache.enabled && !isSystemNamespace(namespace);
     }
 
     /**
@@ -1713,7 +1732,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             );
         }
@@ -1803,7 +1823,8 @@ export class SystemKVStore extends PuterStore {
             );
             return writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1,
+                    | number
+                    | undefined) ?? 1,
             );
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
@@ -1850,7 +1871,8 @@ export class SystemKVStore extends PuterStore {
                     },
                 );
                 units = response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined;
+                    | number
+                    | undefined;
             } else {
                 const expiry = ttlNumber(ttl);
                 const keep = Number.isFinite(expiry) && expiry !== 0;
@@ -1866,7 +1888,8 @@ export class SystemKVStore extends PuterStore {
                     { condition },
                 );
                 units = response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined;
+                    | number
+                    | undefined;
             }
             usage = addUsage(usage, writeUsage(units ?? 1));
         } catch (e) {
@@ -1969,7 +1992,8 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 0,
+                        | number
+                        | undefined) ?? 0,
                 );
             }
 
@@ -2057,7 +2081,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -2180,7 +2205,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -2215,7 +2241,8 @@ export class SystemKVStore extends PuterStore {
         );
 
         const old = response.Attributes as
-            { value?: unknown; ttl?: number } | undefined;
+            | { value?: unknown; ttl?: number }
+            | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || isExpiredTtl(old.ttl, now)
@@ -2228,7 +2255,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -2318,7 +2346,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -2441,7 +2471,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -2458,7 +2489,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 // No key means no data past this page, even when the offset
                 // landed exactly on its end; listing on would restart at the
                 // first key.
@@ -2484,7 +2516,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -2523,7 +2556,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -2564,7 +2598,8 @@ export class SystemKVStore extends PuterStore {
                     usage,
                     readUsage(
                         response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined,
+                            | number
+                            | undefined,
                     ),
                 );
                 const keys = (response.Items ?? []).map((entry) =>
@@ -2595,7 +2630,8 @@ export class SystemKVStore extends PuterStore {
                     }
                 }
                 pageKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (pageKey);
         } finally {
             this.#emitMutation(actor, namespace, [], 'flush');
@@ -2933,7 +2969,8 @@ export class SystemKVStore extends PuterStore {
             );
             const units =
                 (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1;
+                    | number
+                    | undefined) ?? 1;
             // A legacy ttl the condition couldn't read: the row was already expired.
             const removedTtl = response.Attributes?.ttl;
             if (
@@ -3193,7 +3230,8 @@ export class SystemKVStore extends PuterStore {
                 resetUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
             isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),

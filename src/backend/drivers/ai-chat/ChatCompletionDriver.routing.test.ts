@@ -30,6 +30,7 @@
 
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -42,14 +43,15 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
-import { kv } from '../../util/kvSingleton.js';
 import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
+import { OPEN_AI_MODELS } from './providers/openai/models.js';
 import {
     clearUnhealthyRoutes,
     isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
+import { InfronProvider } from './providers/infron/InfronProvider.js';
 
 // -- OpenAI SDK mock ------------------------------------------------
 // Gemini reaches Google through `new openai.OpenAI()` (default export) and
@@ -80,9 +82,6 @@ vi.mock('axios', () => ({
 let server: PuterServer;
 let driver: ChatCompletionDriver;
 
-const INFRON_KV_KEY = 'infronChat:models';
-const OPENROUTER_KV_KEY = 'openrouterChat:models';
-
 // Google lists gemini-2.5-flash input at $0.30/MTok. The gateway quotes a
 // floor price across its upstream routes, so it undercuts — which is exactly
 // the condition that used to hand it the traffic.
@@ -107,6 +106,17 @@ const GATEWAY_CATALOG = [
         max_output_tokens: 8_192,
         min_prompt_price: 0.3,
         min_completion_price: 2.5,
+    },
+    {
+        // A gateway id with capitals, which the driver's map lowercases.
+        id: 'Qwen/QwQ-Max',
+        display_name: 'Qwen: QwQ Max',
+        category_type: 'LLM',
+        supported_endpoint_types: ['openai'],
+        context_length: 131_072,
+        max_output_tokens: 8_192,
+        min_prompt_price: 1.6,
+        min_completion_price: 6.4,
     },
     {
         // A vendor we integrate with directly that isn't Google — the case
@@ -142,17 +152,15 @@ const OPENROUTER_CATALOG = [
     created: 1_700_000_000,
 }));
 
+const catalogResponse = ({ url }: { url: string }) => ({
+    data: {
+        data: url.includes('openrouter') ? OPENROUTER_CATALOG : GATEWAY_CATALOG,
+    },
+});
+
 beforeAll(async () => {
     server = await setupTestServer();
-    kv.del?.(INFRON_KV_KEY);
-    kv.del?.(OPENROUTER_KV_KEY);
-    axiosRequestMock.mockImplementation(({ url }: { url: string }) => ({
-        data: {
-            data: url.includes('openrouter')
-                ? OPENROUTER_CATALOG
-                : GATEWAY_CATALOG,
-        },
-    }));
+    axiosRequestMock.mockImplementation(catalogResponse);
 
     // Built once, not per-test: `#buildModelMap` mutates the catalogs
     // providers hand back (lowercasing ids, pushing `puterId` onto the
@@ -173,19 +181,7 @@ beforeAll(async () => {
         server.stores,
         server.services,
     );
-    driver.onServerStart();
-    // `onServerStart` doesn't await `#buildModelMap`, and the gateway
-    // catalogs resolve on a microtask — poll until both gateways land.
-    for (let i = 0; i < 200; i++) {
-        const ids = await driver.list();
-        if (
-            ids.some((id) => id.startsWith('infron:')) &&
-            ids.some((id) => id.startsWith('openrouter:'))
-        ) {
-            break;
-        }
-        await new Promise((r) => setTimeout(r, 5));
-    }
+    await driver.onServerStart();
 });
 
 // Every failure in this file marks the route it hit. Without this the first
@@ -226,6 +222,13 @@ const attemptsFor = async (
     ).fields.attempts;
 };
 
+// Shaped like the Stainless SDKs' connection error: no status, only the class.
+class APIConnectionError extends Error {
+    constructor() {
+        super('Connection error.');
+    }
+}
+
 describe('ChatCompletionDriver gemini routing', () => {
     it('serves gemini models from Google, with the gateway only as fallback', async () => {
         const attempts = await attemptsFor('gemini-2.5-flash');
@@ -256,6 +259,199 @@ describe('ChatCompletionDriver gemini routing', () => {
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+});
+
+describe('ChatCompletionDriver hands providers their own catalog entry', () => {
+    it('sends a gateway model under its own casing, not the lowercased map id', async () => {
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const record = vi.spyOn(
+            server.services.metering,
+            'utilRecordUsageObject',
+        );
+
+        await withTestActor(() =>
+            driver.complete({
+                model: 'qwen/qwq-max',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('Qwen/QwQ-Max');
+        expect(record.mock.calls.at(-1)![2]).toBe('infron:Qwen/QwQ-Max');
+        record.mockRestore();
+    });
+
+    it('leaves the provider nothing to look up per request', async () => {
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const catalog = vi.spyOn(InfronProvider.prototype, 'models');
+
+        await withTestActor(() =>
+            driver.complete({
+                model: 'qwen/qwq-max',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(catalog).not.toHaveBeenCalled();
+        catalog.mockRestore();
+    });
+});
+
+describe('ChatCompletionDriver while a gateway catalog is loading', () => {
+    const SLOW_GATEWAY = 'https://slow-gateway.test/v1';
+
+    /** Hold the slow gateway's catalog response until the returned release. */
+    const holdCatalog = () => {
+        let release!: () => void;
+        const held = new Promise((resolve) => {
+            release = () => resolve(catalogResponse({ url: SLOW_GATEWAY }));
+        });
+        axiosRequestMock.mockImplementation((req: { url: string }) =>
+            req.url.startsWith(SLOW_GATEWAY) ? held : catalogResponse(req),
+        );
+        return release;
+    };
+
+    afterEach(() => {
+        axiosRequestMock.mockImplementation(catalogResponse);
+    });
+
+    /** A driver with Infron behind the slow gateway, started as boot would. */
+    const startSlowDriver = (providers: Record<string, unknown> = {}) => {
+        const slowDriver = new ChatCompletionDriver(
+            {
+                providers: {
+                    ...providers,
+                    infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        slowDriver.onServerStart();
+        return slowDriver;
+    };
+
+    const answerOnce = () =>
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+    const ask = (
+        slowDriver: ChatCompletionDriver,
+        args: { model: string; provider?: string },
+    ) =>
+        withTestActor(() =>
+            slowDriver.complete({
+                ...args,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+    // A request is read off the socket only after catalogs that need no
+    // fetch have landed.
+    const nextRequestTurn = () =>
+        new Promise<void>((resolve) => setImmediate(resolve));
+
+    it('serves a gateway model requested before its catalog arrives', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver();
+        answerOnce();
+
+        const reply = ask(slowDriver, { model: 'qwen/qwq-max' });
+        releaseCatalog();
+
+        await expect(reply).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('Qwen/QwQ-Max');
+        slowDriver.onServerShutdown();
+    });
+
+    it('serves a direct model without waiting for a gateway catalog', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver({
+            deepseek: { apiKey: 'test-key' },
+        });
+        try {
+            await nextRequestTurn();
+            answerOnce();
+
+            await expect(
+                ask(slowDriver, { model: 'deepseek-v4-pro' }),
+            ).resolves.toMatchObject({ message: { content: 'hi' } });
+            expect(createMock.mock.calls.at(-1)![0].model).toBe(
+                'deepseek-v4-pro',
+            );
+        } finally {
+            releaseCatalog();
+            slowDriver.onServerShutdown();
+        }
+    });
+
+    it('waits for the gateway a request names, even when a direct route is loaded', async () => {
+        const releaseCatalog = holdCatalog();
+        const slowDriver = startSlowDriver({
+            deepseek: { apiKey: 'test-key' },
+        });
+        await nextRequestTurn();
+        answerOnce();
+
+        const reply = ask(slowDriver, {
+            model: 'deepseek-v4-pro',
+            provider: 'infron',
+        });
+        releaseCatalog();
+
+        await expect(reply).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe(
+            'deepseek/deepseek-v4-pro',
+        );
+        slowDriver.onServerShutdown();
+    });
+
+    it('lets the drivers started after it register without waiting for the catalog', async () => {
+        const releaseCatalog = holdCatalog();
+        let booted: PuterServer | undefined;
+        try {
+            booted = await setupTestServer({
+                providers: {
+                    infron: { apiKey: 'test-key', apiBaseUrl: SLOW_GATEWAY },
+                    elevenlabs: { apiKey: 'test-key' },
+                },
+            } as never);
+            expect(await booted.drivers.aiTts.list()).toContain('elevenlabs');
+        } finally {
+            releaseCatalog();
+            await booted?.shutdown();
+        }
     });
 });
 
@@ -515,6 +711,47 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         await complete();
         expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
     });
+
+    describe('how long a failed route stays marked', () => {
+        let start: number;
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            start = Date.now();
+        });
+        afterEach(() => vi.useRealTimers());
+
+        const markedAfter = (seconds: number) => {
+            vi.setSystemTime(start + seconds * 1000);
+            return isRouteUnhealthy('deepseek', 'deepseek-v4-pro');
+        };
+
+        it.each([
+            [
+                'an upstream 5xx',
+                Object.assign(new Error('bad gateway'), { status: 502 }),
+            ],
+            [
+                'a rate limit',
+                Object.assign(new Error('slow down'), { status: 429 }),
+            ],
+            ['a dropped connection', new APIConnectionError()],
+        ])('a minute after %s', async (_kind, err) => {
+            await attemptsFor('deepseek-v4-pro', err);
+
+            expect(markedAfter(59)).toBe(true);
+            expect(markedAfter(61)).toBe(false);
+        });
+
+        it('ten minutes after bad credentials', async () => {
+            await attemptsFor(
+                'deepseek-v4-pro',
+                Object.assign(new Error('invalid api key'), { status: 401 }),
+            );
+
+            expect(markedAfter(61)).toBe(true);
+            expect(markedAfter(10 * 60 + 1)).toBe(false);
+        });
+    });
 });
 
 // A transport timeout carries no status, so the classifier used to lump a
@@ -562,5 +799,127 @@ describe('ChatCompletionDriver timeout classification across the chain', () => {
             statusCode: 400,
             legacyCode: 'upstream_failed',
         });
+    });
+});
+
+// A dropped connection carries no status either; it is the provider's outage,
+// not our bug.
+describe('ChatCompletionDriver connection-failure classification across the chain', () => {
+    const completeShared = async () => {
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } catch (e) {
+            return e as HttpError;
+        }
+        return undefined;
+    };
+
+    it('returns 400 upstream_provider_unavailable when every route lost its connection', async () => {
+        createMock.mockRejectedValue(new APIConnectionError());
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+    });
+
+    it('counts a dropped connection as an upstream signal, so a mixed chain is not a 500', async () => {
+        createMock
+            .mockRejectedValueOnce(new APIConnectionError())
+            .mockRejectedValue(new Error('upstream down'));
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+        });
+    });
+});
+
+// Azure is served ahead of OpenAI for the models it fronts, at OpenAI's list
+// price — the long-context tier included.
+describe('ChatCompletionDriver Azure-served OpenAI pricing', () => {
+    let azureDriver: ChatCompletionDriver;
+
+    beforeAll(async () => {
+        azureDriver = new ChatCompletionDriver(
+            {
+                providers: {
+                    'azure-openai': {
+                        apiKey: 'test-key',
+                        apiURL: 'https://azure.test/openai/v1',
+                    },
+                    'openai-completion': { apiKey: 'test-key' },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        azureDriver.onServerStart();
+        for (let i = 0; i < 200; i++) {
+            if ((await azureDriver.list()).includes('azure:openai/gpt-5.4')) {
+                break;
+            }
+            await new Promise((r) => setTimeout(r, 5));
+        }
+    });
+
+    it('bills a gpt-5.4 prompt past the long-context threshold at the raised rates', async () => {
+        const recorded: MockInstance = vi.spyOn(
+            server.services.metering,
+            'utilRecordUsageObject',
+        );
+        // 300K input tokens (100K of them cached) is past OpenAI's 272K
+        // threshold: 2x every input rate and 1.5x output.
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'ok' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 300_000,
+                completion_tokens: 1_000,
+                prompt_tokens_details: { cached_tokens: 100_000 },
+            },
+        });
+
+        const res = (await withTestActor(() =>
+            azureDriver.complete({
+                model: 'gpt-5.4',
+                messages: [{ role: 'user', content: 'summarize this' }],
+            }),
+        )) as { usage: Record<string, number> };
+
+        const { costs } = OPEN_AI_MODELS.find(
+            (m) => m.puterId === 'openai:openai/gpt-5.4',
+        )!;
+        const expected = {
+            prompt_tokens: 200_000 * costs.prompt_tokens * 2,
+            completion_tokens: 1_000 * costs.completion_tokens * 1.5,
+            cached_tokens: 100_000 * costs.cached_tokens * 2,
+        };
+        const call = recorded.mock.calls.find(
+            ([, , prefix]) => prefix === 'azure-openai:gpt-5.4',
+        );
+        expect(call?.[3]).toEqual(expected);
+        expect(res.usage.usd_cents).toBeCloseTo(
+            (expected.prompt_tokens +
+                expected.completion_tokens +
+                expected.cached_tokens) /
+                1_000_000,
+        );
+        recorded.mockRestore();
     });
 });

@@ -44,7 +44,11 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { SpeechifyTTSProvider } from './SpeechifyTTSProvider.js';
 import { SPEECHIFY_TTS_COSTS } from './costs.js';
 
@@ -224,6 +228,7 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
         expect(String(url)).toBe('https://api.speechify.ai/v1/audio/speech');
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         const headers = initObj.headers as Record<string, string>;
         expect(headers.Authorization).toBe('Bearer test-key');
         expect(headers['Speechify-Caller']).toBe('puter');
@@ -307,7 +312,9 @@ describe('SpeechifyTTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello world';
-        await withTestActor(() => provider.synthesize({ text }));
+        await readStreamResult(
+            await withTestActor(() => provider.synthesize({ text })),
+        );
 
         const expectedCost = SPEECHIFY_TTS_COSTS['simba-3.2'] * text.length;
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
@@ -338,11 +345,12 @@ describe('SpeechifyTTSProvider.synthesize error paths', () => {
             new Response('bad request', { status: 400 }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            fields: { provider: 'speechify', upstreamStatus: 400 },
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
@@ -351,9 +359,9 @@ describe('SpeechifyTTSProvider.synthesize error paths', () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(new Response('oops', { status: 503 }));
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_provider_unavailable',
         });
@@ -364,9 +372,9 @@ describe('SpeechifyTTSProvider.synthesize error paths', () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(new Response('slow down', { status: 429 }));
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 429,
             legacyCode: 'upstream_rate_limited',
         });

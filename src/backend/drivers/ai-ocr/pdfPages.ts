@@ -17,7 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { inflateSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { inflate } from 'node:zlib';
+
+// On the libuv pool, so a large object stream doesn't stall the event loop.
+const inflateAsync = promisify(inflate);
 
 /** Hard ceiling on inflated object-stream bytes, regardless of input size. */
 const MAX_INFLATED_BYTES = 64 * 1024 * 1024;
@@ -55,11 +59,11 @@ const decodeNameEscapes = (dict: string): string =>
         : dict;
 
 /** The objects packed in an object stream, or null when it can't be read. */
-const readObjectStream = (
+const readObjectStream = async (
     dict: string,
     data: Buffer,
     budget: number,
-): { objects: Array<[number, string]>; inflated: number } | null => {
+): Promise<{ objects: Array<[number, string]>; inflated: number } | null> => {
     let content = data;
     let inflated = 0;
     if (/\/Filter/.test(dict)) {
@@ -67,7 +71,7 @@ const readObjectStream = (
         if (!FLATE_FILTER.test(dict) || predictor > 1 || budget < 1)
             return null;
         try {
-            content = inflateSync(data, { maxOutputLength: budget });
+            content = await inflateAsync(data, { maxOutputLength: budget });
         } catch {
             return null;
         }
@@ -111,7 +115,10 @@ const readObjectStream = (
  * understate either. Null when the bytes show neither, including an encrypted
  * or undecodable object stream that could hide them. Stops at `limit`.
  */
-export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
+export async function countPdfPages(
+    pdf: Buffer,
+    limit = Infinity,
+): Promise<number | null> {
     if (!pdf.subarray(0, 1024).includes('%PDF-')) return null;
     const text = pdf.toString('latin1');
     // Zlib bombs are a fixed multiple of their compressed size; scale the
@@ -180,7 +187,11 @@ export function countPdfPages(pdf: Buffer, limit = Infinity): number | null {
             start + stream.index + stream[0].length,
             start + dataEnd,
         );
-        const packed = readObjectStream(dict, data, inflateBudget - inflated);
+        const packed = await readObjectStream(
+            dict,
+            data,
+            inflateBudget - inflated,
+        );
         if (!packed) return null;
         inflated += packed.inflated;
         for (const [id, objectDict] of packed.objects) {

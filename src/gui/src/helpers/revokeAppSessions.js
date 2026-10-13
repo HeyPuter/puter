@@ -17,14 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { forgetGodmodeTokens } from './godmodeTokens.js';
+
 /**
  * Pick the session rows that belong to one app, out of a /auth/list-sessions
  * response.
  *
  * `app` rows, plus the `access_token` row a godmode app runs on (the only
- * access tokens that carry an `app_uid`). `worker` rows also carry one but are
- * deployment credentials rather than this user's grant to the app, and access
- * tokens the app issued follow on their own through the server-side cascade.
+ * access tokens that carry an `app_uid`). `worker` rows also carry one, but the
+ * server deletes them itself when the app's grants are revoked with `*`, and
+ * access tokens the app issued follow on their own through the server-side
+ * cascade.
  *
  * @param {{ uuid?: string; kind?: string; app_uid?: string | null }[]} sessions
  * @param {string} appUid
@@ -74,35 +77,40 @@ export const revokeAppSessions = async (
     } = {},
 ) => {
     if (!appUid) return 0;
-    const token = authToken ?? (puter.authToken || window.auth_token);
-    const authHeaders = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-    };
+    try {
+        const token = authToken ?? (puter.authToken || window.auth_token);
+        const authHeaders = {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        };
 
-    const listResp = await fetchImpl(`${apiOrigin}/auth/list-sessions`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!listResp.ok) {
-        throw new Error(`Failed to list sessions (${listResp.status})`);
-    }
-    const uuids = appSessionUuids(await listResp.json(), appUid);
-    if (uuids.length === 0) return 0;
-
-    // One anti-CSRF token per row: the service issues single-use tokens, so a
-    // token reused across the loop would be rejected from the second row on.
-    let revoked = 0;
-    for (const uuid of uuids) {
-        const anti_csrf = await antiCsrfToken();
-        const resp = await fetchImpl(`${apiOrigin}/auth/revoke-session`, {
-            method: 'POST',
-            headers: authHeaders,
-            body: JSON.stringify({ uuid, anti_csrf }),
+        const listResp = await fetchImpl(`${apiOrigin}/auth/list-sessions`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
         });
-        if (resp.ok || resp.status === 404) revoked++;
+        if (!listResp.ok) {
+            throw new Error(`Failed to list sessions (${listResp.status})`);
+        }
+        const uuids = appSessionUuids(await listResp.json(), appUid);
+        if (uuids.length === 0) return 0;
+
+        // One anti-CSRF token per row: the service issues single-use tokens, so a
+        // token reused across the loop would be rejected from the second row on.
+        let revoked = 0;
+        for (const uuid of uuids) {
+            const anti_csrf = await antiCsrfToken();
+            const resp = await fetchImpl(`${apiOrigin}/auth/revoke-session`, {
+                method: 'POST',
+                headers: authHeaders,
+                body: JSON.stringify({ uuid, anti_csrf }),
+            });
+            if (resp.ok || resp.status === 404) revoked++;
+        }
+        return revoked;
+    } finally {
+        // After the revokes, so no launch reuses a token minted before them.
+        forgetGodmodeTokens(appUid);
     }
-    return revoked;
 };
 
 export default revokeAppSessions;

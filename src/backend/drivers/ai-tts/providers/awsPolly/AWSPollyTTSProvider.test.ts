@@ -29,6 +29,7 @@
  * engine validation, and cost reporting.
  */
 
+import { Readable } from 'node:stream';
 import {
     afterAll,
     afterEach,
@@ -45,7 +46,10 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AWSPollyTTSProvider } from './AWSPollyTTSProvider.js';
 import { AWS_POLLY_COSTS } from './costs.js';
 
@@ -138,7 +142,7 @@ const describeVoicesResponse = {
 const sendDispatch = (
     onDescribe: () => unknown = () => describeVoicesResponse,
     onSynthesize: () => unknown = () => ({
-        AudioStream: 'synthesized-audio',
+        AudioStream: Readable.from([Buffer.from('synthesized-audio')]),
     }),
 ) =>
     pollySendMock.mockImplementation((cmd: { constructor: { name: string } }) => {
@@ -410,7 +414,7 @@ describe('AWSPollyTTSProvider.synthesize request shape', () => {
 describe('AWSPollyTTSProvider.synthesize streaming output', () => {
     it('returns the AudioStream as a chunked audio/mpeg DriverStreamResult', async () => {
         const provider = makeProvider();
-        sendDispatch(undefined, () => ({ AudioStream: 'synthesized-audio' }));
+        sendDispatch();
 
         const result = (await withTestActor(() =>
             provider.synthesize({ text: 'hi', voice: 'Joanna' }),
@@ -418,7 +422,9 @@ describe('AWSPollyTTSProvider.synthesize streaming output', () => {
 
         expect(result.content_type).toBe('audio/mpeg');
         expect(result.chunked).toBe(true);
-        expect(result.stream).toBe('synthesized-audio');
+        expect(String(await readStreamResult(result))).toBe(
+            'synthesized-audio',
+        );
     });
 });
 
@@ -430,12 +436,14 @@ describe('AWSPollyTTSProvider.synthesize metering', () => {
         sendDispatch();
 
         const text = 'hello';
-        await withTestActor(() =>
-            provider.synthesize({
-                text,
-                voice: 'Joanna',
-                engine: 'neural',
-            }),
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({
+                    text,
+                    voice: 'Joanna',
+                    engine: 'neural',
+                }),
+            ),
         );
 
         const expectedCost = AWS_POLLY_COSTS['neural'] * text.length;

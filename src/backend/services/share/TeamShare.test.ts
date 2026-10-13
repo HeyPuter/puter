@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor';
 import {
     setupTwoTeams,
@@ -572,7 +572,9 @@ describe('sharing with a team', () => {
             mode: 'read',
         });
 
-        const rows = await fx.env.server.stores.share.listGroupOnFsentry(entry.id);
+        const rows = await fx.env.server.stores.share.listGroupOnFsentries([
+            entry.id,
+        ]);
         const delegateRow = rows.find(
             (r) => Number(r.issuer_user_id) === fx.a.seats[0].userId,
         );
@@ -609,6 +611,34 @@ describe('sharing with a team', () => {
             { uid: fileUid },
         );
         expect(rows.some((r) => r.holderTeam?.uid === fx.a.uid)).toBe(true);
+    });
+
+    it('reads the teams on a file and its folders in one pass', async () => {
+        const { dirPath, fileUid } = await makeNestedFile(fx.a.owner.userId);
+        await shareWithTeam(fx.a.owner.userId, dirPath, { team: fx.a.uid });
+        const owner = await actorFor(fx.a.owner.userId);
+        await shares().share(owner, {
+            uid: fileUid,
+            recipient: { team: fx.a.uid },
+            mode: 'write',
+        } as never);
+
+        const { share, team, permission } = fx.env.server.stores;
+        const spies = [
+            vi.spyOn(share, 'listGroupOnFsentries'),
+            vi.spyOn(team, 'getByIdsIncludingDeleted'),
+            vi.spyOn(permission, 'queryIssuerGroupPermsByPrefixes'),
+        ];
+        try {
+            const rows = await shares().listSharesOf(owner, { uid: fileUid });
+            // The file's own row, then the folder's, both live.
+            expect(
+                rows.filter((r) => r.holderTeam?.uid === fx.a.uid),
+            ).toHaveLength(2);
+            for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1);
+        } finally {
+            for (const spy of spies) spy.mockRestore();
+        }
     });
 
     // -- the recipient block list ---------------------------------------

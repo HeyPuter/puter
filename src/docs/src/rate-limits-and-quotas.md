@@ -46,7 +46,7 @@ The main costs:
 For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
-- In-flight chat, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`.
+- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers.
 
 ## Rate limits
 
@@ -69,7 +69,9 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
-An input over its limit is rejected before it reaches the model. OCR input limits are under [OCR](#ocr).
+An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
+
+Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
@@ -91,6 +93,7 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 
 | Provider | Limit |
 |----------|-------|
+| All | Up to 16 reference images; more fails with `bad_request`. A reference given as a URL is fetched with a 30-second timeout and capped at 30 MB. |
 | xAI | Up to 5 reference images; more fails with `bad_request`. |
 | Together | Image routes are excluded because they require third-party data sharing; generation fails before any upstream call. |
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |
@@ -99,6 +102,21 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
+
+### Remote chat image inlining
+
+For chat providers that require remote image URLs to be inlined (currently Moonshot):
+
+| Limit | Value |
+|-------|-------|
+| Remote images per request | 20 |
+| Concurrent image fetches per request | 4 |
+| Image bytes | 5,000,000 bytes per image |
+| Fetch timeout, including the body | 30 seconds per image |
+
+Excess images and failed fetches become text error parts. Remote bodies are stopped
+as soon as the byte cap is exceeded. Oversized AI file inputs return
+`413 input_too_large`; this does not indicate a storage quota failure.
 
 ### OCR
 
@@ -109,7 +127,7 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 | AWS Textract | 10 MB per input. JPEG, PNG, TIFF, or a single-page PDF. |
 | Mistral | 50 MB per input. PDFs up to 1,000 pages. |
 
-`File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
+`File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 input_too_large` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
 
 Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. An image, and any Textract input, counts as one page. Other documents, and PDFs whose pages can't be read, count 20 pages per MB, up to 1,000. That amount is reserved while the call runs; the charge is for the pages actually processed.
 
@@ -178,6 +196,7 @@ Per minute unless stated:
 | Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
 | Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |
+| Paths in one `delete()` | 500 | Per request |
 | Entries in one `/sign` request | 500 | Per request |
 | Part numbers in one `signMultipartParts` | 10,000 | Per request |
 | Legacy `/batch` request | 256 multipart parts (fields and files combined) or 256 JSON operations, 64 files, 100 MiB per file, 1 MiB per field, 256 MiB in total | Per request |
@@ -227,8 +246,11 @@ The last two apply to an `fs:` permission request for a path that doesn't exist 
 | Concurrent requests | 10 | Per network |
 | Failed sign-ins | 10 per 15 min | Per account being signed into |
 | Failed sign-ins | 50 per 15 min | Per network |
+| Lock timeout | Up to 1 hour | Per lock |
 
 Successful sign-ins don't count. Over either sign-in limit, `dav` answers `429` until the window passes, even for the right password, so a client retrying a stale password keeps itself locked out: fix the password, then wait. This only affects `dav`; the desktop, the API and `puter.auth` keep working.
+
+A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response states the timeout granted. Refresh the lock before it runs out to keep it.
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.
 
@@ -339,7 +361,7 @@ The mutation and read budgets are per user, per app, not per team: administering
 
 ### Events
 
-See [Events](/Events/) for an overview, [`onLocal()`](/Events/onLocal/#gaps) for gap markers, and [`onPersistent()`](/Events/onPersistent/#suspended-subscriptions) for suspension.
+See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) for gap markers, and [`onPersistent()`](/Events/onPersistent/#suspended-subscriptions) for suspension.
 
 #### What an account can hold
 
@@ -367,7 +389,7 @@ Counted per event, per region:
 
 - KV limits follow the plan of the **key's owner**, not the writer's or the subscribers'. If the owner's plan can't be looked up, the free numbers apply. A server with no metering uses the paid numbers.
 - They count subscriptions, not people. A user with three tabs open counts three times.
-- Past the limit, the next subscriptions get a [gap marker](/Events/onLocal/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
+- Past the limit, the next subscriptions get a [gap marker](/Events/subjects/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
 - The region that handles the write delivers to every persistent subscription plus its own connected clients. Other regions deliver only to their own connected clients. So persistent subscriptions share one budget per event, while session subscriptions spread across regions can reach more in total.
 - `includeValue` values are left out of every delivery for a change when more than **128** subscriptions match it (whatever the owner's plan), when the filter-check limit stops the count early, or when the value is over **16 KB**.
 
@@ -508,7 +530,7 @@ Every driver call also counts toward **8,000 calls/min**, before the per-API lim
 
 ## Storage quota
 
-Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
+Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 

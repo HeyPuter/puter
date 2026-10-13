@@ -36,9 +36,10 @@ pass one explicitly unless you really mean "page someone".
 ### Choosing one
 
 - Did the server fail to do its job in a way nobody expected? → `critical`
-- Is a background job, rate, or dependency degraded? → `warning`
-- Is this a user doing something notable (tripping an abuse heuristic,
-  overspending)? → `info`
+- Is a background job, rate, or dependency degraded, or has an account spent
+  far past its credits? → `warning`
+- Is this a user doing something notable (tripping an abuse heuristic)?
+  → `info`
 - Did one of *our own* limits reject a caller — a rate limit, a concurrency
   cap, a quota? → don't alarm at all. The limit doing its job is not an
   event; the 429 is the whole signal, and alarming on it only produces noise
@@ -132,6 +133,11 @@ The client itself backs off before a repeat is reported at all: every
 occurrence is reported up to a small burst, then one per interval. A fault
 recurring hundreds of times a second still counts every occurrence, but it
 does not write a log line or build an alert payload for each one.
+
+The count lasts only as long as the client remembers the alarm. One that
+hasn't recurred for 24 hours is forgotten, and the client holds at most 1000
+at once, dropping the least recently raised first. Either way the next
+occurrence is a new alarm, with its count and burst starting over.
 
 Below that, the chat transport won't repost the same alarm id within
 `repeatThrottleMs` (default 15 minutes). The first occurrence always posts,

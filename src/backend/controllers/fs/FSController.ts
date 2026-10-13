@@ -25,6 +25,7 @@ import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { FS_ROUTE_REFUSAL } from '../../services/acl/ACLService.js';
 import { clientParentUid } from '../../services/fs/rootListing.js';
 import {
     expandTildePath,
@@ -68,10 +69,13 @@ import {
 } from './limits.js';
 import {
     assertAccess as assertLegacyAccess,
+    emitGuiItemEvent,
+    findOverwriteTarget,
     fsEntryMimeType,
+    type GuiItemEventName,
     loadLegacyAssociatedApps,
+    replacedByMove,
     signEntryThumbnail,
-    toLegacyEntry,
 } from './legacyFsHelpers.js';
 import type {
     ClientCompleteWriteResponse,
@@ -1523,7 +1527,7 @@ export class FSController extends PuterController {
 
         const dedupeName =
             this.#toBoolean(body.dedupe_name ?? body.dedupeName) ?? false;
-        await this.#assertCanCreate(actor, path);
+        await this.services.acl.assertFsCreate(actor, path, FS_ROUTE_REFUSAL);
         if (dedupeName) await this.#assertCanDedupeCreate(actor, path);
 
         const entry = await this.services.fs.mkdir(userId, {
@@ -1536,7 +1540,7 @@ export class FSController extends PuterController {
                         body.create_missing_ancestors,
                 ) ?? false,
         });
-        this.#emitGuiItemAdded(entry);
+        this.#emitGuiItemEvent('outer.gui.item.added', entry);
         res.json(this.#toClientEntry(entry));
     }
 
@@ -1599,7 +1603,7 @@ export class FSController extends PuterController {
 
         const userId = this.#getActorUserId(req);
         const renamed = await this.services.fs.rename(userId, entry, newName);
-        this.#emitGuiItemUpdated(renamed);
+        this.#emitGuiItemEvent('outer.gui.item.updated', renamed);
         res.json(this.#toClientEntry(renamed));
     }
 
@@ -1621,7 +1625,11 @@ export class FSController extends PuterController {
             recursive: this.#toBoolean(body.recursive) ?? false,
             descendantsOnly,
         });
-        this.#emitGuiItemRemoved(entry, descendantsOnly);
+        // `descendants_only` lets the GUI keep the parent (e.g. Trash) and only
+        // drop its children.
+        this.#emitGuiItemEvent('outer.gui.item.removed', entry, {
+            descendants_only: descendantsOnly,
+        });
         res.json({ ok: true });
     }
 
@@ -1646,16 +1654,35 @@ export class FSController extends PuterController {
             await this.#assertAccess(actor, destinationParent.path, 'write');
         }
 
+        const newName =
+            typeof body.new_name === 'string' ? body.new_name : undefined;
+        const overwrite = this.#toBoolean(body.overwrite) ?? false;
+        // Trash/restore rides on this, as on the legacy route.
+        const newMetadata = (body.newMetadata ??
+            body.new_metadata ??
+            undefined) as Record<string, unknown> | undefined;
+        const overwriteTarget = overwrite
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  newName ?? source.name,
+              )
+            : null;
         const moved = await this.services.fs.move(userId, {
             source,
             destinationParent,
-            newName:
-                typeof body.new_name === 'string' ? body.new_name : undefined,
-            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            newName,
+            overwrite,
             dedupeName:
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? false,
+            newMetadata,
         });
-        this.#emitGuiItemMoved(source, moved);
+        this.#emitGuiItemEvent(
+            'outer.gui.item.moved',
+            moved,
+            { old_path: source.path },
+            replacedByMove(overwriteTarget, moved, newName ?? source.name),
+        );
         res.json(this.#toClientEntry(moved));
     }
 
@@ -1680,19 +1707,33 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
+        const newName =
+            typeof body.new_name === 'string' ? body.new_name : undefined;
+        const overwrite = this.#toBoolean(body.overwrite) ?? false;
+        const replaced = overwrite
+            ? await findOverwriteTarget(
+                  this.stores.fsEntry,
+                  destinationParent,
+                  newName ?? source.name,
+              )
+            : null;
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
-            newName:
-                typeof body.new_name === 'string' ? body.new_name : undefined,
-            overwrite: this.#toBoolean(body.overwrite) ?? false,
+            newName,
+            overwrite,
             dedupeName:
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? true,
             ...(storageAllowanceMax !== undefined
                 ? { storageAllowanceMax }
                 : {}),
         });
-        this.#emitGuiItemAdded(copy);
+        this.#emitGuiItemEvent(
+            'outer.gui.item.added',
+            copy,
+            undefined,
+            replaced,
+        );
         res.json(this.#toClientEntry(copy));
     }
 
@@ -1725,7 +1766,7 @@ export class FSController extends PuterController {
             target,
             dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
         });
-        this.#emitGuiItemAdded(shortcut);
+        this.#emitGuiItemEvent('outer.gui.item.added', shortcut);
         res.json(this.#toClientEntry(shortcut));
     }
 
@@ -1780,52 +1821,6 @@ export class FSController extends PuterController {
         return entry;
     }
 
-    /**
-     * Authorize creation of a new entry at `targetPath`. The standard rule is
-     * write on the parent, but we also accept write on the target itself — this
-     * lets an app create its own `/<user>/AppData/<app_uid>` folder (parent
-     * `AppData` is off-limits, but the target is the app's own subtree per
-     * ACLService's short-circuit) and lets recipients of a direct share on a
-     * not-yet-existent path materialize it.
-     */
-    async #assertCanCreate(actor: Actor, targetPath: string) {
-        const parent = pathPosix.dirname(targetPath);
-        const parentForCheck = parent === '/' ? targetPath : parent;
-        const fsService = this.services.fs;
-
-        const makeDescriptor = (path: string) => {
-            let cache: Promise<Array<{ uid: string; path: string }>> | null =
-                null;
-            return {
-                path,
-                resolveAncestors() {
-                    if (!cache) cache = fsService.getAncestorChain(path);
-                    return cache;
-                },
-            };
-        };
-
-        if (
-            await this.services.acl.check(
-                actor,
-                makeDescriptor(parentForCheck),
-                'write',
-            )
-        ) {
-            return;
-        }
-        if (
-            await this.services.acl.check(
-                actor,
-                makeDescriptor(targetPath),
-                'write',
-            )
-        ) {
-            return;
-        }
-        await this.#assertAccess(actor, parentForCheck, 'write');
-    }
-
     async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
         const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
         if (!existing) return;
@@ -1837,29 +1832,14 @@ export class FSController extends PuterController {
         );
     }
 
-    #aclDescriptor(path: string) {
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        return {
-            path,
-            resolveAncestors() {
-                if (!ancestorsCache) {
-                    ancestorsCache = fsService.getAncestorChain(path);
-                }
-                return ancestorsCache;
-            },
-        };
-    }
-
     /** As `#assertAccess`, but for what to include rather than what to serve. */
     async #canAccess(
         actor: Actor,
         path: string,
         mode: 'see' | 'list' | 'read' | 'write',
     ): Promise<boolean> {
-        return this.services.acl.check(actor, this.#aclDescriptor(path), mode);
+        const acl = this.services.acl;
+        return acl.check(actor, acl.fsDescriptor(path), mode);
     }
 
     async #assertAccess(
@@ -1867,36 +1847,12 @@ export class FSController extends PuterController {
         path: string,
         mode: 'see' | 'list' | 'read' | 'write',
     ) {
-        const descriptor = this.#aclDescriptor(path);
-        const allowed = await this.services.acl.check(actor, descriptor, mode);
-        if (allowed) return;
-        const safe = (await this.services.acl.getSafeAclError(
+        await this.services.acl.assertFsAccess(
             actor,
-            descriptor,
+            path,
             mode,
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: { code?: unknown };
-        };
-        const status = Number(safe?.status);
-        const message =
-            typeof safe?.message === 'string' && safe.message.length > 0
-                ? safe.message
-                : 'Access denied';
-        const code =
-            typeof safe?.fields?.code === 'string'
-                ? safe.fields.code
-                : undefined;
-        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-        if (status === 404) {
-            throw new HttpError(404, message, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-        throw new HttpError(403, message, {
-            legacyCode: legacyCode ?? 'access_denied',
-        });
+            FS_ROUTE_REFUSAL,
+        );
     }
 
     #toNumberOrUndefined(value: unknown): number | undefined {
@@ -1920,60 +1876,20 @@ export class FSController extends PuterController {
 
     // Fire-and-forget GUI events for single-entry mutations. These feed the
     // desktop cache invalidator and extension listeners (e.g. thumbnails).
-    #emitGuiItemAdded(entry: FSEntry): void {
-        void this.#emitGuiWriteEvent(
-            'outer.gui.item.added',
-            entry,
-            undefined,
-        ).catch(() => undefined);
-    }
-
-    #emitGuiItemUpdated(entry: FSEntry): void {
-        void this.#emitGuiWriteEvent(
-            'outer.gui.item.updated',
-            entry,
-            undefined,
-        ).catch(() => undefined);
-    }
-
-    #emitGuiItemRemoved(entry: FSEntry, descendantsOnly = false): void {
-        // GUI listens for `outer.gui.item.removed`; same envelope shape.
-        // `descendants_only` lets the GUI keep the parent (e.g. Trash) and
-        // only drop its children — without it the GUI removes the parent too.
+    #emitGuiItemEvent(
+        eventName: GuiItemEventName,
+        entry: FSEntry,
+        extra?: Record<string, unknown>,
+        replaced?: FSEntry | null,
+    ): void {
         void (async () => {
             try {
-                await this.clients.event.emit(
-                    'outer.gui.item.removed',
-                    {
-                        user_id_list: [entry.userId],
-                        response: {
-                            ...entry,
-                            from_new_service: true,
-                            descendants_only: descendantsOnly,
-                        },
-                    },
-                    {},
-                );
-            } catch {
-                // ignore — non-critical.
-            }
-        })();
-    }
-
-    #emitGuiItemMoved(source: FSEntry, moved: FSEntry): void {
-        void (async () => {
-            try {
-                await this.clients.event.emit(
-                    'outer.gui.item.moved',
-                    {
-                        user_id_list: [moved.userId],
-                        response: {
-                            ...moved,
-                            from_path: source.path,
-                            from_new_service: true,
-                        },
-                    },
-                    {},
+                await emitGuiItemEvent(
+                    this.clients.event,
+                    eventName,
+                    entry,
+                    extra,
+                    replaced,
                 );
             } catch {
                 // ignore — non-critical.
@@ -2324,7 +2240,8 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
@@ -2523,70 +2440,19 @@ export class FSController extends PuterController {
         }
 
         let pathToCheck = parentPath;
-        if (Boolean(normalizedFileMetadata.overwrite)) {
-            const destinationExists =
-                await this.services.fs.entryExistsByPath(targetPath);
-            if (destinationExists) {
-                pathToCheck = targetPath;
-            }
+        if (
+            Boolean(normalizedFileMetadata.overwrite) &&
+            (await this.stores.fsEntry.getEntryByPath(targetPath))
+        ) {
+            pathToCheck = targetPath;
         }
 
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const resourceDescriptor = {
-            path: pathToCheck,
-            resolveAncestors() {
-                if (!ancestorsCache) {
-                    ancestorsCache = fsService.getAncestorChain(pathToCheck);
-                }
-                return ancestorsCache;
-            },
-        };
-
-        const canWrite = await this.services.acl.check(
+        await this.services.acl.assertFsAccess(
             actor,
-            resourceDescriptor,
+            pathToCheck,
             'write',
+            FS_ROUTE_REFUSAL,
         );
-        if (canWrite) {
-            return;
-        }
-
-        const safeAclError = (await this.services.acl.getSafeAclError(
-            actor,
-            resourceDescriptor,
-            'write',
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: {
-                code?: unknown;
-            };
-        };
-        const safeAclStatus = Number(safeAclError?.status);
-        const safeAclMessage =
-            typeof safeAclError?.message === 'string' &&
-            safeAclError.message.length > 0
-                ? safeAclError.message
-                : 'Write access denied for destination';
-        const safeAclCode =
-            typeof safeAclError?.fields?.code === 'string'
-                ? safeAclError.fields.code
-                : undefined;
-        const legacyCode =
-            safeAclCode === 'forbidden' ? 'access_denied' : safeAclCode;
-
-        if (safeAclStatus === 404) {
-            throw new HttpError(404, safeAclMessage, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-
-        throw new HttpError(403, safeAclMessage, {
-            legacyCode: legacyCode ?? 'access_denied',
-        });
     }
 
     async #assertBatchWriteAccess(
@@ -2670,28 +2536,16 @@ export class FSController extends PuterController {
         };
     }
 
-    /** `forOwner` — these events go to the owner, not to the acting user. */
-    async #toGuiFsEntry(entry: FSEntry): Promise<Record<string, unknown>> {
-        return toLegacyEntry(this.clients.event, entry, { forOwner: true });
-    }
-
     async #emitGuiWriteEvent(
         eventName: 'outer.gui.item.added' | 'outer.gui.item.updated',
         fsEntry: FSEntry,
         guiMetadata: WriteGuiMetadata | undefined,
     ): Promise<void> {
-        const response = {
-            ...(await this.#toGuiFsEntry(fsEntry)),
-            ...this.#toEventGuiMetadata(guiMetadata),
-            from_new_service: true,
-        };
-        await this.clients.event.emit(
+        await emitGuiItemEvent(
+            this.clients.event,
             eventName,
-            {
-                user_id_list: [fsEntry.userId],
-                response,
-            },
-            {},
+            fsEntry,
+            this.#toEventGuiMetadata(guiMetadata),
         );
     }
 

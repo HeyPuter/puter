@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -45,21 +44,6 @@ const DEFAULT_GRANT_TTL = 3600;
  * which a leaked one can relay traffic on the host's tab stays small.
  */
 const DEFAULT_GUEST_CREDENTIAL_TTL = 3600;
-
-/**
- * Constant-time secret comparison for the internal-auth header. HMAC both sides
- * under a random per-process key to a fixed 32-byte digest first: this avoids
- * leaking length via an early-return and sidesteps `timingSafeEqual`'s
- * equal-length requirement for arbitrary-length inputs. The key need not
- * persist — it only has to be unknown to the attacker for the duration of the
- * comparison.
- */
-const COMPARE_KEY = randomBytes(32);
-const secretsEqual = (a: string, b: string): boolean => {
-    const ha = createHmac('sha256', COMPARE_KEY).update(a).digest();
-    const hb = createHmac('sha256', COMPARE_KEY).update(b).digest();
-    return timingSafeEqual(ha, hb);
-};
 
 /**
  * Encode a UUID (or `app-<uuid>` UID) as base64url with no padding. Strips an
@@ -230,6 +214,7 @@ export class PeerController extends PuterController {
             '/turn/ingest-usage',
             {
                 subdomain: 'api',
+                internalAuth: (config) => config.peers?.internal_auth_secret,
                 // Shared-secret authenticated, so this only bounds how
                 // fast someone can guess the secret.
                 rateLimit: {
@@ -415,20 +400,6 @@ export class PeerController extends PuterController {
      * `services.metering.incrementUsage` multiplied by turn:egress-bytes cost.
      */
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
-        const cfg = this.config.peers;
-        if (!cfg || !cfg.internal_auth_secret) {
-            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
-        }
-        const expectedSecret = cfg.internal_auth_secret;
-        const header = req.headers['x-puter-internal-auth'];
-        if (
-            !expectedSecret ||
-            typeof header !== 'string' ||
-            !secretsEqual(header, expectedSecret)
-        ) {
-            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
-        }
-
         const { records } = req.body ?? {};
         if (!Array.isArray(records)) {
             throw new HttpError(400, 'Missing `records` array', {

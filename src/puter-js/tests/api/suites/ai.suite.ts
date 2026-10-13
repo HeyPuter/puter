@@ -55,8 +55,8 @@ const oversizedDataUri = (
     return `data:${mime};base64,${payload}`;
 };
 
-/** Token usage the `costly` fake model reports back. */
-type Usage = { input_tokens?: number; output_tokens?: number };
+/** Token usage the `costly` fake model reports back, and what it cost. */
+type Usage = { input_tokens?: number; output_tokens?: number; cost?: number };
 
 /**
  * Flatten a rejection to text. SDK errors arrive in a few shapes (Error,
@@ -112,6 +112,7 @@ export default suite('ai', {
         }, true);
         t.assert.equal((result.message as { model?: string }).model, 'fake');
         t.assert.equal((result.usage as Usage).input_tokens, 0);
+        t.assert.equal((result.usage as Usage).cost, 0);
         t.assert.ok(textOf(result).length > 0);
     },
 
@@ -176,6 +177,28 @@ export default suite('ai', {
             (result as { normalized?: boolean }).normalized,
             true,
         );
+    },
+
+    'chat accepts an AbortSignal before sending and while waiting for output': async (t) => {
+        useApiToken(t);
+        for (const alreadyAborted of [true, false]) {
+            const controller = new AbortController();
+            if (alreadyAborted) controller.abort();
+            const request = t.puter.ai.chat('Stream this', {
+                model: 'fake', stream: true, signal: controller.signal,
+            });
+            if (!alreadyAborted) controller.abort();
+            const error = await t.assert.rejects(() => request) as { name?: string };
+            t.assert.equal(error.name, 'AbortError');
+        }
+    },
+
+    'chat ReadableStream response preserves structured usage': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        const body = await new Response(new ReadableStream(stream)).text();
+        t.assert.ok(body.includes('"type":"usage"'));
+        t.assert.ok(!body.includes('[object Object]'));
     },
 
     'chat stream supports stopping iteration': async (t) => {

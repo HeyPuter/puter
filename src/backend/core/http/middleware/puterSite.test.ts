@@ -22,6 +22,7 @@ import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../../server';
+import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
 import type { Actor } from '../../actor';
@@ -1766,7 +1767,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
         return out;
     };
 
-    const cookieName = () => server.services.auth.getPrivateAssetCookieNameV2();
+    const cookieName = () => HOSTED_ASSET_COOKIES.private.name;
 
     it('sets the cookie and redirects a top-level page to the same URL without the token', async () => {
         const out = await visit({ dest: 'document' });
@@ -1793,12 +1794,15 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
     });
 
     it('still strips the token when the visitor already holds the cookie', async () => {
-        const cookie = await server.services.auth.createPrivateAssetToken({
-            appUid,
-            userUid: visitor.uuid,
-            subdomain: sub,
-            privateHost: host,
-        });
+        const cookie = await server.services.auth.createHostedAssetToken(
+            'private',
+            {
+                appUid,
+                userUid: visitor.uuid,
+                subdomain: sub,
+                host,
+            },
+        );
         const out = await visit({
             dest: 'document',
             cookies: { [cookieName()]: cookie },
@@ -1809,7 +1813,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
     it('serves without redirecting when the cookie could not be minted', async () => {
         // Without the cookie, the clean URL would bounce back to sign-in.
         const spy = vi
-            .spyOn(server.services.auth, 'createPrivateAssetToken')
+            .spyOn(server.services.auth, 'createHostedAssetToken')
             .mockRejectedValueOnce(new Error('mint failed'));
         try {
             const out = await visit({ dest: 'document' });

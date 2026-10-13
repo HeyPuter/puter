@@ -29,6 +29,7 @@ import {
     assertInputImagesShape,
     fetchImageAsBase64,
     isHttpUrl,
+    MAX_INPUT_IMAGES,
     parseDataUri,
     resolveSingleInputImage,
     toBase64DataUri,
@@ -41,19 +42,14 @@ vi.mock('../../util/secureHttp.js', () => ({ secureFetch: secureFetchMock }));
 const fetchResponse = (
     body: Buffer,
     {
-        ok = true,
         status = 200,
         contentType = 'image/png',
-    }: { ok?: boolean; status?: number; contentType?: string | null } = {},
-) => ({
-    ok,
-    status,
-    headers: {
-        get: (name: string) => (name === 'content-type' ? contentType : null),
-    },
-    arrayBuffer: async () =>
-        body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
-});
+    }: { status?: number; contentType?: string | null } = {},
+) =>
+    new Response(body, {
+        status,
+        headers: contentType ? { 'content-type': contentType } : {},
+    });
 
 beforeEach(() => {
     secureFetchMock.mockReset();
@@ -103,6 +99,12 @@ describe('assertInputImagesShape', () => {
                 'test',
             ),
         ).not.toThrow();
+        expect(() =>
+            assertInputImagesShape(
+                { input_images: Array(MAX_INPUT_IMAGES).fill('QUJD') },
+                'test',
+            ),
+        ).not.toThrow();
     });
 
     it.each([
@@ -110,6 +112,10 @@ describe('assertInputImagesShape', () => {
         ['a non-string input_images entry', { input_images: [{}] }],
         ['a non-array input_images', { input_images: 'QUJD' }],
         ['a numeric input_images', { input_images: 5 }],
+        [
+            'more input_images than any provider takes',
+            { input_images: Array(MAX_INPUT_IMAGES + 1).fill('QUJD') },
+        ],
     ])('rejects %s with 400', (_label, params) => {
         expect(() =>
             assertInputImagesShape(params as never, 'test'),
@@ -248,6 +254,7 @@ describe('fetchImageAsBase64', () => {
 
         expect(secureFetchMock).toHaveBeenCalledWith(
             'https://example.com/a.webp',
+            { signal: expect.any(AbortSignal) },
         );
         expect(result).toEqual({
             base64: body.toString('base64'),
@@ -267,7 +274,7 @@ describe('fetchImageAsBase64', () => {
 
     it('throws 400 with the upstream status when the fetch is not ok', async () => {
         secureFetchMock.mockResolvedValueOnce(
-            fetchResponse(Buffer.alloc(0), { ok: false, status: 404 }),
+            fetchResponse(Buffer.alloc(0), { status: 404 }),
         );
 
         try {
@@ -327,7 +334,7 @@ describe('toBase64DataUri', () => {
 
     it('propagates a failed remote fetch rather than producing an empty image', async () => {
         secureFetchMock.mockResolvedValueOnce(
-            fetchResponse(Buffer.alloc(0), { ok: false, status: 500 }),
+            fetchResponse(Buffer.alloc(0), { status: 500 }),
         );
 
         await expect(

@@ -4753,11 +4753,18 @@ export class EventsService extends PuterService {
         if (background.length === 0) return [];
 
         const deps = this.#aclDeps();
+        // Rows of one holder and app stand on one consent: ask it once.
+        const consent = new Map<string, Promise<boolean>>();
+        const consented = async (row: DurableSubscription) => {
+            const actor = await resolveGrantActor(row, deps);
+            return actor !== null && (await this.#hasBackgroundConsent(actor));
+        };
         const settling: DurableSubscription[] = [];
         for (const row of background) {
-            const actor = await resolveGrantActor(row, deps);
-            if (actor && (await this.#hasBackgroundConsent(actor))) continue;
-            settling.push(row);
+            const key = `${row.holderUserId}|${row.appUid ?? ''}`;
+            const asked = consent.get(key) ?? consented(row);
+            consent.set(key, asked);
+            if (!(await asked)) settling.push(row);
         }
         return settling;
     }
@@ -6230,7 +6237,8 @@ export class EventsService extends PuterService {
     #anchorDeps(): FsAnchorDeps {
         return {
             resolveNode: (ref) => resolveNode(this.stores.fsEntry, ref),
-            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getAncestorChain: (path) =>
+                this.stores.fsEntry.getAncestorChain(path),
         };
     }
 
@@ -6254,7 +6262,8 @@ export class EventsService extends PuterService {
     #aclDeps(): EventAclDeps {
         return {
             acl: this.services.acl,
-            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getAncestorChain: (path) =>
+                this.stores.fsEntry.getAncestorChain(path),
             getUser: (userId) => this.stores.user.getById(userId),
             getApp: (uid) => this.stores.app.getByUid(uid),
             getCacheGeneration: (uid) =>

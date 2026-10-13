@@ -17,8 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { readdirSync, readFileSync } from 'fs';
-import { isAbsolute, resolve as resolvePath } from 'path';
 import { metrics } from '@opentelemetry/api';
 import { createPool, ExecuteValues, type Pool } from 'mysql2';
 import { Span } from '../../util/span.js';
@@ -26,7 +24,6 @@ import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
 import { isRetriableError } from './retriableErrors.js';
 import { splitMysqlStatements } from './splitMysqlStatements.js';
-import { compareMigrationFilenames } from './migrationFilenames.js';
 import type { IConfig } from '../../types';
 
 const DEFAULT_SELECT_TIMEOUT_MS = 30_000;
@@ -40,7 +37,7 @@ const replicaFailoverCounter = metrics
             'Reads that failed on the replica batcher and were retried on the primary',
     });
 
-export { compareMigrationFilenames };
+export { compareMigrationFilenames } from './migrationFilenames.js';
 
 type PoolConfig = Parameters<typeof createPool>[0];
 
@@ -95,15 +92,19 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
         this.dbReplica = this.createReplicaBatcher(this.replicaPool);
 
-        await this.runMigrations();
+        await this.applyMigrationPaths(
+            () => this.primaryPool.promise().getConnection(),
+            splitMysqlStatements,
+            { transactional: false },
+        );
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
         if (this.shutdownStarted) return;
         this.shutdownStarted = true;
 
-        // Blocks reinitPrimary/reinitReplica from here on. Pools stay open;
-        // onServerShutdown closes them after the layers above have drained.
+        // Pools stay open; onServerShutdown closes them after the layers
+        // above have drained.
         console.log('[mysql] entering drain mode');
     }
 
@@ -200,101 +201,18 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         }
     }
 
-    @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
-    override async tryHardRead(
-        query: string,
-        params: unknown[] = [],
-    ): Promise<Record<string, unknown>[]> {
-        if (this.configuration === Configuration.SINGLE) {
-            return this.read(query, params);
-        }
-
-        // Run both reads in parallel — prefer replica when it returns rows,
-        // otherwise fall back to primary to handle replication lag.
-        const primaryPromise = this.dbPrimaryRead.execute(query, params);
-        try {
-            const replicaResult = await this.dbReplica.execute(query, params);
-            if (
-                Array.isArray(replicaResult?.[0]) &&
-                (replicaResult[0] as unknown[]).length > 0
-            ) {
-                primaryPromise.catch(() => {}); // suppress unhandled rejection
-                return replicaResult[0] as Record<string, unknown>[];
-            }
-        } catch {
-            // fall through to primary
-        }
-
-        const primaryResult = await primaryPromise;
-        return (primaryResult?.[0] as Record<string, unknown>[]) ?? [];
+    protected override hasReadReplica(): boolean {
+        return this.configuration === Configuration.REPLICA;
     }
 
-    // ------------------------------------------------------------------
-    // Migrations
-    // ------------------------------------------------------------------
-
-    /**
-     * Apply `.sql` files from each configured migration directory in order.
-     * Files within a directory are sorted lexically. Files MUST be idempotent —
-     * there is no per-file applied-state tracking. Failures abort startup so
-     * operators see schema problems loud.
-     */
-    private async runMigrations(): Promise<void> {
-        const paths = this.config.database?.migrationPaths;
-        if (!paths || paths.length === 0) return;
-
-        const conn = await this.primaryPool.promise().getConnection();
-        try {
-            for (const rawPath of paths) {
-                const dir = isAbsolute(rawPath)
-                    ? rawPath
-                    : resolvePath(process.cwd(), rawPath);
-
-                let files: string[];
-                try {
-                    files = readdirSync(dir)
-                        .filter(
-                            (f) => f.endsWith('.sql') && f.startsWith('mysql'),
-                        )
-                        .sort(compareMigrationFilenames);
-                } catch (e) {
-                    throw new Error(
-                        `[mysql] migration path is unreadable: ${dir}`,
-                        { cause: e },
-                    );
-                }
-
-                if (files.length === 0) {
-                    console.log(`[mysql] no migrations in ${dir}`);
-                    continue;
-                }
-
-                console.log(
-                    `[mysql] running migrations from ${dir}: ${files.length} file(s)`,
-                );
-
-                for (const file of files) {
-                    const filePath = resolvePath(dir, file);
-                    const contents = readFileSync(filePath, 'utf8');
-                    const statements = splitMysqlStatements(contents);
-                    for (let i = 0; i < statements.length; i++) {
-                        try {
-                            await conn.query(statements[i]);
-                        } catch (e) {
-                            throw new Error(
-                                `[mysql] failed to apply ${file} at statement ${i}`,
-                                { cause: e },
-                            );
-                        }
-                    }
-                    console.log(
-                        `[mysql] applied ${file} (${statements.length} statements)`,
-                    );
-                }
-            }
-        } finally {
-            conn.release();
-        }
+    // No failover: `tryHardRead` already has a primary read in flight.
+    protected override async replicaRead(
+        query: string,
+        params: unknown[],
+    ): Promise<Record<string, unknown>[]> {
+        const result = await this.dbReplica.execute(query, params);
+        if (!result) return [];
+        return (result[0] as Record<string, unknown>[]) ?? [];
     }
 
     // ------------------------------------------------------------------
@@ -376,57 +294,6 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         });
     }
 
-    /** Reinitialize the primary pool (e.g. after a health-check failure). */
-    reinitPrimary(): void {
-        if (this.shutdownStarted) return;
-
-        const dbConf = this.config.database!;
-        const previous = this.primaryPool;
-        this.primaryPool = this.createPool({
-            host: dbConf.host ?? '127.0.0.1',
-            port: dbConf.port ?? 3306,
-            user: dbConf.user ?? 'root',
-            password: dbConf.password ?? '',
-            database: dbConf.database ?? 'puter',
-        });
-        this.db = this.createPrimaryBatcher(this.primaryPool);
-        this.dbPrimaryRead = this.createPrimaryReadBatcher(this.primaryPool);
-
-        if (this.configuration === Configuration.SINGLE) {
-            this.replicaPool = this.primaryPool;
-            this.dbReplica = this.createReplicaBatcher(this.primaryPool);
-        }
-
-        if (previous && previous !== this.primaryPool) {
-            this.closePool(previous, 'reinit:primary').catch(() => {});
-        }
-    }
-
-    /** Reinitialize the replica pool. */
-    reinitReplica(): void {
-        if (this.shutdownStarted || !this.config.database?.replica) return;
-
-        const previous = this.replicaPool;
-        this.replicaPool = this.createPool(this.config.database.replica);
-        this.dbReplica = this.createReplicaBatcher(this.replicaPool);
-
-        if (
-            previous &&
-            previous !== this.replicaPool &&
-            previous !== this.primaryPool
-        ) {
-            this.closePool(previous, 'reinit:replica').catch(() => {});
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Retry helpers (for health checks or resilient reads)
-    // ------------------------------------------------------------------
-
-    static isRetriableError(error: unknown): boolean {
-        return isRetriableError(error);
-    }
-
     /**
      * Replica failures worth retrying on the primary: batcher load-shed or
      * transient connection errors — never deterministic SQL errors.
@@ -434,52 +301,6 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     private static isFailoverWorthy(error: unknown): boolean {
         const code = (error as { code?: string })?.code;
         return code === 'dbBatchFailed' || isRetriableError(error);
-    }
-
-    async readWithRetry(
-        label: string,
-        operation: () => Promise<unknown[]>,
-        opts?: {
-            maxAttempts?: number;
-            baseBackoffMs?: number;
-            maxBackoffMs?: number;
-            jitterRatio?: number;
-        },
-    ): Promise<unknown[]> {
-        const maxAttempts = opts?.maxAttempts ?? 3;
-        const baseBackoffMs = opts?.baseBackoffMs ?? 100;
-        const maxBackoffMs = opts?.maxBackoffMs ?? 500;
-        const jitterRatio = opts?.jitterRatio ?? 0.2;
-
-        let attempt = 1;
-
-        while (true) {
-            try {
-                return await operation();
-            } catch (error) {
-                if (this.shutdownStarted) throw error;
-                if (
-                    attempt >= maxAttempts ||
-                    !MySQLDatabaseClient.isRetriableError(error)
-                )
-                    throw error;
-
-                const raw = baseBackoffMs * 2 ** (attempt - 1);
-                const capped = Math.min(maxBackoffMs, raw);
-                const window = Math.round(capped * jitterRatio);
-                const jitter =
-                    window === 0
-                        ? 0
-                        : Math.floor(Math.random() * (window * 2 + 1)) - window;
-                const delay = Math.max(0, capped + jitter);
-
-                console.warn(
-                    `[${label}] transient mysql error (${(error as { code?: string })?.code ?? 'unknown'}); retry ${attempt + 1}/${maxAttempts} in ${delay}ms`,
-                );
-                await new Promise((r) => setTimeout(r, delay));
-                attempt++;
-            }
-        }
     }
 
     // ------------------------------------------------------------------

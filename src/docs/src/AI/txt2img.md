@@ -35,13 +35,13 @@ Additional settings for the generation request. Available options depend on the 
 | `model` | `String` | Image model ID. See the provider defaults and model discovery below. Lookups are case-insensitive; provider-prefixed IDs select that provider. |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
-| `input_images` | `Array<String>` | Input image(s) for image-to-image — the canonical, cross-provider field (see below). |
+| `input_images` | `Array<String>` | Input image(s) for image-to-image. Works with every provider (see below). |
 | `input_image` | `String` | Single-image shorthand for `input_images`. |
-| `input_image_mime_type` | `String` | MIME type of the input image(s), e.g. `'image/png'`. Used as a fallback when the type cannot be detected from the input — pass it when supplying raw base64 without a data-URI prefix. |
+| `input_image_mime_type` | `String` | MIME type of the input image(s), e.g. `'image/png'`. Used as a fallback when the type cannot be detected from the input. Pass it when supplying raw base64 without a data-URI prefix. |
 
 #### Providers and model discovery
 
-When `model` is supplied, Puter selects its provider. Use a provider-prefixed ID such as `workers-ai:leonardo/lucid-origin` or `replicate:leonardoai/lucid-origin` to choose between providers offering similar models. A `provider` or legacy `driver` hint prefers that provider when it offers the model; otherwise a known model selects its own provider, preserving existing callers. A hint selecting a route excluded by data policy fails with `bad_request` instead of falling back. The generic `ai-image` hint is case-insensitive. The legacy `driver` option accepts full driver IDs such as `xai-image-generation`; `service` does not select an image provider.
+When `model` is supplied, Puter selects its provider. Use a provider-prefixed ID such as `workers-ai:leonardo/lucid-origin` or `replicate:leonardoai/lucid-origin` to choose between providers offering similar models. A `provider` or legacy `driver` hint prefers that provider when it offers the model. Otherwise, a known model selects its own provider. A hint selecting a route excluded by data policy fails with `bad_request` instead of falling back. The generic `ai-image` hint is case-insensitive. The legacy `driver` option accepts full driver IDs such as `xai-image-generation`; `service` does not select an image provider.
 
 Without a model, these provider defaults apply:
 
@@ -54,7 +54,7 @@ Without a model, these provider defaults apply:
 | Replicate | `black-forest-labs/flux-schnell` |
 | BytePlus | `seedream-5-0-lite-260128` |
 
-When neither is supplied, the first configured provider with an available default model is used, with OpenAI preferred. Self-hosted instances expose only configured providers.
+When neither is supplied, OpenAI's `gpt-image-2` is used.
 
 Discover the image catalog, including model IDs, aliases, provider names, and pricing metadata:
 
@@ -67,27 +67,19 @@ console.table(models.map(({ id, provider }) => ({ id, provider })));
 
 See the [AI model directory](https://developer.puter.com/ai/models/) for the included models and price units.
 
-`puter.ai.listModels()` lists chat models. The image catalog above describes configured integrations; upstream account access and availability can still vary.
-
-**Availability notes (September 30, 2026):**
-
-- Gemini `gemini-3-pro-image` and `gemini-3.1-flash-image` use stable endpoints. Their previous `-preview` spellings remain aliases. Google deprecated `gemini-2.5-flash-image` (shutdown October 2, 2026); Puter no longer offers it, and requests for `gemini-2.5-flash-image` or `nano-banana` fail as unknown models. Use `gemini-3.1-flash-image`, the default here. See [Google's deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations).
-- OpenAI has deprecated `gpt-image-1`, `gpt-image-1-mini`, and `gpt-image-1.5`. Puter no longer offers them through any provider; requests for them fail with `Model not found`. Use `gpt-image-2` or a `gpt-image-2.5-*` model. `chatgpt-image-latest` was never offered. See [OpenAI's deprecation schedule](https://developers.openai.com/api/docs/deprecations).
-- All cataloged Together image routes are excluded because they require a third-party data-sharing opt-in. This includes Imagen 4; its retirement through Together has not been confirmed. Excluded routes reject generation before contacting the provider. Previously retired Together aliases still fail as unavailable. To use Cloudflare Schnell, select `@cf/black-forest-labs/flux-1-schnell` or `workers-ai:black-forest-labs/flux.1-schnell`.
-- Cloudflare `@cf/black-forest-labs/flux-2-dev` timed out on every live request on September 16, 2026, including 512×512 at 4 steps, while the Klein variants respond normally. It stays listed pending a Cloudflare-side fix.
-- xAI `grok-imagine-image-2.0` is available. xAI retires `grok-imagine-image-quality` on November 2, 2026; Puter no longer offers it, and requests for it fail as an unknown model. Use `grok-imagine-image-2.0`. The original `grok-imagine-image` remains available. See [xAI's release notes](https://docs.x.ai/developers/release-notes).
+The [`puter.ai.listModels()`](/AI/listModels/) function lists chat models, not image models.
 
 #### Output dimensions
 
-Use `ratio: { w: 16, h: 9 }`, `aspect_ratio: '16:9'`, or a pair of pixel dimensions (`width`, `height`). `ratio` takes precedence, followed by `width`/`height`, then `aspect_ratio`. `aspect_ratio` always denotes a shape. Legacy dimension pairs with both sides at most 32 also denote shapes; BytePlus retains its pixel-threshold rule described below. Invalid, non-positive, or non-finite dimensions fail with `bad_request`.
+Use `ratio: { w: 16, h: 9 }`, `aspect_ratio: '16:9'`, or a pair of pixel dimensions (`width`, `height`). `ratio` takes precedence, followed by `width`/`height`, then `aspect_ratio`. `aspect_ratio` always denotes a shape. Legacy dimension pairs with both sides at most 32 also denote shapes. BytePlus retains its pixel-threshold rule described below. Invalid, non-positive, or non-finite dimensions fail with `bad_request`.
 
-Supported shapes and sizes vary by model. Gemini and BytePlus choose the closest supported aspect ratio; OpenAI scales any aspect hint into its pixel budget. Cloudflare expands aspect hints to about one megapixel, then scales or clamps dimensions to the per-side limits below. Cloudflare Schnell always generates 1024×1024 images.
+Supported shapes and sizes vary by model. Gemini and BytePlus choose the closest supported aspect ratio. OpenAI scales any aspect hint into its pixel budget. Cloudflare expands aspect hints to about one megapixel, then scales or clamps dimensions to the per-side limits below. Cloudflare Schnell always generates 1024×1024 images.
 
 #### Input images (image-to-image)
 
-`input_images` is the universal way to pass image-to-image inputs across providers; `input_image` is the single-image shorthand. Each entry may be a **public URL**, a **data-URI**, or **raw base64** — providers that need base64 fetch URLs server-side (SSRF-guarded), so a URL works everywhere.
+To pass input images for image-to-image, use `input_images`, which works with every provider. For a single image, `input_image` is a shorthand. Each entry can be a **public URL**, a **data-URI**, or **raw base64**, and a URL works with every provider.
 
-Raw base64 carries no MIME type of its own. When it cannot be detected from the bytes, set `input_image_mime_type` (e.g. `'image/png'`) — Gemini rejects the request otherwise, and OpenAI, xAI, Cloudflare, BytePlus, and Replicate use it to label the upload.
+Raw base64 carries no MIME type of its own. When it cannot be detected from the bytes, set `input_image_mime_type`, such as `'image/png'`. Gemini rejects the request without it, and OpenAI, xAI, Cloudflare, BytePlus, and Replicate use it to label the upload.
 
 | Provider | Multiple images? | Accepted input forms |
 |----------|------------------|----------------------|
@@ -107,8 +99,8 @@ Available when `provider: 'openai'` or inferred from model (`gpt-image-2.5-sunbu
 | `model` | `String` | Image model to use. Available: `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'` (default). |
 | `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` models also accept `'xhigh'`, `'max'`, and `'auto'`. Case-insensitive; unrecognized values fall back to `'low'`. |
 | `ratio` | `Object` | Aspect ratio with `w` and `h` properties. All GPT Image models accept dynamic sizes subject to provider limits (16-pixel steps, 3:1 maximum ratio, 3840-pixel edge cap) |
-| `input_image` | `String` | An input image for image-to-image editing — a URL or base64/data-URI (URLs are fetched server-side). |
-| `input_images` | `Array<String>` | Multiple input images (URL or base64/data-URI) for image-to-image editing. Routes the request through OpenAI's image edit endpoint. |
+| `input_image` | `String` | An input image for image-to-image editing, as a URL or base64/data-URI. |
+| `input_images` | `Array<String>` | Multiple input images (URL or base64/data-URI) for image-to-image editing. |
 
 For more details, see the [OpenAI API reference](https://platform.openai.com/docs/api-reference/images/create).
 
@@ -118,10 +110,10 @@ Available when `provider: 'gemini'` or inferred from model:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-3.1-flash-lite-image'`, or `'gemini-3-pro-image'`. |
+| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-nano-banana-2.1'` (Nano Banana 2.1), `'gemini-3.1-flash-lite-image'`, or `'gemini-3-pro-image'`. |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
-| `quality` | `String` | 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on 3 Pro and 3.1 Flash Lite. |
-| `input_images` | `Array<String>` | Input images for image-to-image — a URL or base64/data-URI (URLs are fetched server-side). |
+| `quality` | `String` | Nano Banana 2.1 and 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on Nano Banana 2.1, 3 Pro, and 3.1 Flash Lite. |
+| `input_images` | `Array<String>` | Input images for image-to-image, as URLs or base64/data-URIs. |
 
 #### xAI (Grok) Options
 
@@ -134,7 +126,7 @@ Available when `provider: 'xai'` or inferred from model (`grok-imagine-image`, a
 | `resolution` | `String` | Output resolution: `'1k'` (default) or `'2k'`. |
 | `quality` | `String` | On 2.0 (case-insensitive): `'low'`, `'medium'`, or `'auto'` (default; low for generation, medium for edits). On older models, `'1k'`/`'2k'` remains a resolution alias. Explicit `resolution` takes precedence. |
 | `input_image` | `String` | A public URL or base64-encoded (data-URI) input image for image-to-image editing. |
-| `input_images` | `Array<String>` | Up to 5 input images (URLs or base64/data-URI) for multi-image editing — combine subjects, transfer styles, compose scenes. Routes through xAI's image edit endpoint. |
+| `input_images` | `Array<String>` | Up to 5 input images (URLs or base64/data-URI) for multi-image editing, such as combining subjects, transferring styles, or composing scenes. |
 
 #### Together Options
 
@@ -179,7 +171,7 @@ Available when `provider: 'replicate'` or inferred from model:
 |--------|------|-------------|
 | `model` | `String` | Model id (e.g. `'black-forest-labs/flux-schnell'`, `'leonardoai/lucid-origin'`). |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
-| `input_image` | `String` | Input image for image-to-image generation — a URL or base64/data-URI. |
+| `input_image` | `String` | Input image for image-to-image generation, as a URL or base64/data-URI. |
 | `input_images` | `Array<String>` | Up to 10 input images (URL or base64/data-URI) for multi-image generation; more return `bad_request` before anything is fetched. Each fetched reference is capped at 30 MB; a larger one fails with `bad_request` before the request is sent. |
 
 ##### Per-model options
@@ -216,12 +208,12 @@ The original Replicate entries also support these options:
 | `safety_tolerance` | `Number` | `flux-2-pro`, `flux-1.1-pro` | Safety tolerance level. |
 | `prompt_upsampling` | `Boolean` | `flux-1.1-pro` | Enable prompt upsampling. |
 | `response_format` | `String` | most models | Output format (e.g. `'webp'`, `'jpg'`, `'png'`). |
-| `generation_mode` | `String` | Leonardo (`lucid-origin`) | Generation tier — affects pricing. `'standard'`/`'ultra'` (lucid-origin). |
+| `generation_mode` | `String` | Leonardo (`lucid-origin`) | Generation tier, which affects pricing. `'standard'`/`'ultra'` (lucid-origin). |
 | `style` | `String` | Leonardo | Stylistic preset. |
 | `contrast` | `String` | Leonardo | Contrast preset. |
 | `prompt_enhance` | `Boolean` | Leonardo | Server-side prompt enhancement. |
 
-If a Replicate request is aborted, Puter keeps the creation response long enough to obtain the prediction ID and request cancellation. A generation that completes before cancellation is still metered. Predictions have a 10-minute [upstream deadline](https://replicate.com/docs/topics/predictions/create-a-prediction#prediction-deadlines). After the initial blocking request, Puter polls every 2 seconds and stops at the deadline with `upstream_timeout` (504). Cancellation cleanup polls for at most 30 seconds, plus any in-flight network request (30-second timeout). Each creation request has a separate 90-second network timeout and is sent once: a creation that fails on the network is not retried, so a call starts at most one prediction. A polling failure while the prediction is running surfaces as `upstream_failed` (502) without cancelling or metering it.
+If you abort a Replicate request, Puter cancels the prediction. A generation that completes before it's cancelled is still metered. Predictions have a 10-minute [upstream deadline](https://replicate.com/docs/topics/predictions/create-a-prediction#prediction-deadlines), after which the call fails with `upstream_timeout` (504). A call starts at most one prediction, since a failed creation request isn't retried. If checking on a running prediction fails, the call fails with `upstream_failed` (502), and the prediction isn't cancelled or metered.
 
 For more details, see the [Replicate API reference](https://replicate.com/docs) and each model's schema page on Replicate.
 

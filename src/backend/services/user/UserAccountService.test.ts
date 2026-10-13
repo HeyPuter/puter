@@ -225,6 +225,83 @@ describe('UserAccountService', () => {
             expect(flat?.permission).toBeUndefined();
         });
 
+        it('deletes the account’s sites, announcing each one', async () => {
+            const user = await seedUser();
+            const slug = Math.random().toString(36).slice(2, 10);
+            const site = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `ua-site-${slug}`,
+            });
+            const worker = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `workers.puter.ua-worker-${slug}`,
+            });
+            // Warm the lookup cache so a row surviving there would show up.
+            expect(
+                (await server.stores.subdomain.getBySubdomain(site.subdomain))
+                    ?.uuid,
+            ).toBe(site.uuid);
+
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await server.services.userAccount.cascadeDelete(user.id);
+
+                const emitted = emitSpy.mock.calls.map(([key, data]) => ({
+                    key,
+                    data,
+                }));
+                const deletes = emitted.filter(
+                    (e) => e.key === 'subdomain.delete',
+                );
+                expect(deletes.map((e) => e.data)).toEqual(
+                    expect.arrayContaining([
+                        { subdomain: site.subdomain, uid: site.uuid },
+                        { subdomain: worker.subdomain, uid: worker.uuid },
+                    ]),
+                );
+                // Listeners keyed on the user still see the sites go first.
+                const userDeleteAt = emitted.findIndex(
+                    (e) => e.key === 'user.delete',
+                );
+                expect(userDeleteAt).toBeGreaterThan(
+                    emitted.lastIndexOf(deletes[deletes.length - 1]!),
+                );
+            } finally {
+                emitSpy.mockRestore();
+            }
+
+            expect(
+                await server.stores.subdomain.getBySubdomain(site.subdomain),
+            ).toBeNull();
+        });
+
+        it('finishes when dropping the seat caches fails', async () => {
+            const user = await seedUser();
+            const capture = vi
+                .spyOn(server.services.team, 'captureSeatForBilling')
+                .mockResolvedValue({
+                    team_uid: `team-${uuidv4()}`,
+                    owner_user_id: 1,
+                    user_id: user.id,
+                    user_uuid: user.uuid,
+                    username: user.username,
+                });
+            const lookup = vi
+                .spyOn(server.stores.team, 'getByUid')
+                .mockRejectedValue(new Error('store down'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await expect(
+                    server.services.userAccount.cascadeDelete(user.id),
+                ).resolves.toBeUndefined();
+            } finally {
+                capture.mockRestore();
+                lookup.mockRestore();
+                warn.mockRestore();
+            }
+            expect(await server.stores.user.getById(user.id)).toBeNull();
+        });
+
         it('frees the address for a new account', async () => {
             const user = await seedUser();
             const email = user.email as string;

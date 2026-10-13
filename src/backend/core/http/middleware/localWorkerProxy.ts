@@ -60,6 +60,10 @@ function workerNameFromHost(host: string): string | null {
     return prefix.split('.')[0] || null;
 }
 
+/** Whether a port-less hostname is one the local worker proxy answers. */
+export const isLocalWorkerHost = (hostName: string): boolean =>
+    workerNameFromHost(hostName) !== null;
+
 // Express (Node) request → WHATWG Request the Worker's `fetch(request)` sees.
 // Must run BEFORE any body-parsing middleware so `req` is still an unconsumed
 // stream; otherwise the Worker gets an empty body on POST/PUT.
