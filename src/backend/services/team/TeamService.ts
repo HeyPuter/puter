@@ -37,8 +37,7 @@ import { isUniqueViolation } from '../../util/dbError.js';
 const FREE_SEAT_CAP = 3;
 const PAID_SEAT_CAP = 40;
 
-// Seats an owner may mint per window, as a multiple of what they may hold
-// live. The caps bound what exists at once, not what can be cycled through.
+// What an owner may mint per window; the caps only bound what is live.
 const PROVISION_BUDGET_FACTOR = 3;
 const PROVISION_BUDGET_WINDOW_MS = 30 * 24 * 60 * 60_000;
 const PROVISION_BUDGET_SCOPE = 'team-provision';
@@ -919,20 +918,16 @@ export class TeamService extends PuterService {
         return found;
     }
 
-    /** Returns the activation link; the account has no password until used. */
-    /**
-     * Checks a provisioned seat against the same extension-owned gate a signup
-     * answers to. Without one, nothing about a team account is looked at: no
-     * address validation, no reputation, no captcha.
-     */
+    /** Puts a seat through the same extension-owned gate a signup answers. */
     async #assertSignupAllowed(
         context: ProvisionContext,
         email: string,
     ): Promise<void> {
-        if (!context.req || !this.services.signup) return;
+        // A request only enriches this; a seat without one still answers.
         const verdict = await this.services.signup.runSignupGate({
-            req: context.req,
-            data: {},
+            req: (context.req ?? {}) as Request,
+            // A seat's address is optional, so say what this is.
+            data: { team_provision: true },
             email,
             isTemp: false,
             bonusCode: null,
@@ -940,21 +935,23 @@ export class TeamService extends PuterService {
                 ? { fingerprint: context.fingerprint }
                 : {}),
         });
-        // Phone and card gates are deliberately not carried over: the seat
-        // cannot answer them, and the team already vouched for it.
+        // No phone or card gate: a seat cannot answer one.
         if (verdict.verdict === 'allowed') return;
+        const requestCode =
+            'requestCode' in verdict ? verdict.requestCode : undefined;
+        const message =
+            ('message' in verdict && verdict.message) ||
+            'This account cannot be created right now.';
         throw new HttpError(
             403,
-            ('message' in verdict && verdict.message) ||
-                'This account cannot be created right now.',
-            { legacyCode: 'forbidden' },
+            requestCode ? `${message} (Request Code: ${requestCode})` : message,
+            {
+                legacyCode: ('code' in verdict && verdict.code) || 'forbidden',
+            },
         );
     }
 
-    /**
-     * Seats minted per owner per window. The cap bounds how many live at once,
-     * which a delete frees again; this bounds how many can be made at all.
-     */
+    /** Bounds seats ever minted, where the cap only bounds seats alive. */
     async #chargeProvisionBudget(
         ownerUserId: number,
         cap: number,
@@ -962,22 +959,32 @@ export class TeamService extends PuterService {
         const owner = await this.stores.user.getById(ownerUserId);
         // The uuid, so a recycled id cannot inherit another owner's spend.
         const key = owner?.uuid ?? `id:${ownerUserId}`;
-        // Every seat the owner may hold live at once, times the churn allowed
-        // on top. Per owner, since teams are churnable the same way.
+        // All they may hold live, times the churn allowed on top.
         const limit =
             Math.max(1, cap) * this.#teamCap() * PROVISION_BUDGET_FACTOR;
-        const allowed = await checkRateLimit(
-            `${PROVISION_BUDGET_SCOPE}:${key}`,
-            limit,
-            PROVISION_BUDGET_WINDOW_MS,
-            undefined,
-            // A budget that fails open is not a budget.
-            { failOpen: false },
-        );
+        let allowed: boolean;
+        try {
+            allowed = await checkRateLimit(
+                `${PROVISION_BUDGET_SCOPE}:${key}`,
+                limit,
+                PROVISION_BUDGET_WINDOW_MS,
+                undefined,
+                // A budget that fails open is not a budget.
+                { failOpen: false },
+            );
+        } catch (e) {
+            // `failOpen: false` rethrows; an outage is not a 500 here.
+            console.warn('[team] provisioning budget unavailable:', e);
+            throw new HttpError(
+                503,
+                'Cannot create accounts right now — try again shortly',
+                { legacyCode: 'service_unavailable' },
+            );
+        }
         if (!allowed) {
             throw new HttpError(
                 429,
-                'This team has created too many accounts recently',
+                'You have created too many accounts recently',
                 { legacyCode: 'too_many_requests', fields: { limit } },
             );
         }
@@ -993,8 +1000,12 @@ export class TeamService extends PuterService {
         username: string;
         temporaryPassword: string;
     }> {
+        const email = typeof input.email === 'string' ? input.email.trim() : '';
+        // Outside the lock: a listener has no deadline, the lease does.
+        if (email) await this.services.signup.validateEmail(email);
+        await this.#assertSignupAllowed(context, email);
         return this.#withCapLock(`team:${teamUid}`, () =>
-            this.#provisionAccountLocked(teamUid, actorUserId, input, context),
+            this.#provisionAccountLocked(teamUid, actorUserId, input),
         );
     }
 
@@ -1002,7 +1013,6 @@ export class TeamService extends PuterService {
         teamUid: string,
         actorUserId: number,
         input: { username: string; email?: string | null },
-        context: ProvisionContext,
     ): Promise<{
         userId: number;
         username: string;
@@ -1049,7 +1059,6 @@ export class TeamService extends PuterService {
             });
         }
 
-        await this.#assertSignupAllowed(context, email);
         await this.#chargeProvisionBudget(team.owner_user_id, cap);
 
         // Gated only when a code can reach the address the team claimed.

@@ -1402,21 +1402,20 @@ describe('TeamService', () => {
     });
 
     it('stops an owner who keeps deleting and re-provisioning seats', async () => {
-        // The cap counts live seats, so a delete frees the slot again. The
-        // budget is what a delete cannot give back.
+        // The cap frees the slot on delete; the budget does not.
         const cfg = () =>
             (service as unknown as { config: Record<string, unknown> }).config;
+        const churner = await makeUser();
+        const team = await service.createTeam(churner.id, {
+            name: 'Churn Co',
+            handle: freeHandle(),
+        });
         const saved = {
             seats: cfg().max_seats_per_team,
             teams: cfg().max_teams_per_user,
         };
         cfg().max_seats_per_team = 1;
         cfg().max_teams_per_user = 1;
-        const churner = await makeUser();
-        const team = await service.createTeam(churner.id, {
-            name: 'Churn Co',
-            handle: freeHandle(),
-        });
 
         let made = 0;
         let refusal: { statusCode?: number } | null = null;
@@ -1453,16 +1452,23 @@ describe('TeamService', () => {
                 code: null,
             } as never);
 
-        await expect(
-            service.provisionAccount(
-                team.uid,
-                owner.id,
-                { username: `gated_${Math.random().toString(36).slice(2, 7)}` },
-                { req: {} as never },
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-        expect(gate).toHaveBeenCalled();
-        gate.mockRestore();
+        try {
+            await expect(
+                service.provisionAccount(
+                    team.uid,
+                    owner.id,
+                    {
+                        username: `gated_${Math.random()
+                            .toString(36)
+                            .slice(2, 7)}`,
+                    },
+                    { req: {} as never },
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(gate).toHaveBeenCalled();
+        } finally {
+            gate.mockRestore();
+        }
     });
 
     // -- notifications -------------------------------------------------
