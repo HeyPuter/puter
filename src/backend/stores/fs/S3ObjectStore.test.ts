@@ -1277,6 +1277,103 @@ describe('S3ObjectStore failure handling', () => {
         expect(result.lastModified).toBeNull();
     });
 
+    // An 'error' event with no listener is rethrown as an uncaught
+    // exception, so these watch the process as well as the reader.
+    const collectUncaught = async (run: () => Promise<void>) => {
+        const uncaught: unknown[] = [];
+        const record = (error: unknown) => uncaught.push(error);
+        process.on('uncaughtException', record);
+        try {
+            await run();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        } finally {
+            process.off('uncaughtException', record);
+        }
+        return uncaught;
+    };
+
+    it('keeps a body that fails before anyone reads it from crashing the process', async () => {
+        const body = new Readable({ read() {} });
+        const { store: fake } = makeFakeStore({
+            respond: () => ({ Body: body, ContentLength: 10 }),
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        let result: Awaited<ReturnType<S3ObjectStore['getObjectStream']>>;
+        const uncaught = await collectUncaught(async () => {
+            result = await fake.getObjectStream(
+                { bucket, objectKey: 'k' },
+                region,
+            );
+            // The connection drops while the caller is busy elsewhere.
+            body.destroy(new Error('aborted'));
+        });
+
+        expect(uncaught).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+            '[s3] object stream failed with no reader',
+            expect.objectContaining({ message: 'aborted' }),
+        );
+        // A reader that turns up afterwards still gets the failure.
+        await expect(readAll(result!.body)).rejects.toThrow('aborted');
+        warn.mockRestore();
+    });
+
+    it('fails the reader, and only the reader, when the body breaks mid-read', async () => {
+        let reads = 0;
+        const body = new Readable({
+            read() {
+                reads += 1;
+                if (reads === 1) this.push('partial');
+                else this.destroy(new Error('Checksum mismatch'));
+            },
+        });
+        const { store: fake } = makeFakeStore({
+            respond: () => ({ Body: body, ContentLength: 10 }),
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const uncaught = await collectUncaught(async () => {
+            const result = await fake.getObjectStream(
+                { bucket, objectKey: 'k' },
+                region,
+            );
+            await expect(readAll(result.body)).rejects.toThrow(
+                'Checksum mismatch',
+            );
+        });
+
+        expect(uncaught).toEqual([]);
+        // Someone was reading, so the failure is theirs to report.
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
+    it('fails the reader when a web stream body errors mid-read', async () => {
+        const { store: fake } = makeFakeStore({
+            respond: () => ({
+                Body: new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('part'));
+                        controller.error(new Error('connection reset'));
+                    },
+                }),
+            }),
+        });
+
+        const uncaught = await collectUncaught(async () => {
+            const result = await fake.getObjectStream(
+                { bucket, objectKey: 'k' },
+                region,
+            );
+            await expect(readAll(result.body)).rejects.toThrow(
+                'connection reset',
+            );
+        });
+
+        expect(uncaught).toEqual([]);
+    });
+
     it('reports a null size when S3 omits ContentLength on HEAD', async () => {
         const { store: fake } = makeFakeStore({ respond: () => ({}) });
         await expect(
