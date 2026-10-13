@@ -6,9 +6,13 @@ platforms: [websites, apps]
 
 Request access to something belonging to the user. The first argument names the resource; the second carries the details that resource takes.
 
-The user is prompted to allow or deny. Anything already granted is skipped, so a call whose access is fully in place doesn't prompt at all. [`puter.perms.check()`](/Perms/check/) reads the same state, so the two always agree.
+<div class="info">
 
-Inside the Puter desktop the prompt is shown as a dialog. On websites, it opens in a popup window on the Puter origin — call this from a user gesture (e.g. a click handler) so the browser doesn't block the popup; without a gesture, a consent dialog is shown first and the popup opens when the user clicks Continue.
+The user is prompted to grant or deny access. If they already granted it, they aren't prompted again, so a call whose access is fully in place doesn't prompt at all. [`puter.perms.check()`](/Perms/check/) reads the same state, so the two always agree.
+
+</div>
+
+Inside the Puter desktop the prompt is shown as a dialog. On websites, it opens in a popup window on the Puter origin. Call this from a user gesture, such as a click handler, so the browser doesn't block the popup. Without a gesture, a consent dialog is shown first and the popup opens when the user clicks Continue.
 
 ## Syntax
 
@@ -65,8 +69,6 @@ The array form resolves to an array of those values, in the order asked.
 - Subdomains: `subdomains-of-user:{uuid}:{read|write}`
 
 Some permission strings are not supported and are denied silently.
-
-An app's root directory has no raw form: `app-root-dir:` reads as nothing during a permission check, so asking for it this way would prompt on every call and [`check()`](/Perms/check/) would report it as not granted even once it is. Use the `'appRootDir'` resource, which asks the server directly.
 
 A lone string that names no resource is treated as a permission string, so `puter.perms.request('fs:/user/Documents:read')` keeps working.
 

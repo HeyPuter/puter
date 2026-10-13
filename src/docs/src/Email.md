@@ -6,9 +6,9 @@ platforms: [websites, apps, nodejs, workers]
 
 The Email API lets your app read the user's Puter mailbox and send transactional email.
 
-Every Puter account has an email address, `{username}@puter.email`. Mail sent to it is stored in the user's own cloud drive, so your app can list the inbox and read messages, attachments included, once the user grants access to their mailbox. Your app can also send transactional email — a signup confirmation, a receipt, an alert — from a Puter-controlled address, with no mail server, sending domain, or DKIM to set up. A recipient with a Puter account can be reached at `{username}@puter.email`: that copy is filed straight into their Puter mailbox rather than relayed, on any plan, as long as they have set their mailbox up.
+Every Puter account has an email address, `{username}@puter.email`. Mail sent to it is stored in the user's own cloud drive, so your app can list the inbox and read messages, attachments included, once the user grants access to their mailbox. Your app can also send transactional email, such as a signup confirmation, a receipt, or an alert, from a Puter address without setting up a mail server.
 
-With the [User-Pays Model](/user-pays-model/), the account making the call covers its own usage: mail lives in the user's storage, and sends land on the caller's allowance rather than yours.
+With the [User-Pays Model](/user-pays-model/), the account making the call covers its own usage. Mail is stored in the user's storage, and sends count toward the caller's allowance rather than yours.
 
 <div class="info">Transactional email is available to accounts on a paid plan for now. A call from a free account fails with <code>402</code> <code>subscription_required</code>.</div>
 

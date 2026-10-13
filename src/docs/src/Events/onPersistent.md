@@ -10,7 +10,7 @@ Creates a subscription that outlives this connection. It's stored on the account
 
 The subscription is live immediately in the region where it was created. Changes made in other regions can take a moment longer (usually well under a second) to reach it right after this call resolves.
 
-See [`onLocal()`](/Events/onLocal/#subjects) for the subject grammar and the event shape.
+See [Subjects and events](/Events/subjects/) for the subject syntax and the event shape.
 
 On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 
@@ -59,7 +59,7 @@ Whichever place runs it, it's the same code, called with:
 
 | Binding | What it is |
 | --- | --- |
-| `event` | The [event](/Events/onLocal/#the-event), or a [gap marker](/Events/onLocal/#gaps). |
+| `event` | The [event](/Events/subjects/#the-event), or a [gap marker](/Events/subjects/#gaps). |
 | `ctx` | The frozen `context` this subscription was created with. |
 | `user` | A `puter` bound to the account holding the subscription, with the same access your app has for that user in a tab. In a client, it's the ambient `puter`. |
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. |

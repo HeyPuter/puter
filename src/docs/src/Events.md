@@ -22,7 +22,7 @@ What you watch is written as a subject string:
 | `kv:cart` | One key in your app's key-value store (`kv:cart*` for a prefix) |
 | `notif:account` | The user's notifications |
 
-See [`onLocal()`](/Events/onLocal/#subjects) for the full subject syntax, the event shape, and how to share key-value events with another user.
+See [Subjects and events](/Events/subjects/) for the full subject syntax, the event shape, and how to share key-value events with another user.
 
 With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user holding the subscription, not to you. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for limits and costs.
 
@@ -270,6 +270,7 @@ These Events features are supported out of the box when using Puter.js:
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read what a subject recorded while nothing was listening
 - **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions run
 - **[`puter.events.workers`](/Events/workers/)** - List and destroy an app's events worker
+- **[Subjects and events](/Events/subjects/)** - The subject syntax and the shape of every event
 
 ## Examples
 

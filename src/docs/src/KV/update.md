@@ -59,7 +59,7 @@ A rejection carries an `Error` with a stable `code`:
 
 <strong class="example-title">Update an element of a root array</strong>
 
-```html;kv-update-root-array
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

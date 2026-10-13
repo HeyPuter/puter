@@ -27,7 +27,7 @@ When signed out with no `username`, it resolves to `null` without opening a sign
 
 ## Example
 
-```html;auth-get-profile
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

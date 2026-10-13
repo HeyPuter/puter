@@ -42,7 +42,7 @@ Every call has the same shape; only the model name changes which service reads t
 | `mistral-ocr-latest` (aliases `mistral-ocr-4`, `mistral-ocr-4-1`) | Mistral | Mistral OCR 4.1, the default Mistral model. Markdown output. |
 | `mistral-ocr-2512` (aliases `mistral-ocr-3`, `mistral-ocr-3-0`) | Mistral | Mistral OCR 3, at a lower per-page rate than OCR 4. |
 
-`mistral-ocr-latest` is pinned to OCR 4.1 and moves to a newer model only when Puter adds it. Puter rejects the deprecated `mistral-ocr-2503` and `mistral-ocr-2505` and the retired `mistral-ocr-4-0` with `bad_request`. Per-page prices for each model are listed by the API at `GET /metering/allCosts`.
+`mistral-ocr-latest` is pinned to OCR 4.1 and moves to a newer model only when Puter adds it. Puter rejects the deprecated `mistral-ocr-2503` and `mistral-ocr-2505` and the retired `mistral-ocr-4-0` with `bad_request`.
 
 #### AWS Textract options
 
