@@ -37,16 +37,13 @@ what it holds before sending it anywhere.
 
 ## Ask for Suggestions
 
-Send the distinct labels with the categories your app uses:
+Send the distinct labels with the categories your app uses. This first try
+takes the labels straight from the sample rows:
 
-```js
+```js;clean-up-imported-categories
 const CATEGORIES = ['Groceries', 'Dining', 'Transport', 'Income', 'Shopping', 'Other'];
 
-async function proposeMapping (labels) {
-    if ( labels.length === 0 ) {
-        return { mapping: new Map(), problems: [] };
-    }
-
+async function suggestCategories (labels) {
     const response = await puter.ai.chat([
         {
             role: 'system',
@@ -83,17 +80,24 @@ async function proposeMapping (labels) {
         },
     });
 
-    return parseProposal(response?.message?.content, labels);
+    return response?.message?.content;
 }
+
+const labels = [...new Set(rows.map(row => row.category))].sort();
+const reply = await suggestCategories(labels);
 ```
 
-The [`outputFormat`](/AI/chat/) schema asks for JSON that only uses the given
-labels and categories, and [`normalize: true`](/AI/chat/#response-normalization)
-makes the reply text a string for every model. To pick a model other than the
-default, pass [`model`](/AI/chat/) with a name from the
-[AI models list](https://developer.puter.com/ai/models/). Not every model
-enforces the schema strictly, and a label can contain instructions, so the next
-step checks the reply.
+The reply is JSON text such as
+`{"mappings":[{"label":"groceries","category":"Groceries"}]}`. The
+[`outputFormat`](/AI/chat/) schema asks for JSON that only uses the given labels
+and categories, and [`normalize: true`](/AI/chat/#response-normalization) makes
+the reply text a string for every model. All the options are listed on
+[`puter.ai.chat()`](/AI/chat/). Not every model enforces the schema strictly,
+and a label can contain instructions, so the next step checks the reply.
+
+To try this request, run the code block above in the playground. It sends the
+sample labels and shows the raw reply as text. The rest of this recipe checks
+that reply and turns it into a review the user approves.
 
 ## Check the Proposal
 
@@ -143,9 +147,12 @@ function parseProposal (content, labels) {
 
 ## Prepare the Review
 
-The `prepareReview()` function checks the rows before anything is sent. The
-cleaned category goes in a new `cleanCategory` column, so a file that already
-has one is rejected. Each label is asked about once, exactly as written, so
+The `prepareReview()` function checks the rows before it sends anything, then
+calls `suggestCategories()` itself unless you pass in a reply you already have.
+A reply passed in is checked like any other, so a missing or malformed one
+leaves every label for the user without a new request. The cleaned category
+goes in a new `cleanCategory` column, so a file that already has one is
+rejected. Each label is asked about once, exactly as written, so
 `'Groceries '` is its own label and a missing category is `''`. The limits keep
 the request small and the review short enough to actually check.
 
@@ -182,7 +189,7 @@ function distinctLabels (rows) {
     return labels;
 }
 
-async function prepareReview (rows) {
+async function prepareReview (rows, reply) {
     if ( rows.length === 0 ) {
         throw new Error('There are no rows to clean up.');
     }
@@ -191,7 +198,9 @@ async function prepareReview (rows) {
 
     let proposal;
     try {
-        proposal = await proposeMapping(labels);
+        // Only ask the AI when no reply was passed in, not when one was passed as undefined.
+        const content = arguments.length < 2 ? await suggestCategories(labels) : reply;
+        proposal = parseProposal(content, labels);
     } catch ( error ) {
         const reason = error?.message ?? error?.error?.message ?? 'the request failed';
         proposal = {
@@ -212,10 +221,12 @@ async function prepareReview (rows) {
 }
 ```
 
-Prepare the review from the parsed rows:
+In your app, pass only the parsed rows. `await prepareReview(rows)` checks them
+and then makes one request, or throws without a request if they are invalid.
+For the sample rows, reuse the reply from the first try instead of asking again:
 
 ```js
-const review = await prepareReview(rows);
+const review = await prepareReview(rows, reply);
 ```
 
 The review is plain data. If the AI leaves out `Groceries ` and suggests an

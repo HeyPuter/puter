@@ -313,6 +313,12 @@ const examples = [
                 slug: 'ai-list-model-providers',
                 source: '/playground/examples/ai-list-model-providers.html',
             },
+            {
+                title: 'Suggest categories for imported labels',
+                description: 'Ask AI to map messy spreadsheet category labels to a fixed list of categories with Puter.js. Run and experiment with this example in the playground.',
+                slug: 'clean-up-imported-categories',
+                source: '/playground/examples/clean-up-imported-categories.html',
+            },
         ],
     },
     {
