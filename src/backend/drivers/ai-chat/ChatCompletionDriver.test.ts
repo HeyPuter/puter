@@ -55,6 +55,8 @@ import { COUNT_TOKENS, ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import { XAI_CHAT_MODELS } from './providers/xai/catalog.js';
+import { XAIProvider } from './providers/xai/XAIProvider.js';
 import type {
     IChatCompleteResult,
     IChatProvider,
@@ -189,6 +191,9 @@ describe('ChatCompletionDriver model map', () => {
         );
 
     it('registers a keyed provider under its name, read from its config key', async () => {
+        vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+            XAI_CHAT_MODELS,
+        );
         const d = newDriver({
             gemini: { apiKey: 'k' },
             // Registered as `moonshotai`, configured as `moonshot`.

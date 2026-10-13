@@ -36,8 +36,14 @@ import type {
     ISynthesizeArgs,
     ITTSProvider,
 } from '../../types.js';
+import { cachedRemoteCatalog } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
 import { characterCostReport, meterPerCharacter } from '../common.js';
 import { AWS_POLLY_COSTS } from './costs.js';
+import {
+    fetchPollyPriceList,
+    isPollyPriceRegion,
+    type PollyRates,
+} from './pricing.js';
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
@@ -66,6 +72,14 @@ export class AWSPollyTTSProvider implements ITTSProvider {
     private voicesCache: { data: PollyVoicesResponse; expires: number } | null =
         null;
 
+    /** The region every synthesis call goes to, and so the one it's priced in. */
+    private readonly region: string;
+
+    /** The rates the latest price-list load produced, for the sync cost report. */
+    private currentRates: PollyRates = AWS_POLLY_COSTS;
+
+    private readonly rates: () => Promise<PollyRates>;
+
     constructor(
         private readonly meteringService: AiMeteringService,
         private readonly config: {
@@ -73,11 +87,28 @@ export class AWSPollyTTSProvider implements ITTSProvider {
             secret_key: string;
             region?: string;
         },
-    ) {}
+    ) {
+        this.region = config.region ?? 'us-west-2';
+        const region = this.region;
+        // Rates the feed omits or can't vouch for keep their last known value.
+        this.rates = isPollyPriceRegion(region)
+            ? cachedRemoteCatalog<PollyRates>({
+                  name: `AWS Polly ${region} price list`,
+                  fallback: AWS_POLLY_COSTS,
+                  fetch: async (signal, previous) => {
+                      this.currentRates = {
+                          ...(previous ?? AWS_POLLY_COSTS),
+                          ...(await fetchPollyPriceList(region, signal)),
+                      };
+                      return this.currentRates;
+                  },
+              })
+            : async () => AWS_POLLY_COSTS;
+    }
 
     private getClient(region?: string): PollyClient {
         const cfg = this.config;
-        const resolvedRegion = region ?? cfg.region ?? 'us-west-2';
+        const resolvedRegion = region ?? this.region;
 
         if (this.clients[resolvedRegion]) {
             return this.clients[resolvedRegion];
@@ -196,16 +227,17 @@ export class AWSPollyTTSProvider implements ITTSProvider {
     }
 
     async listEngines(): Promise<ITTSEngine[]> {
+        const rates = await this.rates();
         return VALID_ENGINES.map((engine) => ({
             id: engine,
             name: engine.charAt(0).toUpperCase() + engine.slice(1),
             provider: 'aws-polly',
-            pricing_per_million_chars: AWS_POLLY_COSTS[engine] / 100, // microcents to dollars
+            pricing_per_million_chars: rates[engine] / 100, // microcents to dollars
         }));
     }
 
     getReportedCosts(): Record<string, unknown>[] {
-        return characterCostReport('aws-polly', AWS_POLLY_COSTS);
+        return characterCostReport('aws-polly', this.currentRates);
     }
 
     async synthesize(
@@ -242,11 +274,15 @@ export class AWSPollyTTSProvider implements ITTSProvider {
             });
         }
 
+        // One rate per request: the hold and the charge both use it even if
+        // the price list refreshes mid-synthesis.
+        const ucentsPerChar = (await this.rates())[engine];
+
         return meterPerCharacter(
             this.meteringService,
             Context.get('actor')!,
             `aws-polly:${engine}:character`,
-            AWS_POLLY_COSTS[engine] ?? 0,
+            ucentsPerChar,
             text,
             async () => {
                 // Resolve voice

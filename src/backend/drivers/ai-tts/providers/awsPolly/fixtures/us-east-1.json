@@ -1,0 +1,190 @@
+{
+    "formatVersion": "v1.0",
+    "disclaimer": "This pricing list is for informational purposes only. All prices are subject to the additional terms included in the pricing pages on http://aws.amazon.com. All Free Tier prices are also subject to the terms included at https://aws.amazon.com/free/",
+    "offerCode": "AmazonPolly",
+    "version": "20260911124459",
+    "publicationDate": "2026-09-11T12:44:59Z",
+    "products": {
+        "MRCD29M27PERFRNX": {
+            "sku": "MRCD29M27PERFRNX",
+            "productFamily": "AmazonPolly",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US East (N. Virginia)",
+                "locationType": "AWS Region",
+                "usagetype": "USE1-SynthesizeSpeechGenerative-Characters",
+                "operation": "",
+                "engine": "Generative",
+                "regionCode": "us-east-1",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "RCV3WGXXBMMZTDSA": {
+            "sku": "RCV3WGXXBMMZTDSA",
+            "productFamily": "AmazonPolly",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US East (N. Virginia)",
+                "locationType": "AWS Region",
+                "usagetype": "USE1-SynthesizeSpeechNeural-Characters",
+                "operation": "",
+                "engine": "Neural",
+                "regionCode": "us-east-1",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "KQ7PUQCHEBQR9339": {
+            "sku": "KQ7PUQCHEBQR9339",
+            "productFamily": "Synthesize Speech",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US East (N. Virginia)",
+                "locationType": "AWS Region",
+                "usagetype": "USE1-SynthesizeSpeechLongForm-Characters",
+                "operation": "",
+                "engine": "Long-Form",
+                "regionCode": "us-east-1",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "ER373ARSWJWECU6E": {
+            "sku": "ER373ARSWJWECU6E",
+            "productFamily": "Synthesize Speech",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US East (N. Virginia)",
+                "locationType": "AWS Region",
+                "usagetype": "USE1-SynthesizeSpeech-Characters",
+                "operation": "",
+                "engine": "Standard",
+                "regionCode": "us-east-1",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "UY2T3RGQCZBTQBUV": {
+            "sku": "UY2T3RGQCZBTQBUV",
+            "productFamily": "AmazonPolly",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US East (N. Virginia)",
+                "locationType": "AWS Region",
+                "usagetype": "USE1-ai-SynthesizeSpeechGenerative-Characters",
+                "operation": "",
+                "electronStatus": "ai-",
+                "engine": "Generative",
+                "regionCode": "us-east-1",
+                "servicename": "Amazon Polly"
+            }
+        }
+    },
+    "terms": {
+        "OnDemand": {
+            "UY2T3RGQCZBTQBUV": {
+                "UY2T3RGQCZBTQBUV.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "UY2T3RGQCZBTQBUV",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "UY2T3RGQCZBTQBUV.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "UY2T3RGQCZBTQBUV.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$0.00 per Character for SynthesizeSpeechGenerative in US East (N. Virginia)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000000000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "KQ7PUQCHEBQR9339": {
+                "KQ7PUQCHEBQR9339.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "KQ7PUQCHEBQR9339",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "KQ7PUQCHEBQR9339.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "KQ7PUQCHEBQR9339.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$100 per million characters for SynthesizeSpeechLongForm-Characters in US East (N. Virginia)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0001000000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "RCV3WGXXBMMZTDSA": {
+                "RCV3WGXXBMMZTDSA.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "RCV3WGXXBMMZTDSA",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "RCV3WGXXBMMZTDSA.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "RCV3WGXXBMMZTDSA.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$16 per million characters for SynthesizeSpeechNeural-Characters in US East (N. Virginia)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000160000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "MRCD29M27PERFRNX": {
+                "MRCD29M27PERFRNX.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "MRCD29M27PERFRNX",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "MRCD29M27PERFRNX.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "MRCD29M27PERFRNX.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$30 per million characters for SynthesizeSpeechGenerative-Characters in US East (N. Virginia)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000300000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "ER373ARSWJWECU6E": {
+                "ER373ARSWJWECU6E.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "ER373ARSWJWECU6E",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "ER373ARSWJWECU6E.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "ER373ARSWJWECU6E.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$4 per million characters",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000040000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            }
+        }
+    },
+    "attributesList": {}
+}

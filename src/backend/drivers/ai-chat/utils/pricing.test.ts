@@ -22,6 +22,7 @@ import type { IChatModel } from '../types.js';
 import {
     buildCostsOverride,
     catalogPrice,
+    costsForRequest,
     isFreeModel,
     isOutputCostKey,
     longContextMultipliers,
@@ -474,14 +475,47 @@ it('does not advertise a partially priced or conditionally paid model as free', 
     ).toBe(false);
 });
 
-
 it('preserves free classification for legacy hyphenated token keys', () => {
     expect(isFreeModel(model({ 'input-tokens': 0, 'output-tokens': 0 }))).toBe(true);
 });
-
 
 it('leaves overflowing catalog unit conversions unknown', () => {
     expect(catalogPrice(1e308, 100)).toBeUndefined();
     expect(catalogPrice(0, 100)).toBe(0);
     expect(catalogPrice('0.0000000014', 100_000_000)).toBeCloseTo(0.14);
+});
+
+describe('costsForRequest prompt-size overrides', () => {
+    const model = (minPromptTokensInclusive?: boolean): IChatModel => ({
+        id: 'tiered',
+        costs_currency: 'usd-cents',
+        max_tokens: 1000,
+        costs: { tokens: 1_000_000, input_tokens: 1, output_tokens: 2 },
+        pricingOverrides: [
+            {
+                minPromptTokens: 200_000,
+                ...(minPromptTokensInclusive === undefined
+                    ? {}
+                    : { minPromptTokensInclusive }),
+                costs: { input_tokens: 3 },
+            },
+        ],
+    });
+
+    it.each([
+        [undefined, 199_999, 1],
+        [undefined, 200_000, 1],
+        [undefined, 200_001, 3],
+        [false, 200_000, 1],
+        [true, 199_999, 1],
+        [true, 200_000, 3],
+        [true, 200_001, 3],
+    ])(
+        'inclusive=%s at %i input tokens charges %i',
+        (inclusive, inputTokens, rate) => {
+            const costs = costsForRequest(model(inclusive), inputTokens);
+            expect(costs.input_tokens).toBe(rate);
+            expect(costs.output_tokens).toBe(2);
+        },
+    );
 });

@@ -60,6 +60,7 @@ import {
     type OcrProviderId,
 } from './models.js';
 import { countPdfPages } from './pdfPages.js';
+import { textractRates } from './textractPricing.js';
 
 /**
  * Driver implementing `puter-ocr` — document OCR. Two providers: •
@@ -148,6 +149,9 @@ const NOT_CONFIGURED: Record<OcrProviderId, string> = {
 };
 
 const TABLE_FORMATS = new Set(['markdown', 'html']);
+
+const DEFAULT_TEXTRACT_REGION = 'us-west-2';
+const TEXTRACT_PAGE_USAGE_TYPE = 'aws-textract:detect-document-text:page';
 
 const badRequest = (message: string) =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
@@ -262,10 +266,20 @@ export class OCRDriver extends PuterDriver {
         );
     }
 
+    /**
+     * Textract is reported at the configured region's first-tier rate. A call
+     * that reads its file from a bucket in another region is billed at that
+     * region's rate instead, which this per-usage-type report can't show.
+     */
     override getReportedCosts() {
+        const textractRegion =
+            this.#awsConfig?.region ?? DEFAULT_TEXTRACT_REGION;
         return Object.entries(OCR_COSTS).map(([usageType, ucentsPerUnit]) => ({
             usageType,
-            ucentsPerUnit,
+            ucentsPerUnit:
+                usageType === TEXTRACT_PAGE_USAGE_TYPE
+                    ? this.#textractRates.peek(textractRegion)
+                    : ucentsPerUnit,
             unit: 'page',
             source: 'driver:aiOcr',
         }));
@@ -284,6 +298,8 @@ export class OCRDriver extends PuterDriver {
         secretAccessKey?: string;
         region?: string;
     } | null = null;
+    /** DetectDocumentText rates per region, from AWS's public price list. */
+    #textractRates = textractRates(OCR_COSTS[TEXTRACT_PAGE_USAGE_TYPE]);
 
     // Mistral state.
     #mistral: MistralOcrClient | null = null;
@@ -303,13 +319,15 @@ export class OCRDriver extends PuterDriver {
         const textractRegion =
             (textractAws?.region as string | undefined) ??
             (textract?.region as string | undefined) ??
-            'us-west-2';
+            DEFAULT_TEXTRACT_REGION;
         if (textractAccessKey && textractSecretKey) {
             this.#awsConfig = {
                 accessKeyId: textractAccessKey,
                 secretAccessKey: textractSecretKey,
                 region: textractRegion,
             };
+            // Warm the configured region so the cost report has its rate.
+            void this.#textractRates.rate(textractRegion);
             this.#providers.register(
                 'aws-textract',
                 (input, _args, model, actor) =>
@@ -468,11 +486,19 @@ export class OCRDriver extends PuterDriver {
                   }
                 : null;
 
+        const configuredRegion =
+            this.#awsConfig!.region ?? DEFAULT_TEXTRACT_REGION;
+
+        // Both regions the call may run in are priced up front, so the hold
+        // covers either and a refresh mid-call can't change the charge.
+        const [configuredRate, s3Rate] = await Promise.all([
+            this.#textractRates.rate(configuredRegion),
+            s3Info ? this.#textractRates.rate(s3Info.bucketRegion) : undefined,
+        ]);
+
         const tryRun = async (useS3: boolean) => {
             const region =
-                s3Info && useS3
-                    ? s3Info.bucketRegion
-                    : (this.#awsConfig!.region ?? 'us-west-2');
+                s3Info && useS3 ? s3Info.bucketRegion : configuredRegion;
             const client = this.#textractClientFor(region);
             const document =
                 s3Info && useS3
@@ -483,21 +509,24 @@ export class OCRDriver extends PuterDriver {
             );
         };
 
-        const costPerPage = OCR_COSTS[model.pageUsageType];
         const hold = await this.#holdCredits(
             actor,
             model.pageUsageType,
-            costPerPage * (await estimateOcrPages(input, model.provider)),
+            Math.max(configuredRate, s3Rate ?? 0) *
+                (await estimateOcrPages(input, model.provider)),
         );
         try {
             let response;
+            let costPerPage: number;
             try {
                 try {
                     response = await tryRun(Boolean(s3Info));
+                    costPerPage = s3Rate ?? configuredRate;
                 } catch (err) {
                     if (!(s3Info && err instanceof InvalidS3ObjectException))
                         throw err;
                     response = await tryRun(false);
+                    costPerPage = configuredRate;
                 }
             } catch (err) {
                 if (err instanceof UnsupportedDocumentException)

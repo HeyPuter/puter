@@ -94,7 +94,9 @@ export const costsForRequest = (
     for (const override of model.pricingOverrides ?? []) {
         if (
             override.minPromptTokens !== undefined &&
-            inputTokens <= override.minPromptTokens
+            (override.minPromptTokensInclusive
+                ? inputTokens < override.minPromptTokens
+                : inputTokens <= override.minPromptTokens)
         )
             continue;
         if (override.utcDays && !override.utcDays.includes(now.getUTCDay()))

@@ -32,7 +32,9 @@ export interface ModelModalities {
 }
 
 export interface ModelPricingOverride {
+    /** Applies above this many input tokens, or at it too when inclusive. */
     minPromptTokens?: number;
+    minPromptTokensInclusive?: boolean;
     utcStart?: number;
     utcEnd?: number;
     utcDays?: number[];
