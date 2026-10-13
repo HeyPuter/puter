@@ -480,10 +480,10 @@
  * @property {boolean} [translate]
  * @property {number} [temperature]
  * @property {boolean} [logprobs]
- * @property {string[]} [timestamp_granularities] Accepted for compatibility; ignored by every current provider.
- * @property {string} [chunking_strategy] Accepted for compatibility; ignored by every current provider.
- * @property {string[]} [known_speaker_names] Accepted for compatibility; ignored by every current provider.
- * @property {string[]} [known_speaker_references] Accepted for compatibility; ignored by every current provider.
+ * @property {string[]} [timestamp_granularities] Accepted and ignored by all providers.
+ * @property {string} [chunking_strategy] Accepted and ignored by all providers.
+ * @property {string[]} [known_speaker_names] Accepted and ignored by all providers.
+ * @property {string[]} [known_speaker_references] Accepted and ignored by all providers.
  * @property {Record<string, unknown>} [extra_body]
  * @property {boolean} [format]
  * @property {boolean} [diarize]

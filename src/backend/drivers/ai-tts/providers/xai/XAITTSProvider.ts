@@ -93,7 +93,7 @@ export class XAITTSProvider implements ITTSProvider {
                 id: 'xai-tts',
                 name: 'xAI TTS',
                 provider: 'xai',
-                pricing_per_million_chars: XAI_TTS_COSTS['xai-tts'] / 100, // microcents/char -> $/1M chars
+                pricing_per_million_chars: XAI_TTS_COSTS['xai-tts'] / 100, // Convert microcents per character to dollars per million characters.
             },
         ];
     }

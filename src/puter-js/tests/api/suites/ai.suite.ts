@@ -1300,6 +1300,19 @@ export default suite('ai', {
         t.assert.equal(error.message, 'Audio input is required');
     },
 
+    'speech2txt accepts ignored options in test mode': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            timestamp_granularities: ['word'],
+            chunking_strategy: 'auto',
+            known_speaker_names: ['speaker'],
+            known_speaker_references: [TINY_AUDIO],
+            test_mode: true,
+        })) as { text?: string };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+    },
+
     'speech2txt honors the positional test-mode flag': async (t) => {
         useApiToken(t);
         const result = (await t.puter.ai.speech2txt(

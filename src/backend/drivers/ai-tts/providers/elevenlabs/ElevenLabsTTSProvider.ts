@@ -271,7 +271,7 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             id: model.id,
             name: model.name,
             provider: 'elevenlabs',
-            pricing_per_million_chars: ELEVENLABS_TTS_COSTS[model.id] / 100, // microcents/char -> $/1M chars
+            pricing_per_million_chars: ELEVENLABS_TTS_COSTS[model.id] / 100, // Convert microcents per character to dollars per million characters.
         }));
     }
 
