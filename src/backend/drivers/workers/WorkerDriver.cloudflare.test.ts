@@ -998,8 +998,13 @@ describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
 
     it('deleting the source file deletes the worker`s session', async () => {
         const { user, actor, entry, name } = await deployWorker('srcdel');
+        // Resolved at delete time, as every caller does: the entry names the
+        // workers bound to it.
+        const current = await server.stores.fsEntry.getEntryByUuid(entry.uuid);
 
-        await inCtx(actor, () => server.services.fs.remove(user.id, { entry }));
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: current! }),
+        );
 
         await waitFor(
             async () => !(await workerSession(user.id, name)),
