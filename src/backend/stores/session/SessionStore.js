@@ -56,11 +56,14 @@ export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
-// A godmode app's token lapses this long after the desktop last renewed it, so
-// a closed desktop's tokens die on their own. However often it is renewed, one
-// token never outlives the max age; it is replaced and the old one revoked.
+// A godmode app's token lapses at most this long after the desktop last asked
+// for it, so a closed desktop's tokens die on their own. A token past the max
+// age is never renewed again; the next ask replaces it and revokes the old one.
 export const GODMODE_TOKEN_WINDOW_SECONDS = 12 * 60 * 60; // 12h
 export const GODMODE_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7d
+// A renewal that would move a godmode token's expiry by less than this is
+// skipped, so repeat launches don't each write the row.
+const GODMODE_TOKEN_RENEW_STEP_SECONDS = 60 * 60; // 1h
 
 const sqlTimestamp = (ms) =>
     new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
@@ -328,7 +331,7 @@ export class SessionStore extends PuterStore {
             // Invalidate every cached view onto the row so the next read
             // (manage-sessions reload, /whoami, etc.) sees the new label.
             const rows = await this.clients.db.read(
-                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
                 [uuid],
             );
             if (rows[0]) {
@@ -366,7 +369,7 @@ export class SessionStore extends PuterStore {
         // replica miss here would return early and silently skip the
         // revoke. Revokes are rare, so the primary read is cheap.
         const rows = await this.clients.db.pread(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );
         if (rows.length === 0) return;
@@ -429,7 +432,7 @@ export class SessionStore extends PuterStore {
         // be invalidated alongside the uuid key, otherwise a follow-up
         // `getOrCreateApp` would short-circuit to the freshly-revoked row.
         const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
             [rootUuid, rootUuid],
         );
         if (rows.length === 0) return null;
@@ -497,10 +500,11 @@ export class SessionStore extends PuterStore {
     /**
      * The token row a godmode app runs on under one web session. A live row is
      * reused and its `expires_at` moved to `expiresAt`, so the token stays the
-     * same across renewals. A row that lapsed or is older than `maxAgeSeconds`
-     * is never extended: a fresh row is minted, and the old one comes back as
-     * `replaced` for the caller to revoke. Concurrent first launches can each
-     * insert a row; both stay valid.
+     * same across renewals; a move of under an hour is skipped and the row
+     * comes back with the expiry it has. A row that lapsed or is older than
+     * `maxAgeSeconds` is never extended: a fresh row is minted, and the old one
+     * comes back as `replaced` for the caller to revoke. Concurrent first
+     * launches can each insert a row; both stay valid.
      *
      * @param userId - User row id (numeric).
      * @param opts.parentSessionUid - The web session minting it; revoking that
@@ -524,37 +528,52 @@ export class SessionStore extends PuterStore {
     ) {
         if (!userId || !parentSessionUid || !appUid) return null;
 
+        const now = nowSeconds();
+        const renewable = (row) =>
+            !!row &&
+            row.revoked_at == null &&
+            !isExpired(row, now) &&
+            Number(row.created_at) > now - maxAgeSeconds;
+
+        const pointerKey = this.#cacheKeyGodmode(
+            userId,
+            parentSessionUid,
+            appUid,
+        );
+        const cached = await this.#cachedGodmodeRow(pointerKey, {
+            userId,
+            parentSessionUid,
+            appUid,
+        });
+        if (renewable(cached)) {
+            const row = await this.#renewGodmodeRow(cached, expiresAt, now);
+            if (row) return { row, replaced: null };
+        }
+
         const rows = await this.clients.db.pread(
             "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND `user_id` = ? AND `parent_session_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL ORDER BY `id` DESC LIMIT 1",
             [userId, parentSessionUid, appUid],
         );
-        const existing = this.#normalizeRow(rows[0]);
-        const now = nowSeconds();
-        const renewable =
-            existing &&
-            !isExpired(existing, now) &&
-            Number(existing.created_at) > now - maxAgeSeconds;
-        if (!renewable) {
-            const row = await this.#insertSession(userId, {
-                kind: 'access_token',
-                label,
-                parent_session_id: parentSessionUid,
-                expires_at: expiresAt,
-                app_uid: appUid,
-                access_token_uid: uuidv4(),
-                auth_id,
-            });
-            return { row, replaced: existing ?? null };
+        const found = this.#normalizeRow(rows[0]);
+        if (renewable(found)) {
+            const row = await this.#renewGodmodeRow(found, expiresAt, now);
+            if (row) {
+                await this.#writeGodmodePointer(pointerKey, row.uuid);
+                return { row, replaced: null };
+            }
         }
 
-        const keys = this.#allCacheKeysForRow(existing);
-        await this.publishCacheKeys({ keys, broadcast: true });
-        await this.clients.db.write(
-            'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL',
-            [expiresAt, existing.uuid],
-        );
-        await this.publishCacheKeys({ keys, broadcast: true });
-        return { row: { ...existing, expires_at: expiresAt }, replaced: null };
+        const row = await this.#insertSession(userId, {
+            kind: 'access_token',
+            label,
+            parent_session_id: parentSessionUid,
+            expires_at: expiresAt,
+            app_uid: appUid,
+            access_token_uid: uuidv4(),
+            auth_id,
+        });
+        await this.#writeGodmodePointer(pointerKey, row.uuid);
+        return { row, replaced: found ?? null };
     }
 
     /**
@@ -962,6 +981,15 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Cache key naming the godmode token row for (user, web session, app). It
+     * holds only the row's uuid; the row is read through the uuid cache and
+     * checked on every use, and revoking the row drops the key.
+     */
+    #cacheKeyGodmode(userId, parentSessionUid, appUid) {
+        return `${CACHE_KEY_PREFIX}:godmode:${userId}:${parentSessionUid}:${appUid}`;
+    }
+
+    /**
      * Cache key for the (legacy-web) backfill lookup. IP and UA are
      * percent-encoded into a single key segment so a UA containing `:` doesn't
      * fracture the namespace. Same as `#cacheKeyLegacyAt`: kept for
@@ -1019,6 +1047,20 @@ export class SessionStore extends PuterStore {
                 ),
             );
         }
+        if (
+            row.kind === 'access_token' &&
+            row.user_id &&
+            row.parent_session_id &&
+            row.app_uid
+        ) {
+            keys.push(
+                this.#cacheKeyGodmode(
+                    row.user_id,
+                    row.parent_session_id,
+                    row.app_uid,
+                ),
+            );
+        }
         if (row.legacy_token_uid) {
             keys.push(this.#cacheKeyLegacyAt(row.legacy_token_uid));
         }
@@ -1043,13 +1085,13 @@ export class SessionStore extends PuterStore {
         await this.#writeCacheKey(this.#cacheKey(session.uuid), session);
     }
 
-    async #writeCacheKey(key, value) {
+    async #writeCacheKey(key, value, ttlSeconds = CACHE_TTL_SECONDS) {
         try {
             await this.clients.redis.set(
                 key,
                 JSON.stringify(value),
                 'EX',
-                CACHE_TTL_SECONDS,
+                ttlSeconds,
             );
         } catch {
             // Best-effort local backfill.
@@ -1095,6 +1137,62 @@ export class SessionStore extends PuterStore {
             [userId, appUid ?? null, workerName, now],
         );
         return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * The row a godmode pointer names, read the way token auth reads it. Null
+     * when there is no pointer or the row it names isn't this triple's.
+     */
+    async #cachedGodmodeRow(key, { userId, parentSessionUid, appUid }) {
+        const pointer = await this.#readCacheKey(key);
+        if (typeof pointer?.uuid !== 'string') return null;
+        const row = await this.getByUuidAny(pointer.uuid);
+        if (
+            row?.kind !== 'access_token' ||
+            Number(row.user_id) !== Number(userId) ||
+            row.parent_session_id !== parentSessionUid ||
+            row.app_uid !== appUid
+        ) {
+            return null;
+        }
+        return row;
+    }
+
+    /**
+     * Move a live godmode row's expiry up to `expiresAt`, or leave it when the
+     * move is under the renew step. Null when the row turned out to be revoked
+     * or lapsed by the time of the write.
+     */
+    async #renewGodmodeRow(row, expiresAt, now) {
+        if (
+            Number(row.expires_at) >=
+            expiresAt - GODMODE_TOKEN_RENEW_STEP_SECONDS
+        ) {
+            return row;
+        }
+        // The pointer stays: it names this same row after the write.
+        const keys = this.#allCacheKeysForRow(row).filter(
+            (key) =>
+                key !==
+                this.#cacheKeyGodmode(
+                    row.user_id,
+                    row.parent_session_id,
+                    row.app_uid,
+                ),
+        );
+        await this.publishCacheKeys({ keys, broadcast: true });
+        const result = await this.clients.db.write(
+            'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?)',
+            [expiresAt, row.uuid, now],
+        );
+        await this.publishCacheKeys({ keys, broadcast: true });
+        return result?.anyRowsAffected
+            ? { ...row, expires_at: expiresAt }
+            : null;
+    }
+
+    async #writeGodmodePointer(key, uuid) {
+        await this.#writeCacheKey(key, { uuid }, GODMODE_TOKEN_WINDOW_SECONDS);
     }
 
     #normalizeRow(row) {

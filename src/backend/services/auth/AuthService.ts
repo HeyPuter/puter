@@ -1544,7 +1544,7 @@ export class AuthService extends PuterService {
      * does. Its row hangs off that session, so signing out or revoking it takes
      * the token along. The JWT has no `exp` and stays the same across renewals,
      * so copies an app handed elsewhere keep working; the row's expiry is what
-     * lapses, 12h after the desktop stops asking. A lapsed row is never
+     * lapses, at most 12h after the desktop stops asking. A lapsed row is never
      * revived, and one past its max age is replaced and revoked.
      */
     async getGodmodeAppToken(
@@ -1565,13 +1565,12 @@ export class AuthService extends PuterService {
         }
 
         const authId = this.#authIdFor(actor.user as UserRow);
-        const expiresAt = nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS;
         const minted = await this.stores.session.getOrCreateGodmodeToken(
             actor.user.id,
             {
                 parentSessionUid: actor.session.uid,
                 appUid: app.uid,
-                expiresAt,
+                expiresAt: nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS,
                 maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
                 label: app.title || app.name || null,
                 auth_id: authId,
@@ -1595,7 +1594,7 @@ export class AuthService extends PuterService {
             full_access: true,
             godmode_app_uid: app.uid,
         });
-        return { token, expiresAt };
+        return { token, expiresAt: Number(row.expires_at) };
     }
 
     /**

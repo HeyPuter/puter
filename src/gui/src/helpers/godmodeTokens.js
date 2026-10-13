@@ -31,6 +31,9 @@ const RENEW_WHEN_LEFT_MS = 6 * 60 * 60 * 1000;
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 // An app asking again this soon gets the token it was just sent.
 const RENEW_COOLDOWN_MS = 30 * 1000;
+// A launch this soon after a mint reuses that token instead of asking again.
+// Short, because a token revoked elsewhere goes unnoticed until the next ask.
+const REUSE_WITHIN_MS = 10 * 60 * 1000;
 
 /**
  * @type {Map<string, {
@@ -43,6 +46,21 @@ const RENEW_COOLDOWN_MS = 30 * 1000;
  */
 const tracked = new Map();
 let checkTimer = null;
+
+/**
+ * The last token minted for each godmode app, and the desktop session token it
+ * was minted with.
+ *
+ * @type {Map<string, {
+ *     token: string;
+ *     expiresAt: number;
+ *     mintedAt: number;
+ *     authToken: string;
+ * }>}
+ */
+const lastMinted = new Map();
+// Bumped by every forget, so a mint already in flight isn't remembered.
+let mintGeneration = 0;
 
 /**
  * Whether a token expiring at `expiresAt` (unix seconds) is due for renewal.
@@ -95,6 +113,7 @@ export const mintGodmodeToken = async (appUid, deps = {}) => {
     const fetchImpl = deps.fetchImpl ?? fetch;
     const apiOrigin = deps.apiOrigin ?? window.api_origin;
     const authToken = deps.authToken ?? window.auth_token;
+    const generation = mintGeneration;
     try {
         const response = await fetchImpl(`${apiOrigin}/auth/get-user-app-token`, {
             method: 'POST',
@@ -107,13 +126,87 @@ export const mintGodmodeToken = async (appUid, deps = {}) => {
         if ( ! response.ok ) return { ok: false, status: response.status };
         const body = await response.json().catch(() => null);
         if ( body?.godmode === true && typeof body.token === 'string' && body.token ) {
-            return { ok: true, token: body.token, expiresAt: Number(body.expires_at) };
+            const expiresAt = Number(body.expires_at);
+            if ( generation === mintGeneration ) {
+                lastMinted.set(appUid, { token: body.token, expiresAt, mintedAt: Date.now(), authToken });
+            }
+            const tokenRow = tokenRowOf(body.token);
+            if ( tokenRow ) tellPeers(appUid, tokenRow);
+            return { ok: true, token: body.token, expiresAt };
         }
         return { ok: false, status: response.status };
     } catch ( error ) {
         return { ok: false, error };
     }
 };
+
+/**
+ * A token minted for `appUid` moments ago under the same desktop session, for
+ * a launch to use instead of asking again; null when there is none.
+ *
+ * @param {string} appUid
+ * @param {object} [deps]
+ * @param {string} [deps.authToken]
+ * @param {number} [deps.nowMs]
+ * @returns {{ ok: true; token: string; expiresAt: number; mintedAt: number } | null}
+ */
+export const reusableGodmodeToken = (appUid, deps = {}) => {
+    const authToken = deps.authToken ?? window.auth_token;
+    const nowMs = deps.nowMs ?? Date.now();
+    const entry = lastMinted.get(appUid);
+    if ( !entry || !authToken || entry.authToken !== authToken ) return null;
+    const age = nowMs - entry.mintedAt;
+    if ( age < 0 || age >= REUSE_WITHIN_MS || shouldRenew(entry.expiresAt, nowMs) ) return null;
+    return { ok: true, token: entry.token, expiresAt: entry.expiresAt, mintedAt: entry.mintedAt };
+};
+
+/**
+ * Stop reusing tokens minted for launches, for one app or all of them. Call
+ * after revoking sessions, so the next launch asks for a live token.
+ *
+ * @param {string} [appUid]
+ */
+export const forgetGodmodeTokens = (appUid) => {
+    forgetLocally(appUid);
+    tellPeers(appUid ?? null, null);
+};
+
+const forgetLocally = (appUid) => {
+    mintGeneration++;
+    if ( appUid === undefined ) lastMinted.clear();
+    else lastMinted.delete(appUid);
+};
+
+// Other tabs of this desktop share its session and so its token rows. They are
+// told which row an app is on now, or to forget it; never the token itself.
+const peers = typeof BroadcastChannel === 'undefined'
+    ? null
+    : new BroadcastChannel('puter-godmode-tokens');
+
+/**
+ * @param {string | null} appUid Null for every app
+ * @param {string | null} tokenRow The app's current row; null to forget it
+ */
+const tellPeers = (appUid, tokenRow) => {
+    try {
+        peers?.postMessage({ appUid, tokenRow });
+    } catch {
+        // A closed channel only costs other tabs one extra mint.
+    }
+};
+
+peers?.addEventListener('message', ({ data }) => {
+    const appUid = data?.appUid;
+    const tokenRow = data?.tokenRow;
+    if ( appUid === null ) {
+        forgetLocally();
+        return;
+    }
+    if ( typeof appUid !== 'string' ) return;
+    const entry = lastMinted.get(appUid);
+    if ( typeof tokenRow === 'string' && (!entry || tokenRowOf(entry.token) === tokenRow) ) return;
+    forgetLocally(appUid);
+});
 
 // Pinned to the app's origin, so a frame that navigated elsewhere gets nothing.
 const postToken = (instanceId, token, origin) => {
@@ -149,6 +242,8 @@ const postToken = (instanceId, token, origin) => {
 export const renewGodmodeToken = async (instanceId, from = {}) => {
     const entry = tracked.get(instanceId);
     if ( ! entry ) return false;
+    // The app says its token stopped working; don't launch others with it.
+    if ( from.origin ) forgetGodmodeTokens(entry.appUid);
     if ( ! window.iframe_for_app_instance?.(instanceId) ) {
         tracked.delete(instanceId);
         return false;
@@ -187,9 +282,10 @@ const renewDue = () => {
  * @param {string} appUid
  * @param {string} token
  * @param {number} expiresAt Unix seconds
+ * @param {number} [renewedAt] When the token was minted, if not just now
  */
-export const trackGodmodeToken = (instanceId, appUid, token, expiresAt) => {
-    tracked.set(instanceId, { appUid, token, expiresAt, renewedAt: Date.now() });
+export const trackGodmodeToken = (instanceId, appUid, token, expiresAt, renewedAt = Date.now()) => {
+    tracked.set(instanceId, { appUid, token, expiresAt, renewedAt });
     if ( ! checkTimer ) {
         checkTimer = setInterval(renewDue, CHECK_INTERVAL_MS);
     }
