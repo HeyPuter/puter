@@ -1307,7 +1307,6 @@ export default suite('ai', {
             timestamp_granularities: ['word'],
             chunking_strategy: 'auto',
             known_speaker_names: ['speaker'],
-            known_speaker_references: [TINY_AUDIO],
             test_mode: true,
         })) as { text?: string };
         t.assert.ok((result.text ?? '').includes('sample transcription'));

@@ -567,7 +567,6 @@ describe('ai.speech2txt driver payloads', () => {
             timestamp_granularities: ['word'],
             chunking_strategy: 'auto',
             known_speaker_names: ['agent'],
-            known_speaker_references: ['data:audio/wav;base64,QQ=='],
         };
         await ai.speech2txt({ file: 'data:audio/mpeg;base64,QUJD', ...legacy });
         expect(lastBody().args).toEqual({

@@ -44,8 +44,8 @@ Fine-tune how transcription runs.
 - `stream` (Boolean): Reserved for future streaming support. Streaming is not currently supported.
 - `test_mode` (Boolean): When `true`, returns a sample response without using credits. Defaults to `false`.
 
-The options `timestamp_granularities`, `chunking_strategy`, `known_speaker_names`,
-and `known_speaker_references` are accepted and ignored by both providers.
+The options `timestamp_granularities`, `chunking_strategy`, and `known_speaker_names`
+are accepted and ignored by both providers.
 
 **xAI-specific options** (when `provider: 'xai'`):
 

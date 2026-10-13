@@ -453,7 +453,6 @@ describe('XAISpeechToTextProvider request shape', () => {
                 timestamp_granularities: ['word'],
                 chunking_strategy: 'auto',
                 known_speaker_names: ['agent'],
-                known_speaker_references: ['data:audio/wav;base64,QQ=='],
             }),
         );
 
@@ -465,8 +464,6 @@ describe('XAISpeechToTextProvider request shape', () => {
         expect(form.get('chunking_strategy')).toBeNull();
         expect(form.get('known_speaker_names')).toBeNull();
         expect(form.get('known_speaker_names[]')).toBeNull();
-        expect(form.get('known_speaker_references')).toBeNull();
-        expect(form.get('known_speaker_references[]')).toBeNull();
     });
 
     it('forwards a pinned grok-voice-transcribe version as `model`', async () => {
