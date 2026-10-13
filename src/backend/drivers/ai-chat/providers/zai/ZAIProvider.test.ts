@@ -51,6 +51,10 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { ZAI_MODELS } from './models.js';
 import { ZAIProvider } from './ZAIProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import {
+    modelSupportsModality,
+    requiredInputModalities,
+} from '../../utils/mediaParts.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -211,6 +215,47 @@ describe('ZAIProvider model catalog', () => {
             cached_tokens: 7.5,
         });
     });
+
+    it('advertises image input, and no video or file input, only on the GLM-5.3 flash models', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+
+        const imageIds = models
+            .filter((m) => modelSupportsModality(m, 'image'))
+            .map((m) => m.id);
+        expect(imageIds).toEqual(['glm-5.3-flash', 'glm-5.3-flashx']);
+        for (const m of models) {
+            expect(m.modalities?.output).toEqual(['text']);
+            expect(modelSupportsModality(m, 'video')).toBe(false);
+            expect(modelSupportsModality(m, 'file')).toBe(false);
+        }
+    });
+
+    it('passes the driver input gate for a puter.js image message on the flash models only', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        // The shape `puter.ai.chat(prompt, imageURL)` sends.
+        const required = requiredInputModalities([
+            {
+                content: [
+                    'what is this?',
+                    { image_url: { url: 'https://cdn.test/cat.png' } },
+                ],
+            },
+        ]);
+        expect(required).toEqual(['image']);
+
+        const accepts = (id: string) =>
+            required.every((modality) =>
+                modelSupportsModality(
+                    models.find((m) => m.id === id)!,
+                    modality,
+                ),
+            );
+        expect(accepts('glm-5.3-flash')).toBe(true);
+        expect(accepts('glm-5.3-flashx')).toBe(true);
+        expect(accepts('glm-5.3')).toBe(false);
+    });
 });
 
 // ── Request shape (OpenAI-compat quirks specific to GLM) ────────────
@@ -347,6 +392,40 @@ describe('ZAIProvider.complete request shape', () => {
         expect(args.tool_stream).toBe(true);
         expect(args.response_format).toEqual({ type: 'json_object' });
     });
+
+    it.each(['glm-5.3-flash', 'zai/glm-5.3-flashx'])(
+        'forwards image_url parts for %s unchanged, by URL and by data URL',
+        async (requested) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce(baseCompletion);
+            const content = [
+                { type: 'text', text: 'compare these' },
+                {
+                    type: 'image_url',
+                    image_url: { url: 'https://cdn.test/cat.png' },
+                },
+                {
+                    type: 'image_url',
+                    image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' },
+                },
+            ];
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: requested,
+                    messages: [
+                        { role: 'user', content: structuredClone(content) },
+                    ],
+                }),
+            );
+
+            const [args] = createMock.mock.calls[0]!;
+            expect(args.model).toBe(requested.replace(/^zai\//, ''));
+            // Z.AI reads http(s) and data URLs itself, so neither is fetched or
+            // rewritten on the way through.
+            expect(args.messages).toEqual([{ role: 'user', content }]);
+        },
+    );
 
     it('strips Anthropic-style cache_control from messages before sending', async () => {
         const { provider } = makeProvider();
