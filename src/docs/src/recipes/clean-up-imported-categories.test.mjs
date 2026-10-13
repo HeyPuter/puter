@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 // Executes the recipe's own JS blocks, in order, so the tests cover exactly the
 // code readers copy. The context has no DOM and only a mocked `puter.ai.chat`.
 const markdown = readFileSync(new URL('./clean-up-imported-categories.md', import.meta.url), 'utf8');
-const source = [...markdown.matchAll(/^```js\n([\s\S]*?)^```$/gm)].map(([, code]) => code).join('\n');
-const topLevelNames = [...source.matchAll(/^(?:async )?(?:function|const) (\w+)/gm)].map(([, name]) => name);
+const blocks = [...markdown.matchAll(/^```js(?:;[\w-]+)?\n([\s\S]*?)^```$/gm)].map(([, code]) => code);
+const source = blocks.join('\n');
+// The first try is every block up to and including the one with the first AI call.
+const firstTry = blocks.slice(0, blocks.findIndex(code => code.includes('puter.ai.chat(')) + 1).join('\n');
 
 const reply = mappings => ({ message: { content: JSON.stringify({ mappings }) } });
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -24,17 +26,88 @@ const sampleReply = () => reply([
 ]);
 
 /**
- * Runs every block as one async body, which also prepares and applies the
- * recipe's sample review, and returns its top-level declarations.
+ * Runs the blocks as one async body, which for the full source also prepares
+ * and applies the recipe's sample review, and returns its top-level declarations.
  */
-async function loadRecipe (chat = vi.fn(async () => sampleReply())) {
+async function loadRecipe (chat = vi.fn(async () => sampleReply()), code = source) {
+    const names = [...code.matchAll(/^(?:async )?(?:function|const) (\w+)/gm)].map(([, name]) => name);
     const context = vm.createContext({ puter: { ai: { chat } } });
     const recipe = await vm.runInContext(
-        `(async () => {\n${ source }\nreturn { ${ topLevelNames.join(', ') } };\n})()`,
+        `(async () => {\n${ code }\nreturn { ${ names.join(', ') } };\n})()`,
         context,
     );
     return { recipe, chat };
 }
+
+const expectLabelsOnly = (recipe, chat) => {
+    for ( const call of chat.mock.calls ) {
+        const [messages, options] = plain(call);
+        expect(JSON.parse(messages[1].content)).toEqual(SAMPLE_LABELS);
+        const { label, category } = options.outputFormat.schema.properties.mappings.items.properties;
+        expect(label.enum).toEqual(SAMPLE_LABELS);
+        expect(category.enum).toEqual(plain(recipe.CATEGORIES));
+
+        const sent = messages.map(message => message.content).join('\n');
+        for ( const row of recipe.rows ) {
+            expect(sent).not.toContain(row.description);
+            expect(sent).not.toContain(row.amount);
+        }
+    }
+};
+
+describe('first try', () => {
+    it('runs on its own and returns the reply text for the sample labels', async () => {
+        const { recipe, chat } = await loadRecipe(undefined, firstTry);
+
+        expect(chat).toHaveBeenCalledTimes(1);
+        expectLabelsOnly(recipe, chat);
+        expect(recipe.reply).toBe(sampleReply().message.content);
+        expect(recipe.prepareReview).toBeUndefined();
+    });
+});
+
+// The playground companion for the first try, run with a stub element that only accepts text.
+const companionHtml = readFileSync(new URL('../playground/examples/clean-up-imported-categories.html', import.meta.url), 'utf8');
+const companionScript = companionHtml.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+
+async function runCompanion (chat) {
+    const output = {
+        textContent: '',
+        set innerHTML (_) {
+            throw new Error('The companion must render the reply as text.');
+        },
+    };
+    const document = { getElementById: id => (id === 'reply' ? output : null) };
+    const context = vm.createContext({ puter: { ai: { chat } }, document });
+    await vm.runInContext(`(async () => {\n${ companionScript }\n})()`, context);
+    return output;
+}
+
+describe('playground companion', () => {
+    it('makes the same single request as the first try and shows the raw reply as text', async () => {
+        const { chat: recipeChat } = await loadRecipe(undefined, firstTry);
+        const markup = '<img src=x onerror="globalThis.pwned = true">';
+        const chat = vi.fn(async () => ({ message: { content: markup } }));
+
+        const output = await runCompanion(chat);
+
+        expect(chat).toHaveBeenCalledTimes(1);
+        expect(plain(chat.mock.calls[0])).toEqual(plain(recipeChat.mock.calls[0]));
+        expect(output.textContent).toBe(markup);
+        expect(globalThis.pwned).toBeUndefined();
+    });
+
+    it.each([
+        [new Error('offline')],
+        [{ error: { message: 'busy' } }],
+    ])('shows a failed request %j as text', async (failure) => {
+        const output = await runCompanion(vi.fn(async () => {
+            throw failure;
+        }));
+        expect(typeof output.textContent).toBe('string');
+        expect(output.textContent).not.toBe('');
+    });
+});
 
 const SAMPLE_CSV = [
     '"date","description","amount","category","cleanCategory"',
@@ -47,53 +120,66 @@ const SAMPLE_CSV = [
     '',
 ].join('\r\n');
 
+const SAMPLE_REVIEW = {
+    entries: [
+        { label: '???', count: 1, proposed: null, category: null },
+        { label: 'Groceries ', count: 1, proposed: null, category: null },
+        { label: 'Salary', count: 1, proposed: null, category: null },
+        { label: 'Transport', count: 1, proposed: 'Transport', category: 'Transport' },
+        { label: 'coffee shops', count: 1, proposed: 'Dining', category: 'Dining' },
+        { label: 'groceries', count: 1, proposed: 'Groceries', category: 'Groceries' },
+    ],
+    // duplicate label, unknown label, unknown category
+    problems: [
+        'Ignored conflicting suggestions for "Salary".',
+        'Ignored a suggestion for unknown label "Hardware".',
+        'Ignored unknown category "Fraud" for "???".',
+    ],
+};
+
 describe('sample flow', () => {
     it('runs without a DOM', async () => {
         const { recipe } = await loadRecipe();
         expect(recipe.result.csv).toBe(SAMPLE_CSV);
     });
 
-    it('sends only the distinct labels, constrained to those labels and the categories', async () => {
+    it('makes one request with only the distinct labels and reuses its reply for the review', async () => {
         const { recipe, chat } = await loadRecipe();
 
         expect(chat).toHaveBeenCalledTimes(1);
-        const [messages, options] = plain(chat.mock.calls[0]);
-        expect(JSON.parse(messages[1].content)).toEqual(SAMPLE_LABELS);
-        const { label, category } = options.outputFormat.schema.properties.mappings.items.properties;
-        expect(label.enum).toEqual(SAMPLE_LABELS);
-        expect(category.enum).toEqual(plain(recipe.CATEGORIES));
-
-        const sent = messages.map(message => message.content).join('\n');
-        for ( const row of recipe.rows ) {
-            expect(sent).not.toContain(row.description);
-            expect(sent).not.toContain(row.amount);
-        }
+        expectLabelsOnly(recipe, chat);
+        expect(plain(recipe.review)).toEqual(SAMPLE_REVIEW);
     });
 
-    it('returns plain review entries and problems, and applies nothing', async () => {
-        const { recipe } = await loadRecipe();
+    it('makes one request when the app passes only the rows, and applies nothing', async () => {
+        const { recipe, chat } = await loadRecipe();
+        chat.mockClear();
         const before = JSON.stringify(recipe.rows);
 
         const review = await recipe.prepareReview(recipe.rows);
 
-        expect(plain(review)).toEqual({
-            entries: [
-                { label: '???', count: 1, proposed: null, category: null },
-                { label: 'Groceries ', count: 1, proposed: null, category: null },
-                { label: 'Salary', count: 1, proposed: null, category: null },
-                { label: 'Transport', count: 1, proposed: 'Transport', category: 'Transport' },
-                { label: 'coffee shops', count: 1, proposed: 'Dining', category: 'Dining' },
-                { label: 'groceries', count: 1, proposed: 'Groceries', category: 'Groceries' },
-            ],
-            // duplicate label, unknown label, unknown category
-            problems: [
-                'Ignored conflicting suggestions for "Salary".',
-                'Ignored a suggestion for unknown label "Hardware".',
-                'Ignored unknown category "Fraud" for "???".',
-            ],
-        });
+        expect(chat).toHaveBeenCalledTimes(1);
+        expectLabelsOnly(recipe, chat);
+        expect(plain(review)).toEqual(SAMPLE_REVIEW);
         expect(JSON.stringify(recipe.rows)).toBe(before);
         expect(recipe.rows.some(row => Object.hasOwn(row, 'cleanCategory'))).toBe(false);
+    });
+
+    it.each([
+        [undefined],
+        [null],
+        ['not json'],
+        [42],
+        [{ mappings: [] }],
+    ])('treats a supplied reply %j as invalid without a request', async (supplied) => {
+        const { recipe, chat } = await loadRecipe();
+        chat.mockClear();
+
+        const review = await recipe.prepareReview(recipe.rows, supplied);
+
+        expect(chat).not.toHaveBeenCalled();
+        expect(review.entries.every(entry => entry.proposed === null && entry.category === null)).toBe(true);
+        expect(review.problems).toHaveLength(1);
     });
 
     it('counts rows per label', async () => {
@@ -142,6 +228,7 @@ describe('input limits', () => {
         chat.mockClear();
 
         await expect(recipe.prepareReview(makeRows())).rejects.toThrow();
+        await expect(recipe.prepareReview(makeRows(), recipe.reply)).rejects.toThrow();
         expect(chat).not.toHaveBeenCalled();
     });
 
@@ -149,15 +236,6 @@ describe('input limits', () => {
         const { recipe } = await loadRecipe();
         const atCap = 'x'.repeat(80);
         expect(plain(recipe.distinctLabels([{ amount: '1' }, { category: atCap }]))).toEqual(['', atCap]);
-    });
-
-    it('makes no request for an empty label list', async () => {
-        const { recipe, chat } = await loadRecipe();
-        chat.mockClear();
-
-        const proposal = await recipe.proposeMapping([]);
-        expect(proposal.mapping.size).toBe(0);
-        expect(chat).not.toHaveBeenCalled();
     });
 });
 
