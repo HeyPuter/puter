@@ -4,7 +4,7 @@ description: Retrieve the available AI chat models (and providers) that Puter cu
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns the AI chat/completion models that are currently available to your app. The list is pulled from the same source as the public `/puterai/chat/models/details` endpoint and includes pricing and capability metadata where available.
+Returns the AI chat/completion models that are currently available to your app, including pricing and capability metadata where available.
 
 ## Syntax
 

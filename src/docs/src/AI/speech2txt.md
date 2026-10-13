@@ -4,7 +4,7 @@ description: Transcribe audio into text using OpenAI or xAI speech-to-text model
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Converts spoken audio into text, with speaker diarization on xAI. This helper wraps the Puter driver-backed transcription API (OpenAI and xAI) so you can work with local files, remote URLs, or in-memory blobs from the browser.
+Converts spoken audio into text, with speaker diarization on xAI. Supports OpenAI and xAI models.
 
 ## Syntax
 

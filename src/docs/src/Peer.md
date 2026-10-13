@@ -131,6 +131,7 @@ These peer features are supported out of the box when using Puter.js:
 - **[`puter.peer.serve()`](/Peer/serve/)** - Create a peer server and generate an invite code
 - **[`puter.peer.connect()`](/Peer/connect/)** - Connect to a peer server using an invite code
 - **[`puter.peer.ensureTurnRelays()`](/Peer/ensureTurnRelays/)** - Preload TURN relays for faster connections
+- **[`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/)** - Create a grant that lets a guest without a Puter account use Puter's relays
 
 ## Examples
 

@@ -359,6 +359,14 @@ let sidebar = [
                 path: '/FS/stat',
             },
             {
+                title: '<code>space()</code>',
+                page_title: '<code>puter.fs.space()</code>',
+                title_tag: 'puter.fs.space()',
+                icon: '/assets/img/function.svg',
+                source: '/FS/space.md',
+                path: '/FS/space',
+            },
+            {
                 title: '<code>delete()</code>',
                 page_title: '<code>puter.fs.delete()</code>',
                 title_tag: 'puter.fs.delete()',
@@ -413,6 +421,14 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/FS/listShared.md',
                 path: '/FS/listShared',
+            },
+            {
+                title: '<code>listSharedByMe()</code>',
+                page_title: '<code>puter.fs.listSharedByMe()</code>',
+                title_tag: 'puter.fs.listSharedByMe()',
+                icon: '/assets/img/function.svg',
+                source: '/FS/listSharedByMe.md',
+                path: '/FS/listSharedByMe',
             },
             {
                 title: '<code>getShares()</code>',
@@ -501,6 +517,14 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Events/workers.md',
                 path: '/Events/workers',
+            },
+            {
+                title: 'Subjects and events',
+                page_title: 'Subjects and events',
+                title_tag: 'Events Subjects',
+                icon: '/assets/img/object.svg',
+                source: '/Events/subjects.md',
+                path: '/Events/subjects',
             },
         ],
     },
@@ -634,14 +658,6 @@ let sidebar = [
         path: '/Email',
         children: [
             {
-                title: '<code>sendTransactional()</code>',
-                page_title: '<code>puter.email.sendTransactional()</code>',
-                title_tag: 'puter.email.sendTransactional()',
-                icon: '/assets/img/function.svg',
-                source: '/Email/sendTransactional.md',
-                path: '/Email/sendTransactional',
-            },
-            {
                 title: '<code>list()</code>',
                 page_title: '<code>puter.email.list()</code>',
                 title_tag: 'puter.email.list()',
@@ -656,6 +672,14 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Email/get.md',
                 path: '/Email/get',
+            },
+            {
+                title: '<code>sendTransactional()</code>',
+                page_title: '<code>puter.email.sendTransactional()</code>',
+                title_tag: 'puter.email.sendTransactional()',
+                icon: '/assets/img/function.svg',
+                source: '/Email/sendTransactional.md',
+                path: '/Email/sendTransactional',
             },
         ],
     },
@@ -1373,6 +1397,13 @@ let sidebar = [
                 icon: '/assets/img/object.svg',
                 source: '/Objects/signinresult.md',
                 path: '/Objects/signinresult',
+            },
+            {
+                title: '<code>SpaceInfo</code>',
+                title_tag: 'SpaceInfo',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/spaceinfo.md',
+                path: '/Objects/spaceinfo',
             },
             {
                 title: '<code>Speech2TxtResult</code>',

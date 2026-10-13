@@ -120,7 +120,7 @@ Every SDK change carries all five of these, or the PR is incomplete. [doc/contri
 
 1. **Backward compatibility**, unless a maintainer explicitly signs off on a break ([rules](doc/contributing-apis.md#maintaining-an-existing-api)).
 2. **Tests** in the cross-platform API suite, or the Playwright harness for desktop-rendered `puter.ui.*` ([steps](doc/contributing-apis.md#6-tests)).
-3. **Docs** in [src/docs/src/](src/docs/src/) that match the implementation exactly ([steps](doc/contributing-apis.md#5-docs)).
+3. **Docs** in [src/docs/src/](src/docs/src/) that match the implementation exactly ([steps](doc/contributing-apis.md#5-docs), [writing rules](#developer-docs)).
 4. **Types**, per the rules below.
 5. **Error handling**: `{ message, code }` with stable `snake_case` codes, as in [modules/kv/](src/puter-js/src/modules/kv/) ([steps](doc/contributing-apis.md#3-puterjs)).
 
@@ -143,6 +143,51 @@ Use `@typedef {Object}` + `@property` for any shape whose fields need documentin
 ```js
 /** @typedef {{ key: string; value: unknown }} KVEntry */
 ```
+
+---
+
+## Developer docs
+
+[src/docs/src/](src/docs/src/) is the published puter.js documentation: one reference page per method (`<Area>/<method>.md`, [steps](doc/contributing-apis.md#5-docs)) and recipes in [src/docs/src/recipes/](src/docs/src/recipes/).
+
+### Page structure
+
+The reference has two kinds of page:
+
+- **API overview pages** (`<Area>.md`, such as [KV.md](src/docs/src/KV.md)) give a quick top-level picture of what the API is for and what it can do, with short examples and a list of its functions that links every function page in the area. Leave out the details. The first sentence of the intro says what the API is about. This is a judgment call too: when the API depends on a Puter concept the reader may not know, such as Teams, the first sentence can name it and the sentences after it explain it.
+- **Function pages** (`<Area>/<method>.md`) hold the details: parameters, defaults, return values, errors, limits, and edge cases.
+
+An overview page answers "what is this API and is it what I need?", and a function page answers "how exactly does this call behave?". A change to one function usually only touches that function's page, so a new `kv.list()` option goes in `KV/list.md` without a matching update to `KV.md`. Don't copy a function's options, limits, or edge cases onto the overview page for completeness. Where a detail goes is a judgment call, not a hard rule: update the overview when a change affects how someone would describe the API as a whole.
+
+When you add a page, add it to [src/docs/src/sidebar.js](src/docs/src/sidebar.js) under its area, or it won't show up in the navigation. When you add a runnable example, add its HTML to `src/docs/src/playground/examples/<slug>.html`, register the slug in [src/docs/src/examples.js](src/docs/src/examples.js), and link the code block to it by putting the slug after the language with a semicolon (` ```html;kv-set `).
+
+### Writing docs
+
+These apply to reference pages and recipes alike.
+
+- **Document the developer-facing side only.** The reader is building on top of puter.js, so cover what affects their code: signatures, defaults, return shapes, errors, limits, and behavior they can observe. Leave out internal workings (which service handles the call, storage layout, caching, retries) unless they change what the developer has to do. [rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) is the exception: it publishes every limit, including timeouts and caps that come from how the backend works.
+- **Describe the current state.** Docs aren't a changelog. Write how the API behaves now, without "now", "no longer", "existing code is unaffected", or other wording that compares it to an older version.
+- **Verify before you document.** Run the calls you describe against a running Puter instead of inferring behavior from the source.
+- **Write plainly.** Use the literal words a developer would say out loud, with contractions and everyday words. No idioms or figurative verbs ("walk away from something shared with you" → "remove your own access", "nothing to page through" → "without pagination"). No formal register ("present only while more pages remain" → "includes a `cursor` if there are more pages to load"). Prefer dev terms such as atomic, concurrent, and insertion order.
+- **State the rule, then its consequence, in short sentences.** No metaphor in place of a rule. Name a concrete action ("you can create any files and folders inside it") over an abstract permission ("yours to organize freely"). Cut a sentence that only repeats the next one.
+- **Describe behavior directly.** No quoted inner-voice phrases. Write "`isNew` is `true` when the person did not have access before", not "this tells 'I just gave this to someone' from 'they already had it'".
+- **Keep references easy to follow.** Name what a list or code block belongs to in the sentence directly above it. Name a thing once and keep that name. Introduce an actor as "a user" before giving them a role: "A user can create a team. The user who creates the team becomes its owner."
+- **Sentence mechanics.** Never start a sentence with inline code: write "To store data, use the [`set()`](/KV/set/) method." Link every inline mention of an API to its page, every time. No em dashes, and no colons or semicolons mid-sentence; a colon that introduces a code block is fine.
+- **Show the correct way.** No "don't" and no wrong-way-first examples, in recipes and playground examples alike. Mention a wrong approach only when developers already hit it in practice, and state how it fails as a fact: "`add()` reads a plain object as a path map, so the call rejects with …".
+
+### Recipes
+
+Recipes are tested, copy-pasteable patterns for a task, one layer above the per-method reference, often combining several APIs. Agents find them through the `## Recipes` section of `llms.txt`.
+
+- **Files.** One `.md` per recipe in [src/docs/src/recipes/](src/docs/src/recipes/), with `title`, `description`, `tags`, and optional `order` front matter; they're picked up automatically. Tags must exist in [src/docs/src/recipe-tags.js](src/docs/src/recipe-tags.js) or the build fails. Quote a `description` that contains a colon followed by a space. Every top-level `.md` in that directory is built as a recipe, so keep other markdown out of it.
+- **Title.** Short, Title Case, starts with a verb, and leaves out "to Your App" ("Add Team Support", "Deploy Workers Programmatically"). The slug is the title in kebab case, with no API-name prefix. In `llms.txt` an agent sees only the title and description before deciding to open a recipe, so word them to match the task the reader is trying to do.
+- **Description.** Written for someone who has never heard of Puter. Start with "Learn how to", put the action first, and say what the reader's app gains: "Learn how to add file sharing to your app with Puter.js, so users can share files in their Puter account with other people." No API names, no mechanism, no list of example cases, and no "not just …" contrast.
+- **Intro.** Explain the situation and why you'd do this, tied to something the reader already knows ("`puter.kv` is your database in Puter.js"). No "Use this when" bullet list.
+- **Structure.** Get to the first working call as early as possible, then add validation, rate limits, and sign-in after it. Explain a Puter concept the first time it appears, such as what `me.puter` is or that `puter.workers.exec()` opens the Puter sign-in window. Split recipes by what the reader needs, not by technique, and give a family of recipes a shared tag.
+- **Link to the reference for full option lists.** Mention only the options the recipe uses, then link to the function page for the rest ("All the sort options are listed on [`puter.fs.readdir()`](/FS/readdir/)."). A copied list of options, rules, or scopes goes stale when the reference changes.
+- **Code.** Platform-neutral: just the code, with top-level `await`. No `<script>` or `<html>` wrapper, no IIFE.
+- **Tradeoffs.** Justify a choice with one scenario the reader can picture right away, in about two short paragraphs, or fold each point into the section where it matters. The description states the benefit only.
+- **Notes.** Leave out `## Notes` by default. Use it only to point to an architecturally different approach. A limit goes in the section it applies to; other facts belong on the linked reference page.
 
 ---
 
