@@ -234,7 +234,7 @@ describe('ZAIProvider model catalog', () => {
     it('passes the driver input gate for a puter.js image message on the flash models only', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
-        // The shape `puter.ai.chat(prompt, imageURL)` sends.
+        // The SDK image overload omits an explicit part type.
         const required = requiredInputModalities([
             {
                 content: [
