@@ -37,6 +37,18 @@ import { isUniqueViolation } from '../../util/dbError.js';
 const FREE_SEAT_CAP = 3;
 const PAID_SEAT_CAP = 40;
 
+// Seats an owner may mint per window, as a multiple of what they may hold
+// live. The caps bound what exists at once, not what can be cycled through.
+const PROVISION_BUDGET_FACTOR = 3;
+const PROVISION_BUDGET_WINDOW_MS = 30 * 24 * 60 * 60_000;
+const PROVISION_BUDGET_SCOPE = 'team-provision';
+
+/** What provisioning needs from the request to answer the signup gate. */
+export interface ProvisionContext {
+    req?: Request;
+    fingerprint?: string | null;
+}
+
 // Seat teardown is independent per member, so a delete need not be serial.
 const TEARDOWN_CONCURRENCY = 8;
 
@@ -70,6 +82,9 @@ import {
     generateTemporaryPassword,
     temporaryPasswordExpiry,
 } from '../../util/temporaryPassword.js';
+import type { Request } from 'express';
+
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { provisionUser } from '../../util/userProvisioning.js';
 import { PuterService } from '../types';
 
@@ -905,17 +920,81 @@ export class TeamService extends PuterService {
     }
 
     /** Returns the activation link; the account has no password until used. */
+    /**
+     * Checks a provisioned seat against the same extension-owned gate a signup
+     * answers to. Without one, nothing about a team account is looked at: no
+     * address validation, no reputation, no captcha.
+     */
+    async #assertSignupAllowed(
+        context: ProvisionContext,
+        email: string,
+    ): Promise<void> {
+        if (!context.req || !this.services.signup) return;
+        const verdict = await this.services.signup.runSignupGate({
+            req: context.req,
+            data: {},
+            email,
+            isTemp: false,
+            bonusCode: null,
+            ...(context.fingerprint !== undefined
+                ? { fingerprint: context.fingerprint }
+                : {}),
+        });
+        // Phone and card gates are deliberately not carried over: the seat
+        // cannot answer them, and the team already vouched for it.
+        if (verdict.verdict === 'allowed') return;
+        throw new HttpError(
+            403,
+            ('message' in verdict && verdict.message) ||
+                'This account cannot be created right now.',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
+    /**
+     * Seats minted per owner per window. The cap bounds how many live at once,
+     * which a delete frees again; this bounds how many can be made at all.
+     */
+    async #chargeProvisionBudget(
+        ownerUserId: number,
+        cap: number,
+    ): Promise<void> {
+        const owner = await this.stores.user.getById(ownerUserId);
+        // The uuid, so a recycled id cannot inherit another owner's spend.
+        const key = owner?.uuid ?? `id:${ownerUserId}`;
+        // Every seat the owner may hold live at once, times the churn allowed
+        // on top. Per owner, since teams are churnable the same way.
+        const limit =
+            Math.max(1, cap) * this.#teamCap() * PROVISION_BUDGET_FACTOR;
+        const allowed = await checkRateLimit(
+            `${PROVISION_BUDGET_SCOPE}:${key}`,
+            limit,
+            PROVISION_BUDGET_WINDOW_MS,
+            undefined,
+            // A budget that fails open is not a budget.
+            { failOpen: false },
+        );
+        if (!allowed) {
+            throw new HttpError(
+                429,
+                'This team has created too many accounts recently',
+                { legacyCode: 'too_many_requests', fields: { limit } },
+            );
+        }
+    }
+
     async provisionAccount(
         teamUid: string,
         actorUserId: number,
         input: { username: string; email?: string | null },
+        context: ProvisionContext = {},
     ): Promise<{
         userId: number;
         username: string;
         temporaryPassword: string;
     }> {
         return this.#withCapLock(`team:${teamUid}`, () =>
-            this.#provisionAccountLocked(teamUid, actorUserId, input),
+            this.#provisionAccountLocked(teamUid, actorUserId, input, context),
         );
     }
 
@@ -923,6 +1002,7 @@ export class TeamService extends PuterService {
         teamUid: string,
         actorUserId: number,
         input: { username: string; email?: string | null },
+        context: ProvisionContext,
     ): Promise<{
         userId: number;
         username: string;
@@ -968,6 +1048,9 @@ export class TeamService extends PuterService {
                 legacyCode: 'email_already_in_use',
             });
         }
+
+        await this.#assertSignupAllowed(context, email);
+        await this.#chargeProvisionBudget(team.owner_user_id, cap);
 
         // Gated only when a code can reach the address the team claimed.
         const confirmCode =
