@@ -1,10 +1,84 @@
 <html>
 <body>
-    <pre id="reply">Asking for suggestions...</pre>
+    <p>
+        <button id="open">Open a CSV file from Puter</button>
+        <button id="approve">Approve categories</button>
+        <button id="save">Save cleaned CSV to Puter</button>
+    </p>
+    <p id="status">Open a CSV file with a header row and a category column. Nothing is sent until you open one.</p>
+    <ul id="problems"></ul>
+    <table>
+        <thead><tr><th>Label</th><th>Rows</th><th>Category</th></tr></thead>
+        <tbody id="review"></tbody>
+    </table>
     <script src="https://js.puter.com/v2/"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
     <script type="module">
+        // -- Recipe code, unchanged --
+
+        const MAX_FILE_BYTES = 1024 * 1024;
+        const MAX_ROWS = 10_000;
+        const FILE_TOO_LARGE = 'Pick a CSV file of at most 1 MiB.';
+
+        function parseCsv (text) {
+            const { data, errors, meta } = Papa.parse(text, {
+                header: true,
+                dynamicTyping: false,
+                skipEmptyLines: true,
+                delimiter: ',',
+                // One row over the cap is enough to reject the file without parsing the rest.
+                preview: MAX_ROWS + 1,
+            });
+            if ( errors.length > 0 ) {
+                throw new Error(`The file isn't valid CSV (${ errors[0].message }).`);
+            }
+            const columns = meta.fields ?? [];
+            if ( Object.keys(meta.renamedHeaders ?? {}).length > 0 || new Set(columns).size !== columns.length ) {
+                throw new Error('Every column in the header row needs a different name.');
+            }
+            if ( columns.some(column => column.trim() === '') ) {
+                throw new Error('Every column in the header row needs a name.');
+            }
+            if ( ! columns.includes('category') ) {
+                throw new Error('The file needs a category column.');
+            }
+            if ( data.length > MAX_ROWS ) {
+                throw new Error(`The file has more than ${ MAX_ROWS } rows.`);
+            }
+            const bad = data.findIndex(row => Object.keys(row).length !== columns.length
+                || ! columns.every(column => typeof row[column] === 'string'));
+            if ( bad !== -1 ) {
+                throw new Error(`Row ${ bad + 1 } doesn't have one value per column.`);
+            }
+            return { columns, rows: data };
+        }
+
+        async function openCsvFile () {
+            const request = puter.ui.showOpenFilePicker({ multiple: false, accept: '.csv' });
+            // A failure only rejects the picker's own promise. A desktop cancel settles undefinedOnCancel,
+            // and a website popup cancel resolves the picker's own promise with a cancel message.
+            const file = await Promise.race([request, request.undefinedOnCancel]);
+            if ( file === undefined || file?.msg === 'fileOpenCanceled' ) {
+                return null;
+            }
+            if ( Array.isArray(file) || file?.isDir || typeof file?.read !== 'function' || ! /\.csv$/i.test(String(file.name)) ) {
+                throw new Error('Pick one .csv file.');
+            }
+            if ( typeof file.size === 'number' && file.size > MAX_FILE_BYTES ) {
+                throw new Error(FILE_TOO_LARGE);
+            }
+            const blob = await file.read();
+            if ( ! (blob instanceof Blob) ) {
+                throw new Error('The file could not be read.');
+            }
+            // The reported size can be stale, so the bytes actually read are checked too.
+            if ( blob.size > MAX_FILE_BYTES ) {
+                throw new Error(FILE_TOO_LARGE);
+            }
+            return { name: file.name, ...parseCsv(await blob.text()) };
+        }
+
         const CATEGORIES = ['Groceries', 'Dining', 'Transport', 'Income', 'Shopping', 'Other'];
-        const labels = ['???', 'Groceries ', 'Salary', 'Transport', 'coffee shops', 'groceries'];
 
         async function suggestCategories (labels) {
             const response = await puter.ai.chat([
@@ -46,13 +120,284 @@
             return response?.message?.content;
         }
 
-        // The reply is unchecked AI output, so show it as text only.
-        const output = document.getElementById('reply');
-        try {
-            output.textContent = String(await suggestCategories(labels));
-        } catch ( error ) {
-            output.textContent = `Request failed: ${ error?.message ?? error?.error?.message ?? 'unknown error' }`;
+        const MAX_REPLY_LENGTH = 100_000;
+
+        function parseProposal (content, labels) {
+            const mapping = new Map(labels.map(label => [label, null]));
+            const problems = [];
+
+            let items;
+            if ( typeof content === 'string' && content.length <= MAX_REPLY_LENGTH ) {
+                try {
+                    items = JSON.parse(content).mappings;
+                } catch {
+                    items = undefined;
+                }
+            }
+            if ( ! Array.isArray(items) || items.length > MAX_LABELS ) {
+                problems.push('The AI reply was too long or not a list of mappings, so nothing was suggested.');
+                return { mapping, problems };
+            }
+
+            const seen = new Set();
+            for ( const item of items ) {
+                const { label, category } = item ?? {};
+                if ( ! mapping.has(label) ) {
+                    problems.push(`Ignored a suggestion for unknown label ${ JSON.stringify(label) }.`);
+                    continue;
+                }
+                if ( seen.has(label) ) {
+                    mapping.set(label, null);
+                    problems.push(`Ignored conflicting suggestions for ${ JSON.stringify(label) }.`);
+                } else if ( ! CATEGORIES.includes(category) ) {
+                    problems.push(`Ignored unknown category ${ JSON.stringify(category) } for ${ JSON.stringify(label) }.`);
+                } else {
+                    mapping.set(label, category);
+                }
+                seen.add(label);
+            }
+            return { mapping, problems };
         }
+
+        const CLEAN_COLUMN = 'cleanCategory';
+        const MAX_LABELS = 100;
+        const MAX_LABEL_LENGTH = 80;
+
+        function checkColumns (rows) {
+            if ( rows.some(row => Object.hasOwn(row, CLEAN_COLUMN)) ) {
+                throw new Error(`The file already has a ${ CLEAN_COLUMN } column. Rename it and try again.`);
+            }
+        }
+
+        function labelOf (row) {
+            const label = row.category ?? '';
+            if ( typeof label !== 'string' ) {
+                throw new Error('Every category must be text. Parse the file with type conversion off.');
+            }
+            return label;
+        }
+
+        function distinctLabels (rows) {
+            const labels = [...new Set(rows.map(labelOf))].sort();
+            if ( labels.length > MAX_LABELS ) {
+                throw new Error(`Found ${ labels.length } different categories. Clean up at most ${ MAX_LABELS } at a time.`);
+            }
+            if ( labels.some(label => label.length > MAX_LABEL_LENGTH) ) {
+                throw new Error(`Category names can be at most ${ MAX_LABEL_LENGTH } characters long.`);
+            }
+            return labels;
+        }
+
+        async function prepareReview (rows, reply) {
+            if ( rows.length === 0 ) {
+                throw new Error('There are no rows to clean up.');
+            }
+            checkColumns(rows);
+            const labels = distinctLabels(rows);
+
+            let proposal;
+            try {
+                // Only ask the AI when no reply was passed in, not when one was passed as undefined.
+                const content = arguments.length < 2 ? await suggestCategories(labels) : reply;
+                proposal = parseProposal(content, labels);
+            } catch ( error ) {
+                const reason = error?.message ?? error?.error?.message ?? 'the request failed';
+                proposal = {
+                    mapping: new Map(labels.map(label => [label, null])),
+                    problems: [`No AI suggestions (${ reason }). Choose each category by hand.`],
+                };
+            }
+
+            const counts = new Map();
+            for ( const label of rows.map(labelOf) ) {
+                counts.set(label, (counts.get(label) ?? 0) + 1);
+            }
+            const entries = labels.map(label => {
+                const proposed = proposal.mapping.get(label);
+                return { label, count: counts.get(label), proposed, category: proposed };
+            });
+            return { entries, problems: proposal.problems };
+        }
+
+        const FORMULA_LIKE = /^[\s\x00-\x1F\x7F\u200B-\u200D\u2060]*[=+\-@]|^[\x00-\x1F\x7F]/;
+        const PLAIN_NUMBER = /^[+-]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/;
+
+        function csvField (value) {
+            let text = String(value ?? '');
+            if ( FORMULA_LIKE.test(text) && ! PLAIN_NUMBER.test(text) ) {
+                text = `'${ text }`;
+            }
+            return `"${ text.replaceAll('"', '""') }"`;
+        }
+
+        function toCsv (rows, columns) {
+            const lines = [columns, ...rows.map(row => columns.map(column => row[column]))];
+            return `${ lines.map(fields => fields.map(csvField).join(',')).join('\r\n') }\r\n`;
+        }
+
+        function applyReview (rows, entries) {
+            checkColumns(rows);
+            const labels = distinctLabels(rows);
+            if ( ! Array.isArray(entries) || entries.length !== labels.length ) {
+                throw new Error('The review must have exactly one entry per category label.');
+            }
+
+            const approved = new Map();
+            for ( const entry of entries ) {
+                const { label, category } = entry ?? {};
+                if ( ! labels.includes(label) || approved.has(label) ) {
+                    throw new Error(`Refusing to apply an unknown or repeated label ${ JSON.stringify(label) }.`);
+                }
+                if ( category !== null && ! CATEGORIES.includes(category) ) {
+                    throw new Error(`Refusing to apply unknown category ${ JSON.stringify(category) }.`);
+                }
+                approved.set(label, category);
+            }
+
+            let unresolved = 0;
+            const cleaned = rows.map(row => {
+                const cleanCategory = approved.get(labelOf(row)) ?? '';
+                if ( ! cleanCategory ) unresolved++;
+                return { ...row, [CLEAN_COLUMN]: cleanCategory };
+            });
+            const columns = [...new Set(rows.flatMap(row => Object.keys(row))), CLEAN_COLUMN];
+            return { rows: cleaned, unresolved, csv: toCsv(cleaned, columns) };
+        }
+
+        async function saveCsvFile (csv, suggestedName) {
+            const request = puter.ui.showSaveFilePicker(csv, suggestedName);
+            // A desktop cancel settles undefinedOnCancel, and a website popup cancel resolves with a cancel message.
+            const saved = await Promise.race([request, request.undefinedOnCancel]);
+            if ( saved === undefined || saved?.msg === 'fileSaveCanceled' ) {
+                return null;
+            }
+            // Only a result that names the saved file confirms the save.
+            if ( typeof saved?.name !== 'string' || saved.name === '' ) {
+                throw new Error('The save dialog did not return the saved file, so the save could not be confirmed.');
+            }
+            return saved;
+        }
+
+        // -- Review UI --
+        // Labels and AI output are only ever rendered as text.
+
+        const openButton = document.getElementById('open');
+        const approveButton = document.getElementById('approve');
+        const saveButton = document.getElementById('save');
+        const status = document.getElementById('status');
+        const problemList = document.getElementById('problems');
+        const reviewBody = document.getElementById('review');
+
+        let imported = null;
+        let controls = null;
+        let approved = null;
+        let busy = false;
+
+        const messageOf = error => String(error?.message ?? error?.error?.message ?? error ?? 'unknown error');
+
+        function update () {
+            openButton.disabled = busy;
+            approveButton.disabled = busy || controls === null;
+            saveButton.disabled = busy || approved === null;
+        }
+
+        function textElement (tag, text) {
+            const element = document.createElement(tag);
+            element.textContent = text;
+            return element;
+        }
+
+        function showReview (review) {
+            problemList.replaceChildren(...review.problems.map(problem => textElement('li', problem)));
+            controls = review.entries.map(entry => {
+                const select = document.createElement('select');
+                const unresolved = textElement('option', '(no category)');
+                unresolved.value = '';
+                select.append(unresolved, ...CATEGORIES.map(category => {
+                    const option = textElement('option', category);
+                    option.value = category;
+                    return option;
+                }));
+                select.value = entry.category ?? '';
+                select.addEventListener('change', () => {
+                    approved = null;
+                    status.textContent = 'The review changed. Approve the categories again before saving.';
+                    update();
+                });
+                const cell = document.createElement('td');
+                cell.append(select);
+                const row = document.createElement('tr');
+                // JSON quotes make empty labels and trailing spaces visible.
+                row.append(textElement('td', JSON.stringify(entry.label)), textElement('td', String(entry.count)), cell);
+                return { label: entry.label, select, row };
+            });
+            reviewBody.replaceChildren(...controls.map(control => control.row));
+        }
+
+        openButton.addEventListener('click', async () => {
+            busy = true;
+            update();
+            try {
+                // The picker opens before any other await, while the click still counts as a user action.
+                const file = await openCsvFile();
+                if ( file === null ) {
+                    status.textContent = 'No file was opened, so nothing was sent.';
+                    return;
+                }
+                status.textContent = `Asking for suggestions for ${ file.name }...`;
+                const review = await prepareReview(file.rows);
+                // The earlier review and approval stay until the new file is ready to review.
+                imported = file;
+                approved = null;
+                showReview(review);
+                status.textContent = `Check the category for each label in ${ file.name }, then approve.`;
+            } catch ( error ) {
+                status.textContent = `The file was not opened (${ messageOf(error) }).`;
+            } finally {
+                busy = false;
+                update();
+            }
+        });
+
+        approveButton.addEventListener('click', () => {
+            if ( controls === null ) {
+                return;
+            }
+            const entries = controls.map(({ label, select }) => ({ label, category: select.value === '' ? null : select.value }));
+            try {
+                const result = applyReview(imported.rows, entries);
+                approved = { csv: result.csv, name: imported.name.replace(/\.csv$/i, '-cleaned.csv') };
+                status.textContent = `Approved. ${ result.unresolved } of ${ result.rows.length } rows have no category. Save the CSV file to keep it.`;
+            } catch ( error ) {
+                approved = null;
+                status.textContent = messageOf(error);
+            }
+            update();
+        });
+
+        saveButton.addEventListener('click', async () => {
+            if ( approved === null ) {
+                return;
+            }
+            const { csv, name } = approved;
+            busy = true;
+            update();
+            try {
+                // The save dialog opens before any other await, while the click still counts as a user action.
+                const saved = await saveCsvFile(csv, name);
+                status.textContent = saved === null
+                    ? 'Save cancelled. No file was saved.'
+                    : `Saved the cleaned CSV as ${ saved.name }.`;
+            } catch ( error ) {
+                // A rejection can follow a completed write whose response was lost.
+                status.textContent = `Save could not be confirmed (${ messageOf(error) }). Check the destination before retrying.`;
+            } finally {
+                busy = false;
+                update();
+            }
+        });
+
+        update();
     </script>
 </body>
 </html>

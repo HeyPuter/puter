@@ -3,7 +3,8 @@ import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 // Executes the recipe's own JS blocks, in order, so the tests cover exactly the
-// code readers copy. The context has no DOM and only a mocked `puter.ai.chat`.
+// code readers copy. The context has no DOM. `puter.ai.chat`, the `puter.ui`
+// pickers, and the `Papa` global are mocks at the browser and network boundary.
 const markdown = readFileSync(new URL('./clean-up-imported-categories.md', import.meta.url), 'utf8');
 const blocks = [...markdown.matchAll(/^```js(?:;[\w-]+)?\n([\s\S]*?)^```$/gm)].map(([, code]) => code);
 const source = blocks.join('\n');
@@ -25,18 +26,132 @@ const sampleReply = () => reply([
     { label: '???', category: 'Fraud' },
 ]);
 
+// -- File, picker, and parser boundaries --
+
+const MAX_FILE_BYTES = 1024 * 1024;
+
+// Synthetic file contents, not user data.
+const SAMPLE_FILE = [
+    'date,description,amount,category',
+    '2026-09-01,Corner Grocery,-42.10,groceries',
+    '2026-09-02,City Transit,-2.75,Transport',
+    '2026-09-03,"Cafe ""Bean"", Main St",-4.50,coffee shops',
+    '2026-09-04,Payroll,"1,250.00",Salary',
+    '2026-09-05,Hardware store,-18.90,"Groceries "',
+    '2026-09-06,"=HYPERLINK(""https://example.com"",""Refund"")",-0.01,???',
+    '',
+].join('\r\n');
+const SAMPLE_COLUMNS = ['date', 'description', 'amount', 'category'];
+const SAMPLE_ROWS = [
+    { date: '2026-09-01', description: 'Corner Grocery', amount: '-42.10', category: 'groceries' },
+    { date: '2026-09-02', description: 'City Transit', amount: '-2.75', category: 'Transport' },
+    { date: '2026-09-03', description: 'Cafe "Bean", Main St', amount: '-4.50', category: 'coffee shops' },
+    { date: '2026-09-04', description: 'Payroll', amount: '1,250.00', category: 'Salary' },
+    { date: '2026-09-05', description: 'Hardware store', amount: '-18.90', category: 'Groceries ' },
+    { date: '2026-09-06', description: '=HYPERLINK("https://example.com","Refund")', amount: '-0.01', category: '???' },
+];
+
+/** The result shape of `Papa.parse()` with `header: true`. */
+function papaResult (fields, data, { errors = [], renamedHeaders } = {}) {
+    return {
+        data,
+        errors,
+        meta: {
+            delimiter: ',',
+            linebreak: '\r\n',
+            aborted: false,
+            truncated: false,
+            cursor: 0,
+            fields,
+            ...(renamedHeaders ? { renamedHeaders } : {}),
+        },
+    };
+}
+
 /**
- * Runs the blocks as one async body, which for the full source also prepares
- * and applies the recipe's sample review, and returns its top-level declarations.
+ * Stands in for the Papa Parse global, which can't be installed here. Each known
+ * file text maps to the result Papa Parse returns for it, and any other text fails.
  */
-async function loadRecipe (chat = vi.fn(async () => sampleReply()), code = source) {
+function fakePapa (extra = []) {
+    const results = new Map([[SAMPLE_FILE, papaResult(SAMPLE_COLUMNS, SAMPLE_ROWS)], ...extra]);
+    return {
+        parse: vi.fn(text => {
+            if ( ! results.has(text) ) {
+                throw new Error(`No parse result for ${ JSON.stringify(String(text).slice(0, 40)) }`);
+            }
+            return structuredClone(results.get(text));
+        }),
+    };
+}
+
+/** Picker promises as `puter.ui` returns them, with `undefinedOnCancel` attached. */
+function pickerResolving (value) {
+    const request = Promise.resolve(value);
+    request.undefinedOnCancel = Promise.resolve(value);
+    return request;
+}
+
+function pickerCancelled () {
+    const request = new Promise(() => {});
+    request.undefinedOnCancel = Promise.resolve(undefined);
+    return request;
+}
+
+function pickerRejecting (error) {
+    const request = Promise.reject(error);
+    request.undefinedOnCancel = new Promise(() => {});
+    return request;
+}
+
+/** A website popup cancel, which resolves the picker's own promise with the popup's message. */
+function pickerPopupCancelled (msg) {
+    const request = Promise.resolve({ msg, original_msg_id: 1 });
+    request.undefinedOnCancel = new Promise(() => {});
+    return request;
+}
+
+/** A picked file shaped like an `FSItem`, whose `read()` resolves to a Blob. */
+function fakeFile (name, content, { type = 'text/csv', size = new Blob([content]).size, ...rest } = {}) {
+    return {
+        name,
+        path: `/test-user/Desktop/${ name }`,
+        size,
+        isDir: false,
+        read: vi.fn(async () => new Blob([content], { type })),
+        ...rest,
+    };
+}
+
+const savedItem = name => ({ name, path: `/test-user/Desktop/${ name }`, isDir: false });
+
+function fakeUi ({ file = fakeFile('september.csv', SAMPLE_FILE) } = {}) {
+    return {
+        showOpenFilePicker: vi.fn(() => pickerResolving(file)),
+        showSaveFilePicker: vi.fn((content, name) => pickerResolving(savedItem(name))),
+    };
+}
+
+/**
+ * Runs the blocks as one async body, which for the full source also opens the
+ * sample file, prepares and applies the recipe's sample review, and saves the
+ * result, and returns its top-level declarations.
+ */
+async function loadRecipe (chat = vi.fn(async () => sampleReply()), code = source, { ui = fakeUi(), Papa = fakePapa() } = {}) {
     const names = [...code.matchAll(/^(?:async )?(?:function|const) (\w+)/gm)].map(([, name]) => name);
-    const context = vm.createContext({ puter: { ai: { chat } } });
+    const context = vm.createContext({ puter: { ai: { chat }, ui }, Papa, Blob });
     const recipe = await vm.runInContext(
         `(async () => {\n${ code }\nreturn { ${ names.join(', ') } };\n})()`,
         context,
     );
-    return { recipe, chat };
+    return { recipe, chat, ui, Papa, context };
+}
+
+/** Loads the recipe, then points it at fresh boundaries for one call. */
+async function withBoundaries ({ file, ui = fakeUi({ file }), Papa = fakePapa(), chat = vi.fn(async () => sampleReply()) } = {}) {
+    const { recipe, context } = await loadRecipe();
+    context.puter = { ai: { chat }, ui };
+    context.Papa = Papa;
+    return { recipe, ui, Papa, chat };
 }
 
 const expectLabelsOnly = (recipe, chat) => {
@@ -56,56 +171,570 @@ const expectLabelsOnly = (recipe, chat) => {
 };
 
 describe('first try', () => {
-    it('runs on its own and returns the reply text for the sample labels', async () => {
-        const { recipe, chat } = await loadRecipe(undefined, firstTry);
+    it('runs on its own from the opened file and returns the reply text for its labels', async () => {
+        const { recipe, chat, ui } = await loadRecipe(undefined, firstTry);
 
+        expect(ui.showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(chat).toHaveBeenCalledTimes(1);
         expectLabelsOnly(recipe, chat);
         expect(recipe.reply).toBe(sampleReply().message.content);
         expect(recipe.prepareReview).toBeUndefined();
-    });
-});
-
-// The playground companion for the first try, run with a stub element that only accepts text.
-const companionHtml = readFileSync(new URL('../playground/examples/clean-up-imported-categories.html', import.meta.url), 'utf8');
-const companionScript = companionHtml.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
-
-async function runCompanion (chat) {
-    const output = {
-        textContent: '',
-        set innerHTML (_) {
-            throw new Error('The companion must render the reply as text.');
-        },
-    };
-    const document = { getElementById: id => (id === 'reply' ? output : null) };
-    const context = vm.createContext({ puter: { ai: { chat } }, document });
-    await vm.runInContext(`(async () => {\n${ companionScript }\n})()`, context);
-    return output;
-}
-
-describe('playground companion', () => {
-    it('makes the same single request as the first try and shows the raw reply as text', async () => {
-        const { chat: recipeChat } = await loadRecipe(undefined, firstTry);
-        const markup = '<img src=x onerror="globalThis.pwned = true">';
-        const chat = vi.fn(async () => ({ message: { content: markup } }));
-
-        const output = await runCompanion(chat);
-
-        expect(chat).toHaveBeenCalledTimes(1);
-        expect(plain(chat.mock.calls[0])).toEqual(plain(recipeChat.mock.calls[0]));
-        expect(output.textContent).toBe(markup);
-        expect(globalThis.pwned).toBeUndefined();
+        expect(ui.showSaveFilePicker).not.toHaveBeenCalled();
     });
 
     it.each([
-        [new Error('offline')],
-        [{ error: { message: 'busy' } }],
-    ])('shows a failed request %j as text', async (failure) => {
-        const output = await runCompanion(vi.fn(async () => {
-            throw failure;
-        }));
-        expect(typeof output.textContent).toBe('string');
-        expect(output.textContent).not.toBe('');
+        ['the first try', firstTry],
+        ['the full sample', source],
+    ])('stops %s on cancel without asking the AI, approving, or saving', async (_, code) => {
+        const chat = vi.fn(async () => sampleReply());
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerCancelled()) };
+        const Papa = fakePapa();
+
+        await expect(loadRecipe(chat, code, { ui, Papa })).rejects.toThrow('No file was opened.');
+        expect(chat).not.toHaveBeenCalled();
+        expect(Papa.parse).not.toHaveBeenCalled();
+        expect(ui.showSaveFilePicker).not.toHaveBeenCalled();
+    });
+});
+
+describe('opening a CSV file', () => {
+    it('reads the one picked file as a Blob and parses it with type conversion off', async () => {
+        const file = fakeFile('september.csv', SAMPLE_FILE);
+        const { recipe, ui, Papa, chat } = await withBoundaries({ file });
+
+        const imported = await recipe.openCsvFile();
+
+        expect(plain(ui.showOpenFilePicker.mock.calls)).toEqual([[{ multiple: false, accept: '.csv' }]]);
+        expect(file.read).toHaveBeenCalledTimes(1);
+        expect(Papa.parse).toHaveBeenCalledTimes(1);
+        expect(Papa.parse.mock.calls[0][0]).toBe(SAMPLE_FILE);
+        expect(plain(Papa.parse.mock.calls[0][1])).toEqual({
+            header: true,
+            dynamicTyping: false,
+            skipEmptyLines: true,
+            delimiter: ',',
+            preview: 10_001,
+        });
+        expect(plain(imported)).toEqual({ name: 'september.csv', columns: SAMPLE_COLUMNS, rows: SAMPLE_ROWS });
+        expect(chat).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['undefinedOnCancel', () => pickerCancelled()],
+        ['a website popup cancel message', () => pickerPopupCancelled('fileOpenCanceled')],
+    ])('resolves to null on a cancel through %s without reading, parsing, or asking the AI', async (_, cancel) => {
+        const file = fakeFile('september.csv', SAMPLE_FILE);
+        const ui = { ...fakeUi({ file }), showOpenFilePicker: vi.fn(cancel) };
+        const { recipe, Papa, chat } = await withBoundaries({ ui });
+
+        expect(await recipe.openCsvFile()).toBeNull();
+        expect(file.read).not.toHaveBeenCalled();
+        expect(Papa.parse).not.toHaveBeenCalled();
+        expect(chat).not.toHaveBeenCalled();
+        expect(ui.showSaveFilePicker).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        [new Error('The popup was blocked')],
+        ['This API is not compatible in Web Workers.'],
+    ])('rejects when the picker rejects with %j', async (failure) => {
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerRejecting(failure)) };
+        const { recipe, Papa } = await withBoundaries({ ui });
+
+        await expect(recipe.openCsvFile()).rejects.toBe(failure);
+        expect(Papa.parse).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['two files', () => [fakeFile('a.csv', SAMPLE_FILE), fakeFile('b.csv', SAMPLE_FILE)]],
+        ['a list with one file', () => [fakeFile('a.csv', SAMPLE_FILE)]],
+        ['a directory', () => fakeFile('exports.csv', SAMPLE_FILE, { isDir: true })],
+        ['an item without read()', () => ({ name: 'a.csv', isDir: false })],
+        ['a text file', () => fakeFile('september.txt', SAMPLE_FILE)],
+        ['a name without an extension', () => fakeFile('csv', SAMPLE_FILE)],
+        ['an item without a name', () => fakeFile(undefined, SAMPLE_FILE)],
+        ['null', () => null],
+        ['a save cancel message', () => ({ msg: 'fileSaveCanceled', original_msg_id: 1 })],
+        ['another popup message', () => ({ msg: 'fileOpened', original_msg_id: 1 })],
+    ])('rejects %s without reading it', async (_, makePick) => {
+        const picked = makePick();
+        const { recipe, Papa } = await withBoundaries({ file: picked });
+
+        await expect(recipe.openCsvFile()).rejects.toThrow(/one \.csv file/);
+        for ( const item of [picked].flat() ) {
+            if ( item?.read ) {
+                expect(item.read).not.toHaveBeenCalled();
+            }
+        }
+        expect(Papa.parse).not.toHaveBeenCalled();
+    });
+
+    it('accepts an uppercase .CSV extension', async () => {
+        const { recipe } = await withBoundaries({ file: fakeFile('SEPTEMBER.CSV', SAMPLE_FILE) });
+        expect((await recipe.openCsvFile()).name).toBe('SEPTEMBER.CSV');
+    });
+
+    it('rejects a file over 1 MiB by its reported size without reading it', async () => {
+        const file = fakeFile('big.csv', SAMPLE_FILE, { size: MAX_FILE_BYTES + 1 });
+        const { recipe } = await withBoundaries({ file });
+
+        await expect(recipe.openCsvFile()).rejects.toThrow(/at most 1 MiB/);
+        expect(file.read).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a small reported size', 10],
+        ['no reported size', null],
+    ])('rejects more than 1 MiB of read bytes with %s, before parsing', async (_, size) => {
+        const file = fakeFile('big.csv', `category\r\n${ 'a'.repeat(MAX_FILE_BYTES) }`, { size });
+        const { recipe, Papa } = await withBoundaries({ file });
+
+        await expect(recipe.openCsvFile()).rejects.toThrow(/at most 1 MiB/);
+        expect(file.read).toHaveBeenCalledTimes(1);
+        expect(Papa.parse).not.toHaveBeenCalled();
+    });
+
+    it('accepts a file of exactly 1 MiB', async () => {
+        const header = 'category\r\n';
+        const content = header + 'a'.repeat(MAX_FILE_BYTES - header.length);
+        const Papa = fakePapa([[content, papaResult(['category'], [{ category: 'a'.repeat(MAX_FILE_BYTES - header.length) }])]]);
+        const { recipe } = await withBoundaries({ file: fakeFile('full.csv', content), Papa });
+
+        expect((await recipe.openCsvFile()).rows).toHaveLength(1);
+    });
+
+    it.each([
+        ['text instead of a Blob', async () => SAMPLE_FILE, /could not be read/],
+        ['nothing', async () => undefined, /could not be read/],
+        ['a rejection', async () => {
+            throw new Error('offline');
+        }, /offline/],
+    ])('rejects when read() gives %s', async (_, read, message) => {
+        const file = { ...fakeFile('september.csv', SAMPLE_FILE), read: vi.fn(read) };
+        const { recipe, Papa } = await withBoundaries({ file });
+
+        await expect(recipe.openCsvFile()).rejects.toThrow(message);
+        expect(Papa.parse).not.toHaveBeenCalled();
+    });
+});
+
+describe('parsing CSV', () => {
+    /** Returns a call to `parseCsv()` against a parser that returns `result`. */
+    async function parseWith (result) {
+        const { recipe } = await withBoundaries({ Papa: { parse: vi.fn(() => structuredClone(result)) } });
+        return () => recipe.parseCsv('fixture text');
+    }
+
+    it('keeps quoted fields with commas, quotes, and line breaks, and amount strings, through to the cleaned CSV', async () => {
+        const content = 'description,amount,category\r\n'
+            + '"Line one\nline two",007.10,"Groceries "\r\n'
+            + '"Says ""hi"", twice","1,250.00",=cmd\r\n';
+        const rows = [
+            { description: 'Line one\nline two', amount: '007.10', category: 'Groceries ' },
+            { description: 'Says "hi", twice', amount: '1,250.00', category: '=cmd' },
+        ];
+        const Papa = fakePapa([[content, papaResult(['description', 'amount', 'category'], rows)]]);
+        const { recipe, chat } = await withBoundaries({ file: fakeFile('multiline.csv', content), Papa });
+
+        const imported = await recipe.openCsvFile();
+        const review = await recipe.prepareReview(imported.rows);
+        const result = recipe.applyReview(imported.rows, review.entries.map(({ label }) => ({
+            label,
+            category: label === 'Groceries ' ? 'Groceries' : null,
+        })));
+
+        expect(plain(imported.rows)).toEqual(rows);
+        expect(JSON.parse(plain(chat.mock.calls[0])[0][1].content)).toEqual(['=cmd', 'Groceries ']);
+        expect(result.csv).toBe('"description","amount","category","cleanCategory"\r\n'
+            + '"Line one\nline two","007.10","Groceries ","Groceries"\r\n'
+            + '"Says ""hi"", twice","1,250.00","\'=cmd",""\r\n');
+    });
+
+    it.each([
+        ['an unterminated quote', [{ type: 'Quotes', code: 'MissingQuotes', message: 'Quoted field unterminated', row: 1 }]],
+        ['a row with too few fields', [{ type: 'FieldMismatch', code: 'TooFewFields', message: 'Too few fields: expected 4 fields but parsed 3', row: 0 }]],
+        ['a row with too many fields', [{ type: 'FieldMismatch', code: 'TooManyFields', message: 'Too many fields: expected 4 fields but parsed 5', row: 0 }]],
+    ])('rejects a file with %s', async (_, errors) => {
+        const parse = await parseWith(papaResult(SAMPLE_COLUMNS, SAMPLE_ROWS.slice(0, 1), { errors }));
+        expect(parse).toThrow(`The file isn't valid CSV (${ errors[0].message }).`);
+    });
+
+    it.each([
+        ['headers Papa Parse renamed', papaResult(['date', 'amount', 'amount_1', 'category'], [], { renamedHeaders: { amount_1: 'amount' } }), /different name/],
+        ['repeated headers', papaResult(['category', 'category'], []), /different name/],
+        ['an empty header', papaResult(['date', '', 'category'], []), /needs a name/],
+        ['a blank header', papaResult(['date', '  ', 'category'], []), /needs a name/],
+        ['no category column', papaResult(['date', 'Category '], []), /category column/],
+        ['no header fields', { data: [], errors: [], meta: { delimiter: ',' } }, /category column/],
+    ])('rejects %s', async (_, result, message) => {
+        expect(await parseWith(result)).toThrow(message);
+    });
+
+    it.each([
+        ['a missing value', [{ date: '2026-09-01', category: 'a' }]],
+        ['a number from type conversion', [{ date: '2026-09-01', amount: -4.5, category: 'a' }]],
+        ['a null value', [{ date: '2026-09-01', amount: null, category: 'a' }]],
+        ['extra fields', [{ date: '2026-09-01', amount: '1', category: 'a', __parsed_extra: ['x'] }]],
+    ])('rejects a row with %s', async (_, rows) => {
+        const parse = await parseWith(papaResult(['date', 'amount', 'category'], [{ date: '2026-09-01', amount: '1', category: 'b' }, ...rows]));
+        expect(parse).toThrow(/Row 2 /);
+    });
+
+    it('rejects more than 10,000 rows and accepts 10,000', async () => {
+        const rows = Array.from({ length: 10_001 }, (_, i) => ({ category: `label ${ i % 5 }` }));
+
+        expect(await parseWith(papaResult(['category'], rows))).toThrow(/more than 10000 rows/);
+        expect((await parseWith(papaResult(['category'], rows.slice(1))))().rows).toHaveLength(10_000);
+    });
+});
+
+describe('saving the CSV', () => {
+    it('saves the approved sample CSV through the save dialog under a new name', async () => {
+        const { recipe, ui } = await loadRecipe();
+
+        expect(ui.showSaveFilePicker).toHaveBeenCalledTimes(1);
+        expect(ui.showSaveFilePicker.mock.calls[0]).toEqual([SAMPLE_CSV, 'september-cleaned.csv']);
+        expect(plain(recipe.savedFile)).toEqual(savedItem('september-cleaned.csv'));
+    });
+
+    it.each([
+        ['undefinedOnCancel', () => pickerCancelled()],
+        ['a website popup cancel message', () => pickerPopupCancelled('fileSaveCanceled')],
+    ])('resolves to null when the user cancels through %s', async (_, cancel) => {
+        const ui = { ...fakeUi(), showSaveFilePicker: vi.fn(cancel) };
+        const { recipe } = await withBoundaries({ ui });
+
+        expect(await recipe.saveCsvFile(SAMPLE_CSV, 'out.csv')).toBeNull();
+        expect(ui.showSaveFilePicker).toHaveBeenCalledWith(SAMPLE_CSV, 'out.csv');
+    });
+
+    it.each([
+        ['an empty object', {}],
+        ['an item without a name', { path: '/test-user/Desktop/out.csv', isDir: false }],
+        ['an item with an empty name', savedItem('')],
+        ['a non-string name', { name: 42 }],
+        ['an open cancel message', { msg: 'fileOpenCanceled', original_msg_id: 1 }],
+        ['another popup message', { msg: 'fileSaved', original_msg_id: 1 }],
+        ['null', null],
+        ['a string', 'out.csv'],
+    ])('rejects %s as an unconfirmed save, and keeps the approved result', async (_, value) => {
+        const ui = { ...fakeUi(), showSaveFilePicker: vi.fn(() => pickerResolving(value)) };
+        const { recipe } = await withBoundaries({ ui });
+
+        await expect(recipe.saveCsvFile(recipe.result.csv, 'out.csv')).rejects.toThrow(/could not be confirmed/);
+        expect(recipe.result.csv).toBe(SAMPLE_CSV);
+    });
+
+    it.each([
+        [new Error('Storage is full')],
+        ['This API is not compatible in Web Workers.'],
+    ])('rejects when the save rejects with %j, and keeps the approved result', async (failure) => {
+        const ui = { ...fakeUi(), showSaveFilePicker: vi.fn(() => pickerRejecting(failure)) };
+        const { recipe } = await withBoundaries({ ui });
+
+        await expect(recipe.saveCsvFile(recipe.result.csv, 'out.csv')).rejects.toBe(failure);
+        expect(recipe.result.csv).toBe(SAMPLE_CSV);
+    });
+});
+
+// -- Playground companion --
+
+const companionHtml = readFileSync(new URL('../playground/examples/clean-up-imported-categories.html', import.meta.url), 'utf8');
+const companionScript = companionHtml.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+
+/** A DOM element stub that renders text only and records listeners. */
+function fakeElement (tag) {
+    let text = '';
+    return {
+        tag,
+        children: [],
+        listeners: {},
+        value: '',
+        disabled: false,
+        get textContent () {
+            return text + this.children.map(child => child.textContent).join('');
+        },
+        set textContent (value) {
+            text = String(value);
+            this.children = [];
+        },
+        set innerHTML (_) {
+            throw new Error('The companion must render text, not HTML.');
+        },
+        append (...nodes) {
+            this.children.push(...nodes);
+        },
+        replaceChildren (...nodes) {
+            this.children = [...nodes];
+        },
+        addEventListener (type, listener) {
+            (this.listeners[type] ??= []).push(listener);
+        },
+    };
+}
+
+const fire = (element, type) => Promise.all((element.listeners[type] ?? []).map(listener => listener({ type })));
+
+/** Runs the companion's module script against the stub DOM, then drives it like a user. */
+async function runCompanion ({ chat = vi.fn(async () => sampleReply()), ui = fakeUi(), Papa = fakePapa() } = {}) {
+    const elements = new Map();
+    const byId = id => {
+        if ( ! elements.has(id) ) {
+            elements.set(id, fakeElement(`#${ id }`));
+        }
+        return elements.get(id);
+    };
+    const document = { getElementById: byId, createElement: tag => fakeElement(tag) };
+    const context = vm.createContext({ puter: { ai: { chat }, ui }, Papa, Blob, document });
+    await vm.runInContext(`(async () => {\n${ companionScript }\n})()`, context);
+    return {
+        chat,
+        ui,
+        Papa,
+        byId,
+        click: id => fire(byId(id), 'click'),
+        status: () => byId('status').textContent,
+        problems: () => byId('problems').children.map(item => item.textContent),
+        rows: () => byId('review').children.map(row => ({
+            label: row.children[0].textContent,
+            count: row.children[1].textContent,
+            select: row.children[2].children[0],
+        })),
+        choose: async (label, category) => {
+            const row = byId('review').children.find(item => item.children[0].textContent === JSON.stringify(label));
+            const select = row.children[2].children[0];
+            select.value = category;
+            await fire(select, 'change');
+        },
+    };
+}
+
+const OTHER_FILE = 'category\r\nrent\r\n';
+const otherPapa = () => fakePapa([[OTHER_FILE, papaResult(['category'], [{ category: 'rent' }])]]);
+
+describe('playground companion', () => {
+    it('makes no request until the user opens a file', async () => {
+        const page = await runCompanion();
+
+        expect(page.ui.showOpenFilePicker).not.toHaveBeenCalled();
+        expect(page.ui.showSaveFilePicker).not.toHaveBeenCalled();
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(page.Papa.parse).not.toHaveBeenCalled();
+        expect(page.byId('open').disabled).toBe(false);
+        expect(page.byId('approve').disabled).toBe(true);
+        expect(page.byId('save').disabled).toBe(true);
+    });
+
+    it('sends only the labels of the opened file and shows the review as text', async () => {
+        const { chat: recipeChat } = await loadRecipe(undefined, firstTry);
+        const page = await runCompanion();
+
+        await page.click('open');
+
+        expect(plain(page.ui.showOpenFilePicker.mock.calls)).toEqual([[{ multiple: false, accept: '.csv' }]]);
+        expect(page.chat).toHaveBeenCalledTimes(1);
+        expect(plain(page.chat.mock.calls[0])).toEqual(plain(recipeChat.mock.calls[0]));
+        expect(page.rows().map(row => [row.label, row.count, row.select.value])).toEqual(
+            SAMPLE_REVIEW.entries.map(entry => [JSON.stringify(entry.label), String(entry.count), entry.category ?? '']),
+        );
+        expect(page.problems()).toEqual(SAMPLE_REVIEW.problems);
+        expect(page.byId('approve').disabled).toBe(false);
+        expect(page.byId('save').disabled).toBe(true);
+        expect(page.ui.showSaveFilePicker).not.toHaveBeenCalled();
+    });
+
+    it('saves only after the user approves, with the categories the user chose', async () => {
+        const page = await runCompanion();
+        await page.click('open');
+        await page.choose('Groceries ', 'Shopping');
+        await page.choose('Salary', 'Income');
+
+        await page.click('save');
+        expect(page.ui.showSaveFilePicker).not.toHaveBeenCalled();
+
+        await page.click('approve');
+        expect(page.byId('save').disabled).toBe(false);
+        await page.click('save');
+
+        expect(page.ui.showSaveFilePicker.mock.calls).toEqual([[SAMPLE_CSV, 'september-cleaned.csv']]);
+        expect(page.status()).toMatch(/Saved the cleaned CSV as september-cleaned\.csv/);
+        expect(page.chat).toHaveBeenCalledTimes(1);
+    });
+
+    it('requires a new approval after the review changes', async () => {
+        const page = await runCompanion();
+        await page.click('open');
+        await page.click('approve');
+
+        await page.choose('Groceries ', 'Shopping');
+        expect(page.byId('save').disabled).toBe(true);
+        await page.click('save');
+        expect(page.ui.showSaveFilePicker).not.toHaveBeenCalled();
+
+        await page.click('approve');
+        await page.click('save');
+        const [csv] = page.ui.showSaveFilePicker.mock.calls[0];
+        expect(csv).toContain('"Hardware store","-18.90","Groceries ","Shopping"');
+    });
+
+    it('rejects a category that is not in the list when approving', async () => {
+        const page = await runCompanion();
+        await page.click('open');
+        await page.choose('???', 'Bribes');
+
+        await page.click('approve');
+
+        expect(page.status()).toMatch(/unknown category/);
+        expect(page.byId('save').disabled).toBe(true);
+    });
+
+    it('keeps the review and approved CSV when opening another file is cancelled or fails', async () => {
+        const broken = 'category\r\n"unterminated\r\n';
+        const Papa = fakePapa([[broken, papaResult(['category'], [], {
+            errors: [{ type: 'Quotes', code: 'MissingQuotes', message: 'Quoted field unterminated', row: 0 }],
+        })]]);
+        const ui = fakeUi();
+        const page = await runCompanion({ ui, Papa });
+        await page.click('open');
+        await page.choose('Groceries ', 'Shopping');
+        await page.choose('Salary', 'Income');
+        await page.click('approve');
+
+        ui.showOpenFilePicker.mockImplementationOnce(() => pickerCancelled());
+        await page.click('open');
+        expect(page.status()).toMatch(/No file was opened/);
+
+        ui.showOpenFilePicker.mockImplementationOnce(() => pickerResolving(fakeFile('broken.csv', broken)));
+        await page.click('open');
+        expect(page.status()).toMatch(/not opened \(The file isn't valid CSV \(Quoted field unterminated\)\.\)/);
+
+        ui.showOpenFilePicker.mockImplementationOnce(() => pickerResolving(fakeFile('photo.png', 'not csv')));
+        await page.click('open');
+        expect(page.status()).toMatch(/one \.csv file/);
+
+        expect(page.chat).toHaveBeenCalledTimes(1);
+        expect(page.rows()).toHaveLength(SAMPLE_LABELS.length);
+        expect(page.byId('save').disabled).toBe(false);
+        await page.click('save');
+        expect(page.ui.showSaveFilePicker.mock.calls).toEqual([[SAMPLE_CSV, 'september-cleaned.csv']]);
+    });
+
+    it('replaces the review and drops the approval when another file opens', async () => {
+        const ui = fakeUi();
+        const page = await runCompanion({ ui, Papa: otherPapa(), chat: vi.fn(async () => reply([{ label: 'rent', category: 'Other' }])) });
+        await page.click('open');
+        await page.click('approve');
+        expect(page.byId('save').disabled).toBe(false);
+
+        ui.showOpenFilePicker.mockImplementationOnce(() => pickerResolving(fakeFile('october.csv', OTHER_FILE)));
+        await page.click('open');
+
+        expect(page.byId('save').disabled).toBe(true);
+        expect(page.rows().map(row => [row.label, row.select.value])).toEqual([['"rent"', 'Other']]);
+        await page.click('approve');
+        await page.click('save');
+        expect(page.ui.showSaveFilePicker.mock.calls).toEqual([[
+            '"category","cleanCategory"\r\n"rent","Other"\r\n',
+            'october-cleaned.csv',
+        ]]);
+    });
+
+    it('reports a cancelled or failed save without claiming success, and saves on retry', async () => {
+        const ui = fakeUi();
+        const page = await runCompanion({ ui });
+        await page.click('open');
+        await page.click('approve');
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerCancelled());
+        await page.click('save');
+        expect(page.status()).toMatch(/Save cancelled\. No file was saved\./);
+        expect(page.byId('save').disabled).toBe(false);
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerRejecting(new Error('Storage is full')));
+        await page.click('save');
+        expect(page.status()).toBe('Save could not be confirmed (Storage is full). Check the destination before retrying.');
+        expect(page.status()).not.toMatch(/Saved/);
+        expect(page.byId('save').disabled).toBe(false);
+
+        await page.click('save');
+        expect(page.status()).toMatch(/Saved the cleaned CSV/);
+        expect(ui.showSaveFilePicker).toHaveBeenCalledTimes(3);
+        expect(new Set(ui.showSaveFilePicker.mock.calls.map(([csv]) => csv)).size).toBe(1);
+    });
+
+    it('treats a website popup open cancel as no file opened, without asking the AI', async () => {
+        const ui = { ...fakeUi(), showOpenFilePicker: vi.fn(() => pickerPopupCancelled('fileOpenCanceled')) };
+        const page = await runCompanion({ ui });
+
+        await page.click('open');
+
+        expect(page.status()).toBe('No file was opened, so nothing was sent.');
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(page.Papa.parse).not.toHaveBeenCalled();
+        expect(page.byId('approve').disabled).toBe(true);
+    });
+
+    it('reports a website popup save cancel as cancelled and an unexpected save result as unconfirmed', async () => {
+        const ui = fakeUi();
+        const page = await runCompanion({ ui });
+        await page.click('open');
+        await page.click('approve');
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerPopupCancelled('fileSaveCanceled'));
+        await page.click('save');
+        expect(page.status()).toBe('Save cancelled. No file was saved.');
+        expect(page.byId('save').disabled).toBe(false);
+
+        ui.showSaveFilePicker.mockImplementationOnce(() => pickerResolving({}));
+        await page.click('save');
+        expect(page.status()).toMatch(/^Save could not be confirmed \(.*could not be confirmed\.\)\. Check the destination before retrying\.$/);
+        expect(page.status()).not.toMatch(/Saved|No file was saved/);
+        expect(page.byId('save').disabled).toBe(false);
+
+        await page.click('save');
+        expect(page.status()).toMatch(/Saved the cleaned CSV as september-cleaned\.csv/);
+    });
+
+    it('starts with every label unresolved when the AI request fails', async () => {
+        const page = await runCompanion({ chat: vi.fn(async () => {
+            throw new Error('offline');
+        }) });
+
+        await page.click('open');
+
+        expect(page.rows().every(row => row.select.value === '')).toBe(true);
+        expect(page.problems()).toEqual(['No AI suggestions (offline). Choose each category by hand.']);
+        await page.click('approve');
+        expect(page.status()).toMatch(/6 of 6 rows have no category/);
+    });
+
+    it('shows an error for an oversize file without asking the AI', async () => {
+        const ui = fakeUi({ file: fakeFile('big.csv', 'x'.repeat(MAX_FILE_BYTES + 1), { size: 1 }) });
+        const page = await runCompanion({ ui });
+
+        await page.click('open');
+
+        expect(page.status()).toMatch(/not opened \(Pick a CSV file of at most 1 MiB\.\)/);
+        expect(page.chat).not.toHaveBeenCalled();
+        expect(page.Papa.parse).not.toHaveBeenCalled();
+        expect(page.byId('approve').disabled).toBe(true);
+    });
+
+    it('renders labels and problems that look like markup as text', async () => {
+        const markup = '<img src=x onerror="globalThis.pwned = true">';
+        const content = `category\r\n"${ markup.replaceAll('"', '""') }"\r\n`;
+        const Papa = fakePapa([[content, papaResult(['category'], [{ category: markup }])]]);
+        const page = await runCompanion({
+            ui: fakeUi({ file: fakeFile('markup.csv', content) }),
+            Papa,
+            chat: vi.fn(async () => reply([{ label: markup, category: markup }])),
+        });
+
+        await page.click('open');
+
+        expect(page.rows().map(row => row.label)).toEqual([JSON.stringify(markup)]);
+        expect(page.problems()).toEqual([`Ignored unknown category ${ JSON.stringify(markup) } for ${ JSON.stringify(markup) }.`]);
+        expect(globalThis.pwned).toBeUndefined();
     });
 });
 
