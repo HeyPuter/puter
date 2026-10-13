@@ -441,6 +441,34 @@ describe('XAISpeechToTextProvider request shape', () => {
         expect(form.get('model')).toBeNull();
     });
 
+    it('accepts but ignores legacy transcription options', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            sttResponse({ text: 'ok', duration: 1 }),
+        );
+
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                timestamp_granularities: ['word'],
+                chunking_strategy: 'auto',
+                known_speaker_names: ['agent'],
+                known_speaker_references: ['data:audio/wav;base64,QQ=='],
+            }),
+        );
+
+        expect(result).toMatchObject({ text: 'ok' });
+        const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
+            .body as FormData;
+        expect(form.get('timestamp_granularities')).toBeNull();
+        expect(form.get('timestamp_granularities[]')).toBeNull();
+        expect(form.get('chunking_strategy')).toBeNull();
+        expect(form.get('known_speaker_names')).toBeNull();
+        expect(form.get('known_speaker_names[]')).toBeNull();
+        expect(form.get('known_speaker_references')).toBeNull();
+        expect(form.get('known_speaker_references[]')).toBeNull();
+    });
+
     it('forwards a pinned grok-voice-transcribe version as `model`', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(

@@ -522,6 +522,26 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
         expect(sent.timestamp_granularities).toBeUndefined();
     });
 
+    it('accepts but does not forward chunking or known-speaker options', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                chunking_strategy: 'auto',
+                known_speaker_names: ['agent'],
+                known_speaker_references: ['data:audio/wav;base64,QQ=='],
+            }),
+        );
+
+        expect(result).toEqual({ text: 'x' });
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.chunking_strategy).toBeUndefined();
+        expect(sent.known_speaker_names).toBeUndefined();
+        expect(sent.known_speaker_references).toBeUndefined();
+    });
+
     it('passes extra_body through verbatim', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });

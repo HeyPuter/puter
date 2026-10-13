@@ -561,6 +561,21 @@ describe('ai.speech2txt driver payloads', () => {
         });
     });
 
+    it('speech2txt still sends options the backend accepts but ignores', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'hi' } });
+        const legacy = {
+            timestamp_granularities: ['word'],
+            chunking_strategy: 'auto',
+            known_speaker_names: ['agent'],
+            known_speaker_references: ['data:audio/wav;base64,QQ=='],
+        };
+        await ai.speech2txt({ file: 'data:audio/mpeg;base64,QUJD', ...legacy });
+        expect(lastBody().args).toEqual({
+            file: 'data:audio/mpeg;base64,QUJD',
+            ...legacy,
+        });
+    });
+
     it('speech2txt returns bare text for response_format text', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: { text: 'transcribed' } });
         const out = await ai.speech2txt({

@@ -20,7 +20,7 @@ puter.ai.txt2speech.listEngines(options)
 
 A provider name to query. When passed as a string, this is shorthand for `{ provider }`. Defaults to `'aws-polly'`.
 
-Accepted values: `'aws-polly'`, `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, or `'all'` to list every provider at once.
+Accepted values: `'aws-polly'`, `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`, or `'all'` to list every provider at once.
 
 Common aliases are also accepted (e.g. `'eleven'`, `'google'`, `'grok'`). An unrecognized provider is rejected with a `bad_request` error.
 
