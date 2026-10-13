@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
 import {
     APP_WINDOW_SECONDS,
+    GODMODE_TOKEN_MAX_AGE_SECONDS,
+    GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
     WORKER_WINDOW_SECONDS,
 } from './SessionStore.js';
@@ -395,6 +397,142 @@ describe('SessionStore', () => {
             await target.removeByUuid(first.uuid);
             const second = await target.getOrCreateApp(user.id, appUid);
             expect(second.uuid).not.toBe(first.uuid);
+        });
+    });
+
+    describe('getOrCreateGodmodeToken', () => {
+        const nowS = () => Math.floor(Date.now() / 1000);
+        const mint = (
+            userId: number,
+            parentSessionUid: string,
+            appUid = 'app-gm',
+        ) =>
+            target.getOrCreateGodmodeToken(userId, {
+                parentSessionUid,
+                appUid,
+                expiresAt: nowS() + GODMODE_TOKEN_WINDOW_SECONDS,
+                maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
+            });
+        const desktop = async () => {
+            const user = await makeUser();
+            const web = await target.create(user.id);
+            return { userId: user.id as number, web: web.uuid as string };
+        };
+
+        it('renews from the cache with no primary read and no write', async () => {
+            const { userId, web } = await desktop();
+            const first = await mint(userId, web);
+
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            const write = vi.spyOn(server.clients.db, 'write');
+            try {
+                const second = await mint(userId, web);
+                expect(second.row.uuid).toBe(first.row.uuid);
+                expect(second.row.expires_at).toBe(first.row.expires_at);
+                expect(second.replaced).toBeNull();
+                expect(pread).not.toHaveBeenCalled();
+                expect(write).not.toHaveBeenCalled();
+            } finally {
+                pread.mockRestore();
+                write.mockRestore();
+            }
+        });
+
+        it('extends the row once the move is an hour or more', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [nowS() + 2 * 60 * 60, row.uuid],
+            );
+            await target.publishCacheKeys({
+                keys: [`sessions:v2:uuid:${row.uuid}`],
+            });
+
+            const renewed = await mint(userId, web);
+            expect(renewed.row.uuid).toBe(row.uuid);
+            expect(renewed.row.expires_at).toBeGreaterThanOrEqual(
+                nowS() + GODMODE_TOKEN_WINDOW_SECONDS - 1,
+            );
+            expect((await rawRow(row.uuid)).expires_at).toBe(
+                renewed.row.expires_at,
+            );
+        });
+
+        it('mints a new row once the cached one is revoked', async () => {
+            const { userId, web } = await desktop();
+            const first = await mint(userId, web);
+            await target.revokeCascade(first.row.uuid);
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(first.row.uuid);
+            expect(next.replaced).toBeNull();
+
+            const second = await mint(userId, web);
+            await target.removeByUuid(second.row.uuid);
+            expect((await mint(userId, web)).row.uuid).not.toBe(
+                second.row.uuid,
+            );
+        });
+
+        it('mints a new row when a lagging read re-cached the revoked one', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            await target.revokeCascade(row.uuid);
+            // A replica that hadn't seen the revoke yet answered a read.
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${row.uuid}`,
+                JSON.stringify(row),
+            );
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(row.uuid);
+        });
+
+        it('mints a new row when a renewal finds the cached one already revoked', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            const soon = nowS() + 2 * 60 * 60;
+            // Revoked in the database, still live and due for renewal in the cache.
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ?',
+                [nowS(), row.uuid],
+            );
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${row.uuid}`,
+                JSON.stringify({ ...row, expires_at: soon }),
+            );
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(row.uuid);
+            expect((await rawRow(row.uuid)).expires_at).toBe(row.expires_at);
+        });
+
+        it('keeps one row per web session and app', async () => {
+            const { userId, web } = await desktop();
+            const other = (await target.create(userId)).uuid;
+            const first = await mint(userId, web);
+
+            expect((await mint(userId, other)).row.uuid).not.toBe(
+                first.row.uuid,
+            );
+            expect((await mint(userId, web, 'app-gm-other')).row.uuid).not.toBe(
+                first.row.uuid,
+            );
+            expect((await mint(userId, web)).row.uuid).toBe(first.row.uuid);
+        });
+
+        it('ignores a cached pointer to a row of another session', async () => {
+            const { userId, web } = await desktop();
+            const other = (await target.create(userId)).uuid;
+            const mine = await mint(userId, web);
+            const theirs = await mint(userId, other);
+            await server.clients.redis.set(
+                `sessions:v2:godmode:${userId}:${web}:app-gm`,
+                JSON.stringify({ uuid: theirs.row.uuid }),
+            );
+
+            expect((await mint(userId, web)).row.uuid).toBe(mine.row.uuid);
         });
     });
 
