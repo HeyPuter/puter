@@ -221,7 +221,14 @@ describe('ElevenLabsTTSProvider catalog', () => {
     it('prices each engine from the cost table in dollars per 1M chars', async () => {
         const provider = makeProvider();
         const engines = await provider.listEngines();
+        // toBe considers NaN equal to itself, so assert finiteness separately.
+        for (const cost of Object.values(ELEVENLABS_TTS_COSTS)) {
+            expect(Number.isFinite(cost)).toBe(true);
+        }
         for (const engine of engines) {
+            expect(Number.isFinite(engine.pricing_per_million_chars)).toBe(
+                true,
+            );
             expect(engine.pricing_per_million_chars).toBe(
                 ELEVENLABS_TTS_COSTS[engine.id] / 100,
             );
