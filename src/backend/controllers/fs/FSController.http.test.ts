@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable } from 'node:stream';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 
 /**
@@ -548,4 +550,112 @@ describe('POST /fs/startWrite storage quota over HTTP', () => {
         const responseBody = (await response.json()) as { code?: string };
         expect(responseBody.code).toBe('bad_request');
     });
+});
+
+describe('file reads over HTTP when storage fails mid-download', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv();
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    const writeFile = async (name: string, content: string) => {
+        const { username } = env.users.user;
+        const user = await env.server.stores.user.getByUsername(username);
+        const body = Buffer.from(content);
+        const { fsEntry } = await env.server.services.fs.write(user!.id, {
+            fileMetadata: {
+                path: `/${username}/Documents/${name}`,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+        return fsEntry;
+    };
+
+    // Storage hands over one chunk and then fails, the way a dropped
+    // connection or a checksum mismatch surfaces on a read in flight.
+    const breakReadsOf = (objectKey: string) => {
+        const s3 = env.server.stores.s3Object;
+        const client = env.server.clients.s3.get(s3.resolveRegion(null));
+        const send = client.send.bind(client);
+        return vi.spyOn(client, 'send').mockImplementation(((
+            command: unknown,
+        ) => {
+            if (
+                !(command instanceof GetObjectCommand) ||
+                command.input.Key !== objectKey
+            ) {
+                return send(command as never);
+            }
+            let reads = 0;
+            const body = new Readable({
+                read() {
+                    reads += 1;
+                    if (reads === 1) this.push('partial');
+                    // Late enough for the headers and first chunk to go out.
+                    else if (reads === 2)
+                        setTimeout(
+                            () => this.destroy(new Error('Checksum mismatch')),
+                            25,
+                        );
+                },
+            });
+            return Promise.resolve({
+                Body: body,
+                ContentLength: 64,
+                ContentType: 'text/plain',
+            });
+        }) as never);
+    };
+
+    it.each([
+        ['/fs/read', 'path'],
+        ['/read', 'file'],
+    ])(
+        'GET %s fails that response and keeps serving others',
+        async (route, param) => {
+            const { username, token } = env.users.user;
+            const urlFor = (name: string) => {
+                const url = new URL(route, env.apiOrigin);
+                url.searchParams.set(param, `/${username}/Documents/${name}`);
+                return url;
+            };
+            const suffix = route.replace(/\W/g, '');
+            const broken = await writeFile(
+                `broken-${suffix}.txt`,
+                'x'.repeat(64),
+            );
+            await writeFile(`healthy-${suffix}.txt`, 'still fine');
+
+            const send = breakReadsOf(broken.uuid);
+            let status = 0;
+            let completed = false;
+            try {
+                const response = await fetch(urlFor(`broken-${suffix}.txt`), {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                status = response.status;
+                await response.arrayBuffer();
+                completed = true;
+            } catch {
+                // Expected: the transfer is cut short.
+            } finally {
+                send.mockRestore();
+            }
+            expect(status).toBe(200);
+            expect(completed).toBe(false);
+
+            const healthy = await fetch(urlFor(`healthy-${suffix}.txt`), {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            expect(healthy.status).toBe(200);
+            expect(await healthy.text()).toBe('still fine');
+        },
+    );
 });

@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Writable } from 'node:stream';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable, Writable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
@@ -652,6 +653,66 @@ describe('createPuterSiteMiddleware — file serving', () => {
         // about here).
         expect(out.statusCode).toBe(206);
         expect(out.headers['Accept-Ranges']).toBe('bytes');
+    });
+
+    it('cuts the response off when storage fails mid-download', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `cut-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const entry = await writeFile(
+            owner.id,
+            `${homePath}/movie.bin`,
+            Buffer.alloc(64, 0x42),
+        );
+
+        // One chunk, then the storage connection drops.
+        let reads = 0;
+        const body = new Readable({
+            read() {
+                reads += 1;
+                if (reads === 1) this.push('partial');
+                else this.destroy(new Error('aborted'));
+            },
+        });
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(entry!.bucketRegion),
+        );
+        const send = client.send.bind(client);
+        const spy = vi
+            .spyOn(client, 'send')
+            .mockImplementation(((command: unknown) =>
+                command instanceof GetObjectCommand
+                    ? Promise.resolve({ Body: body, ContentLength: 64 })
+                    : send(command as never)) as never);
+
+        const mw = buildMiddleware();
+        const { res } = makeRes();
+        // A real response is torn down through its socket and never emits
+        // 'error' itself; the stand-in Writable does, so absorb it.
+        res.on('error', () => undefined);
+        try {
+            await mw(
+                makeReq({
+                    hostname: `${sub}.site.puter.localhost`,
+                    path: '/movie.bin',
+                }),
+                res,
+                vi.fn(),
+            );
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(res.destroyed).toBe(true);
+        expect(res.writableFinished).toBe(false);
+        expect(body.destroyed).toBe(true);
     });
 
     it("rewrites a trailing slash request to /index.html under the site's root", async () => {
