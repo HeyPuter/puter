@@ -330,6 +330,30 @@ export class AbstractDatabaseClient extends PuterClient {
         });
     }
 
+    /**
+     * Whole `periodSeconds` buckets since the epoch, from a unix-seconds
+     * column. MySQL's `/` yields a decimal, which would split a bucket.
+     */
+    periodBucket(secondsExpression: string, periodSeconds: number): string {
+        return this.case({
+            mysql: `(${secondsExpression} DIV ${periodSeconds})`,
+            otherwise: `(${secondsExpression} / ${periodSeconds})`,
+        });
+    }
+
+    /**
+     * Counts each (`userExpression`, bucket) pair once. `COUNT(DISTINCT a, b)`
+     * is MySQL-only, so the pair folds into one number — injective while the
+     * bucket stays under the multiplier, which hourly reaches in the 2980s.
+     */
+    countDistinctUserPeriods(
+        userExpression: string,
+        secondsExpression: string,
+        periodSeconds: number,
+    ): string {
+        return `COUNT(DISTINCT ${userExpression} * 10000000 + ${this.periodBucket(secondsExpression, periodSeconds)})`;
+    }
+
     nullCoalesce(...expressions: readonly string[]): string {
         if (expressions.length === 0) {
             throw new Error('nullCoalesce requires at least one expression');
