@@ -477,6 +477,7 @@ export class VideoGenerationDriver extends PuterDriver {
         );
         if (exactPuterIdMatch) return exactPuterIdMatch;
 
-        return models.find((m) => m.provider === provider) ?? models[0];
+        return models.find((m) => m.provider === provider) ??
+            (provider === 'gemini-video-generation' ? null : models[0]);
     }
 }

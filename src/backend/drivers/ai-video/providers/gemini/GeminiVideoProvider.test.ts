@@ -368,6 +368,37 @@ describe('GeminiVideoProvider routing', () => {
         await reachesGemini(testMode({ model, seconds: 5 }));
     });
 
+    it.each(['provider', 'driver'] as const)(
+        'rejects a Together model when Gemini is pinned by %s',
+        async (selection) => {
+            const model = (await videoDriver.models()).find(
+                (entry) => entry.provider === 'together-video-generation',
+            )!.id;
+            await expect(Promise.resolve(runWithContext({
+                actor: TEST_MODE_ACTOR,
+                ...(selection === 'driver' ? { driverName: PROVIDER } : {}),
+            }, () => videoDriver.generate({
+                prompt: PROMPT,
+                model,
+                test_mode: true,
+                ...(selection === 'provider' ? { provider: PROVIDER } : {}),
+            })))).rejects.toMatchObject({
+                statusCode: 400,
+                message: `Model not found: ${model}`,
+            });
+            expect(fetchSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('allows an unpinned Together model when Gemini is configured', async () => {
+        const model = (await videoDriver.models()).find(
+            (entry) => entry.provider === 'together-video-generation',
+        )!.id;
+        await expect(withActor(TEST_MODE_ACTOR, () => videoDriver.generate({
+            prompt: PROMPT, model, test_mode: true,
+        }))).resolves.toBe(SAMPLE_URL);
+    });
+
     it('keeps Together as the default when both are configured', async () => {
         await expect(
             Promise.resolve(
