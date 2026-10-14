@@ -31,6 +31,7 @@ import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 import { is_owned_by_me } from './pathOwner.js';
 import { can_rename, can_restructure, can_share, invalidate_shared_roots } from './sharedAccess.js';
+import { is_default_app } from './defaultApp.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -140,7 +141,8 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Publish as Worker
     // -------------------------------------------
-    if ( !is_trashed && !is_trash && !fsentry.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
+    // The backend refuses deploys from a file someone else owns.
+    if ( !is_trashed && !is_trash && !is_not_mine && !fsentry.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
         menu_items.push({
             html: i18n('publish_as_serverless_worker'),
             disabled: is_worker,
@@ -506,7 +508,7 @@ async function generateOpenWithItems (el_item, fsentry, suggested_apps) {
                 onClick: async function () {
                     var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
                     if (
-                        window.user_preferences[`default_apps${extension}`] !== suggested_app.name
+                        ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
                         &&
                         (
                             (!window.user_preferences[`default_apps${extension}`] && index > 0)
@@ -529,7 +531,7 @@ async function generateOpenWithItems (el_item, fsentry, suggested_apps) {
                             ],
                         });
                         if ( (alert_resp) === 'yes' ) {
-                            window.user_preferences[`default_apps${extension}`] = suggested_app.name;
+                            window.user_preferences[`default_apps${extension}`] = suggested_app.uuid;
                             window.mutate_user_preferences(window.user_preferences);
                         }
                     }

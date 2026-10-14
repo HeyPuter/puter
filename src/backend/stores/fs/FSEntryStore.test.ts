@@ -2771,7 +2771,7 @@ describe('FSEntryStore lost-insert recovery', () => {
         );
 
         expect(error.statusCode).toBe(409);
-        expect(error.message).toContain('Entry already exists at');
+        expect(error.message).toContain('already exists');
         spy.mockRestore();
     });
 

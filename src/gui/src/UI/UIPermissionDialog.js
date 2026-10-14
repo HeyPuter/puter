@@ -18,6 +18,7 @@
  */
 
 import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
+import { get_app_by_uid } from '../helpers/getAppByUid.js';
 
 // Keeps a second request for the same (entity, permission) from stacking a
 // duplicate dialog; both callers await the same user decision.
@@ -29,8 +30,9 @@ const pending_dialogs = new Map();
 // including the app that asked. One at a time, in arrival order.
 let dialog_queue = Promise.resolve();
 
-// Buttons stay disabled briefly after the dialog opens so a click aimed at
-// the page underneath (or a clickjacking attempt) can't land on "Allow".
+// Buttons stay disabled until the dialog has been visible and focused this long
+// without a break, so a click aimed at whatever covered it can't land on
+// "Allow". See `guard_input`.
 const INPUT_PROTECTION_MS = 350;
 
 // How long the grant request may take before it is aborted and the dialog
@@ -181,9 +183,11 @@ async function show_permission_dialog (options) {
         let grant_may_have_committed = false;
 
         let settled = false;
+        let input_guard = null;
         const settle = (granted) => {
             if ( settled ) return;
             settled = true;
+            input_guard?.stop();
             if ( ! granted && grant_may_have_committed ) {
                 // Not awaited: the requester gets its answer now, and the
                 // account is reconciled in the background.
@@ -200,21 +204,20 @@ async function show_permission_dialog (options) {
         const $deny = $(el_dialog).find('.perm-dialog-deny');
         const $error = $(el_dialog).find('.perm-dialog-error');
 
-        // Input protection: ignore clicks for a moment after opening.
-        $allow.prop('disabled', true);
-        $deny.prop('disabled', true);
-        setTimeout(() => {
-            if ( settled ) return;
-            $allow.prop('disabled', false);
-            $deny.prop('disabled', false);
-            $deny.get(0)?.focus();
-        }, INPUT_PROTECTION_MS);
-
         // True while the grant POST is outstanding. Dismissing the dialog then
         // would answer "denied" for a permission the server may be in the
         // middle of committing, leaving the user believing they cancelled
         // something that is now granted.
         let granting = false;
+
+        // Buttons take clicks only once the input guard is ready and no grant
+        // is in flight.
+        const sync_buttons = () => {
+            const enabled = !!input_guard?.ready && ! granting;
+            $allow.prop('disabled', ! enabled);
+            $deny.prop('disabled', ! enabled);
+        };
+        sync_buttons();
 
         // Hands the dialog back to the user after a failed attempt: re-enables
         // the buttons, restores dismissability, and shows a retryable error.
@@ -234,15 +237,15 @@ async function show_permission_dialog (options) {
             // the default encoding would surface entities like `&#39;`
             // verbatim in translations that contain an apostrophe.
             $error.text(i18n('perm_dialog_error', [], false)).show();
-            $allow.prop('disabled', false).removeClass('perm-dialog-busy');
-            $deny.prop('disabled', false);
+            $allow.removeClass('perm-dialog-busy');
+            sync_buttons();
         };
 
         $allow.on('click', async () => {
             if ( granting ) return;
             granting = true;
-            $allow.prop('disabled', true).addClass('perm-dialog-busy');
-            $deny.prop('disabled', true);
+            $allow.addClass('perm-dialog-busy');
+            sync_buttons();
             $error.hide();
 
             // Time-box the request: while it is outstanding the dialog can't
@@ -338,9 +341,83 @@ async function show_permission_dialog (options) {
             settle(false);
             return;
         }
-        // Focus the safe action by default; Enter must not grant by accident.
-        $deny.get(0)?.focus();
+        input_guard = guard_input({
+            win: window,
+            doc: document,
+            ms: INPUT_PROTECTION_MS,
+            on_change: (ready) => {
+                sync_buttons();
+                // Focus the safe action by default; Enter must not grant by
+                // accident. A disabled button can't take focus, so this waits
+                // for the guard.
+                if ( ready && ! granting ) $deny.get(0)?.focus();
+            },
+        });
     });
+}
+
+/**
+ * Reports `ready` only once the page has been visible and focused for `ms`
+ * without a break. Losing visibility or focus resets it, and the wait starts
+ * over when both come back or anything enters or leaves fullscreen. A delay
+ * counted from opening alone can run out while the dialog is covered by a
+ * popup, another tab or a fullscreen element, leaving it live for a click the
+ * user aimed at whatever covered it.
+ *
+ * @param {Object} opts
+ * @param {Window} opts.win
+ * @param {Document} opts.doc
+ * @param {number} opts.ms
+ * @param {(ready: boolean) => void} opts.on_change - Called when `ready` flips.
+ * @returns {{ readonly ready: boolean, stop: () => void }}
+ */
+export function guard_input ({ win, doc, ms, on_change }) {
+    let ready = false;
+    let timer = null;
+    let seen = false;
+    const set_ready = (value) => {
+        if ( ready === value ) return;
+        ready = value;
+        on_change(value);
+    };
+    const restart = () => {
+        clearTimeout(timer);
+        timer = null;
+        set_ready(false);
+        seen = doc.visibilityState === 'visible' && doc.hasFocus();
+        if ( ! seen ) return;
+        timer = setTimeout(() => {
+            timer = null;
+            set_ready(true);
+        }, ms);
+    };
+    // Window `blur`/`focus` also fire when focus moves into or out of an app's
+    // iframe, while the page stays focused throughout. Only a real change counts,
+    // or the click that pulls focus out of an iframe would reset the wait and be
+    // swallowed.
+    const on_focus_change = () => {
+        if ( seen !== (doc.visibilityState === 'visible' && doc.hasFocus()) ) {
+            restart();
+        }
+    };
+    const listeners = [
+        [win, 'focus', on_focus_change],
+        [win, 'blur', on_focus_change],
+        [doc, 'visibilitychange', on_focus_change],
+        [doc, 'fullscreenchange', restart],
+    ];
+    for ( const [target, name, fn] of listeners ) target.addEventListener(name, fn);
+    restart();
+    return {
+        get ready () {
+            return ready;
+        },
+        stop () {
+            clearTimeout(timer);
+            timer = null;
+            for ( const [target, name, fn] of listeners ) target.removeEventListener(name, fn);
+        },
+    };
 }
 
 /**
@@ -719,34 +796,6 @@ const APP_DATA_VERBS = {
     delete: 'store_all', del: 'delete', remove: 'delete',
     expire: 'delete', expireAt: 'delete',
 };
-
-/**
- * Look up the app a cross-app request names. Returns null when it does not
- * exist, so an unresolvable target never reaches the prompt.
- */
-async function get_app_by_uid (uid) {
-    try {
-        const res = await fetch(`${window.api_origin}/drivers/call`, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${window.auth_token}`,
-            },
-            body: JSON.stringify({
-                interface: 'puter-apps',
-                driver: 'es:app',
-                method: 'read',
-                args: { uid },
-            }),
-            method: 'POST',
-        });
-        if ( ! res.ok ) return null;
-        const body = await res.json();
-        return body?.result ?? null;
-    } catch (e) {
-        console.error('Failed to look up app', uid, e);
-        return null;
-    }
-}
 
 /**
  * The uid of the app making the request, for the describers that compare it

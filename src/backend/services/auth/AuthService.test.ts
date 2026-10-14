@@ -2129,6 +2129,136 @@ describe('AuthService (integration)', () => {
                 ).toBe(app.uid);
             });
         });
+
+        describe("when the app's site is registered to another user", () => {
+            it('gives the new site its own uid and restores the app once its owner holds the site again', async () => {
+                const owner = await makeUser();
+                const other = await makeUser();
+                const sub = `freed-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const ownSite = await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                const app = await server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                    { ownerUserId: owner.id },
+                );
+                // A path misses the canonical lookup, so only the derived
+                // uid ties this origin to the app.
+                await server.stores.app.update(app.id, {
+                    index_url: `${origin}/play/`,
+                });
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+
+                await server.stores.subdomain.deleteByUuid(ownSite.uuid);
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+
+                const otherSite = await server.stores.subdomain.create({
+                    userId: other.id,
+                    subdomain: sub,
+                });
+                const next = await authService.appUidFromOrigin(origin);
+                expect(next).not.toBe(app.uid);
+                expect(
+                    (await authService.appUidsFromOrigins([origin])).get(
+                        origin,
+                    ),
+                ).toBe(next);
+
+                await server.stores.subdomain.deleteByUuid(otherSite.uuid);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+                expect(
+                    (await authService.appUidsFromOrigins([origin])).get(
+                        origin,
+                    ),
+                ).toBe(app.uid);
+            });
+        });
+
+        describe('after the origin-derived app is deleted', () => {
+            const uidsFor = async (origin: string) => [
+                await authService.appUidFromOrigin(origin),
+                (await authService.appUidsFromOrigins([origin])).get(origin),
+            ];
+
+            const bootstrapAndDelete = async (
+                origin: string,
+                ownerUserId: number | null,
+            ) => {
+                const app = await server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                    { ownerUserId },
+                );
+                await server.stores.app.delete(app.id);
+                return app.uid;
+            };
+
+            it("gives another user's site on the subdomain a new uid and returns the old one to the app's owner", async () => {
+                const owner = await makeUser();
+                const other = await makeUser();
+                const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const ownSite = await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                const uid = await bootstrapAndDelete(origin, owner.id);
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+
+                await server.stores.subdomain.deleteByUuid(ownSite.uuid);
+                const unregistered = await uidsFor(origin);
+                expect(unregistered[0]).not.toBe(uid);
+                expect(unregistered[1]).toBe(unregistered[0]);
+
+                const otherSite = await server.stores.subdomain.create({
+                    userId: other.id,
+                    subdomain: sub,
+                });
+                const next = await uidsFor(origin);
+                expect(next[0]).not.toBe(uid);
+                expect(next[1]).toBe(next[0]);
+
+                await server.stores.subdomain.deleteByUuid(otherSite.uuid);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+            });
+
+            it('does not return an unowned deleted app uid to a hosted site', async () => {
+                const owner = await makeUser();
+                const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const uid = await bootstrapAndDelete(origin, null);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await authService.appUidFromOrigin(origin)).not.toBe(
+                    uid,
+                );
+            });
+
+            it('keeps the uid of an external origin', async () => {
+                const origin = `https://gone-${uuidv4()}.example.com`;
+                const uid = await bootstrapAndDelete(origin, null);
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+            });
+        });
     });
 
     describe('appUidsFromOrigins', () => {
@@ -3468,6 +3598,142 @@ describe('AuthService (integration)', () => {
             expect(
                 await server.stores.session.getByUuid(appDecoded.session_uid),
             ).toBeNull();
+        });
+    });
+
+    describe('revoking every session of a user', () => {
+        const revokers: Array<
+            [string, (user: { id: number }) => Promise<void>]
+        > = [
+            [
+                'revokeAllSessions',
+                (user) =>
+                    authService.revokeAllSessions({
+                        user,
+                        session: { uid: 'unrelated' },
+                    } as unknown as Actor),
+            ],
+            [
+                'revokeInteractiveSessionsForUserId',
+                (user) =>
+                    authService.revokeInteractiveSessionsForUserId(user.id),
+            ],
+            [
+                'revokeAllSessionsForUserId',
+                (user) => authService.revokeAllSessionsForUserId(user.id),
+            ],
+        ];
+
+        it.each(revokers)(
+            '%s revokes a session the replica has not seen yet',
+            async (_name, revoke) => {
+                const user = await makeUser();
+                const web = await authService.createSessionToken(user, {});
+                const webUuid = (web.session as { uuid: string }).uuid;
+
+                const db = server.clients.db;
+                const original = db.read.bind(db);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(
+                        async (sql: string, params?: unknown[]) =>
+                            sql.includes('FROM `sessions`')
+                                ? []
+                                : original(sql, params),
+                    );
+                // sqlite's `pread` goes through `read`; keep it on the primary.
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation((sql: string, params?: unknown[]) =>
+                        original(sql, params),
+                    );
+                try {
+                    await revoke(user);
+                } finally {
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+
+                expect(
+                    await server.stores.session.getByUuid(webUuid),
+                ).toBeNull();
+            },
+        );
+
+        it.each(revokers)(
+            '%s takes the same few primary round trips however many sessions there are',
+            async (name, revoke) => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const uuids: string[] = [];
+                for (let i = 0; i < 15; i++) {
+                    const web = await sessions.create(user.id);
+                    const asset = await sessions.create(user.id, {
+                        kind: 'asset',
+                        parent_session_id: web.uuid,
+                    });
+                    uuids.push(web.uuid, asset.uuid);
+                }
+                const app = await sessions.getOrCreateApp(
+                    user.id,
+                    `app-${uuidv4()}`,
+                );
+                const appToken = await sessions.create(user.id, {
+                    kind: 'access_token',
+                    parent_session_id: app.uuid,
+                });
+                const appUuids = [app.uuid, appToken.uuid];
+
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                let primaryQueries: string[];
+                try {
+                    await revoke(user);
+                } finally {
+                    primaryQueries = [
+                        ...pread.mock.calls,
+                        ...write.mock.calls,
+                    ].map(([sql]) => String(sql));
+                    pread.mockRestore();
+                    write.mockRestore();
+                }
+
+                // List, select, update, re-seed.
+                expect(
+                    primaryQueries.filter((sql) => sql.includes('`sessions`')),
+                ).toHaveLength(4);
+                for (const uuid of uuids) {
+                    expect(await sessions.getByUuid(uuid)).toBeNull();
+                }
+                for (const uuid of appUuids) {
+                    const revoked = (await sessions.getByUuid(uuid)) === null;
+                    // Only revokeAllSessions keeps app authorizations.
+                    expect(revoked).toBe(name !== 'revokeAllSessions');
+                }
+            },
+        );
+
+        it('a password reset leaves workers and standalone access tokens; a forced sign-out takes them', async () => {
+            const user = await makeUser();
+            const sessions = server.stores.session;
+            const web = await sessions.create(user.id);
+            const worker = await sessions.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: `wk-${uuidv4()}`,
+            });
+            const token = await sessions.create(user.id, {
+                kind: 'access_token',
+            });
+
+            await authService.revokeInteractiveSessionsForUserId(user.id);
+            expect(await sessions.getByUuid(web.uuid)).toBeNull();
+            expect(await sessions.getByUuid(worker.uuid)).toBeTruthy();
+            expect(await sessions.getByUuid(token.uuid)).toBeTruthy();
+
+            await authService.revokeAllSessionsForUserId(user.id);
+            expect(await sessions.getByUuid(worker.uuid)).toBeNull();
+            expect(await sessions.getByUuid(token.uuid)).toBeNull();
         });
     });
 

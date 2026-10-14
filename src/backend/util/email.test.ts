@@ -19,7 +19,12 @@
 
 import { describe, expect, it } from 'vitest';
 import validator from 'validator';
-import { cleanEmail, isBlockedEmail, isStorableEmail } from './email.ts';
+import {
+    cleanEmail,
+    isBlockedEmail,
+    isSameAddress,
+    isStorableEmail,
+} from './email.ts';
 
 describe('cleanEmail', () => {
     it('lowercases the whole address', () => {
@@ -91,6 +96,22 @@ describe('cleanEmail', () => {
 
     it('returns the lowercased input when there is no domain part', () => {
         expect(cleanEmail('NoAtSign')).toBe('noatsign');
+    });
+});
+
+describe('isSameAddress', () => {
+    it('ignores case and surrounding space', () => {
+        expect(isSameAddress('Foo@Example.com ', 'foo@example.COM')).toBe(true);
+    });
+
+    it('tells accent variants apart', () => {
+        expect(isSameAddress('foo@gmáil.com', 'foo@gmail.com')).toBe(false);
+        expect(isSameAddress('fóo@gmail.com', 'foo@gmail.com')).toBe(false);
+    });
+
+    it('never matches a missing address', () => {
+        expect(isSameAddress(null, 'foo@example.com')).toBe(false);
+        expect(isSameAddress(undefined, '')).toBe(false);
     });
 });
 

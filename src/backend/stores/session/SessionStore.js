@@ -45,6 +45,8 @@ const TOUCH_THROTTLE_MS = 60 * 1000;
 // long-lived processes. Clearing only loses throttling — at worst a
 // brief burst of redundant UPDATEs.
 const TOUCH_THROTTLE_MAX_ENTRIES = 10000;
+// Roots per batched revoke statement; each is bound twice.
+const REVOKE_CHUNK_SIZE = 500;
 
 // Per-kind sliding-expiry windows. The `touch` path bumps `expires_at`
 // to `now + window` for the session's kind on activity, so an active
@@ -107,26 +109,41 @@ export class SessionStore extends PuterStore {
         const cached = await this.#readCache(uuid);
         if (cached) return cached;
 
-        const rows = await this.clients.db.read(
+        // Revoked moments ago: a replica may still show the row live.
+        const key = this.#cacheKey(uuid);
+        const revokedRecently = await this.isCacheKeyTombstoned([key]);
+        const rows = await this.clients.db[revokedRecently ? 'pread' : 'read'](
             'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
             [uuid],
         );
         const normalized = this.#normalizeRow(rows[0]);
         if (!normalized) return null;
 
-        this.#writeCache(normalized).catch(() => {});
+        if (revokedRecently) {
+            void this.#writeCache(normalized);
+        } else {
+            void this.writeCacheUnlessDeleted([key], () =>
+                this.#writeCache(normalized),
+            );
+        }
         return normalized;
     }
 
     /**
      * Get sessions for a user. By default returns only active rows; pass `{
-     * includeRevoked: true }` to include soft-revoked rows.
+     * includeRevoked: true }` to include soft-revoked rows. Revoke paths pass
+     * `{ primary: true }` so a session created moments ago isn't missed.
      */
-    async getByUserId(userId, { includeRevoked = false } = {}) {
+    async getByUserId(
+        userId,
+        { includeRevoked = false, primary = false } = {},
+    ) {
         const sql = includeRevoked
             ? 'SELECT * FROM `sessions` WHERE `user_id` = ?'
             : 'SELECT * FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL';
-        const rows = await this.clients.db.read(sql, [userId]);
+        const rows = await this.clients.db[primary ? 'pread' : 'read'](sql, [
+            userId,
+        ]);
         return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 
@@ -390,27 +407,56 @@ export class SessionStore extends PuterStore {
             'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL',
             [now, uuid],
         );
-        await this.publishCacheKeys({ keys, broadcast: true });
-        await this.#cacheRevokedFromPrimary(uuid);
+        await this.#publishRevoked(rows);
     }
 
     /**
-     * Seed the cache with the revoked row, read from the primary. Dropping the
-     * key alone leaves the next miss to a replica that may still show the row
-     * active, which would then be cached for a full TTL.
+     * Drop every cache key of rows that just ended. A plain DEL leaves the next
+     * miss to a replica that may still show a row live, cached for a full TTL,
+     * so the uuid keys are tombstoned here and on peers (misses read the
+     * primary).
      */
-    async #cacheRevokedFromPrimary(uuid) {
+    async #dropEndedRowKeys(rows) {
+        const uuidKeys = new Set(rows.map((r) => this.#cacheKey(r.uuid)));
+        await this.tombstoneCacheKeys([...uuidKeys]);
+        await this.publishCacheKeys({
+            keys: rows
+                .flatMap((r) => this.#allCacheKeysForRow(r))
+                .filter((key) => !uuidKeys.has(key)),
+            broadcast: true,
+        });
+    }
+
+    /**
+     * Post-UPDATE half of the double-delete: tombstone the keys, then cache the
+     * revoked rows on this node.
+     */
+    async #publishRevoked(rows) {
+        await this.#dropEndedRowKeys(rows);
+
         try {
-            const rows = await this.clients.db.pread(
-                'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
-                [uuid],
-            );
-            const normalized = this.#normalizeRow(rows[0]);
-            if (normalized?.revoked_at != null) {
-                await this.#writeCache(normalized);
+            const placeholders = rows.map(() => '?').join(', ');
+            const revoked = (
+                await this.clients.db.pread(
+                    `SELECT * FROM \`sessions\` WHERE \`uuid\` IN (${placeholders})`,
+                    rows.map((r) => r.uuid),
+                )
+            )
+                .map((r) => this.#normalizeRow(r))
+                .filter((r) => r?.revoked_at != null);
+            if (revoked.length === 0) return;
+            const pipeline = this.clients.redis.pipeline();
+            for (const row of revoked) {
+                pipeline.set(
+                    this.#cacheKey(row.uuid),
+                    JSON.stringify(row),
+                    'EX',
+                    CACHE_TTL_SECONDS,
+                );
             }
+            await pipeline.exec();
         } catch {
-            // No entry is the safe miss; the next read goes to the database.
+            // No entry is the safe miss; the tombstone sends it to the primary.
         }
     }
 
@@ -426,34 +472,55 @@ export class SessionStore extends PuterStore {
      */
     async revokeCascade(rootUuid) {
         if (!rootUuid) return null;
+        return (await this.revokeCascades([rootUuid]))[0] ?? null;
+    }
 
-        // Read each affected row's identity columns up-front — every
-        // composite cache mapping (app, legacy-token, legacy-web) must
-        // be invalidated alongside the uuid key, otherwise a follow-up
-        // `getOrCreateApp` would short-circuit to the freshly-revoked row.
-        const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
-            [rootUuid, rootUuid],
-        );
-        if (rows.length === 0) return null;
+    /**
+     * `revokeCascade` over many roots, batched so revoking all of a user's
+     * sessions costs a few primary round trips rather than a few per session.
+     * Returns `{ userId, uuids }` for each user that had rows revoked.
+     *
+     * @param {string[]} rootUuids
+     */
+    async revokeCascades(rootUuids) {
+        const roots = [...new Set(rootUuids.filter(Boolean).map(String))];
+        const uuidsByUser = new Map();
+        for (let i = 0; i < roots.length; i += REVOKE_CHUNK_SIZE) {
+            const chunk = roots.slice(i, i + REVOKE_CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const scope = `(\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})) AND \`revoked_at\` IS NULL`;
+            const scopeParams = [...chunk, ...chunk];
 
-        // Double-delete: see `removeByUuid` for rationale.
-        const keys = [];
-        for (const r of rows) keys.push(...this.#allCacheKeysForRow(r));
-        await this.publishCacheKeys({ keys, broadcast: true });
+            // Read each affected row's identity columns up-front — every
+            // composite cache mapping (app, legacy-token, legacy-web) must
+            // be invalidated alongside the uuid key, otherwise a follow-up
+            // `getOrCreateApp` would short-circuit to the freshly-revoked row.
+            // Primary read: see `removeByUuid`.
+            const rows = await this.clients.db.pread(
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` ' +
+                    `FROM \`sessions\` WHERE ${scope}`,
+                scopeParams,
+            );
+            if (rows.length === 0) continue;
 
-        const now = nowSeconds();
-        await this.clients.db.write(
-            'UPDATE `sessions` SET `revoked_at` = ? WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
-            [now, rootUuid, rootUuid],
-        );
+            // Double-delete: see `removeByUuid` for rationale.
+            await this.publishCacheKeys({
+                keys: rows.flatMap((r) => this.#allCacheKeysForRow(r)),
+                broadcast: true,
+            });
+            await this.clients.db.write(
+                `UPDATE \`sessions\` SET \`revoked_at\` = ? WHERE ${scope}`,
+                [nowSeconds(), ...scopeParams],
+            );
+            await this.#publishRevoked(rows);
 
-        await this.publishCacheKeys({ keys, broadcast: true });
-
-        return {
-            userId: Number(rows[0].user_id),
-            uuids: rows.map((r) => String(r.uuid)),
-        };
+            for (const r of rows) {
+                const userId = Number(r.user_id);
+                if (!uuidsByUser.has(userId)) uuidsByUser.set(userId, []);
+                uuidsByUser.get(userId).push(String(r.uuid));
+            }
+        }
+        return [...uuidsByUser].map(([userId, uuids]) => ({ userId, uuids }));
     }
 
     /**
@@ -516,7 +583,7 @@ export class SessionStore extends PuterStore {
             `DELETE FROM \`sessions\` WHERE ${scope}`,
             scopeParams,
         );
-        await this.publishCacheKeys({ keys, broadcast: true });
+        await this.#dropEndedRowKeys(rows);
 
         return rows.map((r) => ({
             uuid: String(r.uuid),
@@ -539,7 +606,7 @@ export class SessionStore extends PuterStore {
      */
     async accessTokenUidsForCascade(rootUuid) {
         if (!rootUuid) return [];
-        const rows = await this.clients.db.read(
+        const rows = await this.clients.db.pread(
             "SELECT `access_token_uid`, `legacy_token_uid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `kind` = 'access_token' AND `revoked_at` IS NULL",
             [rootUuid, rootUuid],
         );
@@ -683,10 +750,10 @@ export class SessionStore extends PuterStore {
             return cached;
         }
 
-        const existing = await this.#selectAppRow(userId, appUid);
+        const selectRow = (opts) => this.#selectAppRow(userId, appUid, opts);
+        const existing = await this.#selectUnlessEnded(selectRow);
         if (existing && !predates(existing, notBefore)) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
+            await this.#cacheComposite(cacheKey, existing);
             return existing;
         }
         const stale = existing ?? (cachedLive ? cached : null);
@@ -712,12 +779,11 @@ export class SessionStore extends PuterStore {
         );
 
         // After a revoke the replica may still show the old row as live.
-        const winner = await this.#selectAppRow(userId, appUid, {
+        const winner = await this.#selectUnlessEnded(selectRow, {
             primary: stale !== null,
         });
         const row = winner ?? created;
-        await this.#writeCacheKey(cacheKey, row);
-        this.#writeCache(row).catch(() => {});
+        await this.#cacheComposite(cacheKey, row);
         return row;
     }
 
@@ -779,12 +845,12 @@ export class SessionStore extends PuterStore {
         // re-SELECT under the partial unique index to find whichever
         // row actually won.
         // After a revoke the replica may still show the old row as live.
-        const winner = await this.#selectWorkerRow(userId, appUid, workerName, {
-            primary: existing !== null,
-        });
+        const winner = await this.#selectUnlessEnded(
+            (o) => this.#selectWorkerRow(userId, appUid, workerName, o),
+            { primary: existing !== null },
+        );
         const row = winner ?? created;
-        await this.#writeCacheKey(cacheKey, row);
-        this.#writeCache(row).catch(() => {});
+        await this.#cacheComposite(cacheKey, row);
         return row;
     }
 
@@ -806,15 +872,10 @@ export class SessionStore extends PuterStore {
             return cached;
         }
 
-        const existing = await this.#selectWorkerRow(
-            userId,
-            appUid,
-            workerName,
+        const existing = await this.#selectUnlessEnded((o) =>
+            this.#selectWorkerRow(userId, appUid, workerName, o),
         );
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
-        }
+        if (existing) await this.#cacheComposite(cacheKey, existing);
         return existing;
     }
 
@@ -1167,6 +1228,32 @@ export class SessionStore extends PuterStore {
         } catch {
             // Best-effort local backfill.
         }
+    }
+
+    /**
+     * Run a row select on the replica, or on the primary when asked or when the
+     * replica's row ended moments ago (its uuid key is tombstoned) and the
+     * replica may not have the revoke or delete yet.
+     */
+    async #selectUnlessEnded(select, { primary = false } = {}) {
+        if (primary) return select({ primary: true });
+        const row = await select({ primary: false });
+        if (!row) return row;
+        if (!(await this.isCacheKeyTombstoned([this.#cacheKey(row.uuid)]))) {
+            return row;
+        }
+        return select({ primary: true });
+    }
+
+    /** Cache a row under its composite key and its uuid key, unless it ended. */
+    async #cacheComposite(compositeKey, row) {
+        await this.writeCacheUnlessDeleted(
+            [this.#cacheKey(row.uuid), compositeKey],
+            async () => {
+                await this.#writeCacheKey(compositeKey, row);
+                await this.#writeCache(row);
+            },
+        );
     }
 
     /**

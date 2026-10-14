@@ -34,6 +34,7 @@ import {
     cleanEmail,
     isBlockedEmail,
     isProviderCanonicalized,
+    isSameAddress,
     isStorableEmail,
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
@@ -51,6 +52,7 @@ import {
     actorHasSubscription,
     assertActorHasSubscription,
 } from '../metering/enforcement.js';
+import { carriesClosedAppData } from '../permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { SubscriptionCache } from '../events/subscriptionCache.js';
@@ -972,6 +974,15 @@ export class ShareService extends PuterService {
         // exist" may only be observed by someone entitled to share.
         const entry = await this.#resolveEntry(input, actor);
         await this.#assertCanManage(actor, entry, mode);
+        // The recipient reads as a user, past the per-app opt-out.
+        const app = actor.effectiveApp;
+        if (app && (await carriesClosedAppData(this.stores, entry, app.uid))) {
+            throw new HttpError(
+                403,
+                "Cannot share a folder holding another app's private data",
+                { legacyCode: 'forbidden' },
+            );
+        }
         const resolved = await this.#resolveRecipient(input.recipient);
 
         if (resolved.kind === 'anyone') {
@@ -2029,22 +2040,22 @@ export class ShareService extends PuterService {
         // Three bounds. A claimed row needs the grant *this issuer* made to
         // still be there — on the pair alone, a grant withdrawn outside
         // `unshare` stays listed while anyone else grants the same holder the
-        // same node. An invite needs its issuer to still hold the authority it
-        // would grant, or a revoked delegate keeps reading the entry's name
-        // and size out of invites that can never be claimed. And an app sees
-        // only the part of any of it the credential reaches in its own right.
-        const [stillReaches, pendingAllowed, reachable, liveGroupGrants] =
+        // same node. An invite, and any row a delegate issued on a node they
+        // don't own, needs its issuer to still hold the authority it granted,
+        // or a revoked delegate keeps reading the entry's name, size and
+        // thumbnail. And an app sees only the part of any of it the
+        // credential reaches in its own right.
+        const [stillReaches, issuerAllowed, reachable, liveGroupGrants] =
             await Promise.all([
                 this.#reachingGrants(rows, nodeById),
-                this.#pendingStillAuthorized(
-                    // Group and link rows have no holder user but are not
-                    // invites.
-                    rows.filter(
-                        (row) =>
-                            !row.holder_user_id &&
-                            !row.holder_group_id &&
-                            !row.anyone,
-                    ),
+                this.#issuerStillAuthorized(
+                    rows.filter((row) => {
+                        if (row.anyone) return false;
+                        const pending =
+                            !row.holder_user_id && !row.holder_group_id;
+                        const node = nodeById.get(Number(row.fsentry_id));
+                        return pending || node?.userId !== userId;
+                    }),
                     nodeById,
                     users,
                 ),
@@ -2068,7 +2079,10 @@ export class ShareService extends PuterService {
             const anyone = Boolean(row.anyone);
             const pending =
                 !anyone && !row.holder_user_id && !row.holder_group_id;
-            if (pending && !pendingAllowed.has(row.uid)) continue;
+            const delegated = !anyone && entry.userId !== userId;
+            if ((pending || delegated) && !issuerAllowed.has(row.uid)) {
+                continue;
+            }
             // Its liveness is the grant, not a holder's reach.
             if (anyone) {
                 // Silent while the plan is lapsed, so not listed either.
@@ -3347,15 +3361,6 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * Of `rows` (unclaimed invites), the uids whose issuer still holds the
-     * authority the invite would grant. A dead invite can never become access —
-     * claiming re-authorizes — but listed it would keep publishing the entry's
-     * name and size to an issuer whose own access was revoked.
-     *
-     * The owner's invites are theirs by definition; only a delegate's cost a
-     * check, and those are rare on any page.
-     */
-    /**
      * Group rows on this page whose grant is still there. The index row and the
      * grant are separate writes, so a row can outlive what it records.
      */
@@ -3403,29 +3408,47 @@ export class ShareService extends PuterService {
         return live;
     }
 
-    async #pendingStillAuthorized(
+    /**
+     * Of `rows`, the uids whose issuer still holds the authority the row
+     * grants. A dead invite can never become access, and a delegate's dead
+     * grant is not theirs to revoke, but listed either would keep publishing
+     * the entry to an issuer whose own access was withdrawn.
+     *
+     * The owner's rows are theirs by definition; a delegate's cost one check
+     * per issuer, node and mode.
+     */
+    async #issuerStillAuthorized(
         rows: OutboundShareRow[],
         nodeById: Map<number, FSEntry>,
         users: Map<number, UserRow>,
     ): Promise<Set<string>> {
         const allowed = new Set<string>();
-        const toCheck: OutboundShareRow[] = [];
+        const toCheck = new Map<string, OutboundShareRow[]>();
         for (const row of rows) {
             const entry = nodeById.get(Number(row.fsentry_id));
             const issuer = users.get(Number(row.issuer_user_id));
             if (!entry || !issuer?.username) continue;
-            if (entry.userId === issuer.id) allowed.add(row.uid);
-            else toCheck.push(row);
+            if (entry.userId === issuer.id) {
+                allowed.add(row.uid);
+                continue;
+            }
+            const key = `${issuer.id}:${entry.id}:${row.mode}`;
+            toCheck.set(key, [...(toCheck.get(key) ?? []), row]);
         }
-        await runWithConcurrencyLimitSettled(toCheck, 8, async (row) => {
-            const entry = nodeById.get(Number(row.fsentry_id)) as FSEntry;
-            const issuer = users.get(Number(row.issuer_user_id)) as UserRow;
-            const ok = await this.services.permission.canManagePermission(
-                this.#actorFor(issuer),
-                entryPermissionForMode(entry.uuid, String(row.mode)),
-            );
-            if (ok) allowed.add(row.uid);
-        });
+        await runWithConcurrencyLimitSettled(
+            [...toCheck.values()],
+            8,
+            async (group) => {
+                const row = group[0] as OutboundShareRow;
+                const entry = nodeById.get(Number(row.fsentry_id)) as FSEntry;
+                const issuer = users.get(Number(row.issuer_user_id)) as UserRow;
+                const ok = await this.services.permission.canManagePermission(
+                    this.#actorFor(issuer),
+                    entryPermissionForMode(entry.uuid, String(row.mode)),
+                );
+                if (ok) for (const each of group) allowed.add(each.uid);
+            },
+        );
         return allowed;
     }
 
@@ -3569,9 +3592,8 @@ export class ShareService extends PuterService {
     async #addressOwner(email: string): Promise<UserRow | null> {
         const owner = await this.stores.user.findEmailOwner(email);
         if (!owner?.email) return owner ?? null;
-        const sameAddress =
-            owner.email.trim().toLowerCase() === email.trim().toLowerCase();
-        if (sameAddress || isProviderCanonicalized(email)) return owner;
+        if (isSameAddress(owner.email, email) || isProviderCanonicalized(email))
+            return owner;
         return null;
     }
 

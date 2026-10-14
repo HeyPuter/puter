@@ -85,7 +85,13 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenAtBoot, relationshipIsConsent, runsUserAppTokenExchange } from './util/popupAuth.js';
+import {
+    deliversTokenAtBoot,
+    relationshipIsConsent,
+    relaysTokenAtBoot,
+    resolveOpenerOrigin,
+    runsUserAppTokenExchange,
+} from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 /**
@@ -351,8 +357,10 @@ const postAuthActions = async (action) => {
         // rule as the postMessage hand-off below — otherwise adding one query
         // parameter to a `request-permission` URL turns the permission prompt
         // into a token grant, and skips the prompt entirely.
-        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
-            && deliversTokenAtBoot(action);
+        let isolated = relaysTokenAtBoot(
+            action,
+            window.url_query_params.get('cross_origin_isolated') === 'true',
+        );
         let session = window.url_query_params.get('signin_session');
 
         // Signing the opener in is something the user has to have asked for.
@@ -1487,14 +1495,19 @@ window.initgui = async function (options) {
             window.url_query_params.get('msg_id'),
             action,
         );
-        window.openerOrigin =
-            window.oidcPopupReturn?.opener_origin || document.referrer;
-        if (!window.openerOrigin) {
-            try {
-                window.openerOrigin = await requestOpenerOrigin();
-            } catch (e) {
-                throw new Error('No referrer found');
-            }
+        try {
+            window.openerOrigin = await resolveOpenerOrigin({
+                relaysToken: relaysTokenAtBoot(
+                    action,
+                    window.url_query_params.get('cross_origin_isolated') ===
+                        'true',
+                ),
+                oidcOpenerOrigin: window.oidcPopupReturn?.opener_origin,
+                referrer: document.referrer,
+                askOpener: requestOpenerOrigin,
+            });
+        } catch (e) {
+            throw new Error('No referrer found');
         }
 
         // Everything below needs an origin to identify the opener by.

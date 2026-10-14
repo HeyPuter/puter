@@ -166,6 +166,249 @@ describe('SubdomainStore cache coherency', () => {
     });
 });
 
+describe('SubdomainStore in a peer region behind a lagging replica', () => {
+    const newName = (tag: string) =>
+        `sds-peer-${tag}-${Math.random().toString(36).slice(2, 8)}`;
+
+    /**
+     * Run `write`, then replay its broadcasts as a peer region that held
+     * `cached` under `name` and has none of this node's cache writes.
+     */
+    const applyOnPeer = async (
+        name: string,
+        cached: unknown,
+        write: () => Promise<unknown>,
+    ) => {
+        const updates: unknown[] = [];
+        const listener = (_key: string, data: unknown) => {
+            updates.push(data);
+        };
+        server.clients.event.on('outer.cacheUpdate', listener);
+        try {
+            await write();
+        } finally {
+            server.clients.event.off('outer.cacheUpdate', listener);
+        }
+
+        const redis = server.clients.redis;
+        await redis.del(`${cacheKey(name)}:deleted`);
+        await redis.set(cacheKey(name), JSON.stringify(cached), 'EX', 3600);
+        for (const update of updates) {
+            await server.clients.event.emitAndWait(
+                'outer.cacheUpdate',
+                update as never,
+                { from_outside: true } as never,
+            );
+        }
+        await vi.waitFor(async () =>
+            expect(await redis.get(cacheKey(name))).toBeNull(),
+        );
+    };
+
+    /** Replica reads of `subdomains` return `staleRows`; the primary is real. */
+    const withLaggingReplica = async <T>(
+        staleRows: unknown[],
+        fn: () => Promise<T>,
+    ): Promise<T> => {
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `subdomains`/u.test(q) ? staleRows : realRead(q, p),
+            );
+        try {
+            return await fn();
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    };
+
+    /** The value the read path settles on in the cache for `name`. */
+    const settledCache = async (name: string) => {
+        let raw: string | null = null;
+        await vi.waitFor(async () => {
+            raw = await server.clients.redis.get(cacheKey(name));
+            expect(raw).not.toBeNull();
+        });
+        return raw;
+    };
+
+    it('does not cache a deleted site back from the replica', async () => {
+        const userId = await makeUser();
+        const name = newName('delete');
+        const row = await store.create({
+            userId,
+            subdomain: name,
+            rootDirId: 1,
+        });
+        const before = await store.getBySubdomain(name, { primary: true });
+
+        await applyOnPeer(name, before, () =>
+            store.deleteByUuid(row.uuid, { userId }),
+        );
+
+        const found = await withLaggingReplica([before], () =>
+            store.getBySubdomain(name),
+        );
+        expect(found).toBeNull();
+        expect(await settledCache(name)).toBe('__none__');
+    });
+
+    it('serves the new root after an update, not the replica copy', async () => {
+        const userId = await makeUser();
+        const name = newName('update');
+        const row = await store.create({
+            userId,
+            subdomain: name,
+            rootDirId: 1,
+        });
+        const before = await store.getBySubdomain(name, { primary: true });
+
+        await applyOnPeer(name, before, () =>
+            store.update(row.uuid, { root_dir_id: 2 }, { userId }),
+        );
+
+        const found = await withLaggingReplica([before], () =>
+            store.getBySubdomain(name),
+        );
+        expect(found?.root_dir_id).toBe(2);
+        expect(JSON.parse((await settledCache(name))!).root_dir_id).toBe(2);
+    });
+
+    it('serves the new holder after a reclaim, not the replica copy', async () => {
+        const firstUser = await makeUser();
+        const nextUser = await makeUser();
+        const name = newName('reclaim');
+        const row = await store.create({
+            userId: firstUser,
+            subdomain: name,
+            rootDirId: 1,
+        });
+        const before = await store.getBySubdomain(name, { primary: true });
+
+        await applyOnPeer(name, before, () =>
+            store.reclaimByUuid(row.uuid, { userId: nextUser, rootDirId: 2 }),
+        );
+
+        const found = await withLaggingReplica([before], () =>
+            store.getBySubdomain(name),
+        );
+        expect(found?.user_id).toBe(nextUser);
+        expect(found?.root_dir_id).toBe(2);
+    });
+
+    it('resolves a site re-created right after its delete', async () => {
+        const userId = await makeUser();
+        const name = newName('recreate');
+        const row = await store.create({
+            userId,
+            subdomain: name,
+            rootDirId: 1,
+        });
+        const before = await store.getBySubdomain(name, { primary: true });
+
+        await applyOnPeer(name, before, async () => {
+            await store.deleteByUuid(row.uuid, { userId });
+            await store.create({ userId, subdomain: name, rootDirId: 2 });
+        });
+
+        // The replica has applied neither the delete nor the re-create.
+        const found = await withLaggingReplica([before], () =>
+            store.getBySubdomain(name),
+        );
+        expect(found?.uuid).not.toBe(row.uuid);
+        expect(found?.root_dir_id).toBe(2);
+    });
+
+    it('sends a recently changed name in a batch to the primary', async () => {
+        const userId = await makeUser();
+        const name = newName('batch');
+        const other = newName('batch-other');
+        const row = await store.create({
+            userId,
+            subdomain: name,
+            rootDirId: 1,
+        });
+        await store.create({ userId, subdomain: other, rootDirId: 5 });
+        await server.clients.redis.del(cacheKey(other));
+        const before = await store.getBySubdomain(name, { primary: true });
+
+        await applyOnPeer(name, before, () =>
+            store.update(row.uuid, { root_dir_id: 2 }, { userId }),
+        );
+
+        const otherRow = await store.getBySubdomain(other, { primary: true });
+        await server.clients.redis.del(cacheKey(other));
+        const found = await withLaggingReplica([before, otherRow], () =>
+            store.getBySubdomains([name, other]),
+        );
+        expect(found.get(name)?.root_dir_id).toBe(2);
+        expect(found.get(other)?.root_dir_id).toBe(5);
+    });
+
+    it('caches a row read inside the change window only for the window', async () => {
+        const userId = await makeUser();
+        const name = newName('window');
+        const row = await store.create({
+            userId,
+            subdomain: name,
+            rootDirId: 1,
+        });
+        const before = await store.getBySubdomain(name, { primary: true });
+
+        await applyOnPeer(name, before, () =>
+            store.update(row.uuid, { root_dir_id: 2 }, { userId }),
+        );
+
+        const redis = server.clients.redis;
+        const expectWindowTtl = async () => {
+            await settledCache(name);
+            const ttl = await redis.ttl(cacheKey(name));
+            expect(ttl).toBeGreaterThan(0);
+            expect(ttl).toBeLessThanOrEqual(60);
+        };
+        await withLaggingReplica([before], () => store.getBySubdomain(name));
+        await expectWindowTtl();
+
+        await redis.del(cacheKey(name));
+        await withLaggingReplica([before], () => store.getBySubdomains([name]));
+        await expectWindowTtl();
+    });
+
+    it('drops a site deleted before the replica has seen it', async () => {
+        const userId = await makeUser();
+        const name = newName('unseen');
+        const row = await store.create({
+            userId,
+            subdomain: name,
+            rootDirId: 1,
+        });
+
+        await withLaggingReplica([], () =>
+            store.deleteByUuid(row.uuid, { userId }),
+        );
+
+        expect(await store.getBySubdomain(name)).toBeNull();
+    });
+
+    it('serves a cache hit without checking for a recent change', async () => {
+        const userId = await makeUser();
+        const name = newName('hit');
+        await store.create({ userId, subdomain: name, rootDirId: 1 });
+
+        const pipeline = vi.spyOn(server.clients.redis, 'pipeline');
+        try {
+            expect((await store.getBySubdomain(name))?.root_dir_id).toBe(1);
+            expect(pipeline).not.toHaveBeenCalled();
+        } finally {
+            pipeline.mockRestore();
+        }
+    });
+});
+
 describe('SubdomainStore app_owner filtering', () => {
     const makeApp = async (ownerUserId: number) => {
         const name = `sds-app-${Math.random().toString(36).slice(2, 10)}`;
@@ -254,6 +497,76 @@ describe('SubdomainStore app_owner filtering', () => {
         expect(
             await store.countByUserIdAndPrefix(userId, prefix, { appIds: [] }),
         ).toBe(0);
+    });
+
+    it('lists the rows an app delete cascades to, by app or by app owner', async () => {
+        const developer = await makeUser();
+        const siteOwner = await makeUser();
+        const app = await makeApp(developer);
+        const sibling = await makeApp(developer);
+        const unrelated = await makeApp(siteOwner);
+        const name = (tag: string) =>
+            `sds-cascade-${tag}-${Math.random().toString(36).slice(2, 8)}`;
+
+        const owned = await store.create({
+            userId: siteOwner,
+            subdomain: name('owned'),
+            appOwner: app.id,
+        });
+        const associated = await store.create({
+            userId: siteOwner,
+            subdomain: name('associated'),
+            rootDirId: 7,
+            associatedAppId: app.id,
+        });
+        const siblings = await store.create({
+            userId: siteOwner,
+            subdomain: name('sibling'),
+            appOwner: sibling.id,
+        });
+        await store.create({
+            userId: siteOwner,
+            subdomain: name('unrelated'),
+            appOwner: unrelated.id,
+        });
+        await store.create({ userId: siteOwner, subdomain: name('none') });
+
+        const names = (rows: Array<{ subdomain: string }>) =>
+            rows.map((row) => row.subdomain).sort();
+        expect(await store.listAppCascade({ appId: app.id })).toEqual(
+            expect.arrayContaining([
+                { subdomain: owned.subdomain, root_dir_id: null },
+                { subdomain: associated.subdomain, root_dir_id: 7 },
+            ]),
+        );
+        expect(names(await store.listAppCascade({ appId: app.id }))).toEqual(
+            names([owned, associated]),
+        );
+        expect(
+            names(await store.listAppCascade({ ownerUserId: developer })),
+        ).toEqual(names([owned, associated, siblings]));
+    });
+
+    it('lists an app cascade past one page', async () => {
+        const userId = await makeUser();
+        const app = await makeApp(userId);
+        const tag = Math.random().toString(36).slice(2, 8);
+        const total = 201;
+        const values = Array.from({ length: total }, (_, i) => [
+            uuidv4(),
+            `sds-page-${tag}-${i}`,
+            userId,
+            app.id,
+        ]);
+        await server.clients.db.write(
+            `INSERT INTO \`subdomains\` (\`uuid\`, \`subdomain\`, \`user_id\`, \`app_owner\`) VALUES ${values
+                .map(() => '(?, ?, ?, ?)')
+                .join(', ')}`,
+            values.flat(),
+        );
+
+        const rows = await store.listAppCascade({ appId: app.id });
+        expect(new Set(rows.map((row) => row.subdomain)).size).toBe(total);
     });
 
     it('counts only rows older than `createdBefore`', async () => {
@@ -450,13 +763,11 @@ describe('SubdomainStore listing and counting', () => {
         ).toEqual([`${p}a_b`]);
         expect(await store.countByUserIdAndPrefix(userId, `${p}a_`)).toBe(1);
         expect(
-            (
-                await store.listByUserId(userId, { excludePrefix: `${p}a_` })
-            ).map((r) => r.subdomain),
+            (await store.listByUserId(userId, { excludePrefix: `${p}a_` })).map(
+                (r) => r.subdomain,
+            ),
         ).toEqual([`${p}axb`]);
-        expect(
-            await store.count({ userId, excludePrefix: `${p}a_` }),
-        ).toBe(1);
+        expect(await store.count({ userId, excludePrefix: `${p}a_` })).toBe(1);
     });
 
     it('narrows a prefix listing by a single app id and paginates it', async () => {
@@ -658,6 +969,11 @@ describe('SubdomainStore.getBySubdomains', () => {
         const name = `gbs-neg-${Math.random().toString(36).slice(2, 8)}`;
         // Poison the negative-cache marker first.
         expect(await store.getBySubdomains([name])).toEqual(new Map());
+        await vi.waitFor(async () =>
+            expect(await server.clients.redis.get(cacheKey(name))).toBe(
+                '__none__',
+            ),
+        );
 
         const read = vi.spyOn(server.clients.db, 'read');
         try {

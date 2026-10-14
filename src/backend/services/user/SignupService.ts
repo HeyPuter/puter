@@ -650,12 +650,21 @@ export class SignupService extends PuterService {
             email,
             canonical,
         );
-        await this.stores.user.update(user.id, {
-            email_confirmed: 1,
-            requires_email_confirmation: 0,
-            email_confirm_code: null,
-            email_confirm_token: null,
-        });
+        try {
+            await this.stores.user.update(user.id, {
+                email_confirmed: 1,
+                requires_email_confirmation: 0,
+                email_confirm_code: null,
+                email_confirm_token: null,
+            });
+        } catch (e) {
+            // An owner the checks above don't strip, such as a variant
+            // spelling the index's collation folds together.
+            if (!isOwnedEmailConflict(e)) throw e;
+            throw new HttpError(400, 'This email is already in use.', {
+                legacyCode: 'email_already_in_use' as never,
+            });
+        }
         await promoteToVerifiedGroup(this.stores.group, this.config, user);
 
         // Best-effort side channels. Other tabs refresh; the one that sent

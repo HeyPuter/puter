@@ -275,6 +275,33 @@ describe('UserAccountService', () => {
             ).toBeNull();
         });
 
+        it("drops the cached sites that go with the account's apps", async () => {
+            const developer = await seedUser();
+            const siteOwner = await seedUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ua-app-${uuidv4()}`,
+                    title: 'Hosting',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: developer.id },
+            );
+            const site = await server.stores.subdomain.create({
+                userId: siteOwner.id,
+                subdomain: `ua-app-site-${Math.random().toString(36).slice(2, 10)}`,
+                appOwner: app.id,
+            });
+
+            const cacheKey = `subdomains:name:${site.subdomain}`;
+            expect(await server.clients.redis.get(cacheKey)).not.toBeNull();
+
+            await server.services.userAccount.cascadeDelete(developer.id);
+
+            // SQLite keeps the app and its site (MySQL and Postgres cascade
+            // both); either way the cached copy has to go.
+            expect(await server.clients.redis.get(cacheKey)).toBeNull();
+        });
+
         it('finishes when dropping the seat caches fails', async () => {
             const user = await seedUser();
             const capture = vi
@@ -300,6 +327,26 @@ describe('UserAccountService', () => {
                 warn.mockRestore();
             }
             expect(await server.stores.user.getById(user.id)).toBeNull();
+        });
+
+        it("records the account's apps as deleted", async () => {
+            const user = await seedUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ua-app-${uuidv4()}`,
+                    title: 'Owned',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+
+            await server.services.userAccount.cascadeDelete(user.id);
+
+            expect(
+                (await server.stores.app.getDeletedOwnersByUids([app.uid])).get(
+                    app.uid,
+                ),
+            ).toBe(user.id);
         });
 
         it('frees the address for a new account', async () => {

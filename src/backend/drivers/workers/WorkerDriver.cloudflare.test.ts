@@ -422,6 +422,102 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         expect(putCalls()).toHaveLength(0);
     });
 
+    // The file's owner keeps editing rights at any share level, and later
+    // redeploys read the file as the worker's owner.
+    it.each(['read', 'write', 'manage'] as const)(
+        'refuses a source file shared with the actor at %s',
+        async (mode) => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const path = `/${owner.user.username}/worker.js`;
+            const entry = await writeSource(
+                owner.actor,
+                owner.user.id,
+                path,
+                'v1',
+            );
+            await server.services.acl.setUserUser(
+                owner.actor,
+                holder.actor,
+                {
+                    path: entry.path,
+                    resolveAncestors: () =>
+                        server.services.fs.getAncestorChain(entry.path),
+                },
+                mode,
+            );
+            const name = `borrowed-${mode}-${holder.user.username}`;
+
+            await expect(
+                inCtx(holder.actor, () =>
+                    target.create({
+                        appId: '',
+                        workerName: name,
+                        filePath: path,
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+            expect(putCalls()).toHaveLength(0);
+            expect(
+                await server.stores.subdomain.getBySubdomain(
+                    `workers.puter.${name}`,
+                ),
+            ).toBeNull();
+            expect(
+                await server.stores.session.getWorker(holder.user.id, {
+                    workerName: name,
+                }),
+            ).toBeNull();
+        },
+    );
+
+    it('refuses repointing an existing worker at another user’s file', async () => {
+        const { user, actor } = await makeUser();
+        const other = await makeUser();
+        const own = `/${user.username}/worker.js`;
+        const ownEntry = await writeSource(actor, user.id, own, 'v1');
+        const foreign = `/${other.user.username}/worker.js`;
+        const foreignEntry = await writeSource(
+            other.actor,
+            other.user.id,
+            foreign,
+            'v2',
+        );
+        await server.services.acl.setUserUser(
+            other.actor,
+            actor,
+            {
+                path: foreignEntry.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(foreignEntry.path),
+            },
+            'read',
+        );
+        const name = `repoint-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({ appId: '', workerName: name, filePath: own }),
+        );
+
+        await expect(
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: name,
+                    filePath: foreign,
+                    [INTERNAL_ADMISSION_BYPASS]: true,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(putCalls()).toHaveLength(1);
+        const row = await server.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+        expect(Number(row!.root_dir_id)).toBe(ownEntry.id);
+    });
+
     it('surfaces an edge deploy failure with stack lines rebased past the preamble', async () => {
         const { user, actor } = await makeUser();
         const path = `/${user.username}/worker.js`;
@@ -472,7 +568,8 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
                 target.create({
                     appId: '',
                     workerName: 'ghost-worker',
-                    filePath: '/ghost/worker.js',
+                    // Inline source: a path would 404 before the user lookup.
+                    filePath: 'data:application/javascript,export default {}',
                 }),
             ),
         ).rejects.toMatchObject({

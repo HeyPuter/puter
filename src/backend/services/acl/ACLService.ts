@@ -30,6 +30,7 @@ import {
 } from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
+import { closedAppDataOwners } from '../permission/appDataScopes';
 import { HttpError } from '../../core/http/HttpError.js';
 import { actorHasSubscription } from '../metering/enforcement';
 import { withRedisLock } from '../../util/redisLock.js';
@@ -49,7 +50,11 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
+    | 'see'
+    | 'list'
+    | 'read'
+    | 'write'
+    | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -203,6 +208,15 @@ export class ACLService extends PuterService {
                     return true;
                 }
             }
+            // Closed whatever the app was granted, on the folder or above it.
+            // The stored ancestor paths count too, so a case variant of the
+            // asked path still names the folder.
+            const closed = await closedAppDataOwners(
+                this.stores.app,
+                [resource.path, ...ancestors.map((a) => a.path)],
+                appUid,
+            );
+            if (closed.size > 0) return false;
         }
 
         // Public folders: /<user>/Public with read-ish mode, owner must have

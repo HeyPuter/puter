@@ -341,6 +341,61 @@ describe('share endpoints over HTTP', () => {
             expect(replayed.items).toEqual([]);
         });
 
+        it('drops what a folder delegate re-shared once the item leaves the folder', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const holder = await makeUser();
+
+            const dir = (await (
+                await post('/mkdir', owner.token, {
+                    path: `/${owner.username}/Proj`,
+                })
+            ).json()) as { uid: string };
+            await post('/touch', owner.token, {
+                path: `/${owner.username}/Proj/plan.txt`,
+            });
+            const file = (await (
+                await post('/stat', owner.token, {
+                    path: `/${owner.username}/Proj/plan.txt`,
+                })
+            ).json()) as { uid: string };
+
+            await post('/share', owner.token, {
+                recipients: [delegate.username],
+                items: [{ uid: dir.uid }],
+                mode: 'manage',
+            });
+            await post('/share', delegate.token, {
+                recipients: [holder.username],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+            const listedTo = async (token: string) =>
+                (
+                    (await (
+                        await get('/share/shared-by-me', token, {})
+                    ).json()) as { items: Array<{ uid_entry: string }> }
+                ).items.map((i) => i.uid_entry);
+            expect(await listedTo(delegate.token)).toContain(file.uid);
+
+            const moved = await post('/move', owner.token, {
+                source: file.uid,
+                destination: `/${owner.username}`,
+            });
+            expect(moved.status).toBe(200);
+            // A move doesn't bump readings; this stands in for the scan-cache TTL.
+            const delegateRow = await env.server.stores.user.getByUsername(
+                delegate.username,
+            );
+            await env.server.stores.permission.bumpCacheGeneration(
+                `user:${delegateRow!.uuid}`,
+            );
+
+            expect(await listedTo(delegate.token)).not.toContain(file.uid);
+            // The holder's grant still stands, so its owner still sees it.
+            expect(await listedTo(owner.token)).toContain(file.uid);
+        });
+
         // A caller who believes they filtered must not silently receive
         // everything: a duplicated param arrives as an array, and an empty
         // string names nothing.

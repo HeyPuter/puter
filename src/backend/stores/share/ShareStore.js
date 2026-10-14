@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
+import { isSameAddress } from '../../util/email';
 import { decodeCursor, keysetPage, openIdCursor } from '../../util/pagination';
 import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
@@ -490,7 +491,10 @@ export class ShareStore extends PuterStore {
                 'ORDER BY `id`',
             [recipientEmail],
         );
-        return rows.map((r) => this.#normalizeRow(r));
+        // The collation also matches accent variants, which are other addresses.
+        return rows
+            .filter((r) => isSameAddress(r.recipient_email, recipientEmail))
+            .map((r) => this.#normalizeRow(r));
     }
 
     /**

@@ -825,9 +825,11 @@ export class FSEntryStore extends PuterStore {
         for (const path of candidatePaths) {
             const entry = allEntries.get(path);
             if (entry && !entry.isDir) {
-                throw new HttpError(409, `Path is not a directory: ${path}`, {
-                    legacyCode: 'conflict',
-                });
+                throw new HttpError(
+                    409,
+                    `Path is not a directory: ${pathPosix.basename(path)}`,
+                    { legacyCode: 'conflict' },
+                );
             }
         }
 
@@ -868,7 +870,7 @@ export class FSEntryStore extends PuterStore {
                     if (parentEntry && !parentEntry.isDir) {
                         throw new HttpError(
                             409,
-                            `Path is not a directory: ${parentPath}`,
+                            `Path is not a directory: ${pathPosix.basename(parentPath)}`,
                             { legacyCode: 'conflict' },
                         );
                     }
@@ -930,7 +932,7 @@ export class FSEntryStore extends PuterStore {
                     if (!insertedEntry.isDir) {
                         throw new HttpError(
                             409,
-                            `Path is not a directory: ${path}`,
+                            `Path is not a directory: ${pathPosix.basename(path)}`,
                             { legacyCode: 'conflict' },
                         );
                     }
@@ -949,14 +951,14 @@ export class FSEntryStore extends PuterStore {
                 // path in #ensureDirectoryPath). Surface as 404.
                 throw new HttpError(
                     404,
-                    `Parent path does not exist: ${requiredPath}`,
+                    `Parent path does not exist: ${pathPosix.basename(requiredPath)}`,
                     { legacyCode: 'not_found' },
                 );
             }
             if (!entry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${requiredPath}`,
+                    `Path is not a directory: ${pathPosix.basename(requiredPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -981,7 +983,7 @@ export class FSEntryStore extends PuterStore {
             if (!existingEntry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${normalizedPath}`,
+                    `Path is not a directory: ${pathPosix.basename(normalizedPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -991,7 +993,7 @@ export class FSEntryStore extends PuterStore {
         if (!createPaths) {
             throw new HttpError(
                 404,
-                `Parent path does not exist: ${normalizedPath}`,
+                `Parent path does not exist: ${pathPosix.basename(normalizedPath)}`,
                 { legacyCode: 'not_found' },
             );
         }
@@ -1072,14 +1074,14 @@ export class FSEntryStore extends PuterStore {
             // Error become a 500 + page on-call.
             throw new HttpError(
                 404,
-                `Parent path does not exist: ${normalizedPath}`,
+                `Parent path does not exist: ${pathPosix.basename(normalizedPath)}`,
                 { legacyCode: 'not_found' },
             );
         }
         if (!resolvedEntry.isDir) {
             throw new HttpError(
                 409,
-                `Path is not a directory: ${normalizedPath}`,
+                `Path is not a directory: ${pathPosix.basename(normalizedPath)}`,
                 { legacyCode: 'conflict' },
             );
         }
@@ -1737,14 +1739,14 @@ export class FSEntryStore extends PuterStore {
             if (!parentEntry) {
                 throw new HttpError(
                     404,
-                    `Parent path does not exist: ${normalizedPath}`,
+                    `Parent path does not exist: ${pathPosix.basename(normalizedPath)}`,
                     { legacyCode: 'not_found' },
                 );
             }
             if (!parentEntry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${normalizedPath}`,
+                    `Path is not a directory: ${pathPosix.basename(normalizedPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -1803,14 +1805,14 @@ export class FSEntryStore extends PuterStore {
             if (!entry) {
                 throw new HttpError(
                     404,
-                    `Directory path does not exist: ${request.path}`,
+                    `Directory path does not exist: ${pathPosix.basename(request.path)}`,
                     { legacyCode: 'not_found' },
                 );
             }
             if (!entry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${request.path}`,
+                    `Path is not a directory: ${pathPosix.basename(request.path)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -1866,7 +1868,7 @@ export class FSEntryStore extends PuterStore {
                 if (Number.isNaN(size) || size < 0) {
                     throw new HttpError(
                         400,
-                        `Invalid size for path ${targetPath}`,
+                        `Invalid size for ${pathPosix.basename(targetPath)}`,
                         { legacyCode: 'bad_request' },
                     );
                 }
@@ -1893,7 +1895,7 @@ export class FSEntryStore extends PuterStore {
             if (duplicatePathSet.has(dedupeKey)) {
                 throw new HttpError(
                     409,
-                    `Batch contains duplicate target path: ${normalizedEntry.targetPath}`,
+                    `Batch contains duplicate target path: ${pathPosix.basename(normalizedEntry.targetPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -1944,7 +1946,7 @@ export class FSEntryStore extends PuterStore {
                 if (!parentEntry) {
                     throw new HttpError(
                         404,
-                        `Parent directory not found for ${entry.targetPath}`,
+                        `Parent directory not found for ${pathPosix.basename(entry.targetPath)}`,
                         { legacyCode: 'dest_does_not_exist' },
                     );
                 }
@@ -1956,14 +1958,14 @@ export class FSEntryStore extends PuterStore {
                     if (!entry.input.overwrite) {
                         throw new HttpError(
                             409,
-                            `Entry already exists at ${entry.targetPath}`,
+                            `An entry named \`${pathPosix.basename(entry.targetPath)}\` already exists`,
                             { legacyCode: 'conflict' },
                         );
                     }
                     if (existingEntry.isDir) {
                         throw new HttpError(
                             409,
-                            `Cannot overwrite a directory at ${entry.targetPath}`,
+                            `Cannot overwrite a directory: ${pathPosix.basename(entry.targetPath)}`,
                             { legacyCode: 'cannot_overwrite_a_directory' },
                         );
                     }
@@ -2097,7 +2099,7 @@ export class FSEntryStore extends PuterStore {
                         if (!parentEntry) {
                             throw new HttpError(
                                 404,
-                                `Parent directory not found for ${entry.targetPath}`,
+                                `Parent directory not found for ${pathPosix.basename(entry.targetPath)}`,
                                 { legacyCode: 'dest_does_not_exist' },
                             );
                         }
@@ -2233,7 +2235,7 @@ export class FSEntryStore extends PuterStore {
                     if (!parentEntry) {
                         throw new HttpError(
                             404,
-                            `Parent directory not found for ${entry.targetPath}`,
+                            `Parent directory not found for ${pathPosix.basename(entry.targetPath)}`,
                             { legacyCode: 'dest_does_not_exist' },
                         );
                     }
@@ -2242,7 +2244,7 @@ export class FSEntryStore extends PuterStore {
                         insertConflictErrors.push(
                             new HttpError(
                                 409,
-                                `Entry already exists at ${entry.targetPath}`,
+                                `An entry named \`${pathPosix.basename(entry.targetPath)}\` already exists`,
                                 { legacyCode: 'conflict' },
                             ),
                         );
@@ -2252,7 +2254,7 @@ export class FSEntryStore extends PuterStore {
                         insertConflictErrors.push(
                             new HttpError(
                                 409,
-                                `Cannot overwrite a directory at ${entry.targetPath}`,
+                                `Cannot overwrite a directory: ${pathPosix.basename(entry.targetPath)}`,
                                 { legacyCode: 'cannot_overwrite_a_directory' },
                             ),
                         );
@@ -2262,7 +2264,7 @@ export class FSEntryStore extends PuterStore {
                         insertConflictErrors.push(
                             new HttpError(
                                 409,
-                                `Entry already exists at ${entry.targetPath}`,
+                                `An entry named \`${pathPosix.basename(entry.targetPath)}\` already exists`,
                                 { legacyCode: 'conflict' },
                             ),
                         );

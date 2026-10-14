@@ -59,6 +59,8 @@ export interface LoadedFile {
         bucketRegion: string | null;
         size: number | null;
         sqlId: number | null; // null in case of base64 URL or a future dynamodb FS.
+        /** The file's owner, who is not necessarily the actor that read it. */
+        userId: number;
     } | null;
 }
 
@@ -75,7 +77,8 @@ export interface ResolvedFileInput {
  * uuid? }`.
  */
 export type FileInputRef =
-    string | { path?: string; uid?: string; uuid?: string };
+    | string
+    | { path?: string; uid?: string; uuid?: string };
 
 export interface OpenedFileInput {
     body: Readable;
@@ -278,6 +281,7 @@ const fsEntryInfo = (entry: FSEntry): NonNullable<LoadedFile['fsEntry']> => ({
     bucketRegion: entry.bucketRegion,
     size: entry.size,
     sqlId: entry.id,
+    userId: entry.userId,
 });
 
 /** {@link openFileInputStream} for an entry that is already resolved. */

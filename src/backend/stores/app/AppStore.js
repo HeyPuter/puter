@@ -810,13 +810,21 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Delete an app row. Also deletes its filetype associations. Invalidates
-     * cache.
+     * Delete an app row. Also deletes its filetype associations, records its
+     * uid and owner in `deleted_apps`, and invalidates cache, its own and that
+     * of the sites and workers that cascade away with it.
      */
     async delete(appId) {
         const app = await this.getById(appId);
         if (!app) return false;
 
+        const sites = await this.stores.subdomain.listAppCascade({ appId });
+
+        const owner = app.owner_user_id ?? null;
+        await this.clients.db.write(
+            `INSERT INTO \`deleted_apps\` (\`uid\`, \`owner_user_id\`) VALUES (?, ?) ${this.#deletedAppsUpsert()}`,
+            [app.uid, owner, owner],
+        );
         await this.clients.db.write(
             'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
             [appId],
@@ -826,7 +834,54 @@ export class AppStore extends PuterStore {
         ]);
         // Tombstone, so a lagging replica can't cache the row back for a day.
         await this.markDeleted(app);
+        await this.stores.subdomain.forgetCascadeDeleted(sites);
         return true;
+    }
+
+    /**
+     * Record every app `userId` owns in `deleted_apps`, as {@link delete} does.
+     * Call before deleting the user: the `apps` rows go with it by FK cascade.
+     */
+    async recordDeletedForOwner(userId) {
+        await this.clients.db.write(
+            `INSERT INTO \`deleted_apps\` (\`uid\`, \`owner_user_id\`) SELECT \`uid\`, \`owner_user_id\` FROM \`apps\` WHERE \`owner_user_id\` = ? ${this.#deletedAppsUpsert()}`,
+            [userId, userId],
+        );
+    }
+
+    /**
+     * Owner each of `uids` had when its app was deleted (null if it had none).
+     * Uids that never belonged to a deleted app are absent.
+     *
+     * @param {string[]} uids
+     * @returns {Promise<Map<string, number | null>>}
+     */
+    async getDeletedOwnersByUids(uids) {
+        const unique = [...new Set(uids)];
+        const out = new Map();
+        for (
+            let offset = 0;
+            offset < unique.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = unique.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+            const rows = await this.clients.db.read(
+                `SELECT \`uid\`, \`owner_user_id\` FROM \`deleted_apps\` WHERE \`uid\` IN (${chunk.map(() => '?').join(', ')})`,
+                chunk,
+            );
+            for (const row of rows) {
+                const owner = Number(row.owner_user_id);
+                out.set(
+                    String(row.uid),
+                    row.owner_user_id != null && owner > 0 ? owner : null,
+                );
+            }
+        }
+        return out;
+    }
+
+    #deletedAppsUpsert() {
+        return this.clients.db.upsertClause(['uid'], ['owner_user_id']);
     }
 
     // -- Filetype associations ----------------------------------------

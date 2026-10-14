@@ -1591,6 +1591,97 @@ describe('ShareService', () => {
             ).toBe(false);
         });
 
+        it('hides what a delegate shared once their own authority is withdrawn outside unshare', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(delegate.actor)).items.map(
+                    (i) => i.holder.username,
+                ),
+            ).toEqual([third.user.username]);
+
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    delegate.user.username!,
+                    `manage:fs:${file.uuid}`,
+                ),
+            );
+
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+            // The grant itself stands, so the owner still sees it to revoke.
+            const ownerView = await listSharedByMe(owner.actor);
+            expect(
+                ownerView.items.find(
+                    (i) => i.holder.username === third.user.username,
+                )?.issuer.username,
+            ).toBe(delegate.user.username);
+        });
+
+        it('hides a team share once the delegate loses the team that made them one', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            const viaTeam = await server.stores.team.create({
+                ownerUserId: owner.user.id,
+                name: `t-${uuidv4().slice(0, 8)}`,
+            });
+            const audience = await server.stores.team.create({
+                ownerUserId: delegate.user.id,
+                name: `t-${uuidv4().slice(0, 8)}`,
+            });
+            for (const [team, members] of [
+                [viaTeam, [owner, delegate]],
+                [audience, [delegate, third]],
+            ] as const) {
+                for (const each of members) {
+                    await server.stores.team.addMember(team.uid, each.user.id, {
+                        orgOwned: false,
+                    });
+                }
+            }
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { team: viaTeam.uid },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { team: audience.uid },
+                mode: 'read',
+            });
+            const holderTeams = async (actor: Actor) =>
+                (await listSharedByMe(actor)).items.map(
+                    (i) => i.holderTeam?.uid,
+                );
+            // Asked of the owner first: a delegate's own reading would sit in
+            // the permission cache past the team's deletion.
+            expect(await holderTeams(owner.actor)).toContain(audience.uid);
+
+            await server.services.team.deleteTeam(viaTeam.uid, owner.user.id);
+
+            expect(await holderTeams(delegate.actor)).not.toContain(
+                audience.uid,
+            );
+            expect(await holderTeams(owner.actor)).toContain(audience.uid);
+        });
+
         it('reads the app off an invite recorded under the legacy key', async () => {
             const owner = await makeUser();
             const file = await makeFile(owner.user);
@@ -3514,6 +3605,61 @@ describe('ShareService', () => {
                 }),
             );
             expect(byOwner).toHaveLength(3);
+        });
+
+        it("refuses its user's AppData while another app there keeps its data closed", async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const closed = await server.stores.app.create(
+                {
+                    name: `share-app-${uuidv4()}`,
+                    title: 'Closed app',
+                    index_url: `https://share-${uuidv4()}.test/`,
+                    metadata: JSON.stringify({ share_app_data: false }),
+                },
+                { ownerUserId: owner.user.id },
+            );
+            const file = await makeAppDataFile(owner, closed);
+            const appData = await server.stores.fsEntry.getEntryByPath(
+                `/${owner.user.username}/AppData`,
+            );
+            await grantAppReach(owner, app, appData);
+            const input = {
+                uid: appData.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            };
+
+            await expect(share(asApp(owner, app), input)).rejects.toMatchObject(
+                { statusCode: 403 },
+            );
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+            // The user can still share it.
+            await share(owner.actor, input);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it("shares its user's AppData while every app there shares", async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeAppDataFile(
+                owner,
+                await makeApp(owner.user.id),
+            );
+            const appData = await server.stores.fsEntry.getEntryByPath(
+                `/${owner.user.username}/AppData`,
+            );
+            await grantAppReach(owner, app, appData);
+
+            await share(asApp(owner, app), {
+                uid: appData.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
         });
     });
 

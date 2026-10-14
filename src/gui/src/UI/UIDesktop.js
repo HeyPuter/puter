@@ -49,6 +49,7 @@ import { notificationTarget } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
+import { resolve_default_app } from '../helpers/defaultApp.js';
 
 async function UIDesktop (options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -1785,12 +1786,11 @@ async function UIDesktop (options) {
                 return;
             }
 
-            const ext_pref =
-                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
-
-            if ( ext_pref ) {
+            const default_app = await resolve_default_app({ uid: stat.uid, path: item_path });
+            if ( default_app ) {
                 launch_app({
-                    name: ext_pref,
+                    name: default_app.name,
+                    app_obj: default_app,
                     file_path: item_path,
                 });
                 return;

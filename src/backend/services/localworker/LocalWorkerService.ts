@@ -295,6 +295,11 @@ export class LocalWorkerService extends PuterService {
                 `Local: worker ${workerName} source file not found (id=${row.root_dir_id})`,
             );
         }
+        if (sourceEntry.userId !== ownerUser.id) {
+            throw new Error(
+                `Local: worker ${workerName} source file is not owned by the worker's owner`,
+            );
+        }
 
         const loaded = await loadFileInput(
             {

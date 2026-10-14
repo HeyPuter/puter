@@ -1368,6 +1368,75 @@ describe('KVStoreDriver', () => {
             );
         });
 
+        it('lets the expire op set an expiry without the delete class', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'expire'),
+            );
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.expire({ key: 'entry', ttl: 60, optConfig }),
+                ),
+            ).toBe(true);
+        });
+
+        it('returns no value from remove without read access', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.set({
+                        key: 'doc',
+                        value: { token: 'secret', x: 1 },
+                    }),
+                contactsActor,
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'remove'),
+            );
+            const remove = (paths: string[]) =>
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.remove({ key: 'doc', paths, optConfig }),
+                );
+
+            // A missing top-level path and a missing nested one both remove
+            // nothing; neither may hand back the stored value.
+            expect(await remove(['nope'])).toBeNull();
+            expect(await remove(['also.missing'])).toBeNull();
+            expect(await remove(['x'])).toBeNull();
+            expect(
+                await inCtx(() => target.get({ key: 'doc' }), contactsActor),
+            ).toEqual({ token: 'secret' });
+        });
+
+        it('returns the updated value from remove with read access too', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () => target.set({ key: 'doc', value: { a: 1, b: 2 } }),
+                contactsActor,
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'remove'),
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'get'),
+            );
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.remove({ key: 'doc', paths: ['a'], optConfig }),
+                ),
+            ).toEqual({ b: 2 });
+        });
+
         // -- Compatibility -------------------------------------------------
 
         it('does not consult permissions for an own-namespace call', async () => {

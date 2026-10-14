@@ -75,6 +75,7 @@ import {
     type GuiItemEventName,
     loadLegacyAssociatedApps,
     replacedByMove,
+    resolveOrNotFound,
     signEntryThumbnail,
 } from './legacyFsHelpers.js';
 import type {
@@ -1790,7 +1791,6 @@ export class FSController extends PuterController {
     }
 
     async #resolveEntryForRequest(source: Record<string, unknown>) {
-        const mod = await import('../../services/fs/resolveNode.js');
         const username = Context.get('actor')?.user?.username;
         const rawPath =
             typeof source.path === 'string' ? source.path : undefined;
@@ -1810,15 +1810,8 @@ export class FSController extends PuterController {
                     ? source.id
                     : undefined,
         };
-        const entry = await mod.resolveNode(this.stores.fsEntry, ref, {
-            required: true,
-        });
-        if (!entry) {
-            throw new HttpError(404, 'Entry not found', {
-                legacyCode: 'not_found',
-            });
-        }
-        return entry;
+        // The resolved path is the owner's real one, so a miss must not echo it.
+        return resolveOrNotFound(this.stores.fsEntry, ref);
     }
 
     async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
@@ -2240,7 +2233,8 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),

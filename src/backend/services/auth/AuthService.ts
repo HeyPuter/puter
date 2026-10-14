@@ -73,6 +73,11 @@ const SESSION_PURGE_PAUSE_MS = 50;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
+const positiveUserId = (value: unknown): number | null => {
+    const id = typeof value === 'string' ? Number(value) : value;
+    return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : null;
+};
+
 /**
  * Hosted-asset cookie names by kind. `name` is what gets set; `legacyName` is
  * still read through the v2 deprecation window.
@@ -892,18 +897,24 @@ export class AuthService extends PuterService {
      * user-driven UI flow and exempts workers + standalone access tokens by
      * design.
      *
-     * Iterates each top-level row through `revokeCascade` so derived rows
-     * (asset under web, app-issued access tokens under their app session)
-     * follow via the parent_session_id link.
+     * Cascades from every row so derived rows (asset under web, app-issued
+     * access tokens under their app session) follow via the parent_session_id
+     * link.
      */
     async revokeAllSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId);
-        for (const row of rows) {
-            this.#announceRevocation(
-                await this.stores.session.revokeCascade(row.uuid as string),
-            );
-        }
+        const rows = await this.stores.session.getByUserId(userId, {
+            primary: true,
+        });
+        await this.#revokeCascades(rows.map((row) => row.uuid as string));
+    }
+
+    async #revokeCascades(rootUuids: string[]): Promise<void> {
+        if (rootUuids.length === 0) return;
+        const revoked = (await this.stores.session.revokeCascades(
+            rootUuids,
+        )) as { userId: number; uuids: string[] }[];
+        for (const entry of revoked) this.#announceRevocation(entry);
     }
 
     /**
@@ -960,14 +971,14 @@ export class AuthService extends PuterService {
      */
     async revokeInteractiveSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId);
-        for (const row of rows) {
-            if (row.kind === 'web' || row.kind === 'app') {
-                this.#announceRevocation(
-                    await this.stores.session.revokeCascade(row.uuid as string),
-                );
-            }
-        }
+        const rows = await this.stores.session.getByUserId(userId, {
+            primary: true,
+        });
+        await this.#revokeCascades(
+            rows
+                .filter((row) => row.kind === 'web' || row.kind === 'app')
+                .map((row) => row.uuid as string),
+        );
     }
 
     async revokeAllSessions(
@@ -982,19 +993,17 @@ export class AuthService extends PuterService {
         const currentUuid = actor.session?.uid;
         const rows = await this.stores.session.getByUserId(
             actor.user.id as number,
+            { primary: true },
         );
-        for (const row of rows) {
-            if (row.kind === 'web') {
-                if (!opts.includeCurrent && row.uuid === currentUuid) continue;
-                this.#announceRevocation(
-                    await this.stores.session.revokeCascade(row.uuid as string),
-                );
-            } else if (row.kind === 'app' && opts.includeApps) {
-                this.#announceRevocation(
-                    await this.stores.session.revokeCascade(row.uuid as string),
-                );
-            }
-        }
+        await this.#revokeCascades(
+            rows
+                .filter((row) =>
+                    row.kind === 'web'
+                        ? opts.includeCurrent || row.uuid !== currentUuid
+                        : row.kind === 'app' && opts.includeApps,
+                )
+                .map((row) => row.uuid as string),
+        );
     }
 
     // -- App / origin resolution -------------------------------------
@@ -1115,15 +1124,64 @@ export class AuthService extends PuterService {
         const prefetched =
             gen0Uids.length > 0
                 ? await this.stores.app.getByUids(gen0Uids)
-                : new Map<string, { index_url?: unknown }>();
+                : new Map<
+                      string,
+                      { index_url?: unknown; owner_user_id?: unknown }
+                  >();
+
+        // Likewise the deleted app's owner for each hosted gen-0 uid with no
+        // row, and the site owner each owner gets compared against.
+        const deletedGen0Uids = missedAppOrigins
+            .filter(
+                (appOrigin) =>
+                    !prefetched.has(gen0ByAppOrigin.get(appOrigin)!) &&
+                    this.#hostedSubdomainForOrigin(appOrigin) !== null,
+            )
+            .map((appOrigin) => gen0ByAppOrigin.get(appOrigin)!);
+        const deletedOwners =
+            deletedGen0Uids.length > 0
+                ? await this.stores.app.getDeletedOwnersByUids(deletedGen0Uids)
+                : new Map<string, number | null>();
+        const subdomainByAppOrigin = new Map<string, string>();
+        for (const appOrigin of missedAppOrigins) {
+            const gen0Uid = gen0ByAppOrigin.get(appOrigin)!;
+            const row = prefetched.get(gen0Uid);
+            const ownerId = row
+                ? positiveUserId(row.owner_user_id)
+                : (deletedOwners.get(gen0Uid) ?? null);
+            const subdomain = this.#hostedSubdomainForOrigin(appOrigin);
+            if (ownerId !== null && subdomain) {
+                subdomainByAppOrigin.set(appOrigin, subdomain);
+            }
+        }
+        const siteRows =
+            subdomainByAppOrigin.size > 0
+                ? await this.stores.subdomain.getBySubdomains([
+                      ...subdomainByAppOrigin.values(),
+                  ])
+                : new Map<string, { user_id?: unknown }>();
+        const getSiteOwnerId = (appOrigin: string) => {
+            const subdomain = subdomainByAppOrigin.get(appOrigin);
+            const row = subdomain ? siteRows.get(subdomain) : undefined;
+            return row
+                ? Promise.resolve(positiveUserId(row.user_id))
+                : this.#siteOwnerIdForOrigin(appOrigin);
+        };
 
         const derivedByAppOrigin = new Map<string, string>();
         for (const appOrigin of missedAppOrigins) {
             const gen0Uid = gen0ByAppOrigin.get(appOrigin)!;
-            const uid = await this.#derivedAppUidForOrigin(appOrigin, (uid) =>
-                uid === gen0Uid
-                    ? Promise.resolve(prefetched.get(uid) ?? null)
-                    : this.stores.app.getByUid(uid),
+            const uid = await this.#derivedAppUidForOrigin(
+                appOrigin,
+                (uid) =>
+                    uid === gen0Uid
+                        ? Promise.resolve(prefetched.get(uid) ?? null)
+                        : this.stores.app.getByUid(uid),
+                getSiteOwnerId,
+                (uid) =>
+                    uid === gen0Uid
+                        ? Promise.resolve(deletedOwners.get(uid))
+                        : this.#deletedAppOwnerId(uid),
             );
             derivedByAppOrigin.set(appOrigin, uid);
         }
@@ -1169,31 +1227,61 @@ export class AuthService extends PuterService {
      * `app-<uuidv5(origin)>`, unless that uid's row now lives at another
      * origin. A repointed row keeps its uid (and the data and grants keyed to
      * it), so the origin it left moves on to a successor uid instead of
-     * resolving to someone's app it no longer serves. `getByUid` is injectable
-     * so a batch caller can serve prefetched rows.
+     * resolving to someone's app it no longer serves. The same goes for a row
+     * whose hosted site is now registered to another user, and for a deleted
+     * app's uid on a hosted site its owner no longer holds. The lookups are
+     * injectable so a batch caller can serve prefetched rows.
      */
     async #derivedAppUidForOrigin(
         origin: string,
         getByUid: (
             uid: string,
-        ) => Promise<{ index_url?: unknown } | null | undefined> = (uid) =>
-            this.stores.app.getByUid(uid),
+        ) => Promise<
+            { index_url?: unknown; owner_user_id?: unknown } | null | undefined
+        > = (uid) => this.stores.app.getByUid(uid),
+        getSiteOwnerId: (origin: string) => Promise<number | null> = (o) =>
+            this.#siteOwnerIdForOrigin(o),
+        getDeletedOwnerId: (
+            uid: string,
+        ) => Promise<number | null | undefined> = (uid) =>
+            this.#deletedAppOwnerId(uid),
     ): Promise<string> {
+        const hosted = this.#hostedSubdomainForOrigin(origin) !== null;
         for (let gen = 0; gen <= MAX_ORIGIN_UID_GENERATIONS; gen++) {
             const uid = this.#originUid(origin, gen);
             const app = await getByUid(uid);
-            if (!app) return uid;
-            if (
-                typeof app.index_url === 'string' &&
-                (await this.#appOriginFor(app.index_url)) === origin
-            ) {
-                return uid;
+            if (!app) {
+                if (!hosted) return uid;
+                const deletedOwnerId = await getDeletedOwnerId(uid);
+                if (deletedOwnerId === undefined) return uid;
+                if (
+                    deletedOwnerId !== null &&
+                    deletedOwnerId === (await getSiteOwnerId(origin))
+                ) {
+                    return uid;
+                }
+                continue;
             }
+            if (
+                typeof app.index_url !== 'string' ||
+                (await this.#appOriginFor(app.index_url)) !== origin
+            ) {
+                continue;
+            }
+            const appOwnerId = positiveUserId(app.owner_user_id);
+            if (appOwnerId === null) return uid;
+            const siteOwnerId = await getSiteOwnerId(origin);
+            if (siteOwnerId === null || siteOwnerId === appOwnerId) return uid;
         }
         // Past the cap the uid stops being derivable, but the row created for
         // it records this origin as its index_url, so the canonical lookup
         // finds it from then on.
         return `app-${uuidv4()}`;
+    }
+
+    /** Owner of the deleted app that held `uid`; undefined if none did. */
+    async #deletedAppOwnerId(uid: string): Promise<number | null | undefined> {
+        return (await this.stores.app.getDeletedOwnersByUids([uid])).get(uid);
     }
 
     /**
@@ -1206,25 +1294,65 @@ export class AuthService extends PuterService {
      * rows.
      */
     async subdomainOwnerIdFromOrigin(origin: string): Promise<number | null> {
+        const subdomain = this.#hostedSubdomainForOrigin(origin);
+        if (!subdomain) return null;
+        const row = await this.stores.subdomain.getBySubdomain(subdomain);
+        return positiveUserId(row?.user_id);
+    }
+
+    /**
+     * Whether `indexUrl` is on a hosted site, or on an origin whose app
+     * identity resolves to an app, owned by someone other than `ownerUserId`. A
+     * private app wins its origin's identity, so an app shouldn't become or
+     * stay private where this is true. Index urls below the origin root never
+     * resolve from an origin, so only the site owner counts for them.
+     */
+    async originHeldByOtherUser(
+        indexUrl: string,
+        ownerUserId: number,
+    ): Promise<boolean> {
+        const origin = await this.#appOriginFor(indexUrl);
+        if (!origin) return false;
+        const siteOwnerId = await this.#siteOwnerIdForOrigin(origin);
+        if (siteOwnerId !== null) return siteOwnerId !== ownerUserId;
+
+        const path = new URL(indexUrl).pathname.toLowerCase();
+        if (path !== '/' && path !== '/index.html') return false;
+        const holderUid = await this.#findCanonicalAppUidForOrigin(origin);
+        const holder = holderUid
+            ? await this.stores.app.getByUid(holderUid)
+            : null;
+        const holderId = positiveUserId(holder?.owner_user_id);
+        return holderId !== null && holderId !== ownerUserId;
+    }
+
+    /**
+     * {@link subdomainOwnerIdFromOrigin}, confirmed against the primary on a
+     * miss so a site registered a moment ago isn't read as unregistered.
+     */
+    async #siteOwnerIdForOrigin(origin: string): Promise<number | null> {
+        const subdomain = this.#hostedSubdomainForOrigin(origin);
+        if (!subdomain) return null;
+        const row =
+            (await this.stores.subdomain.getBySubdomain(subdomain)) ??
+            (await this.stores.subdomain.getBySubdomain(subdomain, {
+                primary: true,
+            }));
+        return positiveUserId(row?.user_id);
+    }
+
+    #hostedSubdomainForOrigin(origin: string): string | null {
         let parsed: URL;
         try {
             parsed = new URL(origin);
         } catch {
             return null;
         }
-        const subdomain = this.#hostedSubdomainForHost(
+        return this.#hostedSubdomainForHost(
             parsed.host.toLowerCase(),
             parsed.hostname.toLowerCase(),
             this.#getHostingDomains(),
         );
-        if (!subdomain) return null;
-        const row = await this.stores.subdomain.getBySubdomain(subdomain);
-        const ownerId = row?.user_id;
-        return typeof ownerId === 'number' &&
-            Number.isInteger(ownerId) &&
-            ownerId > 0
-            ? ownerId
-            : null;
     }
 
     /**

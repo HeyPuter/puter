@@ -34,6 +34,7 @@ import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
+import { is_default_app } from '../helpers/defaultApp.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -1228,7 +1229,7 @@ async function UIItem (options) {
                             onClick: async function () {
                                 var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
                                 if (
-                                    window.user_preferences[`default_apps${extension}`] !== suggested_app.name
+                                    ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
                                     &&
                                     (
                                         (!window.user_preferences[`default_apps${extension}`] && index > 0)
@@ -1251,7 +1252,7 @@ async function UIItem (options) {
                                         ],
                                     });
                                     if ( (alert_resp) === 'yes' ) {
-                                        window.user_preferences[`default_apps${ extension}`] = suggested_app.name;
+                                        window.user_preferences[`default_apps${ extension}`] = suggested_app.uuid;
                                         window.mutate_user_preferences(window.user_preferences);
                                     }
                                 }
@@ -1335,7 +1336,8 @@ async function UIItem (options) {
             //-------------------------------------------
             // Publish as Worker
             // -------------------------------------------
-            if ( !is_trashed && !is_trash && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
+            // The backend refuses deploys from a file someone else owns.
+            if ( !is_trashed && !is_trash && !is_not_mine && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
                 menu_items.push({
                     html: i18n('publish_as_serverless_worker'),
                     onClick: async function () {
