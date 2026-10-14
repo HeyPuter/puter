@@ -267,6 +267,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                         ollama: { enabled: false },
                     },
                     unlimitedMetering: true,
+                    extensions: [],
                 });
                 try {
                     const endpoint = new URL('/drivers/call', env.apiOrigin);
