@@ -92,6 +92,10 @@ function makeService() {
             // Default: no node on the chain is open to anyone with the link.
             listAnyoneReaching: vi.fn().mockResolvedValue([]),
         },
+        app: {
+            // Default: no app row behind any AppData folder.
+            getByUids: vi.fn().mockResolvedValue(new Map()),
+        },
     };
     const services = {
         permission: {
@@ -378,6 +382,56 @@ describe('ACLService.check — app-under-user', () => {
                 'read',
             ),
         ).toBe(true);
+    });
+
+    it("is refused an opted-out app's AppData whatever it was granted", async () => {
+        const { service, stores, services } = makeService();
+        services.permission.scan.mockResolvedValue([{ $: 'option', key: 'k' }]);
+        const closed = `app-${uuidv4()}`;
+        stores.app.getByUids.mockImplementation(async (uids: string[]) =>
+            uids.includes(closed)
+                ? new Map([
+                      [
+                          closed,
+                          { uid: closed, metadata: { share_app_data: false } },
+                      ],
+                  ])
+                : new Map(),
+        );
+        // Asked in another case; the stored chain names the real folder.
+        const asked: ResourceDescriptor = {
+            path: `/issuer/appdata/${closed.toUpperCase()}/state.json`,
+            resolveAncestors: async () => [
+                {
+                    uid: 'uid:file',
+                    path: `/issuer/AppData/${closed}/state.json`,
+                },
+                { uid: 'uid:root', path: `/issuer/AppData/${closed}` },
+                { uid: 'uid:appdata', path: '/issuer/AppData' },
+                { uid: 'uid:home', path: '/issuer' },
+            ],
+        };
+        expect(await service.check(appActor('issuer'), asked, 'read')).toBe(
+            false,
+        );
+        expect(stores.app.getByUids).toHaveBeenCalledWith(
+            expect.arrayContaining([closed]),
+        );
+    });
+
+    it('looks up no app for an AppData folder not named like one', async () => {
+        const { service, stores, services } = makeService();
+        services.permission.scan.mockResolvedValue([{ $: 'option', key: 'k' }]);
+        for (const name of ['日本', 'notes', 'app-2']) {
+            expect(
+                await service.check(
+                    appActor('issuer'),
+                    resource(`/issuer/AppData/${name}/x`),
+                    'read',
+                ),
+            ).toBe(true);
+        }
+        expect(stores.app.getByUids).not.toHaveBeenCalled();
     });
 
     it("does not get its user's home short-circuit", async () => {
@@ -1073,7 +1127,10 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
     });
 
     describe('app-under-user on shared paths', () => {
-        const makeApp = async (ownerUserId: number) =>
+        const makeApp = async (
+            ownerUserId: number,
+            fields: Record<string, unknown> = {},
+        ) =>
             (
                 server.stores.app.create as unknown as (
                     fields: Record<string, unknown>,
@@ -1084,6 +1141,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                     name: `acl-app-${uuidv4()}`,
                     title: 'ACL app',
                     index_url: `https://acl-${uuidv4()}.test/`,
+                    ...fields,
                 },
                 { ownerUserId },
             );
@@ -1197,6 +1255,71 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
             expect(
                 await acl.check(asApp(holder, mine), appDataOf(theirs.uid), 'write'),
             ).toBe(false);
+        });
+
+        describe("another app's AppData", () => {
+            /** `/<user>/AppData/<appUid>/inner`, as the app would leave it. */
+            const seedAppData = async (user: Actor, appUid: string) => {
+                const root = `/${user.user.username}/AppData/${appUid}`;
+                await server.services.fs.mkdir(user.user.id!, {
+                    path: `${root}/inner`,
+                    createMissingParents: true,
+                } as never);
+                return root;
+            };
+
+            const grantTo = (
+                user: Actor,
+                app: { uid: string },
+                permission: string,
+            ) =>
+                runWithContext({ actor: user }, () =>
+                    server.services.permission.grantUserAppPermission(
+                        user,
+                        app.uid,
+                        permission,
+                    ),
+                );
+
+            it('stays closed to every grant once that app opts out of sharing', async () => {
+                const user = await makeUser();
+                const closed = await makeApp(user.user.id!, {
+                    metadata: JSON.stringify({ share_app_data: false }),
+                });
+                const root = await seedAppData(user, closed.uid);
+                const inner = acl.fsDescriptor(`${root}/inner`);
+                const home = `/${user.user.username}`;
+
+                // The folder by path, its parent, and the whole home.
+                for (const target of [root, `${home}/AppData`, home]) {
+                    const reader = await makeApp(user.user.id!);
+                    await grantTo(user, reader, `fs:${target}:read`);
+                    expect(
+                        await acl.check(asApp(user, reader), inner, 'read'),
+                    ).toBe(false);
+                }
+
+                // The user and the app that owns the folder keep their access.
+                expect(await acl.check(user, inner, 'write')).toBe(true);
+                expect(
+                    await acl.check(asApp(user, closed), inner, 'write'),
+                ).toBe(true);
+            });
+
+            it('opens to an fs grant while that app shares', async () => {
+                const user = await makeUser();
+                const open = await makeApp(user.user.id!);
+                const root = await seedAppData(user, open.uid);
+                const reader = await makeApp(user.user.id!);
+                await grantTo(user, reader, `fs:${root}:read`);
+                expect(
+                    await acl.check(
+                        asApp(user, reader),
+                        acl.fsDescriptor(`${root}/inner`),
+                        'read',
+                    ),
+                ).toBe(true);
+            });
         });
     });
 

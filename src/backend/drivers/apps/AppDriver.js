@@ -441,6 +441,22 @@ export class AppDriver extends PuterDriver {
                 indexUrl: fields.index_url,
                 excludeAppId: app.id,
             });
+            if (
+                app.is_private &&
+                (await this.services.auth.originHeldByOtherUser(
+                    fields.index_url,
+                    app.owner_user_id,
+                ))
+            ) {
+                throw new HttpError(
+                    400,
+                    "A private app can't use an index_url whose origin belongs to another user's app or site",
+                    {
+                        legacyCode: 'app_index_url_already_in_use',
+                        fields: { index_url: fields.index_url },
+                    },
+                );
+            }
         }
 
         // Name conflict check (only if name is changing)

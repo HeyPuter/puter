@@ -129,7 +129,7 @@ const MAX_SELECTOR_DEPTH = 4;
  * Resolve `ref`, reporting any miss as the same 404 an unreadable entry gets,
  * so a lookup never echoes a resolved path or tells missing from hidden.
  */
-async function resolveOrNotFound(
+export async function resolveOrNotFound(
     fsEntryStore: FSEntryStore,
     ref: NodeRef,
 ): Promise<FSEntry> {

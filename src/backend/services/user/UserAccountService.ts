@@ -100,6 +100,14 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] subdomain cleanup failed:', e);
         }
 
+        // The user's apps cascade away with the row; record them first so a
+        // hosted origin doesn't hand their uids to the subdomain's next owner.
+        await this.stores.app.recordDeletedForOwner(userId);
+        // Other users' sites and workers tied to those apps cascade too.
+        const appSites = await this.stores.subdomain.listAppCascade({
+            ownerUserId: userId,
+        });
+
         // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
         await this.clients.db.write(
             'DELETE FROM `sessions` WHERE `user_id` = ?',
@@ -110,6 +118,7 @@ export class UserAccountService extends PuterService {
         ]);
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
+        await this.stores.subdomain.forgetCascadeDeleted(appSites);
 
         if (issuedRefs.length > 0) {
             try {

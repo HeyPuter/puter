@@ -63,6 +63,47 @@ describe('SessionStore', () => {
         return rows[0] ?? null;
     };
 
+    /**
+     * Answer replica reads of `sessions` the way a lagging replica would: each
+     * listed uuid as its given row, or absent when `null`. A given row also
+     * answers, ahead of any other row, the (user, app) lookups that would match
+     * it. Returns a restore.
+     */
+    const lagReplica = (stale: Record<string, Record<string, any> | null>) => {
+        const db = server.clients.db;
+        const original = db.read.bind(db);
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const rows = await original(sql, params);
+                if (!sql.includes('FROM `sessions`')) return rows;
+                const result = rows.filter(
+                    (row: Record<string, any>) => !(row.uuid in stale),
+                );
+                for (const [uuid, row] of Object.entries(stale)) {
+                    if (!row) continue;
+                    const byComposite =
+                        sql.includes(`\`kind\` = '${row.kind}'`) &&
+                        params?.includes(row.user_id) &&
+                        params?.includes(row.app_uid);
+                    if (params?.includes(uuid) || byComposite) {
+                        result.unshift({ ...row });
+                    }
+                }
+                return result;
+            });
+        // sqlite's `pread` goes through `read`; keep it on the primary.
+        const primary = vi
+            .spyOn(db, 'pread')
+            .mockImplementation((sql: string, params?: unknown[]) =>
+                original(sql, params),
+            );
+        return () => {
+            spy.mockRestore();
+            primary.mockRestore();
+        };
+    };
+
     describe('create', () => {
         it('defaults to kind="web" and stores request metadata', async () => {
             const user = await makeUser();
@@ -179,6 +220,24 @@ describe('SessionStore', () => {
             expect(uuids).not.toContain(revoked.uuid);
         });
 
+        it('with primary=true finds a session the replica has not seen yet', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+
+            const restore = lagReplica({ [session.uuid]: null });
+            try {
+                expect(await target.getByUserId(user.id)).toEqual([]);
+                const rows = await target.getByUserId(user.id, {
+                    primary: true,
+                });
+                expect(rows.map((r: { uuid: string }) => r.uuid)).toEqual([
+                    session.uuid,
+                ]);
+            } finally {
+                restore();
+            }
+        });
+
         it('returns revoked sessions when includeRevoked is true', async () => {
             const user = await makeUser();
             const active = await target.create(user.id);
@@ -221,6 +280,23 @@ describe('SessionStore', () => {
                 expect(read).not.toHaveBeenCalled();
             } finally {
                 read.mockRestore();
+            }
+        });
+
+        it('sends a peer region miss to the primary while its replica lags', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+            const live = await rawRow(session.uuid);
+
+            await target.removeByUuid(session.uuid);
+            // A peer gets the tombstone and a dropped key, not the row.
+            await server.clients.redis.del(`sessions:v2:uuid:${session.uuid}`);
+
+            const restore = lagReplica({ [session.uuid]: live });
+            try {
+                expect(await target.getByUuid(session.uuid)).toBeNull();
+            } finally {
+                restore();
             }
         });
 
@@ -337,6 +413,133 @@ describe('SessionStore', () => {
             await expect(target.revokeCascade('')).resolves.toBeNull();
             await expect(target.revokeCascade(undefined)).resolves.toBeNull();
         });
+
+        it('keeps the revoked rows revoked when a lagging replica still shows them live', async () => {
+            const user = await makeUser();
+            const parent = await target.create(user.id);
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: parent.uuid,
+            });
+            const live = {
+                [parent.uuid]: await rawRow(parent.uuid),
+                [child.uuid]: await rawRow(child.uuid),
+            };
+
+            await target.revokeCascade(parent.uuid);
+
+            const restore = lagReplica(live);
+            try {
+                expect(await target.getByUuid(parent.uuid)).toBeNull();
+                expect(await target.getByUuid(child.uuid)).toBeNull();
+                // A peer region gets the tombstone and a dropped key, so its
+                // next miss reads the primary rather than its replica.
+                await server.clients.redis.del(
+                    `sessions:v2:uuid:${parent.uuid}`,
+                );
+                expect(await target.getByUuid(parent.uuid)).toBeNull();
+            } finally {
+                restore();
+            }
+            // The primary read re-cached the revoked row.
+            expect(
+                JSON.parse(
+                    (await server.clients.redis.get(
+                        `sessions:v2:uuid:${parent.uuid}`,
+                    )) as string,
+                ).revoked_at,
+            ).not.toBeNull();
+        });
+
+        it('revokes a session the replica has not seen yet', async () => {
+            const user = await makeUser();
+            const parent = await target.create(user.id);
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: parent.uuid,
+            });
+
+            const restore = lagReplica({
+                [parent.uuid]: null,
+                [child.uuid]: null,
+            });
+            let revoked;
+            try {
+                revoked = await target.revokeCascade(parent.uuid);
+            } finally {
+                restore();
+            }
+
+            expect(new Set(revoked.uuids)).toEqual(
+                new Set([parent.uuid, child.uuid]),
+            );
+            expect((await rawRow(child.uuid)).revoked_at).not.toBeNull();
+        });
+    });
+
+    describe('revokeCascades', () => {
+        it('revokes every root and its children, reported per user', async () => {
+            const alice = await makeUser();
+            const bob = await makeUser();
+            const aliceWeb = await target.create(alice.id);
+            const aliceAsset = await target.create(alice.id, {
+                kind: 'asset',
+                parent_session_id: aliceWeb.uuid,
+            });
+            const aliceApp = await target.getOrCreateApp(
+                alice.id,
+                `app-${uuidv4()}`,
+            );
+            const bobWeb = await target.create(bob.id);
+            const untouched = await target.create(alice.id);
+
+            const revoked = await target.revokeCascades([
+                aliceWeb.uuid,
+                // Already covered by its parent's cascade.
+                aliceAsset.uuid,
+                aliceApp.uuid,
+                bobWeb.uuid,
+            ]);
+
+            const byUser = new Map(
+                revoked.map((r: { userId: number; uuids: string[] }) => [
+                    r.userId,
+                    new Set(r.uuids),
+                ]),
+            );
+            expect(byUser).toEqual(
+                new Map([
+                    [
+                        alice.id,
+                        new Set([
+                            aliceWeb.uuid,
+                            aliceAsset.uuid,
+                            aliceApp.uuid,
+                        ]),
+                    ],
+                    [bob.id, new Set([bobWeb.uuid])],
+                ]),
+            );
+            for (const uuid of [
+                aliceWeb.uuid,
+                aliceAsset.uuid,
+                aliceApp.uuid,
+                bobWeb.uuid,
+            ]) {
+                expect(await target.getByUuid(uuid)).toBeNull();
+            }
+            expect(await target.getByUuid(untouched.uuid)).toBeTruthy();
+            expect(
+                (await target.getOrCreateApp(alice.id, aliceApp.app_uid)).uuid,
+            ).not.toBe(aliceApp.uuid);
+        });
+
+        it('returns nothing when no root is active', async () => {
+            expect(await target.revokeCascades([])).toEqual([]);
+            expect(await target.revokeCascades(['nonexistent-uuid'])).toEqual(
+                [],
+            );
+        });
     });
 
     // ── Composite-key lookups ──────────────────────────────────────
@@ -397,6 +600,30 @@ describe('SessionStore', () => {
             await target.removeByUuid(first.uuid);
             const second = await target.getOrCreateApp(user.id, appUid);
             expect(second.uuid).not.toBe(first.uuid);
+        });
+
+        it('mints a new row, and does not re-cache the revoked one, while a lagging replica shows it live', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            const live = await rawRow(first.uuid);
+
+            await target.revokeCascade(first.uuid);
+            // A peer region gets the tombstone and dropped keys, not the row.
+            await server.clients.redis.del(`sessions:v2:uuid:${first.uuid}`);
+
+            const restore = lagReplica({ [first.uuid]: live });
+            let second;
+            try {
+                second = await target.getOrCreateApp(user.id, appUid);
+                expect(await target.getByUuid(first.uuid)).toBeNull();
+            } finally {
+                restore();
+            }
+            expect(second.uuid).not.toBe(first.uuid);
+            expect(await target.getByUuid(second.uuid)).toMatchObject({
+                uuid: second.uuid,
+            });
         });
     });
 
@@ -909,6 +1136,31 @@ describe('SessionStore', () => {
                 workerName,
             });
             expect(second.uuid).not.toBe(first.uuid);
+        });
+
+        it('keeps a deleted session gone while a lagging replica still has it', async () => {
+            const user = await makeUser();
+            const workerName = name();
+            const worker = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            const live = await rawRow(worker.uuid);
+
+            await target.deleteWorkerSessions({ workerName });
+
+            const restore = lagReplica({ [worker.uuid]: live });
+            try {
+                expect(await target.getByUuidAny(worker.uuid)).toBeNull();
+                expect(
+                    await target.getWorker(user.id, {
+                        appUid: null,
+                        workerName,
+                    }),
+                ).toBeNull();
+            } finally {
+                restore();
+            }
         });
 
         it('refuses to run without a filter', async () => {

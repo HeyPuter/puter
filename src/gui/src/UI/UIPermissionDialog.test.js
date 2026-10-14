@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The dialog module reads `i18n` and other GUI plumbing as globals rather than
 // importing them, so they are defined before it loads. `i18n` echoes the key
@@ -10,7 +10,7 @@ window.auth_token = 'tok';
 globalThis.i18n = (key, params = {}) =>
     `${key}(${Object.entries(params).map(([k, v]) => `${k}=${v}`).join(',')})`;
 
-const { get_app_data_description, get_kv_share_description } =
+const { get_app_data_description, get_kv_share_description, guard_input } =
     await import('./UIPermissionDialog.js');
 
 const CONTACTS = 'app-contacts';
@@ -243,5 +243,124 @@ describe('UIPermissionDialog key-value delegation descriptions', () => {
                 `manage:kv-share:someone-else:${CALENDAR}:workspace:abc`,
             ),
         ).toBeNull();
+    });
+});
+
+describe('UIPermissionDialog input guard', () => {
+    const MS = 350;
+    let win;
+    let doc;
+    let guard;
+    let changes;
+
+    /** A page the user is looking at, or not, as plain event targets. */
+    const page = ({ visible = true, focused = true } = {}) => {
+        win = new EventTarget();
+        doc = new EventTarget();
+        doc.visibilityState = visible ? 'visible' : 'hidden';
+        doc.hasFocus = () => focused;
+        return { win, doc };
+    };
+
+    const start = (state) => {
+        page(state);
+        changes = [];
+        guard = guard_input({
+            win,
+            doc,
+            ms: MS,
+            on_change: (ready) => changes.push(ready),
+        });
+    };
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+        guard?.stop();
+        vi.useRealTimers();
+    });
+
+    it('becomes ready after the delay on a visible, focused page', () => {
+        start();
+        expect(guard.ready).toBe(false);
+        vi.advanceTimersByTime(MS - 1);
+        expect(guard.ready).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(guard.ready).toBe(true);
+        expect(changes).toEqual([true]);
+    });
+
+    it('does not count down while the page is unfocused', () => {
+        // Opened behind a popup: the delay must not run out unseen.
+        start({ focused: false });
+        vi.advanceTimersByTime(MS * 10);
+        expect(guard.ready).toBe(false);
+
+        doc.hasFocus = () => true;
+        win.dispatchEvent(new Event('focus'));
+        vi.advanceTimersByTime(MS - 1);
+        expect(guard.ready).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(guard.ready).toBe(true);
+    });
+
+    it('does not count down while the page is hidden', () => {
+        start({ visible: false });
+        vi.advanceTimersByTime(MS * 10);
+        expect(guard.ready).toBe(false);
+
+        doc.visibilityState = 'visible';
+        doc.dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(MS);
+        expect(guard.ready).toBe(true);
+    });
+
+    it('re-disables on blur and waits again after focus returns', () => {
+        start();
+        vi.advanceTimersByTime(MS);
+        expect(guard.ready).toBe(true);
+
+        doc.hasFocus = () => false;
+        win.dispatchEvent(new Event('blur'));
+        expect(guard.ready).toBe(false);
+
+        doc.hasFocus = () => true;
+        win.dispatchEvent(new Event('focus'));
+        expect(guard.ready).toBe(false);
+        vi.advanceTimersByTime(MS);
+        expect(guard.ready).toBe(true);
+        expect(changes).toEqual([true, false, true]);
+    });
+
+    it('keeps the wait when focus only moves between the page and an iframe', () => {
+        // The page keeps focus throughout, so the user's first click on the
+        // dialog must not be swallowed by a restart.
+        start();
+        vi.advanceTimersByTime(MS - 100);
+        win.dispatchEvent(new Event('blur'));
+        win.dispatchEvent(new Event('focus'));
+        vi.advanceTimersByTime(100);
+        expect(guard.ready).toBe(true);
+        win.dispatchEvent(new Event('focus'));
+        expect(guard.ready).toBe(true);
+        expect(changes).toEqual([true]);
+    });
+
+    it('restarts the wait when something leaves fullscreen', () => {
+        start();
+        vi.advanceTimersByTime(MS);
+        doc.dispatchEvent(new Event('fullscreenchange'));
+        expect(guard.ready).toBe(false);
+        vi.advanceTimersByTime(MS);
+        expect(guard.ready).toBe(true);
+    });
+
+    it('stops listening once stopped', () => {
+        start({ focused: false });
+        guard.stop();
+        doc.hasFocus = () => true;
+        win.dispatchEvent(new Event('focus'));
+        vi.advanceTimersByTime(MS * 10);
+        expect(guard.ready).toBe(false);
+        expect(changes).toEqual([]);
     });
 });

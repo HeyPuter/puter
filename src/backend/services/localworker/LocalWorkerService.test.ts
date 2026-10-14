@@ -192,6 +192,36 @@ describe('LocalWorkerService.reconstructDeployArgs', () => {
             ),
         ).rejects.toThrow(/source file not found/);
     });
+
+    it('refuses a worker whose source file belongs to another user', async () => {
+        const other = await createTestUser(server, {
+            username: 'lws-other',
+            password: 'local-worker-password',
+        });
+        const otherRow = (await server.stores.user.getByUsername(
+            other.username,
+        ))!;
+        const path = `/${other.username}/worker-f.js`;
+        await server.services.fs.write(otherRow.id, {
+            fileMetadata: {
+                path,
+                size: 2,
+                contentType: 'text/javascript',
+                overwrite: true,
+            },
+            fileContent: Readable.from(Buffer.from('//')),
+        });
+        const foreign = await server.stores.fsEntry.getEntryByPath(path);
+
+        await expect(
+            localWorkers.reconstructDeployArgs(
+                'worker-f',
+                await seedWorkerRow('worker-f', {
+                    root_dir_id: foreign!.id as number,
+                }),
+            ),
+        ).rejects.toThrow(/not owned by the worker's owner/);
+    });
 });
 
 describe('LocalWorkerService.cfCallLocal', () => {

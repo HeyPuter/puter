@@ -1585,6 +1585,15 @@ const ipc_listener = async (event, handled) => {
     // showSaveFilePicker
     //--------------------------------------------------------
     else if ( event.data.msg === 'showSaveFilePicker' ) {
+        // Only copy and move have a matching consent prompt; refuse anything else.
+        if ( event.data.source_path && !['copy', 'move'].includes(event.data.save_type) ) {
+            target_iframe.contentWindow.postMessage({
+                msg: 'fileSaveCancelled',
+                original_msg_id: msg_id,
+            }, '*');
+            return;
+        }
+
         //auth
         if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
         {
@@ -1785,14 +1794,14 @@ const ipc_listener = async (event, handled) => {
                         await puter.fs.delete(target_path);
                     }
 
-                    if ( save_type === 'copy' ) {
+                    if ( save_type === 'move' ) {
+                        await puter.fs.move(source_path, target_path);
+                    } else {
                         const target_dir = path.dirname(target_path);
                         const new_name = path.basename(target_path);
                         await puter.fs.copy(source_path, target_dir, {
                             newName: new_name,
                         });
-                    } else {
-                        await puter.fs.move(source_path, target_path);
                     }
                     node = await puter.fs.stat(target_path);
                 },

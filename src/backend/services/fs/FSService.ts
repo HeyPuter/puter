@@ -73,8 +73,11 @@ import { AclMode } from '../acl/ACLService.js';
 import type { puterServices } from '../index.js';
 import {
     APP_DATA_FS_MODE_CLASSES,
+    appDataOwnerOf,
     appDataPermission,
     appDataSharingAllowed,
+    carriesClosedAppData,
+    closedAppDataOwners,
 } from '../permission/appDataScopes.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
@@ -142,11 +145,8 @@ const foreignAppDataOwner = (
     username: string,
     ownAppUid: string,
 ): string | null => {
-    const segments = path.split('/');
-    if (segments[1] !== username || segments[2]?.toLowerCase() !== 'appdata') {
-        return null;
-    }
-    const appUid = segments[3];
+    if (path.split('/')[1] !== username) return null;
+    const appUid = appDataOwnerOf(path);
     if (!appUid || appUid === ownAppUid) return null;
     return appUid;
 };
@@ -829,7 +829,7 @@ export class FSService extends PuterService {
                     if (pathReservedInBatch) {
                         throw new HttpError(
                             409,
-                            `Batch contains duplicate target path: ${normalizedInput.path}`,
+                            `Batch contains duplicate target path: ${pathPosix.basename(normalizedInput.path)}`,
                             { legacyCode: 'conflict' },
                         );
                     }
@@ -850,7 +850,7 @@ export class FSService extends PuterService {
                 } else if (pathReservedInBatch) {
                     throw new HttpError(
                         409,
-                        `Batch contains duplicate target path: ${normalizedInput.path}`,
+                        `Batch contains duplicate target path: ${pathPosix.basename(normalizedInput.path)}`,
                         { legacyCode: 'conflict' },
                     );
                 }
@@ -2322,7 +2322,7 @@ export class FSService extends PuterService {
             if (directoryPathSet.has(targetPath)) {
                 throw new HttpError(
                     409,
-                    `Batch contains duplicate target path: ${targetPath}`,
+                    `Batch contains duplicate target path: ${pathPosix.basename(targetPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -3724,7 +3724,29 @@ export class FSService extends PuterService {
             sortOrder?: 'asc' | 'desc' | null;
         },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
-        return this.stores.fsEntry.listDescendantsPage(userId, path, options);
+        const page = await this.stores.fsEntry.listDescendantsPage(
+            userId,
+            path,
+            options,
+        );
+        // Listing a home or AppData reaches into every app's AppData.
+        const app = (Context.get('actor') as Actor | undefined)?.effectiveApp;
+        if (!app) return page;
+        const closed = await closedAppDataOwners(
+            this.stores.app,
+            page.entries.map((entry) => entry.path),
+            app.uid,
+        );
+        if (closed.size === 0) return page;
+        return {
+            ...page,
+            entries: page.entries.filter(
+                (entry) =>
+                    !closed.has(
+                        appDataOwnerOf(entry.path)?.toLowerCase() ?? '',
+                    ),
+            ),
+        };
     }
 
     async countDirectoryTree(
@@ -4001,7 +4023,7 @@ export class FSService extends PuterService {
             } else {
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${targetPath}`,
+                    `An entry named \`${name}\` already exists`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -4035,7 +4057,7 @@ export class FSService extends PuterService {
             if (raced) {
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${insertedPath}`,
+                    `An entry named \`${name}\` already exists`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -4098,6 +4120,7 @@ export class FSService extends PuterService {
         if (entry.name === newName) return entry;
         this.#assertAppDataRootsStay(entry.path);
         await this.#assertCrossAppDeleteAllowed(entry.path);
+        await this.#assertCarriesNoClosedAppData(entry, 'rename');
 
         const parentPath = pathPosix.dirname(entry.path);
         const newPath =
@@ -4106,9 +4129,11 @@ export class FSService extends PuterService {
         // Reject if another entry already owns the target path.
         const collision = await this.stores.fsEntry.getEntryByPath(newPath);
         if (collision && collision.uuid !== entry.uuid) {
-            throw new HttpError(409, `An entry already exists at ${newPath}`, {
-                legacyCode: 'conflict',
-            });
+            throw new HttpError(
+                409,
+                `An entry named \`${newName}\` already exists`,
+                { legacyCode: 'conflict' },
+            );
         }
 
         const updated = await this.stores.fsEntry.updateEntry(entry.uuid, {
@@ -4163,7 +4188,7 @@ export class FSService extends PuterService {
             } else {
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${childPath}`,
+                    `An entry named \`${name}\` already exists`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -4268,6 +4293,22 @@ export class FSService extends PuterService {
             'Only the account owner can rename or move AppData folders',
             { legacyCode: 'forbidden' },
         );
+    }
+
+    /** An app may not carry another app's closed AppData out of AppData. */
+    async #assertCarriesNoClosedAppData(
+        source: FSEntry,
+        verb: string,
+    ): Promise<void> {
+        const app = (Context.get('actor') as Actor | undefined)?.effectiveApp;
+        if (!app) return;
+        if (await carriesClosedAppData(this.stores, source, app.uid)) {
+            throw new HttpError(
+                403,
+                `Cannot ${verb} a folder holding another app's private data`,
+                { legacyCode: 'forbidden' },
+            );
+        }
     }
 
     /**
@@ -4840,6 +4881,7 @@ export class FSService extends PuterService {
         // The source only: moving *into* another app's AppData is a write, and
         // ACL plus the fs:write class already cover that.
         await this.#assertCrossAppDeleteAllowed(source.path);
+        await this.#assertCarriesNoClosedAppData(source, 'move');
         await this.#assertCanRestructure(source, userId);
         // Write inside a shared folder reorganizes it, it does not empty it.
         if (
@@ -5031,14 +5073,10 @@ export class FSService extends PuterService {
         // v1 wire contract: clients (the GUI's move/paste flows among them)
         // key on `item_with_same_name_exists` + `entry_name` to offer a
         // replace/skip prompt.
-        throw new HttpError(
-            409,
-            `An entry already exists at ${occupant.path}`,
-            {
-                legacyCode: 'item_with_same_name_exists',
-                fields: { entry_name: name },
-            },
-        );
+        throw new HttpError(409, `An entry named \`${name}\` already exists`, {
+            legacyCode: 'item_with_same_name_exists',
+            fields: { entry_name: name },
+        });
     }
 
     /**
@@ -5077,6 +5115,7 @@ export class FSService extends PuterService {
                 { legacyCode: 'cannot_copy_directory_into_itself' },
             );
         }
+        await this.#assertCarriesNoClosedAppData(source, 'copy');
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
@@ -5119,7 +5158,7 @@ export class FSService extends PuterService {
                 // v1 wire contract, as in move() above.
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${targetPath}`,
+                    `An entry named \`${name}\` already exists`,
                     {
                         legacyCode: 'item_with_same_name_exists',
                         fields: { entry_name: name },

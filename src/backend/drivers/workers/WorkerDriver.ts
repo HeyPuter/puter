@@ -407,6 +407,36 @@ export class WorkerDriver extends PuterDriver {
             );
         }
 
+        // Read source file. loadFileInput runs the read-ACL check internally
+        // before pulling bytes from S3. Generated source skips all of it:
+        // there is no file, so there is nothing to authorize a read of.
+        const loaded =
+            deployTarget?.source === undefined
+                ? await loadFileInput(
+                      {
+                          fsEntry: this.stores.fsEntry,
+                          s3Object: this.stores.s3Object,
+                      },
+                      this.services.fs,
+                      actor,
+                      filePath,
+                      { maxBytes: MAX_SOURCE_SIZE },
+                  )
+                : null;
+        // A worker is redeployed from its file as the worker's owner, so a
+        // file someone else owns would let them swap the code it runs.
+        if (
+            !deployTarget &&
+            loaded?.fsEntry &&
+            loaded.fsEntry.userId !== actor.user.id
+        ) {
+            throw new HttpError(
+                403,
+                'A worker can only be deployed from a file you own',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         // If tied to an app, get an app-scoped worker token. Worker tokens
         // use `kind='worker'` so they don't collide with any interactive
         // `kind='app'` session for the same (user, app); the long expiry
@@ -449,22 +479,6 @@ export class WorkerDriver extends PuterDriver {
             authorization = session.token;
         }
 
-        // Read source file. loadFileInput runs the read-ACL check internally
-        // before pulling bytes from S3. Generated source skips all of it:
-        // there is no file, so there is nothing to authorize a read of.
-        const loaded =
-            deployTarget?.source === undefined
-                ? await loadFileInput(
-                      {
-                          fsEntry: this.stores.fsEntry,
-                          s3Object: this.stores.s3Object,
-                      },
-                      this.services.fs,
-                      actor,
-                      filePath,
-                      { maxBytes: MAX_SOURCE_SIZE },
-                  )
-                : null;
         const sourceCode =
             deployTarget?.source ?? loaded!.buffer.toString('utf-8');
 

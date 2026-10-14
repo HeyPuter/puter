@@ -773,8 +773,92 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(await appStore.getFiletypeAssociations(app.id)).toEqual([]);
     });
 
+    it('drops the cached sites and workers that go with a deleted app', async () => {
+        const subdomains = server.stores.subdomain;
+        const app = await createApp();
+        const slug = freshName();
+        const site = await subdomains.create({
+            userId: OTHER_OWNER,
+            subdomain: `${slug}-site`,
+            appOwner: app.id,
+        });
+        const worker = await subdomains.create({
+            userId: OTHER_OWNER,
+            subdomain: `workers.puter.${slug}`,
+            appOwner: app.id,
+        });
+        // SQLite keeps this row (MySQL and Postgres cascade it); either way
+        // its cached copy has to go.
+        const associated = await subdomains.create({
+            userId: OTHER_OWNER,
+            subdomain: `${slug}-associated`,
+            associatedAppId: app.id,
+        });
+        const cacheKey = (row) => `subdomains:name:${row.subdomain}`;
+        expect(await redis.get(cacheKey(site))).not.toBeNull();
+
+        await appStore.delete(app.id);
+
+        expect(await subdomains.getBySubdomain(site.subdomain)).toBeNull();
+        expect(await subdomains.getBySubdomain(worker.subdomain)).toBeNull();
+        expect(await redis.get(cacheKey(associated))).toBeNull();
+    });
+
     it('reports false when deleting an app that is already gone', async () => {
         expect(await appStore.delete(99999999)).toBe(false);
+    });
+
+    it("records a deleted app's uid with its owner", async () => {
+        const owned = await createApp();
+        const unowned = await appStore.createFromOrigin(
+            freshUid(),
+            `https://${freshName()}.example.com`,
+        );
+        await appStore.delete(owned.id);
+        await appStore.delete(unowned.id);
+
+        const live = await createApp();
+        const deleted = await appStore.getDeletedOwnersByUids([
+            owned.uid,
+            unowned.uid,
+            live.uid,
+        ]);
+        expect(deleted).toEqual(
+            new Map([
+                [owned.uid, OWNER],
+                [unowned.uid, null],
+            ]),
+        );
+    });
+
+    it("records every app an owner has, and a later owner's delete replaces it", async () => {
+        const first = await createApp({}, { ownerUserId: OTHER_OWNER });
+        const second = await createApp({}, { ownerUserId: OTHER_OWNER });
+        const notTheirs = await createApp();
+
+        await appStore.recordDeletedForOwner(OTHER_OWNER);
+        expect(
+            await appStore.getDeletedOwnersByUids([
+                first.uid,
+                second.uid,
+                notTheirs.uid,
+            ]),
+        ).toEqual(
+            new Map([
+                [first.uid, OTHER_OWNER],
+                [second.uid, OTHER_OWNER],
+            ]),
+        );
+
+        await db.write('UPDATE `apps` SET `owner_user_id` = ? WHERE `id` = ?', [
+            OWNER,
+            first.id,
+        ]);
+        await appStore.invalidate(first);
+        await appStore.delete(first.id);
+        expect(
+            (await appStore.getDeletedOwnersByUids([first.uid])).get(first.uid),
+        ).toBe(OWNER);
     });
 
     // -- ownership claiming --------------------------------------------

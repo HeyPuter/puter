@@ -18,7 +18,12 @@
  */
 
 import type { Request, Response } from 'express';
+import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    assertNotSuspended,
+    assertVerifiedAccount,
+} from '../../core/http/middleware/gates.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import {
@@ -71,12 +76,14 @@ export class WispController extends PuterController {
         const wispCfg = this.#wispConfig();
 
         if (actor?.user?.uuid) {
+            const sessionUid = await this.#sessionUidFor(actor);
             const token = this.services.token.sign(
                 'wisp',
                 {
                     $: 'token:wisp',
                     $v: '0.0.0',
                     user_uid: actor.user.uuid,
+                    ...(sessionUid ? { session_uid: sessionUid } : {}),
                 },
                 { expiresIn: '1d' },
             );
@@ -120,13 +127,10 @@ export class WispController extends PuterController {
             });
         }
 
-        // Build policy event — extensions can deny via extension.on('wisp.get-policy')
         const isGuest = Boolean(decoded.guest);
-        let user: Record<string, unknown> | null = null;
-        if (!isGuest && decoded.user_uid) {
-            user = await this.stores.user.getByUuid(String(decoded.user_uid));
-        }
+        const user = isGuest ? null : await this.#liveUserFor(decoded);
 
+        // Build policy event — extensions can deny via extension.on('wisp.get-policy')
         const event: Record<string, unknown> = {
             allow: true,
             policy: { allow: true },
@@ -144,6 +148,43 @@ export class WispController extends PuterController {
 
         res.json(event.policy);
     };
+
+    /**
+     * The session a relay token lives no longer than. An access token's is its
+     * own session row; the actor doesn't carry it.
+     */
+    async #sessionUidFor(actor: Actor): Promise<string | undefined> {
+        if (actor.session?.uid) return actor.session.uid;
+        if (!actor.accessToken) return undefined;
+        const row = await this.stores.session.findActiveByAccessTokenUid(
+            actor.accessToken.uid,
+        );
+        return row?.uuid;
+    }
+
+    /**
+     * The token's user, held to the same account gates as minting. A token
+     * without `session_uid` (minted before the claim existed, or by a legacy
+     * access token with no session row) gets the account checks only.
+     */
+    async #liveUserFor(
+        decoded: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+        const forbidden = () =>
+            new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
+        if (!decoded.user_uid) throw forbidden();
+        const user = await this.stores.user.getByUuid(String(decoded.user_uid));
+        if (!user) throw forbidden();
+        assertNotSuspended(user);
+        assertVerifiedAccount(user);
+        if (
+            decoded.session_uid &&
+            !(await this.stores.session.getByUuid(String(decoded.session_uid)))
+        ) {
+            throw forbidden();
+        }
+        return user;
+    }
 
     #wispConfig(): NonNullable<typeof this.config.wisp> {
         return this.config.wisp ?? {};

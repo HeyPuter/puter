@@ -467,6 +467,44 @@ describe('ShareStore', () => {
             );
         });
 
+        it('lists invites for an address, not for its accent variants', async () => {
+            const local = `inv-${uuidv4().slice(0, 8)}`;
+            const stored = `${local}@exámple.org`;
+            const { row: invite } = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: stored,
+                fsentryId: (await makeEntry(issuer)).id,
+                mode: 'read',
+            });
+
+            // MySQL's collation matches either typed form to the stored one;
+            // sqlite compares bytes, so fold the bound value the same way.
+            const db = server.clients.db;
+            const realRead = db.read.bind(db);
+            const listFolded = async (typed) => {
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation((q, p = []) =>
+                        realRead(
+                            q,
+                            p.map((v) => (v === typed ? stored : v)),
+                        ),
+                    );
+                try {
+                    return await store.listPendingByEmail(typed);
+                } finally {
+                    read.mockRestore();
+                }
+            };
+
+            expect(await listFolded(`${local}@example.org`)).toEqual([]);
+            expect(
+                (await listFolded(`${local.toUpperCase()}@EXÁMPLE.ORG`)).map(
+                    (r) => r.uid,
+                ),
+            ).toEqual([invite.uid]);
+        });
+
         it('reaches ids past the first chunk', async () => {
             const entry = await makeEntry(issuer);
             await store.upsertActive({

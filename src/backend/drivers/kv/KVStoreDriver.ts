@@ -240,8 +240,10 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
 
+        // `expire` takes its TTL as `ttl`, and its own op is already a deletion.
         const raw = args as Record<string, unknown>;
         if (
+            op !== 'expire' &&
             APP_DATA_KV_TTL_PARAMS.some(
                 (p) => raw[p] !== undefined && raw[p] !== null,
             )
@@ -642,6 +644,16 @@ export class KVStoreDriver extends PuterDriver {
             opts,
         );
         this.#meter(opts.actor, usage);
+        // The result is the entry's value, so a delete-only grant gets none.
+        if (
+            opts.namespaceAppUuid &&
+            !(await this.services.permission.check(
+                opts.actor!,
+                appDataPermission(opts.namespaceAppUuid, 'kv', 'get'),
+            ))
+        ) {
+            return null;
+        }
         return res;
     }
 }

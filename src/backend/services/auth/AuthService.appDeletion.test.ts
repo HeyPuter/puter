@@ -18,9 +18,10 @@
  */
 
 /**
- * A hosted origin's app uid is derived from the origin, so once an app is
- * deleted whoever registers the freed subdomain next is handed the same uid.
- * Sessions made for the earlier app must not authenticate as the new one.
+ * A hosted origin's app uid is derived from the origin, so a deleted app's uid
+ * comes back when its owner uses the site again. Sessions made for the earlier
+ * app must not authenticate as the new one. Someone else who registers the
+ * freed subdomain gets a new uid, so users' KV and AppData stay behind.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -168,10 +169,6 @@ describe('an app uid that returns after its app was deleted', () => {
     it("stops the deleted app's sessions authenticating as the next app on its origin", async () => {
         const devA = env.users.other;
         const visitor = env.users.user;
-        const devB = await createTestUser(env.server, {
-            username: `devb${uuidv4().slice(0, 8)}`,
-            password: 'dev-b-password-123',
-        });
 
         const sub = `shop-${uuidv4().slice(0, 8)}`;
         const origin = `http://${sub}.site.puter.localhost`;
@@ -203,32 +200,32 @@ describe('an app uid that returns after its app was deleted', () => {
         // The earlier app's session was made well before the next app exists.
         await backdateSession(sessionUid(tokenA), 3600);
 
-        const bCreate = await call(devB.token, 'puter-subdomains', 'create', {
+        // The same developer puts the site back up.
+        const again = await call(devA.token, 'puter-subdomains', 'create', {
             object: {
                 subdomain: sub,
-                root_dir: await mkSiteDir(devB.username),
+                root_dir: await mkSiteDir(devA.username),
             },
         });
-        expect(bCreate.status, bCreate.text).toBe(200);
+        expect(again.status, again.text).toBe(200);
 
-        const { token: tokenB, app_uid: uidB } = await signIn(
+        const { token: tokenNext, app_uid: uidNext } = await signIn(
             visitor.token,
             origin,
         );
-        // The uid itself is reused; only the old credentials are cut.
-        expect(uidB).toBe(uid);
-        expect(sessionUid(tokenB)).not.toBe(sessionUid(tokenA));
+        // The uid and its data come back; only the old credentials are cut.
+        expect(uidNext).toBe(uid);
+        expect(sessionUid(tokenNext)).not.toBe(sessionUid(tokenA));
         expect(await isRevoked(sessionUid(tokenA))).toBe(true);
 
         expect((await api('/whoami', tokenA)).status).toBe(401);
-        expect((await api('/whoami', tokenB)).status).toBe(200);
-        const setB = await call(tokenB, 'puter-kvstore', 'set', {
-            key: 'card',
-            value: 'b-era',
+        expect((await api('/whoami', tokenNext)).status).toBe(200);
+        const kept = await call(tokenNext, 'puter-kvstore', 'get', {
+            key: 'notes',
         });
-        expect(setB.status, setB.text).toBe(200);
+        expect((kept.json as { result?: unknown }).result).toBe('a-era');
         const getA = await call(tokenA, 'puter-kvstore', 'get', {
-            key: 'card',
+            key: 'notes',
         });
         expect(getA.status).toBe(401);
     });
@@ -236,10 +233,6 @@ describe('an app uid that returns after its app was deleted', () => {
     it('stops an access token the deleted app minted from authenticating as the next app', async () => {
         const devA = env.users.other;
         const visitor = env.users.user;
-        const devB = await createTestUser(env.server, {
-            username: `devb${uuidv4().slice(0, 8)}`,
-            password: 'dev-b-password-123',
-        });
 
         const sub = `shop-${uuidv4().slice(0, 8)}`;
         const origin = `http://${sub}.site.puter.localhost`;
@@ -270,15 +263,15 @@ describe('an app uid that returns after its app was deleted', () => {
         await backdateSession(sessionUid(appTokenA), 3600);
         await backdateSession(sessionUid(scopedA), 3600);
 
-        // The next developer's sign-in brings the uid back.
-        const bCreate = await call(devB.token, 'puter-subdomains', 'create', {
+        // The developer's next sign-in on their own site brings the uid back.
+        const again = await call(devA.token, 'puter-subdomains', 'create', {
             object: {
                 subdomain: sub,
-                root_dir: await mkSiteDir(devB.username),
+                root_dir: await mkSiteDir(devA.username),
             },
         });
-        expect(bCreate.status, bCreate.text).toBe(200);
-        expect((await signIn(devB.token, origin)).app_uid).toBe(uid);
+        expect(again.status, again.text).toBe(200);
+        expect((await signIn(devA.token, origin)).app_uid).toBe(uid);
 
         expect((await authenticate(scopedA)).reauth?.reason).toBe(
             'session_revoked',
@@ -369,5 +362,146 @@ describe('an app uid that returns after its app was deleted', () => {
         expect(body.code).toBe('reauth_required');
         expect(body.reauth_token).toBeUndefined();
         expect(body.auth_id).toBeUndefined();
+    });
+});
+
+describe("a deleted app's subdomain registered by another user", () => {
+    const writeUserFile = async (
+        username: string,
+        path: string,
+        body: string,
+    ) => {
+        const row = await env.server.stores.user.getByUsername(username);
+        const buf = Buffer.from(body);
+        await env.server.services.fs.write(row!.id, {
+            fileMetadata: {
+                path,
+                size: buf.byteLength,
+                contentType: 'text/plain',
+                overwrite: true,
+                createMissingParents: true,
+            },
+            fileContent: buf,
+        } as never);
+    };
+
+    /**
+     * A visitor stores KV and AppData on developer A's site, `release` takes
+     * A's app away, then developer B registers the same subdomain and the
+     * visitor signs in there.
+     */
+    const reclaim = async (
+        release: (ctx: {
+            devA: { id: number; token: string };
+            sub: string;
+            uid: string;
+        }) => Promise<void>,
+    ) => {
+        const visitor = env.users.user;
+        const devA = await createTestUser(env.server, {
+            username: `deva${uuidv4().slice(0, 8)}`,
+            password: 'dev-a-password-123',
+        });
+        const devB = await createTestUser(env.server, {
+            username: `devb${uuidv4().slice(0, 8)}`,
+            password: 'dev-b-password-123',
+        });
+        const sub = `notes-${uuidv4().slice(0, 8)}`;
+        const origin = `http://${sub}.site.puter.localhost`;
+
+        const aCreate = await call(devA.token, 'puter-subdomains', 'create', {
+            object: {
+                subdomain: sub,
+                root_dir: await mkSiteDir(devA.username),
+            },
+        });
+        expect(aCreate.status, aCreate.text).toBe(200);
+
+        const { token: tokenA, app_uid: uid } = await signIn(
+            visitor.token,
+            origin,
+        );
+        const set = await call(tokenA, 'puter-kvstore', 'set', {
+            key: 'diary',
+            value: 'stored on A',
+        });
+        expect(set.status, set.text).toBe(200);
+        const appDataPath = `/${visitor.username}/AppData/${uid}/private.txt`;
+        await writeUserFile(visitor.username, appDataPath, 'appdata from A');
+
+        const devARow = await env.server.stores.user.getByUsername(
+            devA.username,
+        );
+        await release({
+            devA: { id: devARow!.id, token: devA.token },
+            sub,
+            uid,
+        });
+
+        const bCreate = await call(devB.token, 'puter-subdomains', 'create', {
+            object: {
+                subdomain: sub,
+                root_dir: await mkSiteDir(devB.username),
+            },
+        });
+        expect(bCreate.status, bCreate.text).toBe(200);
+
+        const { token: tokenB, app_uid: uidB } = await signIn(
+            visitor.token,
+            origin,
+        );
+        return { uid, uidB, tokenB, appDataPath };
+    };
+
+    const expectDataStaysBehind = async ({
+        uid,
+        uidB,
+        tokenB,
+        appDataPath,
+    }: Awaited<ReturnType<typeof reclaim>>) => {
+        expect(uidB).not.toBe(uid);
+
+        const kv = await call(tokenB, 'puter-kvstore', 'get', { key: 'diary' });
+        expect(kv.status, kv.text).toBe(200);
+        expect((kv.json as { result?: unknown }).result).toBeNull();
+
+        const read = await api(
+            `/read?file=${encodeURIComponent(appDataPath)}`,
+            tokenB,
+        );
+        expect(read.status).not.toBe(200);
+    };
+
+    it('gives the new site its own uid when A deletes the app and the site', async () => {
+        await expectDataStaysBehind(
+            await reclaim(async ({ devA, sub, uid }) => {
+                const delApp = await call(devA.token, 'puter-apps', 'delete', {
+                    uid,
+                });
+                expect(delApp.status, delApp.text).toBe(200);
+                const delSite = await call(
+                    devA.token,
+                    'puter-subdomains',
+                    'delete',
+                    { id: { subdomain: sub } },
+                );
+                expect(delSite.status, delSite.text).toBe(200);
+            }),
+        );
+    });
+
+    it("gives the new site its own uid when A's account is deleted", async () => {
+        await expectDataStaysBehind(
+            await reclaim(async ({ devA }) => {
+                await env.server.services.userAccount.cascadeDelete(devA.id);
+                // MySQL and Postgres drop the user's apps by FK cascade; the
+                // test sqlite schema has no such FK, so apply it here.
+                await env.server.clients.db.write(
+                    'DELETE FROM `apps` WHERE `owner_user_id` = ?',
+                    [devA.id],
+                );
+                await env.server.clients.redis.flushall();
+            }),
+        );
     });
 });

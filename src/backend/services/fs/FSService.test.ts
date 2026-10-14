@@ -3659,7 +3659,9 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         try {
             const error = await caught(() => fs.mkdir(user.userId, { path }));
             expect(error.statusCode).toBe(409);
-            expect(error.message).toContain(path);
+            expect(error.message).toBe(
+                'An entry named `racedfile` already exists',
+            );
         } finally {
             await restore();
         }
@@ -6285,6 +6287,106 @@ describe('FSService — cross-app AppData access', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
+    });
+
+    // -- Carrying AppData out of AppData ---------------------------------
+
+    describe('the AppData folder or home as a whole', () => {
+        let appData: FSEntry;
+        let desktop: FSEntry;
+        let closedUid: string;
+        let closedFile: FSEntry;
+
+        beforeEach(async () => {
+            const closed = await makeRealApp(owner.userId, {
+                metadata: JSON.stringify({ share_app_data: false }),
+            });
+            closedUid = closed.uid;
+            closedFile = await seedAppData(closed.uid);
+            appData = (await entryAt(owner, '/AppData'))!;
+            desktop = (await entryAt(owner, '/Desktop'))!;
+        });
+
+        it('refuses an app copying, moving or renaming it past a closed app', async () => {
+            const into = { source: appData, destinationParent: desktop };
+            await expect(
+                asCalendar(() =>
+                    fs.copy(owner.userId, { ...into, newName: 'grab' }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                asCalendar(() =>
+                    fs.move(owner.userId, { ...into, newName: 'grab' }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                asCalendar(() => fs.rename(owner.userId, appData, 'grab')),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(await entryAt(owner, '/Desktop/grab')).toBeFalsy();
+            expect(await entryAt(owner, '/grab')).toBeFalsy();
+
+            // The home carries the same folder.
+            const home = (await entryAt(owner, ''))!;
+            const elsewhere = (await entryAt(await makeUser(), '/Desktop'))!;
+            await expect(
+                asCalendar(() =>
+                    fs.copy(owner.userId, {
+                        source: home,
+                        destinationParent: elsewhere,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('lets the user copy it', async () => {
+            await runWithContext({ actor: owner.actor }, () =>
+                fs.copy(owner.userId, {
+                    source: appData,
+                    destinationParent: desktop,
+                    newName: 'grab',
+                }),
+            );
+            expect(
+                await entryAt(owner, `/Desktop/grab/${closedUid}/state.json`),
+            ).toBeTruthy();
+        });
+
+        it('lets an app copy it while every other app shares', async () => {
+            await fs.remove(owner.userId, {
+                entry: (await entryAt(owner, `/AppData/${closedUid}`))!,
+                recursive: true,
+            });
+            await asCalendar(() =>
+                fs.copy(owner.userId, {
+                    source: appData,
+                    destinationParent: desktop,
+                    newName: 'grab',
+                }),
+            );
+            expect(
+                await entryAt(
+                    owner,
+                    `/Desktop/grab/${contacts.uid}/state.json`,
+                ),
+            ).toBeTruthy();
+        });
+
+        it("leaves a closed app's entries out of an app's recursive listing", async () => {
+            const list = () =>
+                fs.listDirectoryTreePage(owner.userId, owner.home, {
+                    maxDepth: 10,
+                    limit: 1000,
+                });
+            const paths = (await asCalendar(list)).entries.map((e) => e.path);
+            expect(paths).toContain(contactsFile.path);
+            expect(paths).not.toContain(closedFile.path);
+            expect(paths).not.toContain(`${owner.home}/AppData/${closedUid}`);
+
+            const asUser = await runWithContext({ actor: owner.actor }, list);
+            expect(asUser.entries.map((e) => e.path)).toContain(
+                closedFile.path,
+            );
+        });
     });
 });
 
