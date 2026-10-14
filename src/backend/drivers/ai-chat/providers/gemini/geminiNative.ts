@@ -77,7 +77,8 @@ interface ChatParams {
     }>;
     tool_choice?: ChatToolChoice;
     max_completion_tokens?: number;
-    reasoning_effort?: 'low' | 'medium' | 'high';
+    temperature?: number;
+    reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
     stream?: boolean;
 }
 
@@ -238,12 +239,15 @@ const toGenerateContentRequest = (
     const toolConfig = functions.length
         ? toolConfigOf(params.tool_choice)
         : undefined;
-    // Sampling fields are not forwarded: Google ignores them on this model.
     const config: GenerateContentConfig = {
         ...(signal ? { abortSignal: signal } : {}),
         ...(systemInstruction ? { systemInstruction } : {}),
         ...(params.max_completion_tokens !== undefined
             ? { maxOutputTokens: params.max_completion_tokens }
+            : {}),
+        // The provider leaves temperature out for models that ignore it.
+        ...(params.temperature !== undefined
+            ? { temperature: params.temperature }
             : {}),
         ...(functions.length
             ? {

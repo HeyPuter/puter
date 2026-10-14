@@ -56,5 +56,23 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
             expect(typeof result).toBe('string');
             expect((result as string).length).toBeGreaterThan(0);
         });
+
+        it('returns a 1K image from google/gemini-2.5-flash-image', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+            const provider = new GeminiImageProvider(
+                { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
+            );
+
+            const result = await withTestActor(() =>
+                provider.generate({
+                    model: 'google/gemini-2.5-flash-image',
+                    prompt: 'a tiny red dot on a white background',
+                    ratio: { w: 1, h: 1 },
+                    quality: '1K',
+                }),
+            );
+
+            expect(result).toMatch(/^data:image\/[a-z]+;base64,.+/);
+        });
     },
 );

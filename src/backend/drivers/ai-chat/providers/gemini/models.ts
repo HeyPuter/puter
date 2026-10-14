@@ -17,15 +17,82 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { IChatModel } from '../../types.js';
+import type {
+    IChatModel,
+    ModelCost,
+    ModelPricingOverride,
+    ReasoningEffort,
+} from '../../types.js';
 
-/** Served natively: the OpenAI-compatible endpoint reports no thinking count. */
-export const GEMINI_NATIVE_MODEL_IDS: ReadonlySet<string> = new Set([
-    'gemini-4-argon',
-]);
+/** What a natively served model accepts beyond the shared request fields. */
+export interface GeminiNativeOptions {
+    reasoningEfforts: ReadonlySet<ReasoningEffort>;
+    /** False where Google ignores temperature, so it isn't sent. */
+    temperature: boolean;
+}
+
+const FLASH_NATIVE_OPTIONS: GeminiNativeOptions = {
+    reasoningEfforts: new Set(['minimal', 'low', 'medium', 'high']),
+    temperature: true,
+};
+
+/**
+ * Served natively: the OpenAI-compatible endpoint omits these models' thinking
+ * count from usage.
+ */
+export const GEMINI_NATIVE_MODELS: ReadonlyMap<string, GeminiNativeOptions> =
+    new Map([
+        [
+            'gemini-4-argon',
+            {
+                reasoningEfforts: new Set(['low', 'medium', 'high']),
+                temperature: false,
+            },
+        ],
+        ['gemini-3.1-flash-lite', FLASH_NATIVE_OPTIONS],
+        ['gemini-3-flash-preview', FLASH_NATIVE_OPTIONS],
+    ]);
+
+// Gemini 3.6/3.8 Flash launch pricing; list pricing doubles from
+// 2027-01-01T00:00:00Z.
+const FLASH_LAUNCH_COSTS: ModelCost = {
+    tokens: 1_000_000,
+    prompt_tokens: 75,
+    completion_tokens: 375,
+    thinking_tokens: 375,
+    cached_tokens: 7.5,
+    // Gemini 3.x grounding is $14 / 1,000 requests
+    grounding_requests: 1_400_000,
+};
+const FLASH_LIST_PRICING: ModelPricingOverride[] = [
+    {
+        startsAt: '2027-01-01T00:00:00Z',
+        costs: {
+            prompt_tokens: 150,
+            completion_tokens: 750,
+            thinking_tokens: 750,
+            cached_tokens: 15,
+        },
+    },
+];
+
+// Every rate rises for the whole request once the prompt, cached tokens
+// included, exceeds 200,000 tokens.
+const PRO_LONG_CONTEXT_PRICING: ModelPricingOverride[] = [
+    {
+        minPromptTokens: 200_000,
+        costs: {
+            prompt_tokens: 400,
+            completion_tokens: 1800,
+            thinking_tokens: 1800,
+            cached_tokens: 40,
+        },
+    },
+];
 
 // Google's unary model metadata reports this cap; streaming keeps the catalog cap.
 export const GEMINI_ARGON_NON_STREAM_MAX_TOKENS = 32_768;
+
 
 export const GEMINI_MODELS: IChatModel[] = [
     {
@@ -92,15 +159,9 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 150,
-            completion_tokens: 900,
-            thinking_tokens: 900,
-            cached_tokens: 15,
-            // Gemini 3.x grounding is $14 / 1,000 requests
-            grounding_requests: 1_400_000,
-        },
+        // Google serves this endpoint with gemini-3.6-flash and bills its rates.
+        costs: FLASH_LAUNCH_COSTS,
+        pricingOverrides: FLASH_LIST_PRICING,
     },
     {
         puterId: 'google:google/gemini-3.5-flash-lite',
@@ -153,14 +214,8 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 150,
-            completion_tokens: 750,
-            thinking_tokens: 750,
-            cached_tokens: 15,
-            grounding_requests: 1_400_000,
-        },
+        costs: FLASH_LAUNCH_COSTS,
+        pricingOverrides: FLASH_LIST_PRICING,
     },
     {
         puterId: 'google:google/gemini-3.7-flash',
@@ -180,14 +235,9 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 75,
-            completion_tokens: 375,
-            thinking_tokens: 375,
-            cached_tokens: 7.5,
-            grounding_requests: 1_400_000,
-        },
+        // Google serves this endpoint with gemini-3.8-flash and bills its rates.
+        costs: FLASH_LAUNCH_COSTS,
+        pricingOverrides: FLASH_LIST_PRICING,
     },
     {
         puterId: 'google:google/gemini-3.8-flash',
@@ -206,14 +256,60 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        // Launch pricing, listed as holding through 2026-12-31 and doubling
-        // on 2027-01-01.
+        costs: FLASH_LAUNCH_COSTS,
+        pricingOverrides: FLASH_LIST_PRICING,
+    },
+    {
+        puterId: 'google:google/gemini-3.1-flash-lite',
+        id: 'gemini-3.1-flash-lite',
+        // The native driver has no audio or PDF part to forward.
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-05-07',
+        name: 'Gemini 3.1 Flash-Lite',
+        aliases: ['google/gemini-3.1-flash-lite'],
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 75,
-            completion_tokens: 375,
-            thinking_tokens: 375,
-            cached_tokens: 7.5,
+            prompt_tokens: 25,
+            completion_tokens: 150,
+            thinking_tokens: 150,
+            cached_tokens: 2.5,
+            grounding_requests: 1_400_000,
+        },
+    },
+    {
+        puterId: 'google:google/gemini-3-flash-preview',
+        id: 'gemini-3-flash-preview',
+        // The native driver has no audio or PDF part to forward.
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2025-12-17',
+        name: 'Gemini 3 Flash Preview',
+        aliases: ['google/gemini-3-flash-preview'],
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 50,
+            completion_tokens: 300,
+            thinking_tokens: 300,
+            cached_tokens: 5,
             grounding_requests: 1_400_000,
         },
     },
@@ -335,6 +431,7 @@ export const GEMINI_MODELS: IChatModel[] = [
             cached_tokens: 20,
             grounding_requests: 1_400_000,
         },
+        pricingOverrides: PRO_LONG_CONTEXT_PRICING,
         max_tokens: 65536,
     },
     {
@@ -364,6 +461,7 @@ export const GEMINI_MODELS: IChatModel[] = [
             cached_tokens: 20,
             grounding_requests: 1_400_000,
         },
+        pricingOverrides: PRO_LONG_CONTEXT_PRICING,
         max_tokens: 65536,
     },
     {
@@ -384,8 +482,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        // Launch pricing, listed as holding through 2026-12-31 and doubling
-        // on 2027-01-01.
+        // Launch pricing; list pricing doubles from 2027-01-01T00:00:00Z.
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 100,
@@ -394,6 +491,17 @@ export const GEMINI_MODELS: IChatModel[] = [
             cached_tokens: 10,
             grounding_requests: 1_400_000,
         },
+        pricingOverrides: [
+            {
+                startsAt: '2027-01-01T00:00:00Z',
+                costs: {
+                    prompt_tokens: 200,
+                    completion_tokens: 1000,
+                    thinking_tokens: 1000,
+                    cached_tokens: 20,
+                },
+            },
+        ],
     },
     {
         puterId: 'google:google/gemma-4-31b-it',

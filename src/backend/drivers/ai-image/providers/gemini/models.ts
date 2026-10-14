@@ -40,17 +40,21 @@ export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
     'gemini-3.1-flash-image:4K': 2520,
 
     'gemini-3.1-flash-lite-image:1K': 1120,
+
+    'gemini-2.5-flash-image:1K': 1290,
 };
 
 // Estimated text and thinking output tokens per image for pre-flight cost
 // checks. Google bills these at the model's text output rate; samples taken
 // 2026-10-11 ran 380-425 on 3.1 Flash, about 400 on 3.1 Flash Lite, 270 on
-// 3 Pro, and 440-1122 on Nano Banana 2.1.
+// 3 Pro, and 440-1122 on Nano Banana 2.1. 2.5 Flash has no thinking, so its
+// estimate covers text only.
 export const GEMINI_ESTIMATED_TEXT_OUTPUT_TOKENS: Record<string, number> = {
     'gemini-nano-banana-2.1': 1000,
     'gemini-3-pro-image': 300,
     'gemini-3.1-flash-image': 450,
     'gemini-3.1-flash-lite-image': 450,
+    'gemini-2.5-flash-image': 50,
 };
 
 export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
@@ -153,6 +157,35 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             output: 150, // $1.50 per 1M output tokens (text and thinking)
             output_image: 3000, // $30.00 per 1M output image tokens
             '1K:1x1': 3.36, // 1120 tokens @ $30/1M = $0.0336 per 1K image
+        },
+    },
+    {
+        puterId: 'google:google/gemini-2.5-flash-image',
+        id: 'gemini-2.5-flash-image',
+        name: 'Gemini 2.5 Flash Image',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        index_input_cost_key: 'input',
+        aliases: ['google/gemini-2.5-flash-image'],
+        allowedQualityLevels: ['1K'],
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 30, // $0.30 per 1M input tokens (text/image)
+            output: 250, // $2.50 per 1M output tokens (text)
+            output_image: 3000, // $30.00 per 1M output image tokens
+            '1K:1x1': 3.87, // 1290 tokens @ $30/1M = $0.0387 per 1K image
         },
     },
     {
