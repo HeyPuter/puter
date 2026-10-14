@@ -38,6 +38,8 @@ export interface ModelPricingOverride {
     utcStart?: number;
     utcEnd?: number;
     utcDays?: number[];
+    /** ISO instant from which this override applies, e.g. a list-price change. */
+    startsAt?: string;
     costs: ModelCost;
 }
 
@@ -306,10 +308,13 @@ export interface IChatProvider {
     /**
      * `model` is this provider's own catalog entry for `arg.model`, as the
      * driver resolved it; a provider resolves `arg.model` itself without it.
+     * `pricingTime` is the instant the driver's credit gate priced this
+     * attempt at; usage metered for the attempt is priced at the same instant.
      */
     complete(
         arg: ICompleteArguments,
         model?: IChatModel,
+        pricingTime?: Date,
     ): Promise<IChatCompleteResult>;
     checkModeration(
         text: string,

@@ -354,6 +354,55 @@ describe('process_input_messages', () => {
         expect(calls[0]?.extra_content).toEqual({ hint: 'metadata' });
     });
 
+    describe('parallel tool call order', () => {
+        const parallelTurn = (): Array<Record<string, unknown>> => [
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'a', name: 'first', input: {} },
+                    { type: 'tool_use', id: 'b', name: 'second', input: {} },
+                ],
+            },
+        ];
+        const callIds = (out: unknown[]) =>
+            (
+                (out[0] as Record<string, unknown>).tool_calls as Array<{
+                    id: string;
+                }>
+            ).map((call) => call.id);
+
+        it('keeps the existing reversed order by default', async () => {
+            expect(callIds(await process_input_messages(parallelTurn()))).toEqual(
+                ['b', 'a'],
+            );
+        });
+
+        it('keeps content order when asked to', async () => {
+            expect(
+                callIds(
+                    await process_input_messages(parallelTurn(), {
+                        preserveToolCallOrder: true,
+                    }),
+                ),
+            ).toEqual(['a', 'b']);
+        });
+
+        it('appends after tool_calls the message already had, without reordering them', async () => {
+            const [turn] = parallelTurn();
+            turn!.tool_calls = [
+                { id: 'y', type: 'function', function: { name: 'y', arguments: '{}' } },
+                { id: 'x', type: 'function', function: { name: 'x', arguments: '{}' } },
+            ];
+            expect(
+                callIds(
+                    await process_input_messages([turn!], {
+                        preserveToolCallOrder: true,
+                    }),
+                ),
+            ).toEqual(['y', 'x', 'a', 'b']);
+        });
+    });
+
     it('coerces tool_result blocks into a top-level tool message', async () => {
         const messages: Array<Record<string, unknown>> = [
             {

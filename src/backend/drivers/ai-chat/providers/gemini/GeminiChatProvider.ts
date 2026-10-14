@@ -17,33 +17,93 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Preamble: Before this we used Gemini's SDK directly and as we found out
-// its actually kind of terrible. So we use the openai sdk now
-import { OpenAI } from 'openai';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { PuterMessage } from '../../types.js';
-import { sdkClientOptions } from '../../utils/sdkClient.js';
+// Most models go through Google's OpenAI-compatible endpoint with the openai
+// SDK; only GEMINI_NATIVE_MODEL_IDS use the native generateContent API.
 import {
+    type GenerateContentResponseUsageMetadata,
+    GoogleGenAI,
+} from '@google/genai';
+import { OpenAI } from 'openai';
+import { HttpError } from '../../../../core/http/HttpError.js';
+import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type {
+    IChatModel,
+    ICompleteArguments,
+    PuterMessage,
+    UsageDetails,
+} from '../../types.js';
+import { toolChoiceToWire } from '../../utils/openaiParams.js';
+import { SDK_TIMEOUT_MS, sdkClientOptions } from '../../utils/sdkClient.js';
+import {
+    type ChatCompletionsClient,
     type ChatProviderConfig,
     OpenAICompatProvider,
     type UsageSource,
 } from '../OpenAICompatProvider.js';
-import { GEMINI_MODELS } from './models.js';
+import { geminiNativeClient } from './geminiNative.js';
+import { GEMINI_MODELS, GEMINI_NATIVE_MODEL_IDS } from './models.js';
 
 type GroundingContent = { grounding_metadata?: unknown };
 
+/** The thinking levels the native models accept; medium when unset. */
+const NATIVE_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
+
+const COMPAT_BASE_URL =
+    'https://generativelanguage.googleapis.com/v1beta/openai/';
+
+/** The catalog without the native models, for a custom `apiBaseUrl`. */
+const COMPAT_ONLY_MODELS = GEMINI_MODELS.filter(
+    (m) => !GEMINI_NATIVE_MODEL_IDS.has(m.id),
+);
+
 export class GeminiChatProvider extends OpenAICompatProvider {
     constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        const compat = new OpenAI({
+            apiKey: config.apiKey,
+            baseURL: config.apiBaseUrl ?? COMPAT_BASE_URL,
+            ...sdkClientOptions(),
+        });
+        // A custom base URL may be a proxy that only speaks the
+        // OpenAI-compatible API, so native models are left out rather than
+        // sent straight to Google.
+        const native =
+            config.apiBaseUrl === undefined ||
+            config.apiBaseUrl.replace(/\/*$/, '/') === COMPAT_BASE_URL
+                ? geminiNativeClient(
+                      new GoogleGenAI({
+                          apiKey: config.apiKey,
+                          httpOptions: { timeout: SDK_TIMEOUT_MS },
+                      }),
+                  )
+                : undefined;
+        const client: ChatCompletionsClient = {
+            chat: {
+                completions: {
+                    create: (params, options) => {
+                        const { model } = params as { model: string };
+                        if (!GEMINI_NATIVE_MODEL_IDS.has(model)) {
+                            return compat.chat.completions.create(
+                                params,
+                                options,
+                            );
+                        }
+                        if (!native) {
+                            throw new HttpError(
+                                400,
+                                `Model not found: ${model}`,
+                                { legacyCode: 'bad_request' },
+                            );
+                        }
+                        return native.chat.completions.create(params, options);
+                    },
+                },
+            },
+        };
+        const models = native ? GEMINI_MODELS : COMPAT_ONLY_MODELS;
         super(meteringService, {
-            client: new OpenAI({
-                apiKey: config.apiKey,
-                baseURL:
-                    config.apiBaseUrl ??
-                    'https://generativelanguage.googleapis.com/v1beta/openai/',
-                ...sdkClientOptions(),
-            }),
+            client,
             defaultModel: 'gemini-2.5-flash',
-            models: () => GEMINI_MODELS,
+            models: () => models,
             meteringPrefix: 'gemini',
             maxTokensParam: 'max_completion_tokens',
             passthrough: ['temperature'],
@@ -59,7 +119,43 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         return messages;
     }
 
-    protected override meteredUsage(source: UsageSource) {
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        args: ICompleteArguments,
+        model: IChatModel,
+    ) {
+        if (!GEMINI_NATIVE_MODEL_IDS.has(model.id)) return params;
+        const effort = args.reasoning_effort ?? args.reasoning?.effort;
+        if (effort !== undefined && !NATIVE_REASONING_EFFORTS.has(effort)) {
+            throw new HttpError(
+                400,
+                `reasoning_effort must be low, medium or high for ${model.id}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const hasTools = Array.isArray(params.tools) && params.tools.length > 0;
+        return {
+            ...params,
+            ...(effort ? { reasoning_effort: effort } : {}),
+            ...(hasTools && args.tool_choice
+                ? { tool_choice: toolChoiceToWire(args.tool_choice, 'chat') }
+                : {}),
+        };
+    }
+
+    protected override preservesToolCallOrder(model: IChatModel) {
+        // Gemini expects parallel calls back in order, signature on the first.
+        return GEMINI_NATIVE_MODEL_IDS.has(model.id);
+    }
+
+    protected override meteredUsage(source: UsageSource, model: IChatModel) {
+        if (GEMINI_NATIVE_MODEL_IDS.has(model.id)) {
+            return nativeMeteredUsage(
+                source.usage as unknown as
+                    | GenerateContentResponseUsageMetadata
+                    | undefined,
+            );
+        }
         // Non-stream grounding metadata lives in choices[0].message; a stream
         // hands over what its handler accumulated as `extra_content`.
         const { usage } = source;
@@ -93,3 +189,47 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         };
     }
 }
+
+const count = (value: number | undefined): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+/**
+ * Native `usageMetadata` as metered. Candidates and thoughts are separate
+ * output counts; cached tokens are part of the prompt. Metadata with no counts
+ * meters nothing, so the driver estimates the completion instead.
+ */
+const nativeMeteredUsage = (
+    metadata: GenerateContentResponseUsageMetadata | undefined,
+): { usage: Record<string, number>; usageDetails?: UsageDetails } => {
+    const prompt = count(metadata?.promptTokenCount);
+    const candidates = count(metadata?.candidatesTokenCount);
+    const thoughts = count(metadata?.thoughtsTokenCount);
+    const cached = count(metadata?.cachedContentTokenCount) ?? 0;
+    // Server-tool prompt tokens; no server tool is ever enabled here.
+    const toolUse = count(metadata?.toolUsePromptTokenCount) ?? 0;
+    if (
+        prompt === undefined &&
+        candidates === undefined &&
+        thoughts === undefined &&
+        !cached &&
+        !toolUse
+    ) {
+        return { usage: {} };
+    }
+    const inputTokens = Math.max(0, (prompt ?? 0) - cached);
+    return {
+        usage: {
+            prompt_tokens: inputTokens,
+            completion_tokens: candidates ?? 0,
+            thinking_tokens: thoughts ?? 0,
+            cached_tokens: cached,
+            ...(toolUse ? { tool_use_prompt_tokens: toolUse } : {}),
+        },
+        usageDetails: {
+            inputTokens: inputTokens + toolUse,
+            outputTokens: (candidates ?? 0) + (thoughts ?? 0),
+            reasoningTokens: thoughts ?? 0,
+            ...(cached ? { cacheReadTokens: cached } : {}),
+        },
+    };
+};

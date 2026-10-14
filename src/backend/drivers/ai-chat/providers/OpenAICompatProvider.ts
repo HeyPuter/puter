@@ -28,6 +28,7 @@ import type {
     IChatProvider,
     ICompleteArguments,
     PuterMessage,
+    UsageDetails,
 } from '../types.js';
 import {
     contextLengthRetryParams,
@@ -73,6 +74,7 @@ export interface ChatCompletionsClient {
 export type UsageSource = {
     usage: CompletionUsage;
     setUsageCosts: (costs: Record<string, number>) => void;
+    setUsageDetails?: (details: UsageDetails) => void;
 } & Record<string, unknown>;
 
 /**
@@ -157,6 +159,7 @@ export class OpenAICompatProvider implements IChatProvider {
     async complete(
         args: ICompleteArguments,
         resolved?: IChatModel,
+        attemptPricingTime?: Date,
     ): Promise<IChatCompleteResult> {
         const options = this.#options;
         const model = resolved ?? (await this.resolveModel(args.model));
@@ -188,7 +191,9 @@ export class OpenAICompatProvider implements IChatProvider {
             });
         }
         messages = this.prepareMessages(
-            await OpenAIUtil.process_input_messages(messages),
+            await OpenAIUtil.process_input_messages(messages, {
+                preserveToolCallOrder: this.preservesToolCallOrder(model),
+            }),
         );
 
         const tools = args.tools
@@ -226,7 +231,7 @@ export class OpenAICompatProvider implements IChatProvider {
         };
         const params = this.vendorParams(shared, args, model, actor);
 
-        let pricingTime = new Date();
+        let pricingTime = attemptPricingTime ?? new Date();
         let completion;
         try {
             completion = await options.client.chat.completions.create(
@@ -242,7 +247,7 @@ export class OpenAICompatProvider implements IChatProvider {
                       )
                     : undefined;
             if (!retryParams) throw e;
-            pricingTime = new Date();
+            pricingTime = attemptPricingTime ?? new Date();
             completion = await options.client.chat.completions.create(
                 retryParams as never,
                 { signal },
@@ -259,10 +264,11 @@ export class OpenAICompatProvider implements IChatProvider {
                   }
                 : {}),
             usage_calculator: (source: UsageSource) => {
-                const { usage, meterOptions } = this.meteredUsage(
+                const { usage, meterOptions, usageDetails } = this.meteredUsage(
                     source,
                     model,
                 );
+                if (usageDetails) source.setUsageDetails?.(usageDetails);
                 const metered = meterChatUsage(
                     this.#metering,
                     actor,
@@ -307,6 +313,11 @@ export class OpenAICompatProvider implements IChatProvider {
 
     // -- Vendor hooks ---------------------------------------------------
 
+    /** Whether a replayed turn's tool calls must keep the model's order. */
+    protected preservesToolCallOrder(_model: IChatModel): boolean {
+        return false;
+    }
+
     /** Last pass over the messages, after `process_input_messages`. */
     protected prepareMessages(messages: PuterMessage[]): PuterMessage[] {
         return messages;
@@ -322,11 +333,18 @@ export class OpenAICompatProvider implements IChatProvider {
         return params;
     }
 
-    /** The usage a completion meters as, and how it's billed. */
+    /**
+     * The usage a completion meters as, and how it's billed. `usageDetails`
+     * replaces the breakdown otherwise derived from `usage`.
+     */
     protected meteredUsage(
         source: UsageSource,
         _model: IChatModel,
-    ): { usage: Record<string, number>; meterOptions?: MeterChatUsageOptions } {
+    ): {
+        usage: Record<string, number>;
+        meterOptions?: MeterChatUsageOptions;
+        usageDetails?: UsageDetails;
+    } {
         return { usage: OpenAIUtil.splitCachedPrompt(source.usage) };
     }
 

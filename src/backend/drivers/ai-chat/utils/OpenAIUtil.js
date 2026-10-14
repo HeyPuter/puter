@@ -151,19 +151,19 @@ export const toOpenAIChatMessages = (
 /**
  * Moves a message's `tool_use` blocks into OpenAI `tool_calls`, in place. True
  * when this call created `tool_calls`. `canonicalId` keeps the Responses item
- * id a replayed call carries.
+ * id a replayed call carries. `preserveOrder` appends the hoisted calls in
+ * content order instead of reversed.
  */
-const hoistToolUseBlocks = (msg, { canonicalId = false } = {}) => {
+const hoistToolUseBlocks = (
+    msg,
+    { canonicalId = false, preserveOrder = false } = {},
+) => {
     const content = msg.content;
-    let hoisted = false;
+    const calls = [];
     for (let i = content.length - 1; i >= 0; i--) {
         const block = content[i];
         if (block.type !== 'tool_use') continue;
-        if (!msg.tool_calls) {
-            msg.tool_calls = [];
-            hoisted = true;
-        }
-        msg.tool_calls.push({
+        calls.push({
             id: block.id,
             ...(canonicalId ? { canonical_id: block.canonical_id } : {}),
             type: 'function',
@@ -177,6 +177,10 @@ const hoistToolUseBlocks = (msg, { canonicalId = false } = {}) => {
         });
         content.splice(i, 1);
     }
+    if (!calls.length) return false;
+    const hoisted = !msg.tool_calls;
+    msg.tool_calls ??= [];
+    msg.tool_calls.push(...(preserveOrder ? calls.reverse() : calls));
     return hoisted;
 };
 
@@ -185,9 +189,14 @@ const hoistToolUseBlocks = (msg, { canonicalId = false } = {}) => {
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
+ * @param {{ preserveToolCallOrder?: boolean }} [opts] `preserveToolCallOrder`
+ *   keeps a turn's tool calls in the order the model made them.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
-export const process_input_messages = async (messages) => {
+export const process_input_messages = async (
+    messages,
+    { preserveToolCallOrder = false } = {},
+) => {
     for (const msg of messages) {
         if (!msg.content) continue;
         if (typeof msg.content !== 'object') continue;
@@ -203,7 +212,10 @@ export const process_input_messages = async (messages) => {
             }
         }
 
-        if (hoistToolUseBlocks(msg)) msg.content = null;
+        if (
+            hoistToolUseBlocks(msg, { preserveOrder: preserveToolCallOrder })
+        )
+            msg.content = null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)
@@ -648,11 +660,15 @@ export const create_chat_stream_handler =
         // the upstream had already produced *and* skipped its billing. Leave
         // the usage undefined instead; the driver charges an estimate for a
         // stream that produced output nobody reported.
+        let usageDetails;
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
                   extra_content: last_extra_content,
                   setUsageCosts: (c) => chatStream.setUsageCosts(c),
+                  setUsageDetails: (d) => {
+                      usageDetails = d;
+                  },
               })
             : undefined;
         // The calculator just metered. Reported here, not only via `end`:
@@ -665,7 +681,7 @@ export const create_chat_stream_handler =
         } else if (opened_tool_blocks.length > 0) {
             chatStream.setStop({ reason: 'tool_use' });
         }
-        const usageDetails = usageDetailsFromTrackedUsage(usage);
+        usageDetails ??= usageDetailsFromTrackedUsage(usage);
         if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
@@ -869,6 +885,9 @@ export const handle_completion_output = async (
      *     usage_calculator: (args: {
      *         usage: import('openai/resources/completions.mjs').CompletionUsage;
      *         setUsageCosts: (costs: Record<string, number>) => void;
+     *         setUsageDetails: (
+     *             details: import('../types.js').UsageDetails,
+     *         ) => void;
      *     }) => unknown;
      * }}
      */
@@ -924,12 +943,15 @@ export const handle_completion_output = async (
               setUsageCosts: (c) => {
                   ret.usageCosts = c;
               },
+              setUsageDetails: (d) => {
+                  ret.usageDetails = d;
+              },
           })
         : {
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
-    if (usage_calculator) {
+    if (usage_calculator && ret.usageDetails === undefined) {
         const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
         if (usageDetails) ret.usageDetails = usageDetails;
     }
