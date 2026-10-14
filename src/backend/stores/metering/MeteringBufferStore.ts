@@ -25,6 +25,7 @@ import {
     KvFencedWriteError,
     type RecursiveRecord,
 } from '../systemKv/SystemKVStore';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { PuterStore } from '../types';
 import {
     meteringRecordExpiresAt,
@@ -1299,16 +1300,19 @@ export class MeteringBufferStore extends PuterStore {
             );
         }
 
-        for (let i = 0; i < work.length; i += SETTLE_CONCURRENCY) {
-            await Promise.all(
-                work.slice(i, i + SETTLE_CONCURRENCY).map((run) =>
-                    run().catch((e: Error) => {
-                        // Leaving the claim in place is what makes this safe:
-                        // the sweep re-drives it.
-                        console.warn(`[metering] settle failed: ${e.message}`);
-                    }),
-                ),
-            );
+        const outcomes = await runWithConcurrencyLimitSettled(
+            work,
+            SETTLE_CONCURRENCY,
+            (run) => run(),
+        );
+        for (const outcome of outcomes) {
+            // Leaving the claim in place is what makes this safe: the sweep
+            // re-drives it.
+            if (outcome.status === 'rejected') {
+                console.warn(
+                    `[metering] settle failed: ${(outcome.reason as Error)?.message}`,
+                );
+            }
         }
 
         settledCounter.add(work.length);
