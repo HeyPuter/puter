@@ -450,9 +450,9 @@
  *
  * @typedef {Object} Speech2TxtWord
  * @property {string} text
- * @property {number} start
- * @property {number} end
- * @property {string} [speaker] Detected speaker, present when `diarize: true` (xAI).
+ * @property {number} start Seconds from the start of the audio.
+ * @property {number} end Seconds from the start of the audio.
+ * @property {string} [speaker] Detected speaker, present when `diarize: true` (xAI, and Gemini when it labels the word, e.g. `'spk:0'`).
  */
 
 /**
@@ -460,10 +460,11 @@
  *
  * @typedef {Object} Speech2TxtResult
  * @property {string} text
- * @property {string} language
+ * @property {string} [model] Model that produced the transcript.
+ * @property {string} [language] Language of the transcript. OpenAI and xAI report it; Gemini echoes the `language` you passed and omits it otherwise.
  * @property {Record<string, unknown>[]} [segments]
  * @property {number} [duration] Duration of the audio in seconds (provider-dependent, e.g. xAI).
- * @property {Speech2TxtWord[]} [words] Per-word timestamps (provider-dependent, e.g. xAI).
+ * @property {Speech2TxtWord[]} [words] Per-word timestamps (xAI; Gemini when `timestamp_granularities: ['word']` or `diarize: true`).
  */
 
 /**
@@ -472,20 +473,20 @@
  * @typedef {Object} BaseSpeech2TxtOptions
  * @property {string | File | Blob} [file]
  * @property {string | File | Blob} [audio]
- * @property {string} [provider]
- * @property {string} [model]
+ * @property {string} [provider] `'openai'` (default), `'xai'` or `'gemini'`, or an alias such as `'whisper'`, `'grok'` or `'google'`.
+ * @property {string} [model] e.g. `'gpt-transcribe'`, `'grok-voice-transcribe-2.0'` or `'gemini-3.5-transcribe'`.
  * @property {string} [language]
- * @property {string} [prompt]
+ * @property {string} [prompt] Not supported by Gemini, which rejects it.
  * @property {boolean} [stream]
- * @property {boolean} [translate]
- * @property {number} [temperature]
- * @property {boolean} [logprobs]
- * @property {string[]} [timestamp_granularities] Accepted and ignored by all providers.
- * @property {string} [chunking_strategy] Accepted and ignored by all providers.
- * @property {string[]} [known_speaker_names] Accepted and ignored by all providers.
- * @property {Record<string, unknown>} [extra_body]
+ * @property {boolean} [translate] Not supported by OpenAI or Gemini, which reject it.
+ * @property {number} [temperature] Not supported by Gemini, which rejects it.
+ * @property {boolean} [logprobs] Not supported by Gemini, which rejects `true`.
+ * @property {string[]} [timestamp_granularities] `['word']` returns per-word timestamps on Gemini, which rejects entries other than `'word'`. Ignored by OpenAI and xAI.
+ * @property {string} [chunking_strategy] Ignored by OpenAI and xAI; rejected by Gemini.
+ * @property {string[]} [known_speaker_names] Ignored by OpenAI and xAI; rejected by Gemini.
+ * @property {Record<string, unknown>} [extra_body] OpenAI only; rejected by Gemini.
  * @property {boolean} [format]
- * @property {boolean} [diarize]
+ * @property {boolean} [diarize] Adds a `speaker` to each word (xAI and Gemini). On Gemini it also returns `words`.
  * @property {boolean} [multichannel]
  * @property {number} [channels]
  * @property {string} [audio_format]

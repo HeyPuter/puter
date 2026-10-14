@@ -11,9 +11,13 @@ The `Speech2TxtResult` object containing speech-to-text transcription results.
 
 A string containing the transcribed text from the audio.
 
+#### `model` (String)
+
+An optional string naming the model that produced the transcript.
+
 #### `language` (String)
 
-A string containing the detected or specified language of the audio.
+An optional string containing the detected or specified language of the audio. Gemini includes `language` only when you pass one.
 
 #### `segments` (Array)
 
@@ -25,9 +29,9 @@ An optional duration of the audio in seconds. Provider-dependent (e.g. returned 
 
 #### `words` (Array)
 
-An optional array of per-word timestamp objects. Provider-dependent (e.g. returned by xAI). Each word has:
+An optional array of per-word timestamp objects. Provider-dependent (returned by xAI, and by Gemini when you pass `timestamp_granularities: ['word']` or `diarize: true`). Each word has:
 
 - `text` (String): The transcribed word.
 - `start` (Number): Start time of the word in seconds.
 - `end` (Number): End time of the word in seconds.
-- `speaker` (String): Detected speaker, present when `diarize: true`.
+- `speaker` (String): Detected speaker, present when `diarize: true` and the provider labels the word (for example `spk:0` on Gemini).

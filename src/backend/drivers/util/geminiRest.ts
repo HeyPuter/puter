@@ -17,15 +17,74 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const GOOGLE_COMPAT_BASE_URL =
-    'https://generativelanguage.googleapis.com/v1beta/openai/';
+import { HttpError } from '../../core/http/HttpError.js';
+import { readBoundedBody } from './fileInput.js';
+import { upstreamFetch } from './upstreamErrors.js';
 
-/**
- * Whether a `gemini` config block's `apiBaseUrl` is unset or Google's own. Any
- * other value may be a proxy holding its own key, which must not be sent to
- * Google's native APIs.
- */
+export const GEMINI_API_BASE =
+    'https://generativelanguage.googleapis.com/v1beta';
+
 export const usesGoogleGeminiEndpoint = (apiBaseUrl: unknown): boolean =>
     apiBaseUrl === undefined ||
     (typeof apiBaseUrl === 'string' &&
-        apiBaseUrl.replace(/\/*$/, '/') === GOOGLE_COMPAT_BASE_URL);
+        apiBaseUrl.replace(/\/*$/, '/') === `${GEMINI_API_BASE}/openai/`);
+
+/** A Gemini reply that can't be used, as the caller sees it. */
+export const geminiUpstreamFailure = (message: string): HttpError =>
+    new HttpError(502, message, {
+        legacyCode: 'upstream_failed',
+        fields: { provider: 'gemini' },
+    });
+
+/**
+ * POSTs `body` to a Gemini REST `path` and parses the JSON object it answers
+ * with. `timeoutMs` covers the body read, and a reply over `maxBytes` fails as
+ * an upstream error unless `tooLarge` supplies another. `T` is the documented reply shape; callers check every
+ * field before use.
+ */
+export async function postGeminiJson<T extends object>(
+    apiKey: string,
+    path: string,
+    body: object,
+    {
+        label,
+        maxBytes,
+        timeoutMs,
+        signal,
+        tooLarge = (max) =>
+            geminiUpstreamFailure(`${label} response exceeds ${max} bytes`),
+    }: {
+        label: string;
+        maxBytes: number;
+        timeoutMs: number;
+        signal?: AbortSignal;
+        tooLarge?: (maxBytes: number) => Error;
+    },
+): Promise<T> {
+    // Non-2xx answers and timeouts are classified at the driver boundary.
+    const response = await upstreamFetch(
+        'gemini',
+        `${GEMINI_API_BASE}/${path}`,
+        {
+            method: 'POST',
+            headers: {
+                'x-goog-api-key': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal,
+        },
+        { providerLabel: 'Gemini', timeoutMs },
+    );
+    const raw = await readBoundedBody(response, maxBytes, tooLarge);
+    let parsed: unknown = null;
+    try {
+        parsed = JSON.parse(raw.toString('utf8'));
+    } catch {
+        // Handled with the non-object case below.
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw geminiUpstreamFailure(`${label} returned an unreadable response`);
+    }
+    return parsed as T;
+}
