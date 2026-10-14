@@ -32,12 +32,15 @@ import type {
     ThinkingLevel,
 } from '@google/genai';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { parseDataUri, unsupportedMediaTextPart } from '../../utils/mediaParts.js';
+import {
+    parseDataUri,
+    unsupportedMediaTextPart,
+} from '../../utils/mediaParts.js';
+import { promoteStopForToolCalls } from '../../utils/stopReason.js';
 import type { ChatCompletionsClient } from '../OpenAICompatProvider.js';
 
 type ChatContentPart =
-    | string
-    | { type?: string; text?: string; image_url?: { url?: string } };
+    string | { type?: string; text?: string; image_url?: { url?: string } };
 
 type ChatContent = string | ChatContentPart[] | null | undefined;
 
@@ -154,8 +157,7 @@ const toGeminiContents = (
             const parts = contentParts(message.content);
             for (const call of message.tool_calls ?? []) {
                 if (call.id) toolNames.set(call.id, call.function.name);
-                const signature =
-                    call.extra_content?.google?.thought_signature;
+                const signature = call.extra_content?.google?.thought_signature;
                 parts.push({
                     functionCall: {
                         ...nativeCallId(call.id),
@@ -200,11 +202,7 @@ const toolConfigOf = (
 ): GenerateContentConfig['toolConfig'] => {
     if (toolChoice === undefined) return undefined;
     const mode = (
-        toolChoice === 'auto'
-            ? 'AUTO'
-            : toolChoice === 'none'
-              ? 'NONE'
-              : 'ANY'
+        toolChoice === 'auto' ? 'AUTO' : toolChoice === 'none' ? 'NONE' : 'ANY'
     ) as FunctionCallingConfigMode;
     return {
         functionCallingConfig: {
@@ -271,8 +269,12 @@ const FILTERED_FINISH_REASONS = new Set([
     'BLOCKLIST',
     'PROHIBITED_CONTENT',
     'SPII',
+    'IMAGE_SAFETY',
+    'IMAGE_PROHIBITED_CONTENT',
+    'IMAGE_RECITATION',
 ]);
 
+/** Native finish reason → `finish_reason`; one with no analog passes through. */
 const finishReasonOf = (
     reason: string | undefined,
     sawToolCall: boolean,
@@ -280,7 +282,27 @@ const finishReasonOf = (
     if (!reason) return undefined;
     if (reason === 'MAX_TOKENS') return 'length';
     if (FILTERED_FINISH_REASONS.has(reason)) return 'content_filter';
-    return sawToolCall ? 'tool_calls' : 'stop';
+    return promoteStopForToolCalls(
+        reason === 'STOP' ? 'stop' : reason,
+        sawToolCall,
+        'tool_calls',
+    );
+};
+
+// The SDK and the API docs spell the "no reason given" value differently.
+const UNSPECIFIED_BLOCK_REASONS = new Set([
+    'BLOCKED_REASON_UNSPECIFIED',
+    'BLOCK_REASON_UNSPECIFIED',
+]);
+
+/** Google refused the prompt itself, so there is no candidate to read. */
+const isPromptBlocked = (response: GenerateContentResponse): boolean => {
+    const reason = response.promptFeedback?.blockReason;
+    return (
+        !response.candidates?.length &&
+        !!reason &&
+        !UNSPECIFIED_BLOCK_REASONS.has(reason)
+    );
 };
 
 /** Answer text and tool calls; thought parts are not output and are skipped. */
@@ -319,6 +341,22 @@ const readParts = (parts: Part[] | undefined, nextCallIndex: () => number) => {
 };
 
 const toChatCompletion = (response: GenerateContentResponse) => {
+    if (isPromptBlocked(response)) {
+        return {
+            choices: [
+                {
+                    index: 0,
+                    message: {
+                        role: 'assistant',
+                        content: '',
+                        refusal: null as string | null,
+                    },
+                    finish_reason: 'content_filter',
+                },
+            ],
+            usage: response.usageMetadata,
+        };
+    }
     const candidate = response.candidates?.[0];
     let index = 0;
     const { text, toolCalls } = readParts(
@@ -362,6 +400,15 @@ async function* toChatChunks(stream: AsyncIterable<GenerateContentResponse>) {
     let index = 0;
     let sawToolCall = false;
     for await (const response of stream) {
+        if (isPromptBlocked(response)) {
+            yield {
+                choices: [
+                    { index: 0, delta: {}, finish_reason: 'content_filter' },
+                ],
+                usage: response.usageMetadata,
+            };
+            continue;
+        }
         const candidate = response.candidates?.[0];
         const { text, toolCalls } = readParts(
             candidate?.content?.parts,

@@ -700,6 +700,157 @@ describe('gemini-4-argon streaming', () => {
     });
 });
 
+describe('gemini-4-argon finish reasons', () => {
+    const LIVE_METERED = {
+        prompt_tokens: 36,
+        completion_tokens: 5,
+        thinking_tokens: 69,
+        cached_tokens: 0,
+    };
+    const partial = (finishReason: string) => ({
+        candidates: [
+            {
+                content: { role: 'model', parts: [{ text: 'Partial' }] },
+                finishReason,
+            },
+        ],
+        usageMetadata: LIVE_USAGE,
+    });
+
+    // A native reason with no OpenAI analog reaches the caller verbatim.
+    const REASONS = [
+        ['STOP', 'stop'],
+        ['MAX_TOKENS', 'length'],
+        ['SAFETY', 'content_filter'],
+        ['RECITATION', 'content_filter'],
+        ['BLOCKLIST', 'content_filter'],
+        ['PROHIBITED_CONTENT', 'content_filter'],
+        ['SPII', 'content_filter'],
+        ['MALFORMED_FUNCTION_CALL', 'MALFORMED_FUNCTION_CALL'],
+        ['MISSING_THOUGHT_SIGNATURE', 'MISSING_THOUGHT_SIGNATURE'],
+        ['MALFORMED_RESPONSE', 'MALFORMED_RESPONSE'],
+        ['UNEXPECTED_TOOL_CALL', 'UNEXPECTED_TOOL_CALL'],
+        ['LANGUAGE', 'LANGUAGE'],
+        ['OTHER', 'OTHER'],
+        ['CONTINUATION', 'CONTINUATION'],
+        ['SOME_FUTURE_REASON', 'SOME_FUTURE_REASON'],
+    ] as const;
+
+    it.each(REASONS)(
+        'returns %s as %s with the partial output and its usage',
+        async (native, expected) => {
+            generateContent.mockResolvedValueOnce(partial(native));
+            const result = await complete({});
+            expect(result).toMatchObject({
+                message: { role: 'assistant', content: 'Partial' },
+                finish_reason: expected,
+            });
+            expect(recordSpy.mock.calls[0]![0]).toEqual(LIVE_METERED);
+        },
+    );
+
+    it.each(REASONS)(
+        'streams %s as %s with the partial output and its usage',
+        async (native, expected) => {
+            generateContentStream.mockResolvedValueOnce(
+                asAsyncIterable([partial(native)]),
+            );
+            const { events } = await runStream({});
+            expect(
+                events.filter((e) => e.type === 'text').map((e) => e.text),
+            ).toEqual(['Partial']);
+            expect(events.find((e) => e.type === 'usage')).toMatchObject({
+                usage: LIVE_METERED,
+                finish_reason: expected,
+            });
+        },
+    );
+});
+
+describe('gemini-4-argon blocked prompts', () => {
+    const PROMPT_USAGE = { promptTokenCount: 12, totalTokenCount: 12 };
+    const blocked = (usageMetadata?: object) => ({
+        promptFeedback: {
+            blockReason: 'PROHIBITED_CONTENT',
+            blockReasonMessage: 'internal classifier detail',
+        },
+        ...(usageMetadata ? { usageMetadata } : {}),
+    });
+
+    it('answers a blocked prompt with an empty content_filter turn and meters its prompt', async () => {
+        generateContent.mockResolvedValueOnce(blocked(PROMPT_USAGE));
+        const result = await complete({});
+
+        expect(result).toMatchObject({
+            message: { role: 'assistant', content: '', refusal: null },
+            finish_reason: 'content_filter',
+        });
+        expect(JSON.stringify(result)).not.toMatch(
+            /internal classifier detail|PROHIBITED_CONTENT/,
+        );
+        expect(recordSpy.mock.calls[0]![0]).toEqual({
+            prompt_tokens: 12,
+            completion_tokens: 0,
+            thinking_tokens: 0,
+            cached_tokens: 0,
+        });
+    });
+
+    it('answers a blocked prompt without usage and meters nothing', async () => {
+        generateContent.mockResolvedValueOnce(blocked());
+        const result = await complete({});
+
+        expect(result).toMatchObject({ finish_reason: 'content_filter' });
+        expect(
+            recordSpy.mock.calls.flatMap(([usage]) => Object.values(usage)),
+        ).toEqual([]);
+    });
+
+    it.each([
+        ['an unspecified block reason', { blockReason: 'BLOCKED_REASON_UNSPECIFIED' }],
+        ['the API docs spelling of it', { blockReason: 'BLOCK_REASON_UNSPECIFIED' }],
+        ['no prompt feedback', undefined],
+    ])('still rejects a response with no candidates and %s', async (_label, promptFeedback) => {
+        generateContent.mockResolvedValueOnce({
+            ...(promptFeedback ? { promptFeedback } : {}),
+            usageMetadata: PROMPT_USAGE,
+        });
+        await expect(complete({})).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_response',
+        });
+    });
+
+    it('streams a blocked prompt as a content_filter end with its usage', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([blocked(PROMPT_USAGE)]),
+        );
+        const { events, chatStream } = await runStream({});
+
+        expect(events.some((e) => e.type === 'text' && e.text)).toBe(false);
+        expect(events.find((e) => e.type === 'usage')).toMatchObject({
+            finish_reason: 'content_filter',
+            stopReason: 'refusal',
+        });
+        expect(JSON.stringify(events)).not.toMatch(
+            /internal classifier detail|PROHIBITED_CONTENT/,
+        );
+        expect(chatStream.reportedUsage).toMatchObject({ prompt_tokens: 12 });
+    });
+
+    it('streams a blocked prompt without usage as an unreported content_filter end', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([blocked()]),
+        );
+        const { events, chatStream } = await runStream({});
+
+        expect(events.find((e) => e.type === 'usage')).toMatchObject({
+            finish_reason: 'content_filter',
+        });
+        expect(chatStream.reportedUsage).toBeNull();
+    });
+});
+
 describe('gemini-4-argon tool calls', () => {
     it('declares tools, forces a named tool and returns the call with its signature', async () => {
         generateContent.mockResolvedValueOnce(
