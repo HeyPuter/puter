@@ -2849,6 +2849,41 @@ describe('MeteringService', () => {
             const { res } = await server.stores.kv.get({ key });
             expect(res).toMatchObject({ purchasedCredits: 250 });
         });
+
+        it('keeps consumption off the purchase record and sums it with legacy consumption', async () => {
+            const uuid = actor.user.uuid!;
+            const purchaseKey = `${POLICY_PREFIX}:actor:${uuid}:addons`;
+            await target.updateAddonCredit(uuid, 5_000_000);
+            await server.stores.kv.incr({
+                key: purchaseKey,
+                pathAndAmountMap: { consumedPurchaseCredits: 1_000_000 },
+            });
+            const sub = await target.getActorSubscription(actor);
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance + 2_000_000,
+            );
+
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(3_000_000);
+            });
+            const { res: purchase } = await server.stores.kv.get({
+                key: purchaseKey,
+            });
+            expect(purchase).toMatchObject({
+                purchasedCredits: 5_000_000,
+                consumedPurchaseCredits: 1_000_000,
+            });
+            const { res: consumed } = await server.stores.kv.get({
+                key: `${POLICY_PREFIX}:actor:${uuid}:addonsConsumed`,
+            });
+            expect(consumed).toMatchObject({
+                consumedPurchaseCredits: 2_000_000,
+            });
+        });
     });
 
     // ── Buffered counters ────────────────────────────────────────────

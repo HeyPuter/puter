@@ -1252,34 +1252,6 @@ describe('SystemKVStore', () => {
         });
     });
 
-    describe('pinToHome', () => {
-        it('pins system keys under the given prefixes and nothing else', () => {
-            const pin = vi
-                .spyOn(server.clients.dynamo, 'pinToHome')
-                .mockImplementation(() => {});
-            try {
-                target.pinToHome(['metering:']);
-                const isPinned = pin.mock.calls.at(-1)![1];
-                const system = kvNamespace(SYSTEM_ACTOR_UUID, KV_GLOBAL_APP_KEY);
-
-                expect(
-                    isPinned({ namespace: system, key: 'metering:v2:x' }),
-                ).toBe(true);
-                expect(isPinned({ namespace: system, key: 'session:x' })).toBe(
-                    false,
-                );
-                expect(
-                    isPinned({
-                        namespace: kvNamespace(actor.user.uuid, 'app-1'),
-                        key: 'metering:v2:x',
-                    }),
-                ).toBe(false);
-            } finally {
-                pin.mockRestore();
-            }
-        });
-    });
-
     describe('counter overflow', () => {
         it('reads back a counter incremented past the safe range as the bound', async () => {
             const halfway = Number.MAX_SAFE_INTEGER;

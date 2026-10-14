@@ -1201,7 +1201,6 @@ export class SystemKVStore extends PuterStore {
     #cache: KvCacheSettings = resolveKvCacheSettings(this.config);
     #pendingInvalidations = new Set<string>();
     #invalidationTimer: ReturnType<typeof setTimeout> | null = null;
-    #homePrefixes: string[] = [];
 
     override async onServerStart(): Promise<void> {
         if (this.#cache.enabled) this.#subscribeRemoteInvalidations();
@@ -1223,23 +1222,6 @@ export class SystemKVStore extends PuterStore {
             'ttl',
         );
         await this.initialized;
-    }
-
-    /**
-     * Pin system keys under `keyPrefixes` to the `dynamo.home` replica, for
-     * items that every region increments; see `DDBClient.pinToHome`.
-     */
-    pinToHome(keyPrefixes: string[]): void {
-        this.#homePrefixes.push(...keyPrefixes);
-        this.clients.dynamo.pinToHome(
-            this.tableName,
-            (item) =>
-                item.namespace === SYSTEM_NAMESPACE &&
-                typeof item.key === 'string' &&
-                this.#homePrefixes.some((prefix) =>
-                    (item.key as string).startsWith(prefix),
-                ),
-        );
     }
 
     override async onServerPrepareShutdown(): Promise<void> {

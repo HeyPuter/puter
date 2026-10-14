@@ -222,10 +222,6 @@
             "secret_key": "",
             "region": "us-west-2"
         }
-        // Global tables only: the replica that takes every write to metering
-        // counters, so increments from different regions can't overwrite each
-        // other. Unset, every request goes to the local replica.
-        // "home": { "region": "us-west-2" }
     },
 
     // ── Redis / Valkey (cache + cross-node rate limit) ──────────────────

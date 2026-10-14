@@ -92,6 +92,15 @@ type UsageWriteResult = {
 // -- Helpers ----------------------------------------------------------
 
 /**
+ * Purchases and consumption live on separate items: global tables resolve
+ * concurrent writes per item, so a purchase landing in one region while
+ * another settles consumption could otherwise drop the purchase.
+ */
+const addonsKey = (userId: string) => `${POLICY_PREFIX}:actor:${userId}:addons`;
+const addonsConsumedKey = (userId: string) =>
+    `${POLICY_PREFIX}:actor:${userId}:addonsConsumed`;
+
+/**
  * How an actor is named in metering alarms. Email is what someone reading the
  * alert actually needs to find the account; username and uuid are fallbacks for
  * actors that have no email (temp accounts).
@@ -362,12 +371,6 @@ export class MeteringService extends PuterService {
     // -- Lifecycle ----------------------------------------------------
 
     override onServerStart(): void {
-        // Every region increments these records.
-        this.stores.kv.pinToHome([
-            `${METRICS_PREFIX}:`,
-            `${POLICY_PREFIX}:actor:`,
-        ]);
-
         // Applied, not re-announced: the sender already fanned this out, and
         // echoing it would put every node's drop back on the wire.
         this.clients.event.on(
@@ -2228,9 +2231,19 @@ export class MeteringService extends PuterService {
                     legacyCode: 'forbidden',
                 },
             );
-        const key = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
-        const { res } = await this.stores.kv.get({ key });
-        return (res ?? {}) as UsageAddons;
+        const [{ res: purchased }, { res: consumed }] = await Promise.all([
+            this.stores.kv.get({ key: addonsKey(actor.user.uuid) }),
+            this.stores.kv.get({ key: addonsConsumedKey(actor.user.uuid) }),
+        ]);
+        const addons = { ...((purchased ?? {}) as UsageAddons) };
+        // Older consumption sits on the addons record itself.
+        const spent = (consumed as Partial<UsageAddons> | null)
+            ?.consumedPurchaseCredits;
+        if (spent !== undefined) {
+            addons.consumedPurchaseCredits =
+                (addons.consumedPurchaseCredits || 0) + spent;
+        }
+        return addons;
     }
 
     async getActorAppUsage(actor: Actor, appId: string): Promise<UsageByType> {
@@ -2299,7 +2312,7 @@ export class MeteringService extends PuterService {
     ): Promise<void> {
         if (!userId) throw new Error('User needed to update extra credits');
         await this.stores.kv.incr({
-            key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+            key: addonsKey(userId),
             pathAndAmountMap: { purchasedCredits: tokenAmount },
         });
         // Credit that lands while the account is being turned away has to take
@@ -2534,7 +2547,8 @@ export class MeteringService extends PuterService {
      * buffer: the buffer answers from this deployment's own view, and the point
      * of this field is to be the one value every deployment agrees on. Each
      * attempt writes a random token only if the field is empty, so exactly one
-     * attempt anywhere reads its own token back. A failed write keeps its token
+     * attempt reads its own token back (per replica: two regions claiming in
+     * the same second can both win). A failed write keeps its token
      * for the retry, so a write that landed anyway still counts.
      *
      * Through `V1_CLAIM_THROUGH_MONTH`, the claim is taken on the v1 key —
@@ -2731,7 +2745,7 @@ export class MeteringService extends PuterService {
         if (overage > 0 && remainingCredits > 0) {
             writes.push(
                 this.stores.kv.incr({
-                    key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+                    key: addonsConsumedKey(userId),
                     pathAndAmountMap: {
                         consumedPurchaseCredits: Math.min(
                             overage,

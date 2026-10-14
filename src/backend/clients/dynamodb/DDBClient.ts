@@ -200,12 +200,6 @@ export class DDBClient extends PuterClient {
     // `recreateClient()` reuses this same key and so reuses the server.
     #localPathKey: string;
     #keyNamesByTable = new Map<string, string[]>();
-    /** Bound only when `dynamo.home` names a replica other than the local one. */
-    #homeDocumentClient: DynamoDBDocumentClient | null = null;
-    #pinnedByTable = new Map<
-        string,
-        (key: Record<string, unknown>) => boolean
-    >();
 
     constructor(config: IConfig) {
         super(config);
@@ -236,20 +230,6 @@ export class DDBClient extends PuterClient {
         await this.#localInitPromise;
     }
 
-    /**
-     * Send every write and consistent read of `table`'s items that `isPinned`
-     * matches to the `dynamo.home` replica. Increments applied in one replica
-     * are atomic; two replicas taking increments to the same item concurrently
-     * replicate last-writer-wins and one of them is lost. Eventually consistent
-     * reads stay local.
-     */
-    pinToHome(
-        table: string,
-        isPinned: (key: Record<string, unknown>) => boolean,
-    ) {
-        this.#pinnedByTable.set(table, isPinned);
-    }
-
     @Span('ddb.get', (table: string) => ({ 'db.table': table }))
     async get<T extends Record<string, unknown>>(
         table: string,
@@ -263,15 +243,13 @@ export class DDBClient extends PuterClient {
             ReturnConsumedCapacity: 'TOTAL',
         });
 
-        const client = consistentRead
-            ? await this.#clientFor(table, key)
-            : await this.#getDocumentClient();
+        const client = await this.#getDocumentClient();
         return client.send(command);
     }
 
     @Span('ddb.put', (table: string) => ({ 'db.table': table }))
     async put<T extends Record<string, unknown>>(table: string, item: T) {
-        const client = await this.#clientFor(table, item);
+        const client = await this.#getDocumentClient();
         return sendRepairingValues(
             item,
             (itemToWrite) =>
@@ -296,51 +274,6 @@ export class DDBClient extends PuterClient {
         params: { table: string; items: Record<string, unknown> }[],
         consistentRead = false,
     ) {
-        if (!consistentRead) {
-            return this.#batchGetVia(
-                await this.#getDocumentClient(),
-                params,
-                false,
-            );
-        }
-        const [home, local] = this.#splitByHome(params, ({ table, items }) => ({
-            table,
-            key: items,
-        }));
-        if (home.length === 0) {
-            return this.#batchGetVia(
-                await this.#getDocumentClient(),
-                local,
-                true,
-            );
-        }
-        const results = await Promise.all([
-            this.#batchGetVia(this.#homeDocumentClient!, home, true),
-            local.length > 0
-                ? this.#batchGetVia(
-                      await this.#getDocumentClient(),
-                      local,
-                      true,
-                  )
-                : null,
-        ]);
-        const responses: Record<string, Record<string, unknown>[]> = {};
-        const capacity = new ConsumedCapacityTally();
-        for (const result of results) {
-            if (!result) continue;
-            for (const [table, items] of Object.entries(result.Responses)) {
-                (responses[table] ??= []).push(...items);
-            }
-            capacity.add(result.ConsumedCapacity);
-        }
-        return { Responses: responses, ConsumedCapacity: capacity.entries() };
-    }
-
-    async #batchGetVia(
-        client: DynamoDBDocumentClient,
-        params: { table: string; items: Record<string, unknown> }[],
-        consistentRead: boolean,
-    ) {
         const allRequestItemsPerTable = params.reduce(
             (acc, curr) => {
                 if (!acc[curr.table]) acc[curr.table] = [];
@@ -361,6 +294,7 @@ export class DDBClient extends PuterClient {
             {} as NonNullable<BatchGetCommandInput['RequestItems']>,
         );
 
+        const client = await this.#getDocumentClient();
         const responsesByTable = new Map<string, Record<string, unknown>[]>();
         const capacity = new ConsumedCapacityTally();
 
@@ -431,40 +365,8 @@ export class DDBClient extends PuterClient {
             return { ConsumedCapacity: [] };
         }
 
-        const [home, local] = this.#splitByHome(
-            params,
-            ({ table, request }) => ({
-                table,
-                key: (request.PutRequest?.Item ?? request.DeleteRequest?.Key)!,
-            }),
-        );
+        const client = await this.#getDocumentClient();
         const capacity = new ConsumedCapacityTally();
-        const outcomes = await Promise.allSettled([
-            home.length > 0
-                ? this.#batchWriteVia(this.#homeDocumentClient!, home, capacity)
-                : null,
-            local.length > 0
-                ? this.#batchWriteVia(
-                      await this.#getDocumentClient(),
-                      local,
-                      capacity,
-                  )
-                : null,
-        ]);
-        const rejected = outcomes.find(
-            (outcome): outcome is PromiseRejectedResult =>
-                outcome.status === 'rejected',
-        );
-        if (rejected) throw rejected.reason;
-
-        return { ConsumedCapacity: capacity.entries() };
-    }
-
-    async #batchWriteVia(
-        client: DynamoDBDocumentClient,
-        params: { table: string; request: WriteRequest }[],
-        capacity: ConsumedCapacityTally,
-    ) {
         // Once a chunk fails, the rest aren't started. Those in flight settle
         // before the error is thrown, so no write lands after the caller's
         // cleanup.
@@ -518,6 +420,8 @@ export class DDBClient extends PuterClient {
                 outcome.status === 'rejected',
         );
         if (rejected) throw rejected.reason;
+
+        return { ConsumedCapacity: capacity.entries() };
     }
 
     /**
@@ -581,7 +485,7 @@ export class DDBClient extends PuterClient {
                 : {}),
         });
 
-        const client = await this.#clientFor(table, key);
+        const client = await this.#getDocumentClient();
         return client.send(command);
     }
 
@@ -674,7 +578,7 @@ export class DDBClient extends PuterClient {
             !!expressionValues && Object.keys(expressionValues).length > 0;
         const hasNames =
             !!expressionNames && Object.keys(expressionNames).length > 0;
-        const client = await this.#clientFor(table, key);
+        const client = await this.#getDocumentClient();
         return sendRepairingValues(
             expressionValues,
             (valuesToWrite) =>
@@ -783,33 +687,6 @@ export class DDBClient extends PuterClient {
         return this.#documentClient;
     }
 
-    #isHomePinned(table: string, key: Record<string, unknown>): boolean {
-        return (
-            this.#homeDocumentClient !== null &&
-            (this.#pinnedByTable.get(table)?.(key) ?? false)
-        );
-    }
-
-    async #clientFor(table: string, key: Record<string, unknown>) {
-        return this.#isHomePinned(table, key)
-            ? this.#homeDocumentClient!
-            : this.#getDocumentClient();
-    }
-
-    /** `[pinned, local]`, each in its original order. */
-    #splitByHome<T>(
-        items: T[],
-        target: (item: T) => { table: string; key: Record<string, unknown> },
-    ): [T[], T[]] {
-        const home: T[] = [];
-        const local: T[] = [];
-        for (const item of items) {
-            const { table, key } = target(item);
-            (this.#isHomePinned(table, key) ? home : local).push(item);
-        }
-        return [home, local];
-    }
-
     #bindAwsClient() {
         const accessKeyId = this.#ddbConfig.aws?.access_key;
         const secretAccessKey = this.#ddbConfig.aws?.secret_key;
@@ -820,32 +697,18 @@ export class DDBClient extends PuterClient {
             );
         }
 
-        const credentials = { accessKeyId, secretAccessKey };
-        const region = this.#ddbConfig.aws?.region || 'us-west-2';
-        this.#documentClient = this.#bindClient({
-            credentials,
-            region,
+        this.#bindClient({
+            credentials: { accessKeyId, secretAccessKey },
+            region: this.#ddbConfig.aws?.region || 'us-west-2',
             endpoint: this.#ddbConfig.endpoint,
         });
-
-        const home = this.#ddbConfig.home;
-        this.#homeDocumentClient =
-            home?.region &&
-            (home.region !== region ||
-                (home.endpoint ?? null) !== (this.#ddbConfig.endpoint ?? null))
-                ? this.#bindClient({
-                      credentials,
-                      region: home.region,
-                      endpoint: home.endpoint,
-                  })
-                : null;
     }
 
     async #bindLocalClient() {
         const endpoint = await getOrCreateLocalDynaliteEndpoint(
             this.#localPathKey,
         );
-        this.#documentClient = this.#bindClient({
+        this.#bindClient({
             credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
             region: 'us-west-2',
             endpoint,
@@ -876,7 +739,7 @@ export class DDBClient extends PuterClient {
             this.#keyNamesByTable.get(table),
         );
 
-        return DynamoDBDocumentClient.from(ddbClient, {
+        this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
             marshallOptions: {
                 removeUndefinedValues: true,
             },
