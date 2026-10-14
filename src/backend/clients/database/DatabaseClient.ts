@@ -227,28 +227,27 @@ export class AbstractDatabaseClient extends PuterClient {
     }
 
     /**
-     * Whole days since the epoch, from a unix-seconds column. MySQL's `/`
-     * yields a decimal, which would make two moments in one day distinct.
-     *
-     * @param secondsExpression Column or expression holding unix seconds.
+     * Whole `periodSeconds` buckets since the epoch, from a unix-seconds
+     * column. MySQL's `/` yields a decimal, which would split a bucket.
      */
-    dayBucket(secondsExpression: string): string {
+    periodBucket(secondsExpression: string, periodSeconds: number): string {
         return this.case({
-            mysql: `(${secondsExpression} DIV 86400)`,
-            otherwise: `(${secondsExpression} / 86400)`,
+            mysql: `(${secondsExpression} DIV ${periodSeconds})`,
+            otherwise: `(${secondsExpression} / ${periodSeconds})`,
         });
     }
 
     /**
-     * Counts each (`userExpression`, day) pair once. A single `COUNT(DISTINCT
-     * a, b)` is MySQL-only, so the pair is folded into one number — the
-     * multiplier is far above any day index this reaches.
+     * Counts each (`userExpression`, bucket) pair once. `COUNT(DISTINCT a, b)`
+     * is MySQL-only, so the pair folds into one number — injective while the
+     * bucket stays under the multiplier, which hourly reaches in the 2980s.
      */
-    countDistinctUserDays(
+    countDistinctUserPeriods(
         userExpression: string,
         secondsExpression: string,
+        periodSeconds: number,
     ): string {
-        return `COUNT(DISTINCT ${userExpression} * 1000000 + ${this.dayBucket(secondsExpression)})`;
+        return `COUNT(DISTINCT ${userExpression} * 10000000 + ${this.periodBucket(secondsExpression, periodSeconds)})`;
     }
 
     nullCoalesce(...expressions: readonly string[]): string {

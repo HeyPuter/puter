@@ -60,6 +60,8 @@ const OLD_APP_NAME_TTL_MONTHS = 3;
 const BULK_QUERY_CHUNK_SIZE = 200;
 // Placeholders per index_url `IN (…)` chunk; under SQLite's old 999 default.
 const INDEX_URL_CHUNK_SIZE = 900;
+// Window an account's repeat opens of one app collapse into a single count.
+const APP_OPEN_COUNT_PERIOD_SECONDS = 60 * 60;
 
 // Top-level all-time open/user counts: hot path, slow to compute. Cached
 // lazily on read (pipelined MGET on every app list/read; misses query the
@@ -1354,7 +1356,7 @@ export class AppStore extends PuterStore {
             const res = await clickhouse.query({
                 query: `
                     SELECT app_uid,
-                           uniqExact((user_id, intDiv(ts, 86400))) AS open_count,
+                           uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
                            count(DISTINCT user_id) AS user_count
                     FROM app_opens
                     WHERE app_uid IN {uids:Array(String)}
@@ -1376,7 +1378,7 @@ export class AppStore extends PuterStore {
         const placeholders = uids.map(() => '?').join(',');
         const rows = await this.clients.db.read(
             `SELECT app_uid,
-                    ${this.clients.db.countDistinctUserDays('user_id', 'ts')} AS open_count,
+                    ${this.clients.db.countDistinctUserPeriods('user_id', 'ts', APP_OPEN_COUNT_PERIOD_SECONDS)} AS open_count,
                     COUNT(DISTINCT user_id) AS user_count
              FROM app_opens
              WHERE app_uid IN (${placeholders})
@@ -1403,7 +1405,7 @@ export class AppStore extends PuterStore {
             }
             const res = await clickhouse.query({
                 query: `
-                    SELECT uniqExact((user_id, intDiv(ts, 86400))) AS open_count,
+                    SELECT uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
                            count(DISTINCT user_id) AS user_count
                     FROM app_opens
                     WHERE app_uid = {appUid:String}
@@ -1426,7 +1428,7 @@ export class AppStore extends PuterStore {
             : [appUid];
         const where = timeRange ? 'AND ts >= ? AND ts < ?' : '';
         const rows = await this.clients.db.read(
-            `SELECT ${this.clients.db.countDistinctUserDays('user_id', 'ts')} AS open_count,
+            `SELECT ${this.clients.db.countDistinctUserPeriods('user_id', 'ts', APP_OPEN_COUNT_PERIOD_SECONDS)} AS open_count,
                     COUNT(DISTINCT user_id) AS user_count
              FROM app_opens
              WHERE app_uid = ? ${where}`,
@@ -1452,7 +1454,7 @@ export class AppStore extends PuterStore {
             const res = await clickhouse.query({
                 query: `
                     SELECT ${groupBy} AS period,
-                           uniqExact((user_id, intDiv(ts, 86400))) AS open_count,
+                           uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
                            count(DISTINCT user_id) AS user_count
                     FROM app_opens
                     WHERE app_uid = {appUid:String}
@@ -1487,7 +1489,7 @@ export class AppStore extends PuterStore {
         });
         const rows = await this.clients.db.read(
             `SELECT ${periodExpr} AS period,
-                    ${this.clients.db.countDistinctUserDays('user_id', 'ts')} AS open_count,
+                    ${this.clients.db.countDistinctUserPeriods('user_id', 'ts', APP_OPEN_COUNT_PERIOD_SECONDS)} AS open_count,
                     COUNT(DISTINCT user_id) AS user_count
              FROM app_opens
              WHERE app_uid = ? AND ts >= ? AND ts < ?

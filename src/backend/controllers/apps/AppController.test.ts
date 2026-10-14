@@ -338,7 +338,7 @@ describe('AppController POST /rao', () => {
         expect(rows).toHaveLength(1);
     });
 
-    it('keeps every open as a row, and counts one per account per day', async () => {
+    it('keeps every open as a row, and counts one per account per hour', async () => {
         const owner = await makeUser();
         const other = await makeUser();
         const app = await createApp(owner.actor);
@@ -366,8 +366,7 @@ describe('AppController POST /rao', () => {
         )) as Array<{ user_id: number }>;
         expect(rows).toHaveLength(6);
 
-        // The count is accounts-per-day, so repeats do not move it against
-        // `user_count`.
+        // The count is accounts-per-hour, so repeats do not move it.
         const stats = await server.stores.app.getAppsStats([app.uid]);
         expect(stats.get(app.uid)).toMatchObject({
             open_count: 2,

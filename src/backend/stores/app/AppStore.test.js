@@ -77,7 +77,7 @@ describe('AppStore app stats (cache-on-read)', () => {
 
     it('computes all-time open/unique-user counts from SQL when no ClickHouse client is registered', async () => {
         const uid = freshUid();
-        // 3 rows across 2 users, two of them the same user on one day.
+        // 3 rows across 2 users, two of them the same user within one hour.
         await insertOpen(uid, 1, 1700000000);
         await insertOpen(uid, 1, 1700000100);
         await insertOpen(uid, 2, 1700000200);
@@ -85,23 +85,35 @@ describe('AppStore app stats (cache-on-read)', () => {
         const stats = await appStore.getAppsStats([uid]);
 
         expect(stats.get(uid)).toEqual({
-            // An account's repeat opens in a day count once.
+            // An account's repeat opens in an hour count once.
             open_count: 2,
             user_count: 2,
             referral_count: null,
         });
     });
 
-    it('counts the same account again on a later day', async () => {
+    it('counts the same account again in a later hour', async () => {
         const uid = freshUid();
-        const day = 86400;
+        const hour = 3600;
         await insertOpen(uid, 1, 1700000000);
         await insertOpen(uid, 1, 1700000000 + 30);
-        await insertOpen(uid, 1, 1700000000 + day);
-        await insertOpen(uid, 1, 1700000000 + 2 * day);
+        await insertOpen(uid, 1, 1700000000 + hour);
+        await insertOpen(uid, 1, 1700000000 + 2 * hour);
 
         expect((await appStore.getAppsStats([uid])).get(uid)).toMatchObject({
             open_count: 3,
+            user_count: 1,
+        });
+    });
+
+    it('buckets on the clock hour rather than a rolling window', async () => {
+        const uid = freshUid();
+        // 1699999200 starts an hour; these straddle its end a second apart.
+        await insertOpen(uid, 1, 1699999200 + 3599);
+        await insertOpen(uid, 1, 1699999200 + 3600);
+
+        expect((await appStore.getAppsStats([uid])).get(uid)).toMatchObject({
+            open_count: 2,
             user_count: 1,
         });
     });
@@ -1160,10 +1172,10 @@ describe('AppStore detailed stats', () => {
         db = server.clients.db;
         await clearAppCache(server.clients.redis);
 
-        // Three opens right now from two distinct users.
+        // Two users; the repeat shares a timestamp so it is always same-hour.
         for (const [userId, offset] of [
             [1, 0],
-            [1, 60],
+            [1, 0],
             [2, 120],
         ]) {
             await db.write(
@@ -1180,7 +1192,7 @@ describe('AppStore detailed stats', () => {
     it('computes all-time totals from SQL by default', async () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID);
         expect(stats).toEqual({
-            // Three rows, but two of them one account on one day.
+            // Three rows, but two of them one account in one hour.
             open_count: 2,
             user_count: 2,
             referral_count: null,
@@ -1207,7 +1219,7 @@ describe('AppStore detailed stats', () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID, {
             period,
         });
-        // The fixture's three rows are two accounts on one day.
+        // The fixture's three rows are two accounts in one hour.
         expect(stats.open_count).toBe(2);
         expect(stats.user_count).toBe(2);
     });
