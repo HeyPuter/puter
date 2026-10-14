@@ -70,7 +70,7 @@ export function list (...args) {
         return (async () => {
             const result = await select(opts);
             if ( result && !Array.isArray(result) && Array.isArray(result.items) ) {
-                return result;
+                return { ...result, items: withoutWorkerRows(result.items) };
             }
             return withoutWorkerRows(result);
         })();

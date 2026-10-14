@@ -60,14 +60,6 @@ export class WispController extends PuterController {
             {
                 subdomain: 'api',
                 requireAuth: false,
-                // Unauthenticated by design, which makes it a token-guessing
-                // oracle without a ceiling.
-                rateLimit: {
-                    scope: 'wisp-token-verify',
-                    limit: 300,
-                    window: 60_000,
-                    key: 'ip',
-                },
             },
             this.#verify,
         );

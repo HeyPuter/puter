@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { mintGodmodeToken, reusableGodmodeToken } from './godmodeTokens.js';
 import { appSessionUuids, revokeAppSessions } from './revokeAppSessions.js';
 
 const APP = 'app-1111';
@@ -119,6 +120,22 @@ describe('revokeAppSessions', () => {
         await expect(revokeAppSessions(APP, deps({ fetchImpl }))).rejects.toThrow(
             /Failed to list sessions/,
         );
+    });
+
+    it('stops launches reusing the godmode token it just revoked', async () => {
+        const minted = async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ token: 'jwt', godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }),
+        });
+        await mintGodmodeToken(APP, { fetchImpl: minted, apiOrigin: 'https://api.test', authToken: 'auth-token' });
+        expect(reusableGodmodeToken(APP, { authToken: 'auth-token' })).not.toBeNull();
+
+        const { fetchImpl } = makeFetch({ revokeStatus: () => {
+            throw new Error('offline');
+        } });
+        await expect(revokeAppSessions(APP, deps({ fetchImpl }))).rejects.toThrow('offline');
+        expect(reusableGodmodeToken(APP, { authToken: 'auth-token' })).toBeNull();
     });
 
     it('does nothing without an app uid', async () => {

@@ -120,6 +120,18 @@ describe('isBlockedEmail', () => {
         expect(
             isBlockedEmail('A.B+tag@MAILINATOR.com', ['mailinator.com']),
         ).toBe(true);
+        expect(
+            isBlockedEmail('first.last+tag@googlemail.com', ['@gmail.com']),
+        ).toBe(true);
+    });
+
+    it('ignores case in the configured suffixes too', () => {
+        expect(isBlockedEmail('a@mailinator.com', ['Mailinator.COM'])).toBe(
+            true,
+        );
+        expect(isBlockedEmail('a@Mailinator.com', ['Mailinator.com'])).toBe(
+            true,
+        );
     });
 });
 

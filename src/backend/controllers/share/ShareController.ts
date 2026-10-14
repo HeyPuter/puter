@@ -21,6 +21,7 @@ import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import { bodyRecord } from '../../core/http/requestBody.js';
 import type {
     ResolvedShare,
     ShareRecipient,
@@ -96,7 +97,7 @@ export class ShareController extends PuterController {
     })
     async createShares(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const body = this.#body(req);
+        const body = bodyRecord(req);
         const recipients = this.#recipients(body);
         const items = this.#items(body, actor);
         const mode = typeof body.mode === 'string' ? body.mode : 'read';
@@ -183,7 +184,7 @@ export class ShareController extends PuterController {
     })
     async revokeShare(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const body = this.#body(req);
+        const body = bodyRecord(req);
         const recipients = this.#recipients(body);
         const items = this.#items(body, actor);
 
@@ -484,7 +485,7 @@ export class ShareController extends PuterController {
     })
     async createBlock(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const body = this.#body(req);
+        const body = bodyRecord(req);
         if (this.#isBlockAll(body)) {
             const { all } = await this.services.share.setBlockAllSenders(
                 actor,
@@ -512,7 +513,7 @@ export class ShareController extends PuterController {
     })
     async deleteBlock(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const body = this.#body(req);
+        const body = bodyRecord(req);
         if (this.#isBlockAll(body)) {
             const { all } = await this.services.share.setBlockAllSenders(
                 actor,
@@ -594,16 +595,6 @@ export class ShareController extends PuterController {
                 legacyCode: 'unauthorized',
             });
         return actor;
-    }
-
-    #body(req: Request): Record<string, unknown> {
-        const body = req.body;
-        if (!body || typeof body !== 'object' || Array.isArray(body)) {
-            throw new HttpError(400, 'body must be an object', {
-                legacyCode: 'bad_request',
-            });
-        }
-        return body as Record<string, unknown>;
     }
 
     #query(req: Request): Record<string, unknown> {

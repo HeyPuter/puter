@@ -45,6 +45,7 @@ import {
 } from '../metering/consts.js';
 import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 export type SocketReauthError = Error & { data: Record<string, unknown> };
 
@@ -247,6 +248,8 @@ interface AuthenticatedSocket extends Socket {
 export class SocketService extends PuterService {
     #io: SocketIOServer | null = null;
     #reauthTimer: ReturnType<typeof setInterval> | null = null;
+    /** The sweep running now, so a slow one is joined instead of stacked. */
+    #reauthSweep: Promise<void> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -304,17 +307,16 @@ export class SocketService extends PuterService {
         return new Set([domain, `api.${domain}`]);
     }
 
-    override onServerPrepareShutdown(): Promise<void> {
+    override async onServerPrepareShutdown(): Promise<void> {
         if (this.#reauthTimer) {
             clearInterval(this.#reauthTimer);
             this.#reauthTimer = null;
         }
-        // Close the io server so existing sockets disconnect cleanly
-        // before http's close() starts waiting for connections.
-        return new Promise<void>((resolve) => {
-            if (!this.#io) return resolve();
-            this.#io.close(() => resolve());
-        });
+        // Disconnects sockets and closes the engine so upgraded connections
+        // don't hold the http server open. Not awaited: close() also closes the
+        // http server and resolves only once every HTTP connection has ended,
+        // and PuterServer.shutdown severs those after the prepare hooks.
+        void this.#io?.close();
     }
 
     // -- Public API (used by other services / controllers) ----------
@@ -646,42 +648,71 @@ export class SocketService extends PuterService {
     /** How often a live socket's credential is re-verified. */
     static REAUTH_INTERVAL_MS = 5 * 60_000;
 
+    /** Credentials one sweep re-checks at once. */
+    static REAUTH_CONCURRENCY = 8;
+
     /**
      * Drop every socket on this node whose token no longer authenticates to the
      * same accepted actor. De-duplicated by token: one browser's tabs share a
      * session, so a sweep costs one check per credential, not per connection.
+     * The check doesn't touch the session: a held-open socket is not activity.
      *
      * Driven by the interval below; public because that timer isn't drivable
-     * from a test.
+     * from a test. A call while a sweep runs joins it.
      */
-    async reauthenticateSockets(): Promise<void> {
+    reauthenticateSockets(): Promise<void> {
+        this.#reauthSweep ??= this.#sweepSockets().finally(() => {
+            this.#reauthSweep = null;
+        });
+        return this.#reauthSweep;
+    }
+
+    async #sweepSockets(): Promise<void> {
         const io = this.#io;
         const authService = this.services.auth as AuthService | undefined;
         if (!io || !authService) return;
 
-        const decisions = new Map<string, SocketAuthDecision>();
-        for (const raw of io.sockets.sockets.values()) {
-            const socket = raw as AuthenticatedSocket;
-            const token = socket.authToken;
+        const sockets = [
+            ...io.sockets.sockets.values(),
+        ] as AuthenticatedSocket[];
+        const tokens = new Set<string>();
+        for (const socket of sockets) {
             // Nothing to re-check against — it can't be shown to still be
             // valid, so it goes.
-            if (!token) {
-                socket.disconnect(true);
-                continue;
-            }
-            let decision = decisions.get(token);
-            if (!decision) {
-                try {
-                    const result = await authService.authenticate(token, {});
-                    decision = decideSocketAuth(
-                        result,
-                        await this.#authOptionsFor(result.actor),
-                    );
-                } catch {
-                    decision = { reject: new Error('socket reauth failed') };
-                }
-                decisions.set(token, decision);
-            }
+            if (socket.authToken) tokens.add(socket.authToken);
+            else socket.disconnect(true);
+        }
+
+        const checked = [...tokens];
+        const outcomes = await runWithConcurrencyLimitSettled(
+            checked,
+            SocketService.REAUTH_CONCURRENCY,
+            async (token) => {
+                const result = await authService.authenticate(token, {
+                    touch: false,
+                });
+                return decideSocketAuth(
+                    result,
+                    await this.#authOptionsFor(result.actor),
+                );
+            },
+        );
+        const decisions = new Map<string, SocketAuthDecision>();
+        checked.forEach((token, i) => {
+            const outcome = outcomes[i];
+            decisions.set(
+                token,
+                outcome?.status === 'fulfilled'
+                    ? outcome.value
+                    : { reject: new Error('socket reauth failed') },
+            );
+        });
+
+        for (const socket of sockets) {
+            const decision = socket.authToken
+                ? decisions.get(socket.authToken)
+                : undefined;
+            if (!decision) continue;
             if ('reject' in decision) {
                 socket.disconnect(true);
                 continue;
@@ -694,12 +725,18 @@ export class SocketService extends PuterService {
 
     #installReauthLoop(): void {
         const timer = setInterval(() => {
-            void this.reauthenticateSockets().catch((err: unknown) => {
-                console.error('[socket] reauth sweep failed', err);
-            });
+            void this.#runReauthSweep();
         }, SocketService.REAUTH_INTERVAL_MS);
         timer.unref?.();
         this.#reauthTimer = timer;
+    }
+
+    async #runReauthSweep(): Promise<void> {
+        try {
+            await this.reauthenticateSockets();
+        } catch (err) {
+            console.error('[socket] reauth sweep failed', err);
+        }
     }
 
     /**
@@ -834,8 +871,10 @@ export class SocketService extends PuterService {
             },
         );
 
+        // Fires on this node and carries to peer clusters; the adapter
+        // reaches the rest of this one.
         this.clients.event.on(
-            'auth.sessions.revoked',
+            'outer.auth.sessions.revoked',
             (_key: string, data: unknown) => {
                 const { user_id } = data as { user_id: number };
                 this.#evictUserSockets(user_id).catch((err: unknown) => {

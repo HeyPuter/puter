@@ -24,21 +24,21 @@ import { countPdfPages } from './pdfPages.js';
 const pdf = (body: string) => Buffer.from(`%PDF-1.7\n${body}`, 'latin1');
 
 describe('countPdfPages', () => {
-    it('counts the pages of a multi-page PDF', () => {
-        expect(countPdfPages(buildPdf(1))).toBe(1);
-        expect(countPdfPages(buildPdf(130))).toBe(130);
+    it('counts the pages of a multi-page PDF', async () => {
+        expect(await countPdfPages(buildPdf(1))).toBe(1);
+        expect(await countPdfPages(buildPdf(130))).toBe(130);
     });
 
-    it('reads page objects packed in a compressed object stream', () => {
+    it('reads page objects packed in a compressed object stream', async () => {
         const packed = buildPdf(42, { objectStream: true });
         // Nothing about the pages is visible without inflating the stream.
         expect(packed.includes('/Type /Page')).toBe(false);
-        expect(countPdfPages(packed)).toBe(42);
+        expect(await countPdfPages(packed)).toBe(42);
     });
 
-    it('reads the total from a nested page tree', () => {
+    it('reads the total from a nested page tree', async () => {
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(
                     '1 0 obj\n<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 7 >>\nendobj\n' +
                         '2 0 obj\n<< /Type /Pages /Parent 1 0 R /Kids [4 0 R] /Count 4 >>\nendobj\n' +
@@ -48,21 +48,21 @@ describe('countPdfPages', () => {
         ).toBe(7);
     });
 
-    it('counts page objects when the tree understates them', () => {
+    it('counts page objects when the tree understates them', async () => {
         const pages = Array.from(
             { length: 5 },
             (_, i) => `${i + 2} 0 obj\n<</Type/Page/Parent 1 0 R>>\nendobj\n`,
         ).join('');
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(`1 0 obj\n<</Type/Pages/Count 1>>\nendobj\n${pages}`),
             ),
         ).toBe(5);
     });
 
-    it('reads names written with # escapes', () => {
+    it('reads names written with # escapes', async () => {
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(
                     '1 0 obj\n<< /Type /P#61ges /C#6funt 9 >>\nendobj\n' +
                         '2 0 obj\n<< /Type /P#61ge >>\nendobj\n',
@@ -71,11 +71,11 @@ describe('countPdfPages', () => {
         ).toBe(9);
     });
 
-    it("can't be shrunk by redefining an object number lower", () => {
+    it("can't be shrunk by redefining an object number lower", async () => {
         // An unreferenced redefinition trying to pass off a smaller tree;
         // a genuine object number reuse can only raise the count, never lower it.
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(
                     '1 0 obj\n<< /Type /Pages /Count 3 >>\nendobj\n' +
                         '2 0 obj\n<< /Type /Page >>\nendobj\n' +
@@ -87,9 +87,9 @@ describe('countPdfPages', () => {
         ).toBe(3);
     });
 
-    it('treats an indirect /Count as unknown rather than reading its reference as the total', () => {
+    it('treats an indirect /Count as unknown rather than reading its reference as the total', async () => {
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(
                     '1 0 obj\n<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 3 0 R >>\nendobj\n',
                 ),
@@ -97,9 +97,9 @@ describe('countPdfPages', () => {
         ).toBeNull();
     });
 
-    it('counts a kid with no /Type as long as it has no /Kids of its own', () => {
+    it('counts a kid with no /Type as long as it has no /Kids of its own', async () => {
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(
                     '1 0 obj\n<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 1 >>\nendobj\n' +
                         '2 0 obj\n<< /Type /Page /Parent 1 0 R >>\nendobj\n' +
@@ -109,11 +109,11 @@ describe('countPdfPages', () => {
         ).toBe(2);
     });
 
-    it("doesn't count untyped objects that aren't page tree kids", () => {
+    it("doesn't count untyped objects that aren't page tree kids", async () => {
         // Outline items, merged field widgets and name-tree leaves have no
         // /Type and no /Kids either, but no reader takes them for pages.
         expect(
-            countPdfPages(
+            await countPdfPages(
                 pdf(
                     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /Names << /Dests 9 0 R >> >>\nendobj\n' +
                         '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n' +
@@ -130,59 +130,59 @@ describe('countPdfPages', () => {
         ).toBe(1);
     });
 
-    it('decodes a # escaped /ObjStm type before deciding whether to unpack it', () => {
+    it('decodes a # escaped /ObjStm type before deciding whether to unpack it', async () => {
         const header = '2 0\n';
         const packedObject = '<< /Type /Page >>';
         const objStm =
             `5 0 obj\n<< /Type /ObjS#74m /N 1 /First ${header.length} >>\n` +
             `stream\n${header}${packedObject}\nendstream\nendobj\n`;
-        expect(countPdfPages(pdf(objStm))).toBe(1);
+        expect(await countPdfPages(pdf(objStm))).toBe(1);
     });
 
-    it("refuses an object stream that claims more objects than it's worth counting", () => {
+    it("refuses an object stream that claims more objects than it's worth counting", async () => {
         const objStm =
             '1 0 obj\n<< /Type /ObjStm /N 100001 /First 4 >>\nstream\n1 0\nendstream\nendobj\n';
-        expect(countPdfPages(pdf(objStm))).toBeNull();
+        expect(await countPdfPages(pdf(objStm))).toBeNull();
     });
 
-    it('refuses an oversized /First without scanning the data behind it', () => {
+    it('refuses an oversized /First without scanning the data behind it', async () => {
         // Without a cap this would run a regex match over ~2MB of digits.
         const data = '1 '.repeat(1_000_000);
         const objStm =
             `1 0 obj\n<< /Type /ObjStm /N 1 /First ${data.length} >>\n` +
             `stream\n${data}\nendstream\nendobj\n`;
         const start = Date.now();
-        expect(countPdfPages(pdf(objStm))).toBeNull();
+        expect(await countPdfPages(pdf(objStm))).toBeNull();
         expect(Date.now() - start).toBeLessThan(500);
     });
 
-    it('returns null for bytes that are not a PDF', () => {
-        expect(countPdfPages(Buffer.from('PK\x03\x04 not a pdf'))).toBeNull();
-        expect(countPdfPages(Buffer.alloc(0))).toBeNull();
+    it('returns null for bytes that are not a PDF', async () => {
+        expect(await countPdfPages(Buffer.from('PK\x03\x04 not a pdf'))).toBeNull();
+        expect(await countPdfPages(Buffer.alloc(0))).toBeNull();
     });
 
-    it('returns null when no pages are visible', () => {
-        expect(countPdfPages(pdf('garbage'))).toBeNull();
+    it('returns null when no pages are visible', async () => {
+        expect(await countPdfPages(pdf('garbage'))).toBeNull();
     });
 
-    it('returns null when an object stream cannot be decoded', () => {
+    it('returns null when an object stream cannot be decoded', async () => {
         // An encrypted or corrupt stream could hide the page tree.
         const unreadable = pdf(
             '1 0 obj\n<< /Type /Page >>\nendobj\n' +
                 '2 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode >>\nstream\n' +
                 'not deflate data\nendstream\nendobj\n',
         );
-        expect(countPdfPages(unreadable)).toBeNull();
+        expect(await countPdfPages(unreadable)).toBeNull();
 
         const otherFilter = pdf(
             '2 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /LZWDecode >>\nstream\n' +
                 'data\nendstream\nendobj\n',
         );
-        expect(countPdfPages(otherFilter)).toBeNull();
+        expect(await countPdfPages(otherFilter)).toBeNull();
     });
 
-    it('stops at the limit', () => {
-        expect(countPdfPages(buildPdf(50), 10)).toBe(10);
-        expect(countPdfPages(buildPdf(5), 10)).toBe(5);
+    it('stops at the limit', async () => {
+        expect(await countPdfPages(buildPdf(50), 10)).toBe(10);
+        expect(await countPdfPages(buildPdf(5), 10)).toBe(5);
     });
 });

@@ -4,7 +4,7 @@ description: Transform an audio clip into a different voice using ElevenLabs spe
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Convert an existing recording into another voice while preserving timing, pacing, and delivery. This helper wraps the ElevenLabs voice changer endpoint so you can swap voices locally, from remote URLs, or with in-memory blobs.
+Convert an existing recording into another voice while preserving timing, pacing, and delivery. Uses ElevenLabs voices.
 
 ## Syntax
 
@@ -30,7 +30,7 @@ Audio to convert. Accepts:
 Fine-tune the conversion:
 
 - `audio` (String | File | Blob): Alternate way to provide the source input.
-- `voice` (String): Target ElevenLabs voice ID. Defaults to the configured ElevenLabs voice (Rachel sample if unset).
+- `voice` (String): Target ElevenLabs voice ID. Defaults to `21m00Tcm4TlvDq8ikWAM`.
 - `model` (String): Voice-changer model. Defaults to `eleven_multilingual_sts_v2`. You can also use `eleven_english_sts_v2` for English-only inputs.
 - `output_format` (String): Desired output codec and bitrate, e.g. `mp3_44100_128`, `opus_48000_64`, or `pcm_48000`. Defaults to `mp3_44100_128`.
 - `voice_settings` (Object|String): ElevenLabs voice settings payload (e.g. `{"stability":0.5,"similarity_boost":0.75}`).
@@ -84,7 +84,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. Call `audio.play()` or use t
             if (!file) return alert('Pick an audio file first.');
 
             const audio = await puter.ai.speech2speech(file, {
-                voice: '21m00Tcm4TlvDq8ikWAM', // Rachel sample voice
+                voice: '21m00Tcm4TlvDq8ikWAM',
                 model: 'eleven_multilingual_sts_v2',
                 output_format: 'mp3_44100_128',
                 removeBackgroundNoise: true,

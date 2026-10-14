@@ -30,10 +30,12 @@
  * a test file.
  */
 
+import { translateProviderError } from '../controllers/drivers/DriverController.js';
 import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
 import { NO_CREDIT_HOLD } from '../services/metering/types.js';
+import type { DriverStreamResult } from './meta.js';
 import type { AiMeteringService } from './util/aiCostFactor.js';
 
 /**
@@ -72,9 +74,19 @@ export const makeMeteringStub = (): AiMeteringService =>
         hasEnoughCredits: () => Promise.resolve(true),
         costFactor: () => Promise.resolve(1),
         reserveAiCredits: () => Promise.resolve(NO_CREDIT_HOLD),
+        reserveCredits: () => Promise.resolve(NO_CREDIT_HOLD),
         getRemainingUsage: () => Promise.resolve(Number.MAX_SAFE_INTEGER),
         getReportedCosts: () => [],
     }) as unknown as AiMeteringService;
+
+/** Reads a driver's stream result to its end, as the response pipe would. */
+export const readStreamResult = async (result: unknown): Promise<Buffer> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of (result as DriverStreamResult).stream) {
+        chunks.push(Buffer.from(chunk as Uint8Array));
+    }
+    return Buffer.concat(chunks);
+};
 
 /**
  * Run `fn` inside a request-scoped context with `SYSTEM_ACTOR` set, which is
@@ -88,6 +100,22 @@ export const withTestActor = <T>(
     Promise.resolve(
         runWithContext({ actor, requestId: 'integration-test' }, fn),
     );
+
+/**
+ * Runs `fn` as {@link withTestActor} and returns its failure the way
+ * `/drivers/call` hands it to the caller.
+ */
+export const callerError = async (
+    fn: () => Promise<unknown>,
+    actor: Actor = SYSTEM_ACTOR,
+): Promise<unknown> => {
+    try {
+        await withTestActor(fn, actor);
+    } catch (e) {
+        return translateProviderError(e);
+    }
+    throw new Error('expected the call to reject');
+};
 
 /**
  * The four actor shapes provider tests exercise: a direct user session, the

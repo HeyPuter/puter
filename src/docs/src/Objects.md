@@ -11,6 +11,7 @@ Various object types and classes that represent different entities in the Puter 
 - **[AppConnection](/Objects/AppConnection/)** - Represents a connection to an application
 - **[ChatResponse](/Objects/chatresponse/)** - Represents an AI chat response
 - **[ChatResponseChunk](/Objects/chatresponsechunk/)** - Represents a chunk of streaming chat response data
+- **[CreateAppResult](/Objects/createappresult/)** - Represents the result of creating an app
 - **[DetailedAppUsage](/Objects/detailedappusage/)** - Represents detailed resource usage statistics for a specific application
 - **[EmailListPage](/Objects/emaillistpage/)** - Represents one page of mailbox listing results
 - **[EmailMessage](/Objects/emailmessage/)** - Represents a fully parsed message from the user's mailbox
@@ -18,9 +19,12 @@ Various object types and classes that represent different entities in the Puter 
 - **[EmailSummary](/Objects/emailsummary/)** - Represents one message in a mailbox listing
 - **[FSItem](/Objects/fsitem/)** - Represents a file or directory
 - **[KVPair](/Objects/kvpair/)** - Represents a key-value pair
+- **[KVListPage](/Objects/kvlistpage/)** - Represents one page of key-value list results
 - **[MonthlyUsage](/Objects/monthlyusage/)** - Represents user's monthly resource usage information
 - **[PuterPeerConnection](/Objects/puterpeerconnection/)** - Represents a data-channel connection to a peer
 - **[PuterPeerServer](/Objects/puterpeerserver/)** - Represents a peer server and its connected clients
+- **[SignInResult](/Objects/signinresult/)** - Represents the result of a sign-in
+- **[SpaceInfo](/Objects/spaceinfo/)** - Represents the user's storage capacity and usage
 - **[Speech2TxtResult](/Objects/speech2txtresult/)** - Represents speech-to-text transcription results
 - **[Subdomain](/Objects/subdomain/)** - Represents a subdomain
 - **[Team](/Objects/team/)** - Represents a Puter team
@@ -29,5 +33,6 @@ Various object types and classes that represent different entities in the Puter 
 - **[TTSVoice](/Objects/ttsvoice/)** - Represents an available text-to-speech voice
 - **[ToolCall](/Objects/toolcall/)** - Represents a tool invocation request
 - **[User](/Objects/user/)** - Represents a Puter user
+- **[UserProfile](/Objects/userprofile/)** - Represents a user's public profile
 - **[WorkerDeployment](/Objects/workerdeployment/)** - Represents a worker deployment result
 - **[WorkerInfo](/Objects/workerinfo/)** - Represents worker information

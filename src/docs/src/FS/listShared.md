@@ -39,7 +39,7 @@ A `Promise` that resolves to an object with:
 
 - `items` (Array) - The shares on this page. Each has `uid`, `mode`, `path`, `entryUid`, `isDir`, `name`, `type`, `thumbnail`, `owner`, `issuer`, `holder`, `modified` and `size`. A share row has no directory listing behind it, so `name`, `type` and `thumbnail` are carried on the row itself for rendering.
 - `cursor` (String) - Pass to the next call to get the following page. **Present only while more pages remain.**
-- `total` (Number) - Present only when `includeTotal` was set. An approximation: it counts the shares recorded for you, before the filtering described below, so it can be higher than the number of items paging actually yields. Treat it as a headline figure, not a count to reconcile against.
+- `total` (Number) - Present only when `includeTotal` was set, and only when you are acting as the account: an app reads the page it was handed, not the size of everything else shared with you. An approximation even then: it counts the shares recorded for you, before the filtering described below, so it can be higher than the number of items paging actually yields. Treat it as a headline figure, not a count to reconcile against.
 
 Iterate until `cursor` is absent rather than comparing `items.length` to `limit`. A page can come back short — items you can no longer see are filtered out after the page is read — while more pages still remain.
 

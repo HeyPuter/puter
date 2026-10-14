@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Readable } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+
 // -- Transport failures --
 
 // Transport timeouts carry no HTTP status. The Stainless SDKs (OpenAI,
@@ -35,7 +38,12 @@ const TIMEOUT_ERROR_CODES = new Set([
     'UND_ERR_HEADERS_TIMEOUT',
     'UND_ERR_BODY_TIMEOUT',
 ]);
-const CONNECTION_ERROR_NAMES = new Set(['APIConnectionError', 'SocketError']);
+// `ConnectionError` is Mistral's (Speakeasy) wrapper for a failed fetch.
+const CONNECTION_ERROR_NAMES = new Set([
+    'APIConnectionError',
+    'ConnectionError',
+    'SocketError',
+]);
 const CONNECTION_ERROR_CODES = new Set([
     'ECONNRESET',
     'ECONNREFUSED',
@@ -84,6 +92,18 @@ export const isUpstreamTimeoutError = (err: unknown): boolean => {
     );
 };
 
+/** The connection to an upstream provider dropped or never opened. */
+export const isUpstreamConnectionError = (err: unknown): boolean => {
+    const e = asShape(err);
+    if (!e) return false;
+    if (matches(e, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)) return true;
+    const cause = asShape(e.cause);
+    return (
+        cause !== undefined &&
+        matches(cause, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)
+    );
+};
+
 /**
  * A failure worth retrying on the next poll: a timeout, a dropped connection,
  * or a status the provider itself treats as temporary (408, 429, 5xx). Any
@@ -97,12 +117,7 @@ export const isTransientUpstreamError = (err: unknown): boolean => {
     if (status !== undefined) {
         return status >= 500 || TRANSIENT_STATUSES.has(status);
     }
-    if (matches(e, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)) return true;
-    const cause = asShape(e.cause);
-    return (
-        cause !== undefined &&
-        matches(cause, CONNECTION_ERROR_NAMES, CONNECTION_ERROR_CODES)
-    );
+    return isUpstreamConnectionError(err);
 };
 
 // -- Upstream messages --
@@ -153,3 +168,124 @@ export const sanitizeUpstreamMessage = (
         ? `${text.slice(0, maxLength - 3)}...`
         : text;
 };
+
+// -- Provider HTTP calls --
+
+/** Longest provider error body kept as the message; the boundary trims further. */
+const MAX_ERROR_BODY_CHARS = 2000;
+
+/**
+ * A provider API answered with a non-2xx status. The driver boundary maps it
+ * like any SDK error: by `status`, with `code` and a sanitized message.
+ */
+export class UpstreamResponseError extends Error {
+    constructor(
+        message: string,
+        readonly status: number,
+        readonly provider: string,
+        readonly code?: string,
+    ) {
+        super(message);
+        this.name = 'UpstreamResponseError';
+    }
+}
+
+const stringOr = (...values: unknown[]): string | undefined =>
+    values.find((v): v is string => typeof v === 'string' && v !== '');
+
+/** Reads the message and code out of the error shapes providers send. */
+const upstreamResponseError = async (
+    provider: string,
+    providerLabel: string,
+    response: Response,
+): Promise<UpstreamResponseError> => {
+    let text = '';
+    try {
+        text = (await response.text()).slice(0, MAX_ERROR_BODY_CHARS);
+    } catch {
+        // Body unreadable; the status alone decides.
+    }
+    let body: Record<string, unknown> = {};
+    try {
+        const parsed: unknown = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') {
+            body = parsed as Record<string, unknown>;
+        }
+    } catch {
+        // Not JSON; the raw text is the message.
+    }
+    const error = (body.error ?? {}) as Record<string, unknown>;
+    const detail = (body.detail ?? {}) as Record<string, unknown>;
+    const message =
+        stringOr(
+            error.message,
+            body.error,
+            detail.message,
+            body.detail,
+            body.message,
+            text.trim(),
+        ) ?? `${providerLabel} request failed (status ${response.status})`;
+    const code = stringOr(error.code, detail.code, body.code);
+    return new UpstreamResponseError(message, response.status, provider, code);
+};
+
+/**
+ * `fetch` against a provider's own API, bounded by `timeoutMs` (body included).
+ * With `stream`, the bound ends once the response is returned: the body drains
+ * at the client's pace, and undici's body idle timeout catches a stall. A
+ * non-2xx answer throws {@link UpstreamResponseError} carrying `provider` (the
+ * id alarms name the vendor by); a timeout rejects with `TimeoutError`, which
+ * the driver boundary maps to a 504.
+ */
+export async function upstreamFetch(
+    provider: string,
+    url: string | URL,
+    init: RequestInit,
+    {
+        providerLabel,
+        timeoutMs,
+        stream = false,
+    }: { providerLabel: string; timeoutMs: number; stream?: boolean },
+): Promise<Response> {
+    let timeout: AbortSignal;
+    let streamDeadline: NodeJS.Timeout | undefined;
+    if (stream) {
+        const deadline = new AbortController();
+        streamDeadline = setTimeout(
+            () =>
+                deadline.abort(
+                    new DOMException(
+                        'The operation was aborted due to timeout',
+                        'TimeoutError',
+                    ),
+                ),
+            timeoutMs,
+        );
+        timeout = deadline.signal;
+    } else {
+        timeout = AbortSignal.timeout(timeoutMs);
+    }
+    try {
+        const response = await fetch(url, {
+            ...init,
+            signal: init.signal
+                ? AbortSignal.any([init.signal, timeout])
+                : timeout,
+        });
+        if (response.ok) return response;
+        throw await upstreamResponseError(provider, providerLabel, response);
+    } finally {
+        clearTimeout(streamDeadline);
+    }
+}
+
+/**
+ * A provider's response body as a stream to hand straight to the caller. A
+ * failure mid-body (a reset, or undici's body timeout) errors the stream, which
+ * the driver response path turns into an aborted transfer.
+ */
+export function upstreamBodyStream(response: Response): Readable {
+    return response.body
+        ? Readable.fromWeb(response.body as WebReadableStream)
+        : Readable.from([]);
+}

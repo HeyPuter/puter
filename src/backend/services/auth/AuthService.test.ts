@@ -22,10 +22,12 @@ import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
-import { AuthService } from './AuthService.js';
+import { AuthService, HOSTED_ASSET_COOKIES } from './AuthService.js';
 
 function createAuthService(): AuthService {
     const [config, clients, stores, services] = [
@@ -238,6 +240,61 @@ describe('AuthService (integration)', () => {
                 reason: 'session_expired',
                 auth_id: user.uuid,
             });
+        });
+
+        it('ends an access token with the session it was minted under', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const { session_uid: tokenRow } = server.services.token.verify(
+                'auth',
+                accessToken,
+            ) as { session_uid: string };
+            const parentOf = async () => {
+                const { session } = await authService.createSessionToken(
+                    user,
+                    {},
+                );
+                const parent = (session as { uuid: string }).uuid;
+                await server.clients.db.write(
+                    'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                    [parent, tokenRow],
+                );
+                await server.clients.redis.del(`sessions:v2:uuid:${tokenRow}`);
+                return parent;
+            };
+            const reauthOf = async () =>
+                (await authService.authenticate(accessToken)).reauth;
+
+            const expiring = await parentOf();
+            expect(
+                (await authService.authenticate(accessToken)).actor,
+            ).toBeTruthy();
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [Math.floor(Date.now() / 1000) - 60, expiring],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${expiring}`);
+            expect(await reauthOf()).toEqual({ reason: 'session_expired' });
+
+            await authService.revokeSession(await parentOf());
+            expect(await reauthOf()).toEqual({ reason: 'session_revoked' });
+
+            const gone = await parentOf();
+            await server.clients.db.write(
+                'DELETE FROM `sessions` WHERE `uuid` = ?',
+                [gone],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${gone}`);
+            expect(await reauthOf()).toEqual({ reason: 'session_revoked' });
         });
 
         it('returns { invalid } for a token that is not v2', async () => {
@@ -832,6 +889,27 @@ describe('AuthService (integration)', () => {
             const row = await readRawRow(sessionUuid);
             expect(row?.last_ip).toBe('9.9.9.9');
             expect(row?.last_user_agent).toBe('new-ua');
+        });
+
+        it('touch: false authenticates without writing the session row', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                { ip: '7.7.7.7', user_agent: 'kept-ua' },
+            );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            await ageSessionForTouch(sessionUuid);
+
+            const result = await authService.authenticate(token, {
+                ip: '8.8.8.8',
+                userAgent: 'other-ua',
+                touch: false,
+            });
+
+            expect(result.actor?.user.uuid).toBe(user.uuid);
+            const row = await readRawRow(sessionUuid);
+            expect(row?.last_ip).toBe('7.7.7.7');
+            expect(row?.last_user_agent).toBe('kept-ua');
         });
 
         it('session token: omitting ctx leaves last_ip / last_user_agent unchanged', async () => {
@@ -1571,10 +1649,16 @@ describe('AuthService (integration)', () => {
             // revoke so the re-create produces a fresh row.
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const { uuid: workerUid } = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
             const first = await authService.createWorkerSessionToken(
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const firstUuid = (first.session as { uuid: string }).uuid;
             await authService.revokeSession(firstUuid);
@@ -1583,6 +1667,8 @@ describe('AuthService (integration)', () => {
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const secondUuid = (second.session as { uuid: string }).uuid;
             expect(secondUuid).not.toBe(firstUuid);
@@ -1652,6 +1738,178 @@ describe('AuthService (integration)', () => {
                 [sessionUuid],
             )) as Array<{ revoked_at: number | null }>;
             expect(rows[0]?.revoked_at).not.toBeNull();
+        });
+    });
+
+    describe('a worker token lives only as long as its worker', () => {
+        const deployRow = async (
+            userId: number,
+            workerName: string,
+            appOwner?: number,
+        ) =>
+            await server.stores.subdomain.create({
+                userId,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+                appOwner: appOwner ?? null,
+            });
+        const newName = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('resolves while the worker row exists and is invalid once it is deleted', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName);
+            const { token, gui_token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            // Straight through the store: no hook revokes the session.
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            expect(await authService.authenticate(gui_token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('does not come back when the same name is deployed again', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const first = await deployRow(user.id, workerName);
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+                {},
+                { workerUid: first.uuid },
+            );
+            await server.stores.subdomain.deleteByUuid(first.uuid);
+            await deployRow(user.id, workerName);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('applies to app-scoped worker tokens', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `wk-app-${uuidv4()}`,
+                    title: 'Worker app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName, app.id);
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                workerName,
+                { workerUid: row.uuid },
+            );
+            expect(
+                (await authService.authenticate(token)).actor?.app?.uid,
+            ).toBe(app.uid);
+
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('holds a token minted without a worker uid to the name and owner', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const workerName = newName();
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+            );
+            // No row at all.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+
+            // Someone else's worker under that name.
+            const foreign = await deployRow(other.id, workerName);
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            await server.stores.subdomain.deleteByUuid(foreign.uuid);
+
+            await deployRow(user.id, workerName);
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        it('leaves events handler sessions alone; they have no worker row', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ev-app-${uuidv4()}`,
+                    title: 'Events app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                EVENTS_WORKER_SESSION_NAME,
+            );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+    });
+
+    describe('deleting worker sessions', () => {
+        it('deleteWorkerSessionsByName ends the token and drops a derived token`s grants', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
+            const { session, token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const childUid = uuidv4();
+            await server.stores.session.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: sessionUuid,
+                access_token_uid: childUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `permission`) VALUES (?, ?, ?)',
+                [childUid, user.id, 'fs:x:read'],
+            );
+
+            await authService.deleteWorkerSessionsByName(workerName);
+
+            // The worker row is still there: only the session went.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            const grants = await server.clients.db.read(
+                'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ?',
+                [childUid],
+            );
+            expect(grants).toHaveLength(0);
         });
     });
 
@@ -2687,11 +2945,14 @@ describe('AuthService (integration)', () => {
     });
 
     describe('private-asset / public hosted-actor tokens', () => {
-        it('private-asset cookie name and options shape', () => {
-            expect(authService.getPrivateAssetCookieName()).toBe(
+        it('cookie names and options shape', () => {
+            expect(HOSTED_ASSET_COOKIES.private.legacyName).toBe(
                 'puter.private.asset.token',
             );
-            const opts = authService.getPrivateAssetCookieOptions({
+            expect(HOSTED_ASSET_COOKIES.public.legacyName).toBe(
+                'puter.public.hosted.actor.token',
+            );
+            const opts = authService.getHostedAssetCookieOptions({
                 requestHostname: 'example.test',
             });
             expect(opts.httpOnly).toBe(true);
@@ -2700,27 +2961,25 @@ describe('AuthService (integration)', () => {
             expect(opts.hostname).toBe('example.test');
         });
 
-        it('public hosted-actor cookie name', () => {
-            expect(authService.getPublicHostedActorCookieName()).toBe(
-                'puter.public.hosted.actor.token',
-            );
-        });
-
         it('private-asset token round-trips and validates session binding', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
             const appUid = `app-${uuidv4()}`;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid,
                 userUid: user.uuid,
                 sessionUuid,
                 subdomain: 'priv',
             });
-            const decoded = await authService.verifyPrivateAssetToken(token, {
-                expectedAppUid: appUid,
-                expectedSubdomain: 'priv',
-            });
+            const decoded = await authService.verifyHostedAssetToken(
+                'private',
+                token,
+                {
+                    appUid,
+                    subdomain: 'priv',
+                },
+            );
             expect(decoded.userUid).toBe(user.uuid);
             expect(decoded.appUid).toBe(appUid);
             expect(decoded.subdomain).toBe('priv');
@@ -2731,49 +2990,50 @@ describe('AuthService (integration)', () => {
             expect(decoded.sessionUuid).not.toBe(sessionUuid);
         });
 
-        it('verifyPrivateAssetToken throws 401 when expected app_uid mismatches', async () => {
+        it('verifying a private token throws 401 when expected app_uid mismatches', async () => {
             const user = await makeUser();
             const appA = `app-${uuidv4()}`;
             const appB = `app-${uuidv4()}`;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: appA,
                 userUid: user.uuid,
             });
             await expect(
-                authService.verifyPrivateAssetToken(token, {
-                    expectedAppUid: appB,
+                authService.verifyHostedAssetToken('private', token, {
+                    appUid: appB,
                 }),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
-        it('verifyPrivateAssetToken throws 401 when the bound session is gone', async () => {
+        it('verifying a private token throws 401 when the bound session is gone', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPrivateAssetToken(token),
+                authService.verifyHostedAssetToken('private', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
         it('public hosted-actor token round-trips and enforces expectations', async () => {
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid,
                 userUid: user.uuid,
                 host: 'host.example',
             });
-            const decoded = await authService.verifyPublicHostedActorToken(
+            const decoded = await authService.verifyHostedAssetToken(
+                'public',
                 token,
                 {
-                    expectedAppUid: appUid,
-                    expectedHost: 'host.example',
+                    appUid,
+                    host: 'host.example',
                 },
             );
             expect(decoded.userUid).toBe(user.uuid);
@@ -2781,24 +3041,27 @@ describe('AuthService (integration)', () => {
             expect(decoded.host).toBe('host.example');
         });
 
-        it('verifyPublicHostedActorToken rejects a private-kind token (kind mismatch)', async () => {
+        it('verifying as public rejects a private-kind token (kind mismatch)', async () => {
             const user = { uuid: uuidv4() };
-            const privateToken = await authService.createPrivateAssetToken({
-                appUid: `app-${uuidv4()}`,
-                userUid: user.uuid,
-            });
+            const privateToken = await authService.createHostedAssetToken(
+                'private',
+                {
+                    appUid: `app-${uuidv4()}`,
+                    userUid: user.uuid,
+                },
+            );
             await expect(
-                authService.verifyPublicHostedActorToken(privateToken),
+                authService.verifyHostedAssetToken('public', privateToken),
             ).rejects.toThrow();
         });
 
         // -- v2 hosted-asset migration --
 
         it('v2 cookie names', () => {
-            expect(authService.getPrivateAssetCookieNameV2()).toBe(
+            expect(HOSTED_ASSET_COOKIES.private.name).toBe(
                 'puter_private_asset_token_v2',
             );
-            expect(authService.getPublicHostedActorCookieNameV2()).toBe(
+            expect(HOSTED_ASSET_COOKIES.public.name).toBe(
                 'puter_public_hosted_actor_token_v2',
             );
         });
@@ -2807,12 +3070,15 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
-            const decoded = await authService.verifyPrivateAssetToken(token);
+            const decoded = await authService.verifyHostedAssetToken(
+                'private',
+                token,
+            );
             expect(decoded.authId).toBe(user.uuid);
         });
 
@@ -2820,22 +3086,24 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
                 host: 'host.example',
             });
-            const decoded =
-                await authService.verifyPublicHostedActorToken(token);
+            const decoded = await authService.verifyHostedAssetToken(
+                'public',
+                token,
+            );
             expect(decoded.authId).toBe(user.uuid);
         });
 
-        it('verifyPublicHostedActorToken 401s when the bound session is revoked', async () => {
+        it('verifying a public token 401s when the bound session is revoked', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
@@ -2843,7 +3111,7 @@ describe('AuthService (integration)', () => {
             });
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPublicHostedActorToken(token),
+                authService.verifyHostedAssetToken('public', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
@@ -2851,19 +3119,59 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
             // verify passes initially
-            await authService.verifyPrivateAssetToken(token);
+            await authService.verifyHostedAssetToken('private', token);
             // revokeCascade on the parent kills the asset row too
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPrivateAssetToken(token),
+                authService.verifyHostedAssetToken('private', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
+
+        it.each([
+            ['private', 'expectedPrivateHost', 'private-asset'],
+            ['public', 'expectedHost', 'public hosted-actor'],
+        ] as const)(
+            'a %s token names its own host field and session in refusals',
+            async (kind, hostField, tokenName) => {
+                const user = await makeUser();
+                const { session } = await authService.createSessionToken(
+                    user,
+                    {},
+                );
+                const sessionUuid = (session as { uuid: string }).uuid;
+                const token = await authService.createHostedAssetToken(kind, {
+                    appUid: `app-${uuidv4()}`,
+                    userUid: user.uuid,
+                    sessionUuid,
+                    host: 'a.example',
+                });
+
+                await expect(
+                    authService.verifyHostedAssetToken(kind, token, {
+                        host: 'b.example',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    message: `hosted-asset token ${hostField} mismatch`,
+                });
+                await authService.revokeSession(sessionUuid);
+                await expect(
+                    authService.verifyHostedAssetToken(kind, token, {
+                        host: 'a.example',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    message: `${tokenName} token session no longer valid`,
+                    legacyCode: 'session_required',
+                });
+            },
+        );
 
         it('a v1-signed hosted-asset cookie no longer verifies', async () => {
             // The gate treats this as a stale cookie and re-mints under v2, so
@@ -2885,7 +3193,7 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             await expect(
-                authService.verifyPrivateAssetToken(v1Token),
+                authService.verifyHostedAssetToken('private', v1Token),
             ).rejects.toThrow();
         });
     });
@@ -3160,6 +3468,103 @@ describe('AuthService (integration)', () => {
             expect(
                 await server.stores.session.getByUuid(appDecoded.session_uid),
             ).toBeNull();
+        });
+    });
+
+    describe('purgeEndedSessions', () => {
+        const GATE_KEY = 'sessions:purge:gate';
+        const DAY = 24 * 60 * 60;
+
+        const makeSession = async (
+            userId: number,
+            kind: string,
+            column?: 'revoked_at' | 'expires_at',
+            daysAgo?: number,
+        ) => {
+            const { uuid } = await server.stores.session.create(userId, {
+                kind,
+            });
+            if (column) {
+                await server.clients.db.write(
+                    `UPDATE \`sessions\` SET \`${column}\` = ? WHERE \`uuid\` = ?`,
+                    [Math.floor(Date.now() / 1000) - daysAgo! * DAY, uuid],
+                );
+            }
+            return uuid as string;
+        };
+
+        const exists = async (uuid: string) => {
+            const rows = await server.clients.db.read(
+                'SELECT 1 FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                [uuid],
+            );
+            return rows.length > 0;
+        };
+
+        it('deletes rows ended past their retention and keeps the rest', async () => {
+            await server.clients.redis.del(GATE_KEY);
+            const user = await makeUser();
+            const id = user.id;
+            const oldRevoked = await makeSession(id, 'asset', 'revoked_at', 31);
+            const oldExpired = await makeSession(id, 'asset', 'expires_at', 31);
+            const recentRevoked = await makeSession(
+                id,
+                'asset',
+                'revoked_at',
+                29,
+            );
+            const recentExpired = await makeSession(
+                id,
+                'asset',
+                'expires_at',
+                29,
+            );
+            const webMonthOld = await makeSession(id, 'web', 'revoked_at', 31);
+            const webYearOld = await makeSession(id, 'web', 'revoked_at', 366);
+            const live = await makeSession(id, 'web');
+
+            expect(
+                await authService.purgeEndedSessions(),
+            ).toBeGreaterThanOrEqual(3);
+
+            expect(await exists(oldRevoked)).toBe(false);
+            expect(await exists(oldExpired)).toBe(false);
+            expect(await exists(webYearOld)).toBe(false);
+            expect(await exists(recentRevoked)).toBe(true);
+            expect(await exists(recentExpired)).toBe(true);
+            expect(await exists(webMonthOld)).toBe(true);
+            expect(await exists(live)).toBe(true);
+        });
+
+        it('skips while another run holds the gate', async () => {
+            await server.clients.redis.del(GATE_KEY);
+            await server.clients.redis.set(GATE_KEY, 'other-node');
+            const user = await makeUser();
+            const oldRevoked = await makeSession(
+                user.id,
+                'asset',
+                'revoked_at',
+                31,
+            );
+
+            expect(await authService.purgeEndedSessions()).toBeNull();
+            expect(await exists(oldRevoked)).toBe(true);
+            await server.clients.redis.del(GATE_KEY);
+        });
+
+        it('frees the gate when the walk fails', async () => {
+            await server.clients.redis.del(GATE_KEY);
+            const spy = vi
+                .spyOn(server.clients.db, 'read')
+                .mockRejectedValueOnce(new Error('db down'));
+            try {
+                await expect(authService.purgeEndedSessions()).rejects.toThrow(
+                    'db down',
+                );
+                expect(await server.clients.redis.get(GATE_KEY)).toBeNull();
+            } finally {
+                spy.mockRestore();
+            }
         });
     });
 });

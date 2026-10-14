@@ -197,21 +197,6 @@ export type FsDeliveryContext = FsEventContext & DeliveryFields;
 export type KvDeliveryContext = KvEventContext & DeliveryFields;
 export type NotifDeliveryContext = NotifEventContext & DeliveryFields;
 
-export interface PushMessage {
-    title: string;
-    body?: string;
-    icon?: string;
-    url?: string;
-}
-
-/**
- * Human-facing projection. Its absence is what makes a subject unpushable —
- * which subjects have one is a privacy decision, not a formatting one.
- */
-export type NotifyProjection<P extends ProjectedEvent = ProjectedEvent> = (
-    event: P,
-) => PushMessage | null;
-
 /** How one family's filters are compiled and what they are tested against. */
 export interface MatchSpec {
     /** Delimiter a single `*` will not cross in this family's filters. */
@@ -239,8 +224,6 @@ export interface SubjectSpec<
     /** What a match filter globs against. */
     matchOn: (event: C) => string;
     project: (delivery: C & DeliveryFields) => P;
-    notify: NotifyProjection<P> | null;
-    defaultDelivery: DeliveryClass;
 }
 
 export interface FsPublicSubject extends SubjectSpec<
@@ -290,9 +273,6 @@ const fsTokens = (event: FsEventContext): string[] => [
 ];
 
 const fsMatchOn = (event: FsEventContext): string => event.entry.path;
-
-/** No human-facing projection, so nothing is push-eligible yet. */
-const NOT_PUSHABLE: NotifyProjection<never> | null = null;
 
 const fsProject =
     (op: FsOp) =>
@@ -372,8 +352,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('write'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'fs',
@@ -385,8 +363,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('add'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'fs',
@@ -398,8 +374,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('move'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'fs',
@@ -411,8 +385,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('remove'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'kv',
@@ -423,8 +395,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: KV_MATCH_SEPARATOR,
         matchScope: kvMatchScope,
         project: kvProject,
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'notif',
@@ -435,10 +405,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: NOTIF_MATCH_SEPARATOR,
         matchScope: notifMatchScope,
         project: notifProject,
-        // The push seam fills this in; until then a notification is delivered
-        // to what is connected, and found in the mailbox otherwise.
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
 ] as const satisfies readonly PublicSubject[];
 
@@ -507,9 +473,3 @@ export const lookupNotifSubject = (
     const found = lookupPublicSubject(key);
     return found?.family === 'notif' ? found : undefined;
 };
-
-/** The push payload for an event, or `null` when the subject isn't pushable. */
-export const pushProjection = <P extends ProjectedEvent>(
-    subject: { notify: NotifyProjection<P> | null },
-    event: P,
-): PushMessage | null => subject.notify?.(event) ?? null;

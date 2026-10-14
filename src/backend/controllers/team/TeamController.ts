@@ -338,6 +338,29 @@ export class TeamController extends PuterController {
         res.json({ temporary_password: temporaryPassword });
     }
 
+    // The gate closes the seat's own route to fix it, so the owner must.
+    @Post('/:uid/members/:username/email', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: TEAM_LIMIT,
+    })
+    async updateSeatEmail(req: Request, res: Response): Promise<void> {
+        const userId = this.#requireUserId(req);
+        const uid = this.#param(req, 'uid');
+        // Authority first, or resolving `:username` is an existence oracle.
+        await this.services.team.requireOwner(uid, userId);
+        const target = await this.#requireTargetUserId(req);
+
+        await this.services.team.updateSeatEmail(
+            uid,
+            userId,
+            target,
+            (req.body as { email?: unknown } | undefined)?.email ?? null,
+        );
+        res.json({ success: true });
+    }
+
     // Same budget as a password reset: both are a step toward the account.
     @Post('/:uid/members/:username/2fa-reset', {
         subdomain: 'api',

@@ -45,8 +45,13 @@ class FixtureDatabaseClient extends AbstractDatabaseClient {
     constructor(
         private readonly replicaRows: Record<string, unknown>[] | Error,
         private readonly primaryRows: Record<string, unknown>[] = [],
+        private readonly replica = true,
     ) {
         super(config('fixture'));
+    }
+
+    protected override hasReadReplica(): boolean {
+        return this.replica;
     }
 
     override async read(query: string): Promise<Record<string, unknown>[]> {
@@ -127,13 +132,21 @@ describe('AbstractDatabaseClient — replica-aware reads', () => {
         ]);
     });
 
-    it('names the failing query when a required read finds nothing', async () => {
-        const client = new FixtureDatabaseClient([], []);
-        await expect(
-            client.requireRead('SELECT * FROM `user` WHERE `id` = ?'),
-        ).rejects.toThrow(
-            'required read returned no rows: SELECT * FROM `user` WHERE `id` = ?',
+    it('surfaces the primary error when both reads fail', async () => {
+        const client = new FixtureDatabaseClient(new Error('replica down'));
+        client.pread = async () => {
+            throw new Error('primary down');
+        };
+        await expect(client.tryHardRead('SELECT 1')).rejects.toThrow(
+            'primary down',
         );
+    });
+
+    it('issues a single read when there is no replica', async () => {
+        const client = new FixtureDatabaseClient([], [{ id: 2 }], false);
+        await expect(client.tryHardRead('SELECT 1')).resolves.toEqual([]);
+        expect(client.reads).toEqual(['SELECT 1']);
+        expect(client.preads).toEqual([]);
     });
 });
 
@@ -233,6 +246,25 @@ describe('AbstractDatabaseClient — SQL generation', () => {
         expect(postgres().returningIdClause()).toBe(' RETURNING id');
         expect(sqlite().returningIdClause()).toBe('');
         expect(mysql().returningIdClause()).toBe('');
+    });
+
+    it('stamps a timestamp from unix seconds in each dialect', () => {
+        expect(sqlite().timestampFromUnixSql()).toBe(
+            "datetime(?, 'unixepoch')",
+        );
+        expect(mysql().timestampFromUnixSql()).toBe('FROM_UNIXTIME(?)');
+        expect(postgres().timestampFromUnixSql()).toBe('to_timestamp(?)');
+    });
+
+    it('describes a stored timestamp the way each driver reads it back', () => {
+        const seconds = Date.UTC(2026, 9, 11, 8, 5, 9) / 1000;
+        expect(sqlite().timestampValue(seconds)).toBe('2026-10-11 08:05:09');
+        expect(mysql().timestampValue(seconds)).toEqual(
+            new Date(seconds * 1000),
+        );
+        expect(postgres().timestampValue(seconds)).toEqual(
+            new Date(seconds * 1000),
+        );
     });
 
     it('falls back to `otherwise` for an engine with no explicit choice', () => {

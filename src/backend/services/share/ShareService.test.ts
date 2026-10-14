@@ -207,6 +207,63 @@ describe('ShareService', () => {
         expect(listed.items.map((i) => i.entryUid)).toContain(file.uuid);
     });
 
+    it('keeps the grant when the replica has not seen the new share row yet', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of `share` come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `share`/u.test(q) ? [] : realRead(q, p),
+            );
+        let result;
+        try {
+            result = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(result.mode).toBe('read');
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+    });
+
+    it('tells the account how much is shared with it, and an app only its page', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const app = await makeApp(recipient.user.id);
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        const asAccount = await server.services.share.listSharedWithMe(
+            recipient.actor,
+            { includeTotal: true },
+        );
+        expect(asAccount.total).toBeGreaterThanOrEqual(1);
+
+        // The app reads what it was handed, not the size of the rest.
+        const asTheApp = await server.services.share.listSharedWithMe(
+            asApp(recipient, app),
+            { includeTotal: true },
+        );
+        expect(asTheApp.total).toBeUndefined();
+    });
+
     it('carries the entry metadata the file browser renders', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -1127,6 +1184,64 @@ describe('ShareService', () => {
                 server.services.share.listSharedByMe(actor, opts),
             );
 
+        it('still finds a row written before the owner was recorded', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // What a writer that predates the column leaves behind.
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL',
+            );
+
+            const listed = await listSharedByMe(owner.actor, {
+                includeTotal: true,
+            });
+            expect(listed.items.map((r) => r.holder?.username)).toContain(
+                third.user.username,
+            );
+            expect(listed.total).toBeGreaterThanOrEqual(2);
+        });
+
+        it("includes a delegate's share on an item the caller owns", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // Owner and delegate issued one each, both on the owner's entry.
+            const listed = await listSharedByMe(owner.actor, {
+                includeTotal: true,
+            });
+            const holders = listed.items.map((r) => r.holder?.username);
+            expect(holders).toContain(delegate.user.username);
+            expect(holders).toContain(third.user.username);
+            expect(listed.total).toBeGreaterThanOrEqual(2);
+        });
+
         it('gathers shares on unrelated items into one listing', async () => {
             const owner = await makeUser();
             const first = await makeUser();
@@ -1798,7 +1913,35 @@ describe('ShareService', () => {
 
         // One row records one issuance, so attribution follows the most
         // recent one — in both directions.
-        it('re-attributes a grant to whoever issued it last', async () => {
+        it('does not let an app claim a share the user made in person', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            // The user's own share, made without any app involved.
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'write',
+            });
+            const [mine] = (await listSharedByMe(owner.actor, { appUid: null }))
+                .items;
+
+            // The app re-shares the same pair; the row is still the user's.
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual([]);
+            await expect(
+                revokeByUid(asApp(owner, app), mine.uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('lets a grant lose its app, and never take one back', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
             const app = await makeApp(owner.user.id);
@@ -1829,18 +1972,21 @@ describe('ShareService', () => {
                 revokeByUid(asApp(owner, app), uid),
             ).rejects.toMatchObject({ statusCode: 404 });
 
-            // And back: re-shared through the app, the same row is the app's
-            // again.
+            // Not back: re-crediting would let the app withdraw it.
             await share(asApp(owner, app), {
                 uid: file.uuid,
                 recipient: { username: recipient.user.username },
                 mode: 'read',
             });
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual([]);
             expect(
-                (await listSharedByMe(asApp(owner, app))).items.map(
+                (await listSharedByMe(owner.actor, { appUid: null })).items.map(
                     (i) => i.uid,
                 ),
             ).toEqual([uid]);
+            await expect(
+                revokeByUid(asApp(owner, app), uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
         });
 
         // Every uid the caller may not act on answers alike, or the endpoint
@@ -2147,6 +2293,73 @@ describe('ShareService', () => {
 
         expect(await canRead(delegate.actor, file.path)).toBe(false);
         expect(await canRead(third.actor, file.path)).toBe(false);
+    });
+
+    it("leaves a re-share resting on the delegate's own grant below", async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        // Two separate grants: the folder, and the file inside it.
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+        expect(await canRead(third.actor, file.path)).toBe(true);
+
+        // The folder grant goes; the one on the file does not.
+        await unshare(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        expect(await canRead(delegate.actor, dir.path)).toBe(false);
+        expect(await canRead(delegate.actor, file.path)).toBe(true);
+        expect(await canRead(third.actor, file.path)).toBe(true);
+    });
+
+    it("leaves the delegate's invite below a revoked folder standing", async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        for (const uid of [dir.uuid, file.uuid]) {
+            await share(owner.actor, {
+                uid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+        }
+        // An invite, not a grant: nobody has claimed it yet.
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: `nobody-${Math.random()}@test.local` },
+            mode: 'read',
+        });
+        const before = await server.stores.share.listPendingOnFsentry(file.id);
+        expect(before.length).toBeGreaterThan(0);
+
+        await unshare(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        // The file grant stands, so the invite made under it does too.
+        expect(
+            await server.stores.share.listPendingOnFsentry(file.id),
+        ).toHaveLength(before.length);
     });
 
     it('keeps the index row when the actor could not revoke anything', async () => {
@@ -2756,6 +2969,41 @@ describe('ShareService', () => {
                 });
                 expect(upgraded.mode).toBe('write');
             });
+        });
+
+        it('bounds mode changes on their own budget', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const cfg = (
+                server.services.share as unknown as {
+                    config: { share_remode_daily_limit?: number };
+                }
+            ).config;
+            const previous = cfg.share_remode_daily_limit;
+            cfg.share_remode_daily_limit = 1;
+            try {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                // Not new reach, so not the share budget -- but still a write.
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'write',
+                });
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: { email: recipient.email },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({ statusCode: 429 });
+            } finally {
+                cfg.share_remode_daily_limit = previous;
+            }
         });
 
         it('counts creations, so revoking does not refund the slot', async () => {
@@ -3604,6 +3852,46 @@ describe('ShareService', () => {
             );
         });
 
+        it('does not tell a `see`-only folder recipient what is inside it', async () => {
+            const owner = await makeUser();
+            const seeOnly = await makeUser();
+            const lister = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const loose = await makeFile(owner.user);
+            const after = `${dir.path}/${loose.name}`;
+
+            for (const [who, mode] of [
+                [seeOnly, 'see'],
+                [lister, 'read'],
+            ] as const) {
+                await share(owner.actor, {
+                    uid: dir.uuid,
+                    recipient: { email: who.email },
+                    mode,
+                });
+            }
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.added',
+                loose.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...loose, path: after },
+                            fromPath: loose.path,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // The child's name and size are what `list` is for.
+            expect(audiences.flat()).toContain(lister.user.id);
+            expect(audiences.flat()).not.toContain(seeOnly.user.id);
+        });
+
         it('tells a folder recipient when a file is moved into it', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
@@ -3667,6 +3955,8 @@ describe('ShareService', () => {
             );
 
             const masked = `/${owner.user.username}/${dir.uuid}/${dir.name}`;
+            // The desktop reads `old_path`; older dashboards `from_path`.
+            expect(payload?.old_path).toBe(`${masked}/${file.name}`);
             expect(payload?.from_path).toBe(`${masked}/${file.name}`);
             expect(payload?.path).toBe(`${masked}/renamed-${file.name}`);
         });
@@ -5306,6 +5596,42 @@ describe('ShareService', () => {
                 ),
             ).toBe(before);
         });
+
+        it('refuses an invite to a blocked domain whatever its case', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const cfg = server.services.share.config as {
+                blockedEmailDomains?: string[];
+            };
+            const prev = cfg.blockedEmailDomains;
+            cfg.blockedEmailDomains = ['mailinator.com'];
+            try {
+                for (const email of [
+                    'temp@mailinator.com',
+                    'Temp@Mailinator.com',
+                    'temp@SUB.MAILINATOR.COM',
+                ]) {
+                    await expect(
+                        share(owner.actor, {
+                            uid: file.uuid,
+                            recipient: { email },
+                            mode: 'read',
+                        }),
+                        email,
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        legacyCode: 'email_not_allowed',
+                    });
+                    expect(
+                        await server.stores.share.listPendingByEmail(
+                            email.toLowerCase(),
+                        ),
+                    ).toEqual([]);
+                }
+            } finally {
+                cfg.blockedEmailDomains = prev;
+            }
+        });
     });
 
     describe('claiming is safe against races and duplicates', () => {
@@ -5480,6 +5806,114 @@ describe('ShareService', () => {
             expect(listed.some((row) => row.pending)).toBe(false);
             expect(JSON.stringify(listed)).not.toContain(email);
         });
+    });
 
+    describe('owners with nothing shared', () => {
+        /** Let fire-and-forget fan-out land. */
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+        it('skips the audience lookup, asking whether anything is shared once', async () => {
+            const owner = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const asked = vi.spyOn(server.stores.share, 'ownerHasShares');
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
+            let askedCalls = -1;
+            let reachingCalls = -1;
+            try {
+                await Promise.all(
+                    Array.from({ length: 5 }, (_, i) =>
+                        server.services.fs.touch(owner.user.id, {
+                            path: `${dir.path}/quiet-${i}.txt`,
+                        }),
+                    ),
+                );
+                await settle();
+                askedCalls = asked.mock.calls.length;
+                reachingCalls = reaching.mock.calls.length;
+            } finally {
+                asked.mockRestore();
+                reaching.mockRestore();
+            }
+            expect(askedCalls).toBe(1);
+            expect(reachingCalls).toBe(0);
+        });
+
+        it('fans out on the next write once something is shared', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            // Cache "nothing shared" first.
+            await server.services.fs.touch(owner.user.id, {
+                path: `${dir.path}/before.txt`,
+            });
+            await settle();
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (payload.user_id_list?.includes(recipient.user.id))
+                    seen.push(data);
+            };
+            // A replica that hasn't seen the share yet.
+            const stale = vi
+                .spyOn(server.stores.share, 'ownerHasShares')
+                .mockResolvedValue(false);
+            server.clients.event.on('outer.gui.item.added', listener);
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/after.txt`,
+                });
+                for (let i = 0; i < 50 && seen.length === 0; i++)
+                    await settle();
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                stale.mockRestore();
+            }
+            expect(seen).toHaveLength(1);
+        });
+
+        it('treats the owner as shared when another node says so', async () => {
+            const owner = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const asked = vi.spyOn(server.stores.share, 'ownerHasShares');
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
+            let calls = -1;
+            let reachingCalls = -1;
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/one.txt`,
+                });
+                await settle();
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/two.txt`,
+                });
+                await settle();
+                // Cached: the second write did not ask.
+                expect(asked).toHaveBeenCalledTimes(1);
+
+                server.clients.event.emit(
+                    'outer.pubsub.share.ownerShared',
+                    { ownerUserId: owner.user.id },
+                    { from_outside: true },
+                );
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/three.txt`,
+                });
+                await settle();
+                calls = asked.mock.calls.length;
+                reachingCalls = reaching.mock.calls.length;
+            } finally {
+                asked.mockRestore();
+                reaching.mockRestore();
+            }
+            expect(calls).toBe(1);
+            expect(reachingCalls).toBeGreaterThan(0);
+        });
     });
 });

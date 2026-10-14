@@ -576,6 +576,24 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getById(app.id)).title).toBe('ByUid');
     });
 
+    it('replaceDataUrlIcon swaps an inline icon and leaves any other alone', async () => {
+        const inline = await createApp({ icon: 'data:image/png;base64,AAAA' });
+        const linked = await createApp({ icon: 'https://cdn.example/i.png' });
+        // Cached first, so a stale copy would show if the write didn't drop it.
+        await appStore.getByUid(inline.uid);
+        await appStore.getByUid(linked.uid);
+
+        await appStore.replaceDataUrlIcon(inline.uid, 'https://api/icon/a');
+        await appStore.replaceDataUrlIcon(linked.uid, 'https://api/icon/b');
+
+        expect((await appStore.getByUid(inline.uid)).icon).toBe(
+            'https://api/icon/a',
+        );
+        expect((await appStore.getByUid(linked.uid)).icon).toBe(
+            'https://cdn.example/i.png',
+        );
+    });
+
     it('invalidateById is a no-op for an app that does not exist', async () => {
         await expect(
             appStore.invalidateById(99999999),
@@ -605,15 +623,11 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getById(bad.id)).metadata).toBeNull();
     });
 
-    it('existsByName / existsByIndexUrl answer the driver uniqueness checks', async () => {
+    it('existsByName answers the driver uniqueness check', async () => {
         const app = await createApp();
 
         expect(await appStore.existsByName(app.name)).toBe(true);
         expect(await appStore.existsByName('definitely-not-taken')).toBe(false);
-        expect(await appStore.existsByIndexUrl(app.index_url)).toBe(true);
-        expect(
-            await appStore.existsByIndexUrl('https://unused.example.com/'),
-        ).toBe(false);
     });
 
     it('rejects a duplicate app name at the database level', async () => {
@@ -937,6 +951,26 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(second.uid).toBe(uid);
     });
 
+    it('caches the row a lost bootstrap race reads from the primary', async () => {
+        const uid = `app-origin-${Math.random().toString(36).slice(2, 10)}`;
+        const origin = `https://${uid}.example.com`;
+        const first = await appStore.createFromOrigin(uid, origin);
+        // Let the read-through backfill land before clearing it.
+        await new Promise((r) => setTimeout(r, 20));
+        await redis.del(
+            `apps:id:${first.id}`,
+            `apps:uid:${uid}`,
+            `apps:name:${uid}`,
+        );
+
+        await appStore.createFromOrigin(uid, origin);
+
+        const cached = JSON.parse(
+            (await redis.get(`apps:uid:${uid}`)) ?? 'null',
+        );
+        expect(cached?.id).toBe(first.id);
+    });
+
     // -- list / count ---------------------------------------------------
 
     it('filters list() by owner, creating app and name', async () => {
@@ -1050,13 +1084,49 @@ describe('AppStore CRUD and cache invalidation', () => {
         await createApp({ title: 'Recovered' }, { ownerUserId: badOwner });
         await appStore.list({ ownerUserId: badOwner });
 
-        const keys = await redis.smembers('apps:list:keys');
-        const key = keys.find((k) => k.includes(String(badOwner)));
-        expect(key).toBeDefined();
-        await redis.set(key, 'not-json');
+        const generation = await redis.get(`apps:list:gen:${badOwner}`);
+        const keys = await redis.keys(`apps:list:${generation}:*`);
+        expect(keys).toHaveLength(1);
+        await redis.set(keys[0], 'not-json');
 
         const rows = await appStore.list({ ownerUserId: badOwner });
         expect(rows[0].title).toBe('Recovered');
+    });
+
+    it('drops an unscoped cached list when any app changes', async () => {
+        const app = await createApp({ title: 'Unscoped' });
+        const find = async () =>
+            (await appStore.list({ afterId: app.id - 1, limit: 1 }))[0];
+
+        expect((await find()).title).toBe('Unscoped');
+        await db.write('UPDATE `apps` SET `title` = ? WHERE `id` = ?', [
+            'BehindTheCache',
+            app.id,
+        ]);
+        expect((await find()).title).toBe('Unscoped');
+
+        await createApp({}, { ownerUserId: 4701 });
+        expect((await find()).title).toBe('BehindTheCache');
+    });
+
+    it('invalidates cached lists without scanning them', async () => {
+        const owner = 4800;
+        const app = await createApp({}, { ownerUserId: owner });
+        for (let i = 0; i < 5; i++) {
+            await appStore.list({ ownerUserId: owner, limit: i + 1 });
+        }
+
+        const smembers = vi.spyOn(redis, 'smembers');
+        const keysScan = vi.spyOn(redis, 'keys');
+        await appStore.update(app.id, { title: 'Bumped' });
+        expect(smembers).not.toHaveBeenCalled();
+        expect(keysScan).not.toHaveBeenCalled();
+        smembers.mockRestore();
+        keysScan.mockRestore();
+
+        expect(
+            (await appStore.list({ ownerUserId: owner, limit: 3 }))[0].title,
+        ).toBe('Bumped');
     });
 
     it('counts apps by owner, creator and per-caller visibility', async () => {
@@ -1155,6 +1225,132 @@ describe('AppStore CRUD and cache invalidation', () => {
         // Assert the wrappers stay on the allow-list.
         const map = await appStore.getByUids(['app-nope']);
         expect(map.size).toBe(0);
+    });
+
+    // -- behind a lagging replica --------------------------------------
+
+    /**
+     * Replica reads of `apps` see only `staleRows`. sqlite's pread delegates to
+     * read, so the primary is pinned to the real one.
+     */
+    const withLaggingReplica = async (staleRows, fn) => {
+        const realRead = db.read.bind(db);
+        const preadSpy = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const readSpy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                /FROM `apps`/.test(sql)
+                    ? staleRows.map((r) => ({ ...r }))
+                    : realRead(sql, params),
+            );
+        try {
+            return await fn();
+        } finally {
+            readSpy.mockRestore();
+            preadSpy.mockRestore();
+        }
+    };
+
+    const rawRow = async (id) =>
+        (await db.read('SELECT * FROM `apps` WHERE `id` = ?', [id]))[0];
+
+    const cachedByUid = async (uid) =>
+        JSON.parse((await redis.get(`apps:uid:${uid}`)) ?? 'null');
+
+    it('returns and caches a created app before the replica has it', async () => {
+        const app = await withLaggingReplica([], () =>
+            createApp({ title: 'Lagged' }),
+        );
+        expect(app?.title).toBe('Lagged');
+        expect((await cachedByUid(app.uid))?.title).toBe('Lagged');
+
+        const origin = 'https://lagging-replica-bootstrap.test';
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const bootstrapped = await withLaggingReplica([], () =>
+            appStore.createFromOrigin(uid, origin),
+        );
+        expect(bootstrapped?.uid).toBe(uid);
+        expect((await cachedByUid(uid))?.index_url).toBe(origin);
+    });
+
+    it('returns and caches the updated app, not a replica copy missing an earlier update', async () => {
+        const app = await createApp({ title: 'One' });
+        const stale = await rawRow(app.id);
+        await appStore.update(app.id, { title: 'Two' });
+
+        const updated = await withLaggingReplica([stale], () =>
+            appStore.update(app.id, { description: 'later' }),
+        );
+
+        expect(updated).toMatchObject({ title: 'Two', description: 'later' });
+        expect(await cachedByUid(app.uid)).toMatchObject({
+            title: 'Two',
+            description: 'later',
+        });
+    });
+
+    it('does not cache the pre-claim row a lagging replica still serves', async () => {
+        const name = freshName();
+        await db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`) VALUES (?, ?, ?, ?)',
+            [`app-${name}`, name, name, `https://${name}.example.com/`],
+        );
+        // Straight from the table, so nothing is cached yet.
+        const [stale] = await db.read('SELECT * FROM `apps` WHERE `name` = ?', [
+            name,
+        ]);
+
+        await withLaggingReplica([stale], async () => {
+            expect(await appStore.claimOwnership(Number(stale.id), OWNER)).toBe(
+                true,
+            );
+            // Let any unawaited cache write land.
+            await new Promise((r) => setTimeout(r, 20));
+        });
+
+        // Nothing cached, or the claimed row; never the unowned copy.
+        const cached = await cachedByUid(stale.uid);
+        expect(cached === null || cached.owner_user_id === OWNER).toBe(true);
+    });
+
+    it('returns and caches a created app as the table holds it, without reading it back', async () => {
+        const origin = `https://${freshName()}.built.test`;
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        let created;
+        let reads;
+        try {
+            created = [
+                await createApp({
+                    title: 'Built',
+                    description: 'every column',
+                    icon: 'data:image/png;base64,AA==',
+                    maximize_on_start: true,
+                    metadata: JSON.stringify({ category: 'tools' }),
+                }),
+                await appStore.createFromOrigin(uid, origin),
+            ];
+        } finally {
+            reads = [...read.mock.calls, ...pread.mock.calls].filter(([q]) =>
+                /FROM `apps`/u.test(q),
+            );
+            read.mockRestore();
+            pread.mockRestore();
+        }
+        expect(reads).toEqual([]);
+
+        for (const app of created) {
+            expect(await cachedByUid(app.uid)).toEqual(
+                JSON.parse(JSON.stringify(app)),
+            );
+            await redis.del(
+                `apps:id:${app.id}`,
+                `apps:uid:${app.uid}`,
+                `apps:name:${app.name}`,
+            );
+            expect(app).toEqual(await appStore.getById(app.id));
+        }
     });
 });
 

@@ -25,6 +25,7 @@ import { PuterService } from '../types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    DEFAULT_RESOLVER_PRIORITY,
     DETAIL_PATH_COUNTER,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
@@ -255,7 +256,10 @@ export class MeteringService extends PuterService {
     private usageBufferTimer: ReturnType<typeof setInterval> | null = null;
     private extraPolicies: SubscriptionPolicy[] = [];
     private subscriptionResolvers: SubscriptionResolver[] = [];
-    private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
+    private defaultSubscriptionResolvers: Array<{
+        fn: SubscriptionResolver;
+        priority: number;
+    }> = [];
 
     /**
      * Fire-and-forget aux writes (`handleAuxPromise`) still in flight. Nothing
@@ -267,7 +271,13 @@ export class MeteringService extends PuterService {
     /** Uuid → resolved policy + expiry; `lookupFailed` marks a fallback. */
     private subscriptionCache = new Map<
         string,
-        { policy: SubscriptionPolicy; expiresAt: number; lookupFailed: boolean }
+        {
+            policy: SubscriptionPolicy;
+            expiresAt: number;
+            lookupFailed: boolean;
+            /** No explicit subscription answered, so this is a default. */
+            fromDefault: boolean;
+        }
     >();
 
     /** Uuid → the last budget state announced, so a retry loop emits once. */
@@ -281,6 +291,20 @@ export class MeteringService extends PuterService {
         string,
         { hasCredits: boolean; expiresAt: number }
     >();
+
+    /**
+     * Uuid → an addons record with no purchased credit left, for the increment
+     * path. Only a grant changes one, since nothing draws on an empty pool, and
+     * every grant announces `credits-changed`, which drops it and holds off
+     * caching for the force-exact window. A record with credit left is always
+     * read fresh: other nodes draw it down unannounced.
+     */
+    #spentAddons = new Map<
+        string,
+        { addons: UsageAddons; expiresAt: number }
+    >();
+    /** Bumped on every drop, so a read that straddles one isn't cached. */
+    #spentAddonsDrops = 0;
 
     /**
      * Uuid → until when a near-allowance read bypasses the exact-read throttle.
@@ -469,10 +493,17 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a _default_ subscription id,
-     * used when no explicit subscription is set. First non-empty wins.
+     * used when none is set. Lowest `priority` is asked first.
      */
-    registerDefaultSubscriptionResolver(fn: SubscriptionResolver): void {
-        this.defaultSubscriptionResolvers.push(fn);
+    registerDefaultSubscriptionResolver(
+        fn: SubscriptionResolver,
+        { priority = DEFAULT_RESOLVER_PRIORITY }: { priority?: number } = {},
+    ): void {
+        this.defaultSubscriptionResolvers.push({ fn, priority });
+        // Lowest first, so the winner is a stated number, not a boot order.
+        this.defaultSubscriptionResolvers.sort(
+            (a, b) => a.priority - b.priority,
+        );
     }
 
     // -- Public API: increment usage ----------------------------------
@@ -500,151 +531,24 @@ export class MeteringService extends PuterService {
         );
     }
 
-    async incrementUsage(
+    /** One usage, through `batchIncrementUsages`. */
+    incrementUsage(
         actor: Actor,
         usageType: string,
         usageAmount: number,
         costOverride?: number,
     ): Promise<UsageByType> {
-        usageAmount = usageAmount < 0 ? 1 : usageAmount;
-
-        const costOverrideRaw = costOverride;
-        costOverride = !Number.isFinite(costOverride)
-            ? undefined
-            : (costOverride as number) < 0
-              ? 1
-              : costOverride;
-
-        if (costOverrideRaw && costOverrideRaw < 0) {
-            this.clients.alarm.create(
-                `metering unexpected negative cost access to: ${usageType}`,
-                `negative cost abuse vector! (${actorLabel(actor)})`,
-                {
-                    userId: actor.user?.uuid,
-                    username: actor.user?.username,
-                    email: actor.user?.email,
-                    appId: actor.effectiveApp?.uid,
-                    usageType,
-                    usageAmount,
-                    costOverride,
-                },
-                'info',
-            );
-        }
-
-        try {
-            if (!usageAmount || !usageType || !actor)
-                return { total: 0 } as UsageByType;
-            if (isSystemActor(actor)) return { total: 0 } as UsageByType;
-
-            const currentMonth = this.monthYearString();
-
-            const totalCost = costOverride ?? 0;
-
-            const escapedUsageType = String(usageType).replace(
-                /\./g,
-                PERIOD_ESCAPE,
-            );
-            const appId = actor.effectiveApp?.uid || GLOBAL_APP_KEY;
-            const userId = actor.user.uuid!;
-            const actorUsageKey = `${METRICS_V2_PREFIX}:actor:${userId}:${currentMonth}`;
-
-            const usageResultPromise = this.#writeShardedUsage({
-                userId,
-                appId,
-                currentMonth,
-                byType: {
-                    [escapedUsageType]: {
-                        units: usageAmount,
-                        cost: totalCost,
-                        count: 1,
-                    },
-                },
-                appTotalCost: totalCost,
-                appCallCount: 1,
-            });
-
-            const [usageResult, subscription, actorAddons] = await Promise.all([
-                usageResultPromise,
-                this.#actorSubscriptionWithStatus(actor),
-                this.getActorAddons(actor),
-            ]);
-            const { policy: actorSubscription, provisionalUntil } =
-                subscription;
-
-            const actorUsages = await this.exactUsageNearAllowance(
-                userId,
-                actorUsageKey,
-                usageResult,
-                actorSubscription.monthUsageAllowance,
-            );
-
-            const settledAllowanceUsed = await this.settleIncrementCharges(
-                userId,
-                actorUsageKey,
-                actorUsages,
-                actorSubscription.monthUsageAllowance,
-                actorAddons,
-                totalCost,
-            );
-
-            this.maybeAlertOveruse({
-                actor,
-                userId,
-                actorUsages,
-                actorSubscription,
-                actorAddons,
-                incrementCost: totalCost,
-                usageType,
-                usageAmount,
-                costOverride,
-            });
-
-            this.rememberRemainingCredits(
-                userId,
-                settledAllowanceUsed,
-                actorSubscription.monthUsageAllowance,
-                actorAddons,
-                provisionalUntil,
-            );
-
-            const own = this.#withDetail(actorUsages, usageResult.detail);
-            const charged = await this.applyMonthlyCharges(
-                actor,
-                currentMonth,
-                actorUsages,
-            );
-            // Where the call and a charge touched the same type, the charge's
-            // running record is the newer one.
-            return charged && usageResult.detail
-                ? ({ ...own, ...charged } as UsageByType)
-                : (charged ?? own);
-        } catch (e) {
-            console.error('[metering] incrementUsage failed', {
-                actor,
-                usageType,
-                usageAmount,
-                error: e,
-            });
-            this.clients.alarm.create(
-                `metering service error for user: ${actorLabel(actor)} app: ${actor.effectiveApp?.uid}`,
-                (e as Error).message,
-                {
-                    userId: actor.user?.uuid,
-                    username: actor.user?.username,
-                    email: actor.user?.email,
-                    appId: actor.effectiveApp?.uid,
-                    error: e as Error,
-                    usageType,
-                    usageAmount,
-                    costOverride,
-                },
-                'info',
-            );
-            return { total: 0 } as UsageByType;
-        }
+        return this.batchIncrementUsages(actor, [
+            { usageType, usageAmount, costOverride },
+        ]);
     }
 
+    /**
+     * Record usages for one actor in a single write. An amount that is negative
+     * or not finite counts as one unit, and a negative cost as 1, so a bad
+     * caller is billed something rather than nothing; a zero amount or missing
+     * type is skipped.
+     */
     async batchIncrementUsages(
         actor: Actor,
         usages: UsageInput[],
@@ -731,7 +635,7 @@ export class MeteringService extends PuterService {
             const [usageResult, subscription, actorAddons] = await Promise.all([
                 usageResultPromise,
                 this.#actorSubscriptionWithStatus(actor),
-                this.getActorAddons(actor),
+                this.#addonsForSettle(actor),
             ]);
             const { policy: actorSubscription, provisionalUntil } =
                 subscription;
@@ -1826,6 +1730,8 @@ export class MeteringService extends PuterService {
     /** Local-only drop. The announcement path is `invalidateActorCredits`. */
     #dropCachedCredits(userUuid: string): void {
         this.creditCache.delete(userUuid);
+        this.#spentAddons.delete(userUuid);
+        this.#spentAddonsDrops++;
         // Added capacity re-arms the alert: the next exhaustion is news again.
         this.creditAlertState.delete(userUuid);
     }
@@ -1868,7 +1774,7 @@ export class MeteringService extends PuterService {
                 return;
             }
             const [addons, totals] = await Promise.all([
-                this.getActorAddons(actor),
+                this.#addonsForSettle(actor),
                 this.currentMonthTotals(actor),
             ]);
             this.rememberRemainingCredits(
@@ -2043,6 +1949,15 @@ export class MeteringService extends PuterService {
         return (await this.#actorSubscriptionWithStatus(actor)).policy;
     }
 
+    /** On a plan somebody subscribed them to, not one a resolver inferred. */
+    async actorHasPaidSubscription(actor: Actor): Promise<boolean> {
+        const { policy, fromDefault } =
+            await this.#actorSubscriptionWithStatus(actor);
+        // A deployment that turned unlimited on means it.
+        if (policy.id === UNLIMITED_SUBSCRIPTION) return true;
+        return !fromDefault && !isFreeSubscription(policy.id);
+    }
+
     /**
      * `provisionalUntil` is set when the answer may not be this actor's plan
      * (failed lookup, or an actor missing its email or numeric id). Clean
@@ -2051,6 +1966,7 @@ export class MeteringService extends PuterService {
     async #actorSubscriptionWithStatus(actor: Actor): Promise<{
         policy: SubscriptionPolicy;
         provisionalUntil?: number;
+        fromDefault: boolean;
     }> {
         if (!actor.user?.uuid)
             throw new HttpError(403, 'Actor must be a user to get policy', {
@@ -2063,6 +1979,7 @@ export class MeteringService extends PuterService {
         if (cached && cached.expiresAt > now)
             return {
                 policy: cached.policy,
+                fromDefault: cached.fromDefault,
                 provisionalUntil: cached.lookupFailed
                     ? cached.expiresAt
                     : undefined,
@@ -2078,6 +1995,7 @@ export class MeteringService extends PuterService {
         ) {
             return {
                 policy: resolved.policy,
+                fromDefault: resolved.fromDefault,
                 provisionalUntil:
                     now + MeteringService.SUBSCRIPTION_FALLBACK_CACHE_MS,
             };
@@ -2091,7 +2009,10 @@ export class MeteringService extends PuterService {
             stillFresh.expiresAt > now &&
             !stillFresh.lookupFailed
         ) {
-            return { policy: stillFresh.policy };
+            return {
+                policy: stillFresh.policy,
+                fromDefault: stillFresh.fromDefault,
+            };
         }
 
         // Map preserves insertion order; FIFO-evict so a flood of one-shot
@@ -2111,18 +2032,22 @@ export class MeteringService extends PuterService {
         this.subscriptionCache.set(uuid, {
             policy: resolved.policy,
             lookupFailed: resolved.lookupFailed,
+            fromDefault: resolved.fromDefault,
             expiresAt,
         });
         return {
             policy: resolved.policy,
+            fromDefault: resolved.fromDefault,
             provisionalUntil: resolved.lookupFailed ? expiresAt : undefined,
         };
     }
 
     /** `lookupFailed`: a resolver or the allowance read threw, so it fell back. */
-    async #resolveActorSubscription(
-        actor: Actor,
-    ): Promise<{ policy: SubscriptionPolicy; lookupFailed: boolean }> {
+    async #resolveActorSubscription(actor: Actor): Promise<{
+        policy: SubscriptionPolicy;
+        lookupFailed: boolean;
+        fromDefault: boolean;
+    }> {
         const fallbackDefault = this.config.unlimitedMetering
             ? UNLIMITED_SUBSCRIPTION
             : actor.user?.email
@@ -2130,7 +2055,7 @@ export class MeteringService extends PuterService {
               : DEFAULT_TEMP_SUBSCRIPTION;
 
         const defaults = await this.firstResolver(
-            this.defaultSubscriptionResolvers,
+            this.defaultSubscriptionResolvers.map((entry) => entry.fn),
             actor,
         );
         const resolvedDefault = defaults.id || fallbackDefault;
@@ -2154,10 +2079,13 @@ export class MeteringService extends PuterService {
         // the built-in free policy keeps callers holding a real policy: the
         // alternative is `undefined` reaching every reader of `.id` and
         // `.monthUsageAllowance` as a 500 rather than a downgrade.
+        const explicit = availablePolicies.find((p) => p.id === resolvedUser);
         const policy =
-            availablePolicies.find((p) => p.id === resolvedUser) ??
+            explicit ??
             availablePolicies.find((p) => p.id === resolvedDefault) ??
             availablePolicies.find((p) => p.id === fallbackDefault);
+        // Of the policy that applied, not the id that was asked for.
+        const fromDefault = !user.id || !explicit;
         if (policy) {
             const withAllowance = await this.#withMonthAllowance(
                 actor.user.uuid!,
@@ -2166,6 +2094,7 @@ export class MeteringService extends PuterService {
             return {
                 policy: withAllowance.policy,
                 lookupFailed: resolverFailed || withAllowance.failed,
+                fromDefault,
             };
         }
         console.warn(
@@ -2176,6 +2105,7 @@ export class MeteringService extends PuterService {
         return {
             policy: REGISTERED_USER_FREE as SubscriptionPolicy,
             lookupFailed: resolverFailed,
+            fromDefault,
         };
     }
 
@@ -2242,6 +2172,38 @@ export class MeteringService extends PuterService {
         return typeof res === 'number' && Number.isFinite(res) && res > 0
             ? res
             : null;
+    }
+
+    /** `getActorAddons`, through `#spentAddons`. */
+    async #addonsForSettle(actor: Actor): Promise<UsageAddons> {
+        const uuid = actor.user?.uuid;
+        const cached = uuid ? this.#spentAddons.get(uuid) : undefined;
+        if (cached && cached.expiresAt > Date.now()) return cached.addons;
+
+        const drops = this.#spentAddonsDrops;
+        const addons = await this.getActorAddons(actor);
+        if (!uuid) return addons;
+        this.#spentAddons.delete(uuid);
+        const creditLeft =
+            (addons.purchasedCredits || 0) -
+            (addons.consumedPurchaseCredits || 0);
+        // Right after a credits change the store can still return the record
+        // from before it, so nothing is held until that window ends.
+        if (
+            creditLeft > 0 ||
+            drops !== this.#spentAddonsDrops ||
+            this.#isForcingExactReads(uuid)
+        )
+            return addons;
+        if (this.#spentAddons.size >= MeteringService.CREDIT_CACHE_LIMIT) {
+            const oldest = this.#spentAddons.keys().next().value;
+            if (oldest !== undefined) this.#spentAddons.delete(oldest);
+        }
+        this.#spentAddons.set(uuid, {
+            addons,
+            expiresAt: Date.now() + MeteringService.CREDIT_CACHE_MS,
+        });
+        return addons;
     }
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {
@@ -2749,10 +2711,7 @@ export class MeteringService extends PuterService {
         actorSubscription: SubscriptionPolicy;
         actorAddons: UsageAddons;
         incrementCost: number;
-        usageType?: string;
-        usageAmount?: number;
-        costOverride?: number;
-        batchUsages?: UsageInput[];
+        batchUsages: UsageInput[];
     }): void {
         const {
             actor,
@@ -2800,24 +2759,20 @@ export class MeteringService extends PuterService {
 
         this.clients.alarm.create(
             `metering usage exceeded by user: ${actorLabel(actor)}`,
-            `${actorLabel(actor)} (${userId}) has exceeded their usage allowance significantly`,
+            `${actorLabel(actor)} (${userId}) has exceeded their credits significantly (${currentMultiple}x their monthly credits)`,
             {
                 userId: actor.user?.uuid,
                 username: actor.user?.username,
                 email: actor.user?.email,
                 appId: actor.effectiveApp?.uid,
-                usageType: ctx.usageType,
-                usageAmount: ctx.usageAmount,
-                costOverride: ctx.costOverride,
                 batchUsages: ctx.batchUsages,
                 totalUsage: actorUsages.total,
                 monthUsageAllowance: actorSubscription.monthUsageAllowance,
                 purchasedCredits,
                 consumedPurchaseCredits,
             },
-            // One account outspending its allowance is a thing to look at, not
-            // an incident — a record in the alerts channel is enough.
-            'info',
+            // Not an outage, but a chat-only record of it gets lost.
+            'warning',
         );
     }
 

@@ -24,7 +24,7 @@ import { starts_hidden } from './startsHidden.js';
 import { append_signed_item_params } from './appendSignedItemParams.js';
 import { expand_home_path } from './expandHomePath.js';
 import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
-import { mintGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
+import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -520,10 +520,11 @@ const launch_app = async (options) => {
         let launch_token = null;
         let tokenResult = null;
         if ( is_godmode ) {
-            const godmode_token = await mintGodmodeToken(launch_app_uid);
+            const godmode_token = reusableGodmodeToken(launch_app_uid)
+                ?? await mintGodmodeToken(launch_app_uid);
             if ( godmode_token.ok ) {
                 launch_token = godmode_token.token;
-                trackGodmodeToken(uuid, launch_app_uid, godmode_token.token, godmode_token.expiresAt);
+                trackGodmodeToken(uuid, launch_app_uid, godmode_token.token, godmode_token.expiresAt, godmode_token.mintedAt);
             } else {
                 tokenResult = { token: null, reason: 'godmode-token-request-failed', ...godmode_token };
             }

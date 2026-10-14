@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PuterServer } from '../../server.js';
+import { setupTestServer } from '../../testUtil.js';
 import { OIDCStore } from './OIDCStore.js';
 
 type OidcRow = {
@@ -26,7 +29,7 @@ const createStore = (rows: readonly OidcRow[]) => {
                 throw createPostgresUniqueError();
             },
         ),
-        read: vi.fn(
+        pread: vi.fn(
             async (
                 _sql: string,
                 _params: readonly unknown[],
@@ -52,11 +55,47 @@ describe('OIDCStore', () => {
             store.link(123, 'test-provider', 'subject-1'),
         ).resolves.toBeUndefined();
 
-        expect(db.read).toHaveBeenCalledWith(
+        expect(db.pread).toHaveBeenCalledWith(
             expect.stringContaining('user_oidc_providers'),
             ['test-provider', 'subject-1'],
         );
     });
+
+    // The bare parent code is how some sqlite drivers report every constraint
+    // failure, NOT NULL and FK included.
+    it.each([
+        [
+            'a NOT NULL failure under the bare sqlite constraint code',
+            Object.assign(
+                new Error(
+                    'NOT NULL constraint failed: user_oidc_providers.provider_sub',
+                ),
+                { code: 'SQLITE_CONSTRAINT' },
+            ),
+        ],
+        [
+            'a foreign-key failure',
+            Object.assign(new Error('FOREIGN KEY constraint failed'), {
+                code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+            }),
+        ],
+    ])(
+        'rethrows %s instead of reporting an existing link',
+        async (_label, failure) => {
+            const { db, store } = createStore([
+                {
+                    user_id: 123,
+                    provider: 'test-provider',
+                    provider_sub: 'subject-1',
+                },
+            ]);
+            db.write.mockRejectedValueOnce(failure);
+
+            await expect(
+                store.link(123, 'test-provider', 'subject-1'),
+            ).rejects.toBe(failure);
+        },
+    );
 
     it('rejects a Postgres unique violation for an existing different-user link', async () => {
         const { store } = createStore([
@@ -80,5 +119,53 @@ describe('OIDCStore', () => {
             .catch((e: Error) => e);
         expect(error.message).not.toContain('456');
         expect(error.message).not.toContain('subject-1');
+    });
+});
+
+describe('OIDCStore.link behind a lagging replica', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const makeUser = async () => {
+        const username = `oidc-${Math.random().toString(36).slice(2, 10)}`;
+        return server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+        });
+    };
+
+    it('refuses an identity linked to another account the replica has not seen yet', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const sub = `sub-${uuidv4()}`;
+        await server.stores.oidc.link(owner.id, 'test-provider', sub);
+
+        // sqlite's pread delegates to read, so the primary is pinned to the
+        // real one while replica reads of the link table come back empty.
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (q, p) =>
+                /FROM `user_oidc_providers`/u.test(q) ? [] : realRead(q, p),
+            );
+        try {
+            await expect(
+                server.stores.oidc.link(other.id, 'test-provider', sub),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
     });
 });

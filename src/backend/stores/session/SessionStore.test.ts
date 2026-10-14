@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
 import {
     APP_WINDOW_SECONDS,
+    GODMODE_TOKEN_MAX_AGE_SECONDS,
+    GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
     WORKER_WINDOW_SECONDS,
 } from './SessionStore.js';
@@ -205,6 +207,23 @@ describe('SessionStore', () => {
             expect(row.revoked_at).toBeGreaterThan(0);
         });
 
+        it('leaves the revoked row cached, so no replica can re-introduce it', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+            await target.getByUuid(session.uuid);
+
+            await target.removeByUuid(session.uuid);
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            try {
+                // Answered from the cache the revoke left, not from a read.
+                expect(await target.getByUuid(session.uuid)).toBeNull();
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
+        });
+
         it('is idempotent — second call does not overwrite revoked_at', async () => {
             const user = await makeUser();
             const session = await target.create(user.id);
@@ -217,6 +236,48 @@ describe('SessionStore', () => {
             const secondRevokedAt = (await rawRow(session.uuid)).revoked_at;
 
             expect(secondRevokedAt).toBe(firstRevokedAt);
+        });
+    });
+
+    describe('purgeEndedInRange', () => {
+        it('deletes rows ended before their kind cutoff within the id range', async () => {
+            const user = await makeUser();
+            const now = Math.floor(Date.now() / 1000);
+            const cutoffs = { cutoff: now - 100, webCutoff: now - 1000 };
+            const end = async (column: string, at: number, kind = 'asset') => {
+                const { uuid } = await target.create(user.id, { kind });
+                await server.clients.db.write(
+                    `UPDATE \`sessions\` SET \`${column}\` = ? WHERE \`uuid\` = ?`,
+                    [at, uuid],
+                );
+                return uuid;
+            };
+            const revoked = await end('revoked_at', now - 101);
+            const expired = await end('expires_at', now - 101);
+            const webRecent = await end('revoked_at', now - 101, 'web');
+            const webOld = await end('expires_at', now - 1001, 'web');
+            const live = (await target.create(user.id, {})).uuid;
+            const firstId = Number((await rawRow(revoked)).id);
+
+            // A range ending at `revoked` leaves the later rows alone.
+            expect(
+                await target.purgeEndedInRange(firstId - 1, 1, cutoffs),
+            ).toBe(1);
+            expect(await rawRow(revoked)).toBeNull();
+            expect(await rawRow(expired)).not.toBeNull();
+
+            const maxId = await target.maxId();
+            expect(
+                await target.purgeEndedInRange(
+                    firstId,
+                    maxId - firstId,
+                    cutoffs,
+                ),
+            ).toBe(2);
+            expect(await rawRow(expired)).toBeNull();
+            expect(await rawRow(webOld)).toBeNull();
+            expect(await rawRow(webRecent)).not.toBeNull();
+            expect(await rawRow(live)).not.toBeNull();
         });
     });
 
@@ -336,6 +397,142 @@ describe('SessionStore', () => {
             await target.removeByUuid(first.uuid);
             const second = await target.getOrCreateApp(user.id, appUid);
             expect(second.uuid).not.toBe(first.uuid);
+        });
+    });
+
+    describe('getOrCreateGodmodeToken', () => {
+        const nowS = () => Math.floor(Date.now() / 1000);
+        const mint = (
+            userId: number,
+            parentSessionUid: string,
+            appUid = 'app-gm',
+        ) =>
+            target.getOrCreateGodmodeToken(userId, {
+                parentSessionUid,
+                appUid,
+                expiresAt: nowS() + GODMODE_TOKEN_WINDOW_SECONDS,
+                maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
+            });
+        const desktop = async () => {
+            const user = await makeUser();
+            const web = await target.create(user.id);
+            return { userId: user.id as number, web: web.uuid as string };
+        };
+
+        it('renews from the cache with no primary read and no write', async () => {
+            const { userId, web } = await desktop();
+            const first = await mint(userId, web);
+
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            const write = vi.spyOn(server.clients.db, 'write');
+            try {
+                const second = await mint(userId, web);
+                expect(second.row.uuid).toBe(first.row.uuid);
+                expect(second.row.expires_at).toBe(first.row.expires_at);
+                expect(second.replaced).toBeNull();
+                expect(pread).not.toHaveBeenCalled();
+                expect(write).not.toHaveBeenCalled();
+            } finally {
+                pread.mockRestore();
+                write.mockRestore();
+            }
+        });
+
+        it('extends the row once the move is an hour or more', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [nowS() + 2 * 60 * 60, row.uuid],
+            );
+            await target.publishCacheKeys({
+                keys: [`sessions:v2:uuid:${row.uuid}`],
+            });
+
+            const renewed = await mint(userId, web);
+            expect(renewed.row.uuid).toBe(row.uuid);
+            expect(renewed.row.expires_at).toBeGreaterThanOrEqual(
+                nowS() + GODMODE_TOKEN_WINDOW_SECONDS - 1,
+            );
+            expect((await rawRow(row.uuid)).expires_at).toBe(
+                renewed.row.expires_at,
+            );
+        });
+
+        it('mints a new row once the cached one is revoked', async () => {
+            const { userId, web } = await desktop();
+            const first = await mint(userId, web);
+            await target.revokeCascade(first.row.uuid);
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(first.row.uuid);
+            expect(next.replaced).toBeNull();
+
+            const second = await mint(userId, web);
+            await target.removeByUuid(second.row.uuid);
+            expect((await mint(userId, web)).row.uuid).not.toBe(
+                second.row.uuid,
+            );
+        });
+
+        it('mints a new row when a lagging read re-cached the revoked one', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            await target.revokeCascade(row.uuid);
+            // A replica that hadn't seen the revoke yet answered a read.
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${row.uuid}`,
+                JSON.stringify(row),
+            );
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(row.uuid);
+        });
+
+        it('mints a new row when a renewal finds the cached one already revoked', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            const soon = nowS() + 2 * 60 * 60;
+            // Revoked in the database, still live and due for renewal in the cache.
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ?',
+                [nowS(), row.uuid],
+            );
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${row.uuid}`,
+                JSON.stringify({ ...row, expires_at: soon }),
+            );
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(row.uuid);
+            expect((await rawRow(row.uuid)).expires_at).toBe(row.expires_at);
+        });
+
+        it('keeps one row per web session and app', async () => {
+            const { userId, web } = await desktop();
+            const other = (await target.create(userId)).uuid;
+            const first = await mint(userId, web);
+
+            expect((await mint(userId, other)).row.uuid).not.toBe(
+                first.row.uuid,
+            );
+            expect((await mint(userId, web, 'app-gm-other')).row.uuid).not.toBe(
+                first.row.uuid,
+            );
+            expect((await mint(userId, web)).row.uuid).toBe(first.row.uuid);
+        });
+
+        it('ignores a cached pointer to a row of another session', async () => {
+            const { userId, web } = await desktop();
+            const other = (await target.create(userId)).uuid;
+            const mine = await mint(userId, web);
+            const theirs = await mint(userId, other);
+            await server.clients.redis.set(
+                `sessions:v2:godmode:${userId}:${web}:app-gm`,
+                JSON.stringify({ uuid: theirs.row.uuid }),
+            );
+
+            expect((await mint(userId, web)).row.uuid).toBe(mine.row.uuid);
         });
     });
 
@@ -605,6 +802,123 @@ describe('SessionStore', () => {
             expect(next.map((r: { uuid: string }) => r.uuid)).not.toContain(
                 first.uuid,
             );
+        });
+    });
+
+    describe('deleteWorkerSessions', () => {
+        const name = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('deletes every row of a worker name across users and apps, and nothing else', async () => {
+            const alice = await makeUser();
+            const bob = await makeUser();
+            const workerName = name();
+            const userScoped = await target.getOrCreateWorker(alice.id, {
+                appUid: null,
+                workerName,
+            });
+            const appScoped = await target.getOrCreateWorker(bob.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            const otherWorker = await target.getOrCreateWorker(alice.id, {
+                appUid: null,
+                workerName: name(),
+            });
+
+            const deleted = await target.deleteWorkerSessions({ workerName });
+
+            expect(deleted.map((r: { uuid: string }) => r.uuid).sort()).toEqual(
+                [userScoped.uuid, appScoped.uuid].sort(),
+            );
+            expect(await rawRow(userScoped.uuid)).toBeNull();
+            expect(await rawRow(appScoped.uuid)).toBeNull();
+            expect(await rawRow(otherWorker.uuid)).not.toBeNull();
+        });
+
+        it('filters by user and app together', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const deployed = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: name(),
+            });
+            const otherApp = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName: name(),
+            });
+            const userScoped = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: name(),
+            });
+            const otherUser = await target.getOrCreateWorker(other.id, {
+                appUid,
+                workerName: name(),
+            });
+
+            await target.deleteWorkerSessions({ userId: user.id, appUid });
+
+            expect(await rawRow(deployed.uuid)).toBeNull();
+            expect(await rawRow(otherApp.uuid)).not.toBeNull();
+            expect(await rawRow(userScoped.uuid)).not.toBeNull();
+            expect(await rawRow(otherUser.uuid)).not.toBeNull();
+        });
+
+        it('takes derived sessions with it', async () => {
+            const user = await makeUser();
+            const worker = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName: name(),
+            });
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: worker.uuid,
+                access_token_uid: uuidv4(),
+            });
+
+            const deleted = await target.deleteWorkerSessions({
+                userId: user.id,
+                appUid: worker.app_uid,
+            });
+
+            expect(await rawRow(child.uuid)).toBeNull();
+            expect(
+                deleted.find((r: { uuid: string }) => r.uuid === child.uuid)
+                    ?.accessTokenUid,
+            ).toBe(child.access_token_uid);
+        });
+
+        it('drops the cached rows, so a lookup misses and a redeploy mints fresh', async () => {
+            const user = await makeUser();
+            const workerName = name();
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            // Warm both the uuid and the composite worker cache.
+            expect(await target.getByUuidAny(first.uuid)).toBeTruthy();
+            expect(
+                await target.getWorker(user.id, { appUid: null, workerName }),
+            ).toBeTruthy();
+
+            await target.deleteWorkerSessions({ workerName });
+
+            expect(await target.getByUuidAny(first.uuid)).toBeNull();
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+        });
+
+        it('refuses to run without a filter', async () => {
+            const user = await makeUser();
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: name(),
+            });
+            expect(await target.deleteWorkerSessions({})).toEqual([]);
+            expect(await rawRow(row.uuid)).not.toBeNull();
         });
     });
 

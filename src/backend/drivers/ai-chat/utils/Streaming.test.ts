@@ -429,3 +429,35 @@ describe('AIChatMessageStream.contentBlock', () => {
         ).toThrow(/Unknown content block type/);
     });
 });
+
+
+describe('AIChatStream backpressure', () => {
+    it('pauses output until the writable drains', async () => {
+        let finishWrite: (() => void) | undefined;
+        const sink = new Writable({ highWaterMark: 1, write(_chunk, _encoding, callback) { finishWrite = callback; } });
+        const chatStream = new AIChatStream({ stream: sink });
+        chatStream.writeChunk({ type: 'text', text: 'hello' });
+        let drained = false;
+        const waiting = chatStream.waitForDrain().then(() => { drained = true; });
+        await Promise.resolve();
+        expect(drained).toBe(false);
+        finishWrite!();
+        await waiting;
+        expect(drained).toBe(true);
+        expect(sink.listenerCount('drain')).toBe(0);
+        sink.destroy();
+    });
+
+    it.each(['abort', 'close', 'error'])('releases a drain wait on %s', async (event) => {
+        const sink = new Writable({ highWaterMark: 1, write() {} });
+        const chatStream = new AIChatStream({ stream: sink });
+        chatStream.writeChunk({ type: 'text', text: 'hello' });
+        const waiting = chatStream.waitForDrain();
+        const rejected = expect(waiting).rejects.toThrow(event === 'error' ? 'failed' : 'Chat stream aborted');
+        if (event === 'abort') chatStream.abort();
+        else if (event === 'error') sink.destroy(new Error('failed'));
+        else sink.destroy();
+        await rejected;
+        expect(sink.listenerCount('drain')).toBe(0);
+    });
+});

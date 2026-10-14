@@ -45,7 +45,7 @@ Items you own appear at their real path. An item you shared as a delegate (from 
 
 <strong class="example-title">See everything you have shared</strong>
 
-```html;fs-listSharedByMe
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

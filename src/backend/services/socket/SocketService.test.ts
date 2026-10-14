@@ -662,6 +662,28 @@ describe('SocketService (live socket.io)', () => {
         });
     });
 
+    it('drops the connection on a revocation that reached it from elsewhere', async () => {
+        const evicted = await createTestUser(server, {
+            username: 'sock-fanout',
+            password: 'sock-fanout-password',
+        });
+        const row = await server.stores.user.getByUsername(evicted.username);
+        const socket = await connect({ auth_token: `Bearer ${evicted.token}` });
+        expect(socket.connected).toBe(true);
+
+        // As a peer cluster delivers it: the node holding this socket is not
+        // the one that revoked the session.
+        server.clients.event.emit(
+            'outer.auth.sessions.revoked',
+            { user_id: row!.id, session_uids: ['whatever'] },
+            {},
+        );
+
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
     it('leaves other accounts alone when one is revoked', async () => {
         const kept = await createTestUser(server, {
             username: 'sock-kept',
@@ -732,6 +754,50 @@ describe('SocketService (live socket.io)', () => {
 
         expect(socket.connected).toBe(true);
         socket.disconnect();
+    });
+
+    it('re-checks without recording session activity', async () => {
+        const idle = await createTestUser(server, {
+            username: 'sock-idle',
+            password: 'sock-idle-password',
+        });
+        const socket = await connect({ auth_token: `Bearer ${idle.token}` });
+        const touch = vi.spyOn(server.stores.session, 'touch');
+        try {
+            await socketService.reauthenticateSockets();
+            expect(touch).not.toHaveBeenCalled();
+            expect(socket.connected).toBe(true);
+        } finally {
+            touch.mockRestore();
+            socket.disconnect();
+        }
+    });
+
+    it('checks each credential once, and joins a sweep already running', async () => {
+        const shared = await createTestUser(server, {
+            username: 'sock-shared',
+            password: 'sock-shared-password',
+        });
+        const tabs = await Promise.all([
+            connect({ auth_token: `Bearer ${shared.token}` }),
+            connect({ auth_token: `Bearer ${shared.token}` }),
+        ]);
+        const authenticate = vi.spyOn(server.services.auth, 'authenticate');
+        try {
+            await Promise.all([
+                socketService.reauthenticateSockets(),
+                socketService.reauthenticateSockets(),
+            ]);
+            const checks = authenticate.mock.calls.filter(
+                ([token]) => token === shared.token,
+            );
+            expect(checks).toHaveLength(1);
+            expect(checks[0]?.[1]).toEqual({ touch: false });
+            expect(tabs.every((tab) => tab.connected)).toBe(true);
+        } finally {
+            authenticate.mockRestore();
+            for (const tab of tabs) tab.disconnect();
+        }
     });
 
     it('gives a slot back when the connection closes', async () => {

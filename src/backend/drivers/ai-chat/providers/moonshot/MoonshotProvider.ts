@@ -18,118 +18,27 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type {
-    IChatCompleteResult,
-    IChatProvider,
-    ICompleteArguments,
-} from '../../types.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
 import { MOONSHOT_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 
-export class MoonshotProvider implements IChatProvider {
-    #openai: OpenAI;
-
-    #meteringService: MeteringService;
-
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: 'https://api.moonshot.ai/v1',
+export class MoonshotProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: config.apiBaseUrl ?? 'https://api.moonshot.ai/v1',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'kimi-k2.6',
+            models: () => MOONSHOT_MODELS,
+            meteringPrefix: 'moonshotai',
+            // Moonshot's vision API doesn't fetch http(s) URLs.
+            inlineImages: 'vision',
         });
-        this.#meteringService = meteringService;
-    }
-
-    getDefaultModel() {
-        return 'kimi-k2.6';
-    }
-
-    models() {
-        return MOONSHOT_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
-    }
-
-    /** The model key this provider records usage under. */
-    meteringModelKey(modelId: string): string {
-        return `moonshotai:${modelId}`;
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        // Moonshot's vision API doesn't fetch http(s) URLs; inline them
-        // so callers can pass plain links like other vision providers.
-        if (modelUsed.modalities?.input?.includes('image')) {
-            await inlineHttpImageUrls(messages);
-        }
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-        let completion;
-        try {
-            completion = await this.#openai.chat.completions.create(
-                {
-                    messages,
-                    model: modelUsed.id,
-                    ...(tools ? { tools } : {}),
-                    max_tokens,
-                    stream,
-                    ...(stream
-                        ? {
-                              stream_options: { include_usage: true },
-                          }
-                        : {}),
-                } as ChatCompletionCreateParams,
-                { signal: Context.get('abortSignal') },
-            );
-        } catch (e) {
-            if (!Context.get('abortSignal')?.aborted) {
-                console.log('Moonshot AI process_input_messages error: ', e);
-            }
-            throw e;
-        }
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * modelUsed.costs[key]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor,
-                    this.meteringModelKey(modelUsed.id),
-                    costsOverride,
-                );
-                return trackedUsage;
-            },
-            stream,
-            completion,
-        });
-    }
-
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
     }
 }

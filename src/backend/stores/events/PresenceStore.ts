@@ -18,6 +18,7 @@
  */
 
 import { CONCURRENT_SLOT_TTL_MS } from '../../core/http/middleware/rateLimit.js';
+import { bumpGeneration } from '../../util/redisGeneration.js';
 import { PuterStore } from '../types.js';
 import { KV_GLOBAL_APP_KEY } from '../systemKv/SystemKVStore.js';
 
@@ -458,11 +459,12 @@ export class PresenceStore extends PuterStore {
 
     // -- Generation --------------------------------------------------
 
-    /** Advance the user's presence generation. One key, so one command. */
+    /** Advance the user's presence generation. */
     async bumpGeneration(userId: number): Promise<number> {
-        const key = generationKey(userId);
-        const next = await this.clients.redis.incr(key);
-        await this.clients.redis.expire(key, GENERATION_TTL_SECONDS);
-        return typeof next === 'number' ? next : Number(next);
+        return bumpGeneration(
+            this.clients.redis,
+            generationKey(userId),
+            GENERATION_TTL_SECONDS,
+        );
     }
 }

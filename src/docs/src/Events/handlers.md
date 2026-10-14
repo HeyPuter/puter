@@ -104,7 +104,7 @@ An app's first published handler creates its [events worker](/Events/workers/), 
 
 ### Refusing a delivery
 
-In the events worker, a handler that returns takes the delivery, and one that throws is retried later. When retrying can't help (a malformed event, say), throw an error with `terminal: true` or `code: 'events_terminal'`. The delivery is dropped and replaced by a [gap marker](/Events/onLocal/#gaps) with `reason: 'handler_rejected'`.
+In the events worker, a handler that returns takes the delivery, and one that throws is retried later. When retrying can't help (a malformed event, say), throw an error with `terminal: true` or `code: 'events_terminal'`. The delivery is dropped and replaced by a [gap marker](/Events/subjects/#gaps) with `reason: 'handler_rejected'`.
 
 ```js
 await puter.events.handlers.publish('ingestUpload', async ({ event }) => {

@@ -208,7 +208,8 @@ describe('announcing a team share', () => {
         expect(
             sent.some((mail) => mail.to.includes(fx.b.owner.username)),
         ).toBe(false);
-    });
+        // Longer than the wait above, which the 5s default cuts short.
+    }, 30_000);
 
     it('does not announce to a member who blocked the sharer', async () => {
         // A member nobody has notified yet, so a new row is detectable. Reusing
@@ -286,8 +287,9 @@ describe('announcing a team share', () => {
         // One team, so one read -- not one per item.
         expect(spy).toHaveBeenCalledTimes(1);
     });
-    it('checks block state once per team, not once per item', async () => {
-        const spy = vi.spyOn(fx.env.server.stores.userBlock, 'isBlocked');
+    it('checks block state in one read per team, not per item or member', async () => {
+        const spy = vi.spyOn(fx.env.server.stores.userBlock, 'blockersAmong');
+        const single = vi.spyOn(fx.env.server.stores.userBlock, 'isBlocked');
         const actor = await actorFor(fx.a.owner.userId);
         const created = [];
         for (let i = 0; i < 3; i++) {
@@ -300,6 +302,7 @@ describe('announcing a team share', () => {
             );
         }
         spy.mockClear();
+        single.mockClear();
 
         await fx.env.server.services.shareNotification.notifyShared(
             actor,
@@ -307,11 +310,10 @@ describe('announcing a team share', () => {
         );
 
         // Block state is per (member, issuer) pair -- constant across the items
-        // in one call, so 3 items must not triple the queries.
-        const team = await fx.env.server.stores.team.getByUid(fx.a.uid);
-        const members = await fx.env.server.stores.team.listMemberIdsByGroupId(
-            team.id,
-        );
-        expect(spy.mock.calls.length).toBeLessThanOrEqual(members.length);
+        // in one call, and every member's is one query.
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(single).not.toHaveBeenCalled();
+        spy.mockRestore();
+        single.mockRestore();
     });
 });

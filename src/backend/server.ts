@@ -21,7 +21,7 @@
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import type { Application, RequestHandler } from 'express';
+import type { IRouter, RequestHandler, Router } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -44,7 +44,10 @@ import {
     requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
+    requireCreditsGate,
     requirePhoneVerifiedGate,
+    requireReputationGate,
+    requireSubscriptionGate,
     requireTeam2fa,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
@@ -53,15 +56,14 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
-import { requireCreditsGate } from './core/http/middleware/credits';
-import { requireReputationGate } from './core/http/middleware/reputation';
-import { requireSubscriptionGate } from './core/http/middleware/subscription';
 import { validateReputationRequirement } from './core/reputation';
 import {
     actorOnPaidPlan,
     validateSubscriptionRequirement,
 } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
+import { createUserProtectedGate } from './core/http/middleware/userProtected';
+import { internalAuthGate } from './core/http/middleware/internalAuth';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
@@ -89,7 +91,11 @@ import {
     createRouteLifecycleMiddleware,
     routeEventKeyBase,
 } from './core/http/routeLifecycle';
-import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
+import {
+    PREFIX_METADATA_KEY,
+    type RouteDescriptor,
+    type RouteOptions,
+} from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
 import {
@@ -114,6 +120,19 @@ import type {
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
 
+/** Route options a claimed subdomain's routes may use. */
+const CLAIMED_ROUTE_OPTIONS = new Set([
+    'subdomain',
+    'middleware',
+    'bodyJson',
+    'bodyRaw',
+    'bodyText',
+    'bodyUrlencoded',
+    'rateLimit',
+    'concurrent',
+    'errorRenderer',
+]);
+
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
     stores!: LayerInstances<typeof puterStores>;
@@ -124,6 +143,8 @@ export class PuterServer {
     #app!: ReturnType<typeof express>;
     #server: ReturnType<ReturnType<typeof express>['listen']> | null = null;
     #removeProcessGuards: (() => void) | null = null;
+    /** Routes for each claimed subdomain, served only past its `authorize`. */
+    #claimRouters = new Map<string, Router>();
 
     #ready: Promise<boolean>;
 
@@ -158,89 +179,33 @@ export class PuterServer {
         const extensionDirs = this.#config.extensions;
         await this.#importExtensions(extensionDirs);
 
+        // Each layer is built from its built-ins then its extensions, and is
+        // handed the layers beneath it plus itself (so a later peer can reach
+        // an earlier one).
         this.clients = {} as typeof this.clients;
-        for (const [clientName, ClientClass] of Object.entries(clients)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.clients[clientName] =
-                typeof ClientClass === 'object'
-                    ? ClientClass
-                    : (new (ClientClass as any)(this.#config) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            clientsContainers[clientName] = this.clients[clientName];
-        }
-        for (const [clientName, ClientClass] of Object.entries(
+        this.#instantiateLayer(
+            clients,
             extensionStore.clients,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.clients[clientName] =
-                typeof ClientClass === 'object'
-                    ? ClientClass
-                    : (new (ClientClass as any)(this.#config) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            clientsContainers[clientName] = this.clients[clientName];
-        }
-
+            this.clients,
+            clientsContainers,
+            [this.#config],
+        );
         this.stores = {} as typeof this.stores;
-        for (const [storeName, StoreClass] of Object.entries(stores)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.stores[storeName] =
-                typeof StoreClass === 'object'
-                    ? StoreClass
-                    : (new (StoreClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            storesContainers[storeName] = this.stores[storeName];
-        }
-        for (const [storeName, StoreClass] of Object.entries(
+        this.#instantiateLayer(
+            stores,
             extensionStore.stores,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.stores[storeName] =
-                typeof StoreClass === 'object'
-                    ? StoreClass
-                    : (new (StoreClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            storesContainers[storeName] = this.stores[storeName];
-        }
-
+            this.stores,
+            storesContainers,
+            [this.#config, this.clients, this.stores],
+        );
         this.services = {} as typeof this.services;
-        for (const [serviceName, ServiceClass] of Object.entries(services)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.services[serviceName] =
-                typeof ServiceClass === 'object'
-                    ? ServiceClass
-                    : (new (ServiceClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            servicesContainers[serviceName] = this.services[serviceName];
-        }
-        for (const [serviceName, ServiceClass] of Object.entries(
+        this.#instantiateLayer(
+            services,
             extensionStore.services,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.services[serviceName] =
-                typeof ServiceClass === 'object'
-                    ? ServiceClass
-                    : (new (ServiceClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            servicesContainers[serviceName] = this.services[serviceName];
-        }
+            this.services,
+            servicesContainers,
+            [this.#config, this.clients, this.stores, this.services],
+        );
 
         // Wire the rate-limiter to its configured backend now that clients
         // and stores exist. Memory is the default; `redis` needs a redis
@@ -277,72 +242,33 @@ export class PuterServer {
         // on `DriverController` (a regular controller) which reads from
         // `this.drivers` — no separate registry object here any more.
         this.drivers = {} as typeof this.drivers;
-        const allDriverSources = [
-            ...Object.entries(drivers),
-            ...Object.entries(extensionStore.drivers),
-        ];
-        for (const [driverKey, DriverClass] of allDriverSources) {
-            const instance =
-                typeof DriverClass === 'object'
-                    ? DriverClass
-                    : (new (DriverClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.drivers[driverKey] = instance;
-            driversContainers[driverKey] = instance;
-        }
+        this.#instantiateLayer(
+            drivers,
+            extensionStore.drivers,
+            this.drivers,
+            driversContainers,
+            [this.#config, this.clients, this.stores, this.services],
+        );
 
         this.controllers = {} as typeof this.controllers;
-        for (const [controllerName, ControllerClass] of Object.entries(
+        this.#instantiateLayer(
             controllers,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.controllers[controllerName] =
-                typeof ControllerClass === 'object'
-                    ? ControllerClass
-                    : (new (ControllerClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                          this.drivers,
-                      ) as any);
-            this.#registerControllerRoutes(
-                controllerName,
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName],
-            );
-            controllersContainers[controllerName] =
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName];
-        }
-        for (const [controllerName, ControllerClass] of Object.entries(
             extensionStore.controllers,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.controllers[controllerName] =
-                typeof ControllerClass === 'object'
-                    ? ControllerClass
-                    : (new (ControllerClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                          this.drivers,
-                      ) as any);
-            this.#registerControllerRoutes(
-                controllerName,
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName],
-            );
-            controllersContainers[controllerName] =
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName];
-        }
+            this.controllers,
+            controllersContainers,
+            [
+                this.#config,
+                this.clients,
+                this.stores,
+                this.services,
+                this.drivers,
+            ],
+            (name, controller) =>
+                this.#registerControllerRoutes(
+                    name,
+                    controller as WithControllerRegistration,
+                ),
+        );
 
         // Extension routes are shaped as `RouteDescriptor`s too, so they
         // flow through the same materializer as controller routes — same
@@ -360,6 +286,31 @@ export class PuterServer {
         this.#installTerminalMiddleware();
 
         return true;
+    }
+
+    /**
+     * Instantiate one layer: built-ins, then extension additions, each a class
+     * constructed with `args` or an instance used as is. Every instance lands
+     * in `layer` and in the layer's shared export container.
+     */
+    #instantiateLayer(
+        builtIns: object,
+        extensionAdditions: object,
+        layer: object,
+        container: object,
+        args: unknown[],
+        onInstance?: (name: string, instance: unknown) => void,
+    ): void {
+        for (const [name, Layer] of [
+            ...Object.entries(builtIns),
+            ...Object.entries(extensionAdditions),
+        ]) {
+            const instance =
+                typeof Layer === 'object' ? Layer : new (Layer as any)(...args);
+            (layer as Record<string, unknown>)[name] = instance;
+            onInstance?.(name, instance);
+            (container as Record<string, unknown>)[name] = instance;
+        }
     }
 
     /**
@@ -480,9 +431,18 @@ export class PuterServer {
         // -- Host handling (www → root, user subdomain on main domain → 404)
         // Installed after host validation so we know the host is allowed,
         // and before CORS/body-parsing so we short-circuit without burning
-        // work.
+        // work. A subdomain an extension claimed is answered here too.
         this.#app.use(createWwwRedirect(this.#config));
-        this.#app.use(createUserSubdomainNotFound(this.#config));
+        this.#app.use(
+            createUserSubdomainNotFound(this.#config, (name) => {
+                const claim = extensionStore.claimedSubdomains.get(name);
+                if (!claim) return undefined;
+                return {
+                    authorize: claim.authorize,
+                    handler: this.#claimRouters.get(name),
+                };
+            }),
+        );
 
         // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.
@@ -929,12 +889,20 @@ export class PuterServer {
     }
 
     #materializeRoute(
-        app: Application,
+        app: IRouter,
         routerPrefix: string,
         route: RouteDescriptor,
     ) {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
+
+        // A route for a claimed subdomain lives behind that claim's
+        // `authorize`, on its own router, never on the main app.
+        const claimed = PuterServer.#claimedSubdomainOf(
+            opts,
+            `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}`,
+        );
+        if (claimed) app = this.#claimRouter(claimed);
 
         // Validated here rather than trusted, and by the same function the
         // driver decorator uses: a malformed requirement is a boot failure
@@ -1015,10 +983,14 @@ export class PuterServer {
         //   adminOnly        => requireAuth
         //   allowedAppIds    => requireAuth
         //   requireUserActor => requireAuth
+        //   userProtected    => requireUserActor
         // Dedupe: only push requireAuthGate once when *any* of these are set.
+        const requireUserActor = Boolean(
+            opts.requireUserActor || opts.userProtected,
+        );
         const needsAuth = Boolean(
             opts.requireAuth ||
-            opts.requireUserActor ||
+            requireUserActor ||
             opts.adminOnly ||
             opts.allowedAppIds ||
             opts.requireVerified ||
@@ -1065,7 +1037,7 @@ export class PuterServer {
         // (rejecting an admin acting through a third-party app) unless the
         // route is also appId-gated, in which case `allowedAppIdsGate` governs
         // which apps may pass.
-        if (opts.requireUserActor) {
+        if (requireUserActor) {
             mwChain.push(
                 requireUserActorGate({
                     allowFullAccess: opts.allowFullAccessToken,
@@ -1281,6 +1253,27 @@ export class PuterServer {
             );
         }
 
+        // 3b. Shared-secret check on service-to-service routes.
+        if (opts.internalAuth) {
+            const { internalAuth } = opts;
+            mwChain.push(internalAuthGate(() => internalAuth(this.#config)));
+        }
+
+        // 3c. Password (or OIDC revalidation) re-check on account routes.
+        if (opts.userProtected) {
+            mwChain.push(
+                ...createUserProtectedGate(
+                    {
+                        config: this.#config,
+                        userStore: this.stores.user,
+                        oidcService: this.services.oidc,
+                        tokenService: this.services.token,
+                    },
+                    opts.userProtected === true ? {} : opts.userProtected,
+                ),
+            );
+        }
+
         // 4. Caller-supplied middleware runs after gates + parsers, before the handler.
         if (opts.middleware) mwChain.push(...opts.middleware);
 
@@ -1334,7 +1327,9 @@ export class PuterServer {
 
         // All express + WebDAV verbs accept the same (path, ...handlers) shape.
         // The `RouteMethod` union is the allowlist of method names we expose.
-        const method = app[route.method as keyof Application] as unknown;
+        const method = (app as unknown as Record<string, unknown>)[
+            route.method
+        ];
         if (typeof method !== 'function') {
             throw new Error(
                 `Express app does not support method: ${route.method}`,
@@ -1346,6 +1341,70 @@ export class PuterServer {
             ...mwChain,
             route.handler,
         );
+    }
+
+    #claimRouter(name: string): Router {
+        let router = this.#claimRouters.get(name);
+        if (!router) {
+            router = express.Router();
+            this.#claimRouters.set(name, router);
+        }
+        return router;
+    }
+
+    /**
+     * The claimed subdomain a route is declared for, if any. Claimed hosts
+     * authenticate through the claim's `authorize`, so options that rely on the
+     * main pipeline's actor or origin handling fail the boot instead.
+     */
+    static #claimedSubdomainOf(
+        opts: RouteOptions,
+        label: string,
+    ): string | undefined {
+        const claims = extensionStore.claimedSubdomains;
+        const labels = [opts.subdomain ?? []].flat();
+        for (const name of labels) {
+            const lower = name.toLowerCase();
+            if (lower !== name && claims.has(lower)) {
+                throw new Error(
+                    `${label}: claimed subdomain '${lower}' must be written in lowercase`,
+                );
+            }
+        }
+        if (Array.isArray(opts.subdomain)) {
+            const mixed = opts.subdomain.find((s) => claims.has(s));
+            if (mixed !== undefined) {
+                throw new Error(
+                    `${label}: claimed subdomain '${mixed}' must be the route's only subdomain`,
+                );
+            }
+            return undefined;
+        }
+        if (typeof opts.subdomain !== 'string') return undefined;
+        const claim = claims.get(opts.subdomain);
+        if (!claim) return undefined;
+        for (const [key, value] of Object.entries(opts)) {
+            if (value === undefined || value === false) continue;
+            if (!CLAIMED_ROUTE_OPTIONS.has(key)) {
+                throw new Error(
+                    `${label}: '${key}' is not available on a claimed subdomain`,
+                );
+            }
+        }
+        const limits = [opts.rateLimit, opts.concurrent].flat();
+        for (const limit of limits) {
+            if (limit && (limit.key !== 'ip' || limit.bySubscription)) {
+                throw new Error(
+                    `${label}: limits on a claimed subdomain must key on 'ip'`,
+                );
+            }
+        }
+        try {
+            claim.checkRoute?.(opts, label);
+        } catch (err) {
+            throw new Error(`${label}: ${(err as Error)?.message ?? err}`);
+        }
+        return opts.subdomain;
     }
 
     /**
@@ -1500,7 +1559,7 @@ export class PuterServer {
                 '************************************************************\n',
             );
 
-            await this.#fireOnServerStart();
+            await this.#runHook('bottomUp', 'onServerStart');
             console.log('PuterServer has fully booted.');
 
             // CLI: `--server` (optionally `--puter-backend=<gui-origin>`)
@@ -1563,27 +1622,31 @@ export class PuterServer {
             } as unknown as http.Server;
             // Tests still need onServerStart to fire so stores can
             // bootstrap (e.g. SystemKVStore creates its dynalite table).
-            await this.#fireOnServerStart();
+            await this.#runHook('bottomUp', 'onServerStart');
         }
     }
 
-    async #fireOnServerStart() {
-        for (const client of Object.values(this.clients) as WithLifecycle[]) {
-            if (client.onServerStart) await client.onServerStart();
-        }
-        for (const store of Object.values(this.stores) as WithLifecycle[]) {
-            if (store.onServerStart) await store.onServerStart();
-        }
-        for (const service of Object.values(this.services) as WithLifecycle[]) {
-            if (service.onServerStart) await service.onServerStart();
-        }
-        for (const controller of Object.values(
+    /**
+     * Run `hook` on every instance of every layer. Bottom-up starts each layer
+     * after the ones it depends on; top-down shuts each down while the layers
+     * it writes through are still up.
+     */
+    async #runHook(
+        order: 'bottomUp' | 'topDown',
+        hook: 'onServerStart' | 'onServerPrepareShutdown' | 'onServerShutdown',
+    ) {
+        const layers = [
+            this.clients,
+            this.stores,
+            this.services,
             this.controllers,
-        ) as WithLifecycle[]) {
-            if (controller.onServerStart) await controller.onServerStart();
-        }
-        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
-            if (driver.onServerStart) await driver.onServerStart();
+            this.drivers,
+        ];
+        if (order === 'topDown') layers.reverse();
+        for (const layer of layers) {
+            for (const instance of Object.values(layer) as WithLifecycle[]) {
+                await instance[hook]?.();
+            }
         }
     }
 
@@ -1596,33 +1659,7 @@ export class PuterServer {
     async #runPrepareShutdownHooks() {
         if (this.#prepareShutdownHooksRan) return;
         this.#prepareShutdownHooksRan = true;
-        for (const client of Object.values(this.clients) as WithLifecycle[]) {
-            if (client.onServerPrepareShutdown) {
-                await client.onServerPrepareShutdown();
-            }
-        }
-        for (const store of Object.values(this.stores) as WithLifecycle[]) {
-            if (store.onServerPrepareShutdown) {
-                await store.onServerPrepareShutdown();
-            }
-        }
-        for (const service of Object.values(this.services) as WithLifecycle[]) {
-            if (service.onServerPrepareShutdown) {
-                await service.onServerPrepareShutdown();
-            }
-        }
-        for (const controller of Object.values(
-            this.controllers,
-        ) as WithLifecycle[]) {
-            if (controller.onServerPrepareShutdown) {
-                await controller.onServerPrepareShutdown();
-            }
-        }
-        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
-            if (driver.onServerPrepareShutdown) {
-                await driver.onServerPrepareShutdown();
-            }
-        }
+        await this.#runHook('bottomUp', 'onServerPrepareShutdown');
     }
 
     async prepareShutdown() {
@@ -1653,41 +1690,7 @@ export class PuterServer {
             });
             this.#server.closeAllConnections();
             await closed;
-            // Top-down, so each layer shuts down while the layers it writes
-            // through are still up.
-            for (const driver of Object.values(
-                this.drivers,
-            ) as WithLifecycle[]) {
-                if (driver.onServerShutdown) {
-                    await driver.onServerShutdown();
-                }
-            }
-            for (const controller of Object.values(
-                this.controllers,
-            ) as WithLifecycle[]) {
-                if (controller.onServerShutdown) {
-                    await controller.onServerShutdown();
-                }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerShutdown) {
-                    await service.onServerShutdown();
-                }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerShutdown) {
-                    await store.onServerShutdown();
-                }
-            }
-            for (const client of Object.values(
-                this.clients,
-            ) as WithLifecycle[]) {
-                if (client.onServerShutdown) {
-                    await client.onServerShutdown();
-                }
-            }
+            await this.#runHook('topDown', 'onServerShutdown');
         }
     }
 }

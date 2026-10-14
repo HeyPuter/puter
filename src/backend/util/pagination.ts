@@ -52,17 +52,20 @@ export const decodeCursor = (
     if (typeof cursor === 'object') return cursor;
     const trimmed = cursor.trim();
     if (trimmed === '') return undefined;
+    let parsed: Record<string, unknown> | null;
     try {
-        return JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
+        parsed = JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
     } catch {
         try {
-            return JSON.parse(trimmed);
+            parsed = JSON.parse(trimmed);
         } catch {
             throw new HttpError(400, `invalid ${label}`, {
                 legacyCode: 'bad_request',
             });
         }
     }
+    // A client that stringifies a null cursor sends `cursor=null`.
+    return parsed ?? undefined;
 };
 
 // -- Sealed cursors ---------------------------------------------------
@@ -189,4 +192,53 @@ export const normalizeOffset = (
         });
     }
     return floored;
+};
+
+// -- Keyset pages -----------------------------------------------------
+
+/**
+ * The id a keyset page resumes from, or null on the first page. A cursor that
+ * opens without a usable id (another listing's, say) throws when `strict`, and
+ * otherwise reads as the first page.
+ */
+export const openIdCursor = (
+    cursor: string | Record<string, unknown> | null | undefined,
+    secret: string | undefined,
+    {
+        label = 'cursor',
+        strict = false,
+    }: { label?: string; strict?: boolean } = {},
+): number | null => {
+    const decoded = openCursor(cursor, secret, label);
+    if (decoded === undefined) return null;
+    const id = Number(decoded.id);
+    if (Number.isSafeInteger(id) && id >= 0) return id;
+    if (strict) {
+        throw new HttpError(400, `invalid ${label}`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    return null;
+};
+
+/**
+ * One page of `rows`, fetched with `LIMIT limit + 1`: the first `limit` rows,
+ * and a cursor at the last of them when the extra row says another page
+ * follows. `position` is the cursor payload; it defaults to the row's `id`.
+ * Without `secret` the cursor is a plain `encodeCursor` one.
+ */
+export const keysetPage = <R>(
+    rows: R[],
+    limit: number,
+    secret: string | undefined,
+    position: (last: R) => Record<string, unknown> = (last) => ({
+        id: Number((last as { id?: unknown }).id),
+    }),
+): { rows: R[]; cursor?: string } => {
+    if (rows.length <= limit) return { rows };
+    const page = rows.slice(0, limit);
+    return {
+        rows: page,
+        cursor: sealCursor(position(page[page.length - 1]!), secret),
+    };
 };

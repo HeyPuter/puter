@@ -14,7 +14,7 @@ import {
 import type { Request, Response } from 'express';
 
 const services = extension.import('service');
-const clients = extension.import('client');
+const stores = extension.import('store');
 
 // Cached on first request — the underlying cost catalogues are baked into
 // driver/controller source so they only change on deploy.
@@ -95,8 +95,8 @@ export const handleMeteringUsage = async (
     _req: Request,
     res: Response,
 ): Promise<void> => {
-    const actor = Context.get('actor');
-    if (!actor?.user) throw new HttpError(401, 'Authentication required');
+    // Behind `requireAuth`, so there is always an actor.
+    const actor = Context.get('actor')!;
 
     const [actorUsage, allowanceInfo] = await Promise.all([
         services.metering.getActorCurrentMonthUsageDetails(actor),
@@ -146,8 +146,8 @@ export const handleMeteringUsageForApp = async (
     req: Request,
     res: Response,
 ): Promise<void> => {
-    const actor = Context.get('actor');
-    if (!actor?.user) throw new HttpError(401, 'Authentication required');
+    // Behind `requireAuth`, so there is always an actor.
+    const actor = Context.get('actor')!;
 
     let appId = String(req.params.appIdOrName ?? '');
     if (!appId) throw new HttpError(400, 'appId parameter is required');
@@ -155,15 +155,9 @@ export const handleMeteringUsageForApp = async (
     // If not a UUID-shaped app UID or the global sentinel, look up by name.
     // Which apps an actor may read is MeteringService's call, not this route's.
     if (!appId.startsWith('app-') && appId !== GLOBAL_APP_KEY) {
-        const appRows = (await clients.db.read(
-            'SELECT `uid` FROM `apps` WHERE `name` = ? LIMIT 1',
-            [appId],
-        )) as Array<{ uid: string }>;
-        if (appRows.length > 0) {
-            appId = appRows[0].uid;
-        } else {
-            throw new HttpError(404, 'App not found');
-        }
+        const app = await stores.app.getByName(appId);
+        if (!app) throw new HttpError(404, 'App not found');
+        appId = app.uid;
     }
 
     const appUsage =

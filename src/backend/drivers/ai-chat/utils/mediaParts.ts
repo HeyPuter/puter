@@ -40,27 +40,7 @@ type Part = Record<string, unknown>;
 const isObject = (value: unknown): value is Part =>
     !!value && typeof value === 'object' && !Array.isArray(value);
 
-const DATA_URI_PATTERN = /^data:([^;,]*)((?:;[^;,]*)*),(.*)$/s;
-
-/**
- * Split a `data:` URI into its MIME type, base64 flag and payload. Returns null
- * for anything that isn't a data URI.
- */
-export const parseDataUri = (
-    url: string,
-): { mimeType: string; base64: boolean; data: string } | null => {
-    const match = DATA_URI_PATTERN.exec(url);
-    if (!match) return null;
-    const params = (match[2] ?? '')
-        .split(';')
-        .filter(Boolean)
-        .map((p) => p.toLowerCase());
-    return {
-        mimeType: (match[1] || 'text/plain').toLowerCase(),
-        base64: params.includes('base64'),
-        data: match[3] ?? '',
-    };
-};
+export { parseDataUri } from '../../util/dataUri.js';
 
 /** The URL out of a bare string or an OpenAI-style `{ url }` object. */
 export const mediaUrlOf = (value: unknown): string | undefined => {

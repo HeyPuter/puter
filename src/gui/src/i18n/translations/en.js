@@ -377,6 +377,8 @@ const en = {
         repeat: 'Repeat',
         replace: 'Replace',
         replace_all: 'Replace All',
+        email_code_sent_to: 'To continue, please enter the 6-digit confirmation code sent to',
+        email_code_sent_to_your_address: 'To continue, please enter the 6-digit confirmation code sent to your email address',
         resend_confirmation_code: 'Re-send Confirmation Code',
         reset_colors: 'Reset Colors',
         'Resources': 'Resources',

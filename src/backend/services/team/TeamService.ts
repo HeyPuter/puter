@@ -18,16 +18,20 @@
  */
 
 import bcrypt from 'bcrypt';
+import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import {
     USERNAME_MAX_LENGTH,
-    USERNAME_REGEX,
-} from '../../controllers/auth/AuthController.js';
-import { isReservedUsername } from '../../util/reservedUsernames.js';
+    usernameConflict,
+    usernameRejection,
+} from '../../util/username.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
-import { subscriptionSatisfies } from '../metering/enforcement.js';
-import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import {
+    ORG_SEAT_FREE_SUBSCRIPTION,
+    ORG_SEAT_RESOLVER_PRIORITY,
+} from '../metering/consts.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 
 // A free team is small on purpose; paying widens it. Both overridable in config.
 const FREE_SEAT_CAP = 3;
@@ -42,6 +46,7 @@ import type {
     TeamBillingEvent,
 } from '../../clients/event/types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { withRedisLock } from '../../util/redisLock.js';
 import {
     AUDIT_PAGE_CAP,
     AUDIT_PAGE_SIZE,
@@ -65,7 +70,7 @@ import {
     generateTemporaryPassword,
     temporaryPasswordExpiry,
 } from '../../util/temporaryPassword.js';
-import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { provisionUser } from '../../util/userProvisioning.js';
 import { PuterService } from '../types';
 
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
@@ -90,6 +95,7 @@ export const AUDIT_ACTIVATE = 'activate';
 
 /** Written before the row it names goes; `_keep` is what preserves it. */
 export const AUDIT_DELETE_ACCOUNT = 'delete_account';
+export const AUDIT_UPDATE_SEAT_EMAIL = 'update_seat_email';
 
 /** A disclosure change, so it is recorded like anything else the team does. */
 export const AUDIT_DIRECTORY_ON = 'directory_enabled';
@@ -142,6 +148,8 @@ export class TeamService extends PuterService {
                 const seat = await this.stores.team.getOrgSeat(userId);
                 return seat ? ORG_SEAT_FREE_SUBSCRIPTION : null;
             },
+            // Ahead of anything read off the address, which nobody confirmed.
+            { priority: ORG_SEAT_RESOLVER_PRIORITY },
         );
     }
 
@@ -317,12 +325,13 @@ export class TeamService extends PuterService {
         const override = Number(this.config.max_seats_per_team);
         if (Number.isFinite(override) && override > 0) return override;
 
-        const policy = await this.#ownerPolicy(ownerUserId);
-        const planCap = Number(policy?.teamSeatCap);
+        const plan = await this.#ownerPlan(ownerUserId);
+        // A named cap is deliberate; only the fallback turns on paid.
+        const planCap = Number(plan?.policy?.teamSeatCap);
         if (Number.isFinite(planCap) && planCap > 0) return planCap;
 
-        // A resolved policy outside the free set is a plan someone pays for.
-        const paid = policy ? subscriptionSatisfies(policy.id, true) : false;
+        // A plan bought, not one inferred for the owner from their address.
+        const paid = plan?.paid ?? false;
         const key = paid
             ? 'max_seats_per_team_paid'
             : 'max_seats_per_team_free';
@@ -332,18 +341,21 @@ export class TeamService extends PuterService {
     }
 
     /** Null when unreadable, which caps as free: over-provisioning is worse. */
-    async #ownerPolicy(
-        ownerUserId: number,
-    ): Promise<{ id: string; teamSeatCap?: number } | null> {
+    async #ownerPlan(ownerUserId: number): Promise<{
+        policy: { id: string; teamSeatCap?: number };
+        paid: boolean;
+    } | null> {
         try {
             const owner = await this.stores.user.getById(ownerUserId);
             if (!owner?.uuid) return null;
-            // The whole row, not an id/uuid stub: a resolver may key on any
-            // field, and one that misses makes the cap depend on whether
-            // something else cached this user's plan first.
-            return await this.services.metering.getActorSubscription({
-                user: owner,
-            } as never);
+            // The whole row: a resolver may key on any field.
+            const actor = { user: owner } as never;
+            // Sequential: run together both miss the cache and can disagree.
+            const policy =
+                await this.services.metering.getActorSubscription(actor);
+            const paid =
+                await this.services.metering.actorHasPaidSubscription(actor);
+            return { policy, paid };
         } catch (e) {
             console.warn('[team] seat cap plan lookup failed:', e);
             return null;
@@ -377,7 +389,7 @@ export class TeamService extends PuterService {
                     legacyCode: 'bad_request',
                 });
             }
-            if (/unique|duplicate/iu.test(message)) {
+            if (isUniqueViolation(e)) {
                 throw new HttpError(409, 'That handle is taken', {
                     legacyCode: 'conflict',
                 });
@@ -387,55 +399,25 @@ export class TeamService extends PuterService {
     }
 
     /**
-     * Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`.
-     * Refuses rather than running unserialized, or the cap is unenforced under
-     * concurrency. A lone create never contends.
+     * Serializes a count-then-insert. Refuses rather than running unserialized,
+     * or the cap is unenforced under concurrency. A lone create never
+     * contends.
      */
-    async #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
-        const key = `team:cap:${suffix}`;
-        const token = `${process.pid}:${Date.now()}:${Math.random()}`;
-        let held = false;
-
-        try {
-            for (let attempt = 0; attempt < CAP_LOCK_ATTEMPTS; attempt++) {
-                const claimed = await this.clients.redis.set(
-                    key,
-                    token,
-                    'EX',
-                    CAP_LOCK_TTL_SECONDS,
-                    'NX',
-                );
-                if (claimed === 'OK') {
-                    held = true;
-                    break;
-                }
-                await new Promise((resolve) =>
-                    setTimeout(resolve, CAP_LOCK_RETRY_MS),
-                );
-            }
-        } catch (e) {
-            // Same answer as contention below — the caller retries either way.
-            // Logged, because unlike contention the cause is ours.
-            console.warn('[team] cap lock unavailable:', e);
-            held = false;
-        }
-        if (!held) {
-            throw new HttpError(409, 'Busy — try that again in a moment', {
-                legacyCode: 'conflict',
-            });
-        }
-
-        try {
-            return await run();
-        } finally {
-            try {
-                // Only clear our own claim — a lapsed TTL may have reassigned it.
-                const current = await this.clients.redis.get(key);
-                if (current === token) await this.clients.redis.del(key);
-            } catch {
-                /* the TTL clears it */
-            }
-        }
+    #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
+        return withRedisLock(this.clients.redis, `team:cap:${suffix}`, run, {
+            ttlMs: CAP_LOCK_TTL_SECONDS * 1000,
+            attempts: CAP_LOCK_ATTEMPTS,
+            retryMs: CAP_LOCK_RETRY_MS,
+            onUnavailable: 'busy',
+            onBusy: (err) => {
+                // Same answer as contention — the caller retries either way.
+                // Logged, because unlike contention the cause is ours.
+                if (err) console.warn('[team] cap lock unavailable:', err);
+                throw new HttpError(409, 'Busy — try that again in a moment', {
+                    legacyCode: 'conflict',
+                });
+            },
+        });
     }
 
     /** Renames or re-handles a team, refusing an unusable handle. */
@@ -883,18 +865,16 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map(
-                (row): MemberActivityEntry => ({
-                    action: row.action,
-                    reason: row.reason,
-                    created_at: epochSeconds(row.created_at),
-                    username: name(row.user_id_keep),
-                    actor_username: name(row.actor_user_id),
-                    // Only a sign-in carries these; the shape stays uniform.
-                    ip: null,
-                    user_agent: null,
-                }),
-            ),
+            items: page.items.map((row): MemberActivityEntry => ({
+                action: row.action,
+                reason: row.reason,
+                created_at: epochSeconds(row.created_at),
+                username: name(row.user_id_keep),
+                actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
@@ -902,16 +882,8 @@ export class TeamService extends PuterService {
     // -- Provisioning ---- usernames come from the global pool ----------
 
     /** Provisioning must not mint accounts signup itself would refuse. */
-    #usernameRejection(username: string): boolean {
-        return (
-            !USERNAME_REGEX.test(username) ||
-            username.length > USERNAME_MAX_LENGTH ||
-            isReservedUsername(username)
-        );
-    }
-
     #assertUsableUsername(username: string): void {
-        if (this.#usernameRejection(username)) {
+        if (usernameRejection(username)) {
             throw new HttpError(400, 'Invalid username', {
                 legacyCode: 'bad_request',
             });
@@ -925,16 +897,8 @@ export class TeamService extends PuterService {
         const found: string[] = [];
         for (let n = 1; n <= 40 && found.length < count; n++) {
             const candidate = `${base}${n}`;
-            if (this.#usernameRejection(candidate)) continue;
-            if (await this.stores.user.getByUsername(candidate)) continue;
-            if (
-                await this.stores.fsEntry.findHomePathConflict(
-                    candidate,
-                    undefined,
-                    { includeDescendants: true },
-                )
-            )
-                continue;
+            if (usernameRejection(candidate)) continue;
+            if (await usernameConflict(this.stores, candidate)) continue;
             found.push(candidate);
         }
         return found;
@@ -989,14 +953,7 @@ export class TeamService extends PuterService {
         // Before any write, so a taken name fails cleanly. Also taken if free
         // in the users table, but another account's rows still sit at or
         // under its home path.
-        if (
-            (await this.stores.user.getByUsername(input.username)) ||
-            (await this.stores.fsEntry.findHomePathConflict(
-                input.username,
-                undefined,
-                { includeDescendants: true },
-            ))
-        ) {
+        if (await usernameConflict(this.stores, input.username)) {
             throw new HttpError(409, 'That username is taken', {
                 legacyCode: 'username_already_in_use',
                 fields: {
@@ -1012,17 +969,41 @@ export class TeamService extends PuterService {
             });
         }
 
-        const user = await this.stores.user.create({
-            username: input.username,
-            uuid: uuidv4(),
-            password: null,
-            email: email || null,
-            clean_email: email ? cleanEmail(email) : null,
-            // Never demanded: the team creating the account is the trust anchor.
-            requires_email_confirmation: false,
-        });
-
-        await generateDefaultFsentries(this.clients.db, this.stores.user, user);
+        // Gated only when a code can reach the address the team claimed.
+        const confirmCode =
+            email && this.clients.email
+                ? String(crypto.randomInt(100000, 1000000))
+                : null;
+        const user = await provisionUser(
+            {
+                db: this.clients.db,
+                userStore: this.stores.user,
+                groupStore: this.stores.group,
+            },
+            {
+                username: input.username,
+                uuid: uuidv4(),
+                password: null,
+                email: email || null,
+                clean_email: email ? cleanEmail(email) : null,
+                requires_email_confirmation: Boolean(confirmCode),
+                email_confirmed: false,
+                ...(confirmCode
+                    ? {
+                          email_confirm_code: confirmCode,
+                          email_confirm_token: uuidv4(),
+                      }
+                    : {}),
+            },
+            this.config.default_user_group,
+        );
+        // provisionUser only logs a failed home; a seat without one is unusable.
+        if (!user.trash_uuid) {
+            await this.services.userAccount.cascadeDelete(user.id);
+            throw new HttpError(500, 'Could not create the account', {
+                legacyCode: 'internal_error',
+            });
+        }
 
         // Otherwise a vanished team leaves a real account nobody owns.
         const admitted = await this.stores.team.addMember(teamUid, user.id, {
@@ -1045,6 +1026,12 @@ export class TeamService extends PuterService {
         // Not mailed: nobody confirmed the address the owner typed in.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
         await this.#notifyUser(user, 'team_account_created', team);
+        // The seat cannot confirm a code it was never sent.
+        if (confirmCode) {
+            await this.#notifyUser(user, 'email_verification_code', team, {
+                code: confirmCode,
+            });
+        }
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -1130,6 +1117,61 @@ export class TeamService extends PuterService {
         return { temporaryPassword };
     }
 
+    /** Retarget a seat's unconfirmed address; a confirmed one is theirs. */
+    async updateSeatEmail(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+        rawEmail: unknown,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+        if (user.email && user.email_confirmed) {
+            throw new HttpError(409, 'That address is already confirmed', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        const email = typeof rawEmail === 'string' ? rawEmail.trim() : '';
+        if (email && !isStorableEmail(email)) {
+            throw new HttpError(400, 'Invalid email', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (email && (await this.stores.user.findEmailOwner(email))) {
+            throw new HttpError(409, 'That email is already in use', {
+                legacyCode: 'email_already_in_use',
+            });
+        }
+
+        const confirmCode =
+            email && this.clients.email
+                ? String(crypto.randomInt(100000, 1000000))
+                : null;
+        await this.stores.user.update(targetUserId, {
+            email: email || null,
+            clean_email: email ? cleanEmail(email) : null,
+            requires_email_confirmation: Boolean(confirmCode),
+            email_confirmed: false,
+            email_confirm_code: confirmCode,
+            email_confirm_token: confirmCode ? uuidv4() : null,
+        });
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_UPDATE_SEAT_EMAIL,
+        });
+        if (confirmCode) {
+            await this.#notifyUser(
+                { ...user, email } as UserRow,
+                'email_verification_code',
+                team,
+                { code: confirmCode },
+            );
+        }
+    }
+
     /**
      * Clears a seat's second factor so it can enrol again, for the member who
      * lost both their authenticator and their recovery codes.
@@ -1161,12 +1203,11 @@ export class TeamService extends PuterService {
             action: AUDIT_RESET_2FA,
         });
 
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_enabled` = ?, `otp_secret` = NULL, ' +
-                '`otp_recovery_codes` = NULL WHERE `id` = ?',
-            [this.clients.db.booleanValue(false), targetUserId],
-        );
-        await this.stores.user.invalidateById(targetUserId);
+        await this.stores.user.update(targetUserId, {
+            otp_enabled: false,
+            otp_secret: null,
+            otp_recovery_codes: null,
+        });
         await this.#dropSessions(targetUserId);
         await this.#notifyUser(user, 'team_2fa_reset', team);
     }

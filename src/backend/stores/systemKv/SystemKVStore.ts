@@ -129,6 +129,13 @@ export interface KVOpts {
      * only after its cross-app permission check has passed.
      */
     namespaceAppUuid?: string;
+    /**
+     * Files system data under its own partition of the system namespace, so a
+     * high-volume key family doesn't share one partition key with the rest of
+     * the internal state. Honored only for the system actor; reads must name
+     * the same partition.
+     */
+    systemPartition?: string;
 }
 
 export interface RecursiveRecord<T> {
@@ -140,6 +147,8 @@ export interface RecursiveRecord<T> {
 /** Namespace app component for an actor acting without an app. */
 export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
+// The extra segment keeps a partition from parsing as a user's namespace.
+const SYSTEM_PARTITION_PREFIX = `${SYSTEM_NAMESPACE}:`;
 const MAX_KEY_BYTES = 1024;
 
 /**
@@ -345,7 +354,11 @@ const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
 // than the driver treating it as app-scoped while the store files its data
 // under the shared global key.
 const getNamespace = (actor: Actor, opts?: KVOpts): string => {
-    if (isSystemActor(actor)) return SYSTEM_NAMESPACE;
+    if (isSystemActor(actor)) {
+        return opts?.systemPartition
+            ? `${SYSTEM_PARTITION_PREFIX}${opts.systemPartition}`
+            : SYSTEM_NAMESPACE;
+    }
     const appUuid =
         opts?.namespaceAppUuid ??
         actor.effectiveApp?.uid ??
@@ -357,6 +370,11 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
 /** The namespace one user's data for one app lives in. */
 export const kvNamespace = (userUuid: string, appUid: string): string =>
     `v1:${userUuid}:${appUid}`;
+
+/** The system namespace or one of its partitions. */
+const isSystemNamespace = (namespace: string): boolean =>
+    namespace === SYSTEM_NAMESPACE ||
+    namespace.startsWith(SYSTEM_PARTITION_PREFIX);
 
 /** Split a namespace back into its parts, or `null` if it is not one. */
 export const parseKvNamespace = (
@@ -865,13 +883,16 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
  * Numbers each distinct path prefix, so comparing prefixes costs one lookup per
  * segment.
  */
-class PathPrefixIds {
+export class PathPrefixIds {
     #ids = new Map<string, number>();
+    /** Characters keyed on; keying on the id is what keeps this proportional. */
+    keyChars = 0;
     /** `ids[d]` names `tokens.slice(0, d)`; the root is 0. */
     of(tokens: PathToken[]): number[] {
         const ids = [0];
         for (const token of tokens) {
             const step = `${ids[ids.length - 1]}${token.type === 'index' ? '[' : '.'}${token.value}`;
+            this.keyChars += step.length;
             let id = this.#ids.get(step);
             if (id === undefined) {
                 id = this.#ids.size + 1;
@@ -1211,7 +1232,7 @@ export class SystemKVStore extends PuterStore {
      * to opt in or out: the namespace already says which kind of data it is.
      */
     #cacheable(namespace: string): boolean {
-        return this.#cache.enabled && namespace !== SYSTEM_NAMESPACE;
+        return this.#cache.enabled && !isSystemNamespace(namespace);
     }
 
     /**

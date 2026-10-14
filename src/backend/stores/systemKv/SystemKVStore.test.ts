@@ -15,11 +15,13 @@ import {
     incrExpressionBytes,
     KV_GLOBAL_APP_KEY,
     kvNamespace,
+    parseKvNamespace,
+    PathPrefixIds,
     type SystemKVStore,
 } from './SystemKVStore.ts';
 import { PUTER_KV_STORE_TABLE_NAME } from './tableDefinition.ts';
 import { PuterServer } from '../../server.ts';
-import type { Actor } from '../../core/actor.ts';
+import { SYSTEM_ACTOR_UUID, type Actor } from '../../core/actor.ts';
 
 describe('incr expression sizing', () => {
     const longPath = (i: number): string =>
@@ -64,6 +66,50 @@ describe('incr expression sizing', () => {
 
     it('makes no batches out of no paths', () => {
         expect(chunkPathsForIncr([])).toEqual([]);
+    });
+});
+
+describe('PathPrefixIds', () => {
+    const chainOf = (depth: number, segment: string) =>
+        Array.from({ length: depth }, () => ({
+            type: 'field' as const,
+            value: segment,
+        }));
+
+    it('keys a prefix on its parent id, not on the whole prefix text', () => {
+        const segment = 'x'.repeat(1024);
+        const depth = 30;
+        const ids = new PathPrefixIds();
+        ids.of(chainOf(depth, segment));
+
+        // Keying on the accumulated text would cost depth/2 times this.
+        expect(ids.keyChars).toBeLessThan(depth * segment.length * 2);
+    });
+
+    it('costs twice as much for twice the input, not four times', () => {
+        const segment = 'y'.repeat(1024);
+        const shallow = new PathPrefixIds();
+        shallow.of(chainOf(20, segment));
+        const deep = new PathPrefixIds();
+        deep.of(chainOf(40, segment));
+
+        expect(deep.keyChars / shallow.keyChars).toBeLessThan(3);
+    });
+
+    it('numbers each distinct prefix once, sharing what two paths have in common', () => {
+        const ids = new PathPrefixIds();
+        const a = ids.of([
+            { type: 'field', value: 'a' },
+            { type: 'field', value: 'b' },
+        ]);
+        const b = ids.of([
+            { type: 'field', value: 'a' },
+            { type: 'field', value: 'c' },
+        ]);
+
+        expect(a[0]).toBe(0);
+        expect(b[1]).toBe(a[1]);
+        expect(b[2]).not.toBe(a[2]);
     });
 });
 
@@ -2142,20 +2188,18 @@ describe('SystemKVStore', () => {
                 expect(result.res).toBeTruthy();
             });
 
-            it('checks many long paths without re-reading every prefix of each', async () => {
+            it('refuses many long paths rather than walking them', async () => {
                 const long = 'x'.repeat(16 * 1024);
                 const paths = Array.from({ length: 39 }, (_, i) =>
                     [`k${i}`, ...Array(30).fill(long)].join('.'),
                 );
                 paths.push('k0[0]');
-                const start = Date.now();
                 await expect(
                     target.remove({ key: 'call-size-long', paths }, opts),
                 ).rejects.toMatchObject({
                     statusCode: 400,
                     legacyCode: 'bad_request',
                 });
-                expect(Date.now() - start).toBeLessThan(1500);
             });
         });
 
@@ -4305,6 +4349,76 @@ describe('SystemKVStore', () => {
             expect(got.res).toBeNull();
             const listed = await target.list({ as: 'keys' }, opts);
             expect(listed.res).not.toContain('pastMarker');
+        });
+    });
+
+    describe('system partitions', () => {
+        const systemNamespace = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
+        // Mirrors the store's own naming for a partition.
+        const partitionNamespace = (partition: string) =>
+            `${systemNamespace}:${partition}`;
+        const rawItem = async (namespace: string, key: string) =>
+            (
+                await server.clients.dynamo.get(PUTER_KV_STORE_TABLE_NAME, {
+                    namespace,
+                    key,
+                })
+            ).Item;
+
+        let key: string;
+        beforeEach(() => {
+            key = `part-${Math.random().toString(36).slice(2)}`;
+        });
+
+        it('files a system write under its own partition key', async () => {
+            await target.batchPut(
+                { items: [{ key, value: 'v' }] },
+                { systemPartition: 'p-1' },
+            );
+
+            expect((await rawItem(partitionNamespace('p-1'), key))?.value).toBe(
+                'v',
+            );
+            expect(await rawItem(systemNamespace, key)).toBeUndefined();
+        });
+
+        it('reads only from the partition it names', async () => {
+            await target.set({ key, value: 'v' }, { systemPartition: 'p-1' });
+
+            expect(
+                (await target.get({ key }, { systemPartition: 'p-1' })).res,
+            ).toBe('v');
+            expect(
+                (await target.get({ key: [key] }, { systemPartition: 'p-1' }))
+                    .res,
+            ).toEqual(['v']);
+            expect((await target.get({ key })).res).toBeNull();
+            expect(
+                (await target.get({ key }, { systemPartition: 'p-2' })).res,
+            ).toBeNull();
+        });
+
+        it('does not parse as a user namespace', () => {
+            expect(parseKvNamespace(partitionNamespace('p-1'))).toBeNull();
+        });
+
+        it('ignores a partition asked for by any other actor', async () => {
+            await target.set(
+                { key, value: 'v' },
+                { ...opts, systemPartition: 'p-1' },
+            );
+
+            expect(
+                (
+                    await rawItem(
+                        kvNamespace(actor.user.uuid!, KV_GLOBAL_APP_KEY),
+                        key,
+                    )
+                )?.value,
+            ).toBe('v');
+            expect(
+                await rawItem(partitionNamespace('p-1'), key),
+            ).toBeUndefined();
         });
     });
 });

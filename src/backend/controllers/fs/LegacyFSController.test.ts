@@ -34,7 +34,11 @@ import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
-import { FS_MUTATE_LIMIT, FS_SIGN_MAX_ITEMS } from './limits.js';
+import {
+    FS_BATCH_WRITE_MAX_ITEMS,
+    FS_MUTATE_LIMIT,
+    FS_SIGN_MAX_ITEMS,
+} from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -692,6 +696,36 @@ describe('LegacyFSController.delete', () => {
         expect(responseBody[1]?.path).toBe(b);
         expect(await server.stores.fsEntry.getEntryByPath(a)).toBeNull();
         expect(await server.stores.fsEntry.getEntryByPath(b)).toBeNull();
+    });
+
+    it('refuses more `paths` than one batch may hold, before deleting any', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const keep = `/${username}/Documents/keep`;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: keep }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                controller.delete(
+                    makeReq({
+                        body: {
+                            paths: [
+                                keep,
+                                ...Array(FS_BATCH_WRITE_MAX_ITEMS).fill(keep),
+                            ],
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await server.stores.fsEntry.getEntryByPath(keep)).not.toBeNull();
     });
 });
 
@@ -1837,13 +1871,82 @@ describe('LegacyFSController.move', () => {
         // The move landed in the owner's trash, but the recipient is told so
         // in masked form — the owner's real layout stays theirs.
         const body = captured.body as { moved: { uid: string; path: string } };
+        const suffix = ` (${body.moved.uid.slice(0, 8)})`;
+        // Always renamed in, so the name cannot report on the Trash.
         expect(body.moved.path).toBe(
-            `/${ownerName}/${body.moved.uid}/note.txt`,
+            `/${ownerName}/${body.moved.uid}/note${suffix}.txt`,
         );
         const moved = await server.stores.fsEntry.getEntryByUuid(
             body.moved.uid,
         );
-        expect(moved!.path).toBe(`/${ownerName}/Trash/note.txt`);
+        expect(moved!.path).toBe(`/${ownerName}/Trash/note${suffix}.txt`);
+    });
+
+    it("neither reports nor announces replacing an owner's Trash entry an overwriting move renamed around", async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Overwrites`;
+        const occupantPath = `/${ownerName}/Trash/note.txt`;
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        for (const path of [`${sharedPath}/note.txt`, occupantPath]) {
+            await withActor(owner.actor, () =>
+                controller.touch(
+                    makeReq({ body: { path }, actor: owner.actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        const occupant =
+            (await server.stores.fsEntry.getEntryByPath(occupantPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: sharedPath,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(sharedPath),
+            },
+            'write',
+        );
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        const { res, captured } = makeRes();
+        let removedOccupant: boolean;
+        try {
+            await withActor(holder.actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: `${sharedPath}/note.txt`,
+                            destination: `/${ownerName}/Trash`,
+                            overwrite: true,
+                        },
+                        actor: holder.actor,
+                    }),
+                    res,
+                ),
+            );
+            removedOccupant = emitSpy.mock.calls.some(
+                ([eventName, data]) =>
+                    eventName === 'outer.gui.item.removed' &&
+                    (data as { response: { uuid?: string } }).response.uuid ===
+                        occupant.uuid,
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(removedOccupant).toBe(false);
+        expect(captured.body).not.toHaveProperty('overwritten');
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(occupant.uuid),
+        ).not.toBeNull();
     });
 
     it('refuses a share recipient moving an item into their own trash', async () => {
@@ -4715,6 +4818,33 @@ describe('LegacyFSController.readdirSubdomains', () => {
         const rows = captured.body as Array<{ subdomain: string }>;
         expect(rows.some((r) => r.subdomain === sd)).toBe(true);
     });
+
+    it('returns every site past one store page, with only the listing columns', async () => {
+        const { actor, userId } = await makeUser();
+        const names = Array.from(
+            { length: 501 },
+            (_, i) => `sdp-${i}-${uuidv4().slice(0, 8)}`,
+        );
+        for (const name of names) {
+            await server.clients.db.write(
+                'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+                [uuidv4(), name, userId],
+            );
+        }
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirSubdomains(makeReq({ body: {}, actor }), res),
+        );
+        const rows = captured.body as Array<Record<string, unknown>>;
+        expect(rows.map((r) => r.subdomain)).toEqual(names);
+        expect(Object.keys(rows[0]!).sort()).toEqual([
+            'root_dir_id',
+            'subdomain',
+            'ts',
+            'uuid',
+        ]);
+    });
 });
 
 // ── updateFsentryThumbnail ──────────────────────────────────────────
@@ -4973,7 +5103,7 @@ describe('LegacyFSController GET /get-launch-apps', () => {
         await recordOpen(userId, app.uid);
 
         const spy = vi
-            .spyOn(server.stores.subdomain, 'getBySubdomain')
+            .spyOn(server.stores.subdomain, 'getBySubdomains')
             .mockRejectedValue(new Error('db down'));
         try {
             const entry = (await fetchRecent(actor)).find(

@@ -38,6 +38,7 @@ import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
+import { ipc_target_window } from './helpers/ipcTargetWindow.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
@@ -663,17 +664,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1014,17 +1005,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowWidth
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowWidth' && event.data.width !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1049,17 +1030,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowHeight
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowHeight' && event.data.height !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1086,17 +1057,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowSize
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1134,17 +1095,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowPosition
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1194,17 +1145,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowX
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowX' && (event.data.x !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1238,17 +1179,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowY
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowY' && (event.data.y !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
