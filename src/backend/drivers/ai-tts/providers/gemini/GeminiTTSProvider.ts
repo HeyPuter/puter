@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { GoogleGenAI } from '@google/genai';
 import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
@@ -26,6 +25,8 @@ import {
     withAiCreditHold,
 } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
+import { readBoundedBody } from '../../../util/fileInput.js';
+import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
 import type {
     ITTSVoice,
@@ -33,10 +34,18 @@ import type {
     ISynthesizeArgs,
     ITTSProvider,
 } from '../../types.js';
-import { GEMINI_TTS_COSTS } from './costs.js';
+import { TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
+import { GEMINI_TTS_COSTS, geminiTTSCostsAt } from './costs.js';
+
+const INTERACTIONS_URL =
+    'https://generativelanguage.googleapis.com/v1beta/interactions';
+
+/** Largest Interactions reply read; audio arrives base64-encoded inside JSON. */
+export const GEMINI_TTS_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 const DEFAULT_MODEL = 'gemini-3.8-flash-tts';
 const DEFAULT_VOICE = 'Kore';
+const DEFAULT_PCM_SAMPLE_RATE = 24_000;
 
 const GEMINI_TTS_MODELS = [
     {
@@ -82,15 +91,122 @@ const GEMINI_TTS_VOICES = [
     { id: 'Sulafat', name: 'Sulafat', description: 'Warm' },
 ];
 
+// -- Interactions API wire shapes --
+
+interface InteractionTextInput {
+    type: 'text';
+    text: string;
+    annotations?: { type: 'speech_metadata'; style: string }[];
+}
+
+interface InteractionRequest {
+    model: string;
+    input: { type: 'user_input'; content: InteractionTextInput[] }[];
+    response_format: { type: 'audio' };
+    generation_config: { speech_config: { voice: string }[] };
+    store: false;
+    background: false;
+    stream: false;
+}
+
+interface InteractionContent {
+    type?: string;
+    mime_type?: string;
+    data?: string;
+}
+
+interface InteractionModalityTokens {
+    modality?: string;
+    tokens?: number;
+}
+
+interface InteractionUsage {
+    total_input_tokens?: number;
+    input_tokens_by_modality?: InteractionModalityTokens[];
+    total_output_tokens?: number;
+    output_tokens_by_modality?: InteractionModalityTokens[];
+}
+
+/** The reply as documented; every field is checked before use. */
+interface Interaction {
+    status?: string;
+    steps?: { type?: string; content?: InteractionContent[] }[];
+    usage?: InteractionUsage;
+}
+
+const WAV_MIME_TYPES = new Set(['audio/wav', 'audio/x-wav', 'audio/wave']);
+const PCM_MIME_TYPES = new Set(['audio/l16', 'audio/pcm']);
+const BASE64_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
+
+const upstreamFailure = (message: string): HttpError =>
+    new HttpError(502, message, {
+        legacyCode: 'upstream_failed',
+        fields: { provider: 'gemini' },
+    });
+
+const responseTooLarge = (maxBytes: number): HttpError =>
+    upstreamFailure(`Gemini TTS response exceeds ${maxBytes} bytes`);
+
+/** µ¢ for `tokens` at a cents-per-1M-tokens rate, which is µ¢ per token. */
+const tokenCost = (tokens: number, centsPerMillion: number): number =>
+    Math.max(1, Math.ceil(tokens * centsPerMillion));
+
+/** A usable token count: a finite, non-negative integer. */
+const tokenCount = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined;
+
 /**
- * Gemini TTS provider. Calls the Gemini generateContent API with
- * `responseModalities: ["AUDIO"]` and `speechConfig` to synthesize speech.
- * Returns raw PCM audio wrapped in a WAV container.
+ * `modality`'s tokens from a by-modality breakdown, or `total` when there is no
+ * breakdown to read. Undefined when the counts are unusable or ambiguous.
+ */
+const usageTokens = (
+    byModality: unknown,
+    total: unknown,
+    modality: string,
+    rate: number,
+): number | undefined => {
+    if (!Array.isArray(byModality) || byModality.length === 0) {
+        const count = tokenCount(total);
+        return count !== undefined && Number.isSafeInteger(count * rate)
+            ? count
+            : undefined;
+    }
+    let sum: number | undefined;
+    for (const entry of byModality as InteractionModalityTokens[]) {
+        if (String(entry?.modality).toLowerCase() !== modality) continue;
+        const tokens = tokenCount(entry.tokens);
+        if (tokens === undefined) return undefined;
+        sum = (sum ?? 0) + tokens;
+        if (!Number.isSafeInteger(sum * rate)) return undefined;
+    }
+    return sum;
+};
+
+/** The last audio block of the model's output, as the API documents it. */
+const lastAudioContent = (
+    interaction: Interaction,
+): InteractionContent | undefined => {
+    const steps = Array.isArray(interaction.steps) ? interaction.steps : [];
+    return steps
+        .flatMap((step) =>
+            step?.type === 'model_output' && Array.isArray(step.content)
+                ? step.content
+                : [],
+        )
+        .filter((content) => content?.type === 'audio')
+        .at(-1);
+};
+
+/**
+ * Gemini TTS provider. Calls the Gemini Interactions API, which reads `text`
+ * verbatim and takes `instructions` as a separate speech-style annotation.
  */
 export class GeminiTTSProvider implements ITTSProvider {
     readonly providerName = 'gemini';
 
-    #client: GoogleGenAI;
+    #apiKey: string;
 
     constructor(
         private readonly meteringService: AiMeteringService,
@@ -99,7 +215,7 @@ export class GeminiTTSProvider implements ITTSProvider {
         if (!config.apiKey) {
             throw new Error('Gemini TTS requires an API key');
         }
-        this.#client = new GoogleGenAI({ apiKey: config.apiKey });
+        this.#apiKey = config.apiKey;
     }
 
     async listVoices(): Promise<ITTSVoice[]> {
@@ -121,15 +237,20 @@ export class GeminiTTSProvider implements ITTSProvider {
     }
 
     getReportedCosts(): Record<string, unknown>[] {
-        return Object.entries(GEMINI_TTS_COSTS).map(([model, costs]) => ({
-            usageType: `gemini:${model}:tts`,
-            ucentsInputPerToken: this.#toMicroCents(costs.input / 1_000_000),
-            ucentsOutputAudioPerToken: this.#toMicroCents(
-                costs.output_audio / 1_000_000,
-            ),
-            unit: 'token',
-            source: 'driver:aiTts/gemini',
-        }));
+        const now = Date.now();
+        return Object.keys(GEMINI_TTS_COSTS).flatMap((model) => {
+            const costs = geminiTTSCostsAt(model, now);
+            if (!costs) return [];
+            return [
+                {
+                    usageType: `gemini:${model}:tts`,
+                    ucentsInputPerToken: costs.input,
+                    ucentsOutputAudioPerToken: costs.output_audio,
+                    unit: 'token',
+                    source: 'driver:aiTts/gemini',
+                },
+            ];
+        });
     }
 
     async synthesize(
@@ -154,6 +275,14 @@ export class GeminiTTSProvider implements ITTSProvider {
             });
         }
 
+        if (instructions != null && typeof instructions !== 'string') {
+            throw new HttpError(400, 'instructions must be a string', {
+                legacyCode: 'field_invalid',
+                fields: { key: 'instructions', expected: 'string' },
+            });
+        }
+        const style = instructions?.trim() ? instructions : undefined;
+
         const model = modelArg || DEFAULT_MODEL;
         if (!GEMINI_TTS_MODELS.find(({ id }) => id === model)) {
             throw new HttpError(
@@ -172,15 +301,14 @@ export class GeminiTTSProvider implements ITTSProvider {
             );
         }
 
-        const voice = voiceArg || DEFAULT_VOICE;
-        if (
-            !GEMINI_TTS_VOICES.find(
-                ({ id }) => id.toLowerCase() === voice.toLowerCase(),
-            )
-        ) {
+        const requestedVoice = String(voiceArg || DEFAULT_VOICE);
+        const voice = GEMINI_TTS_VOICES.find(
+            ({ id }) => id.toLowerCase() === requestedVoice.toLowerCase(),
+        )?.id;
+        if (!voice) {
             throw new HttpError(
                 400,
-                `Invalid voice: ${voice}. Expected: ${GEMINI_TTS_VOICES.map(({ id }) => id).join(', ')}`,
+                `Invalid voice: ${requestedVoice}. Expected: ${GEMINI_TTS_VOICES.map(({ id }) => id).join(', ')}`,
                 {
                     legacyCode: 'field_invalid',
                     fields: {
@@ -188,34 +316,49 @@ export class GeminiTTSProvider implements ITTSProvider {
                         expected: GEMINI_TTS_VOICES.map(({ id }) => id).join(
                             ', ',
                         ),
-                        got: voice,
+                        got: requestedVoice,
                     },
                 },
             );
         }
 
         const actor = Context.get('actor')!;
-        const costs = GEMINI_TTS_COSTS[model];
+        // Priced once, so a request that crosses a rate change settles at the
+        // rates it was held at.
+        const costs = geminiTTSCostsAt(model, Date.now());
         if (!costs) {
             throw new HttpError(500, `No cost data for model: ${model}`, {
                 legacyCode: 'internal_error',
             });
         }
 
-        // Estimate input tokens (~4 chars per token) and a rough output
-        // audio duration (~150 words/min, 25 tokens/sec).
-        const estimatedInputTokens = Math.max(1, Math.ceil(text.length / 4));
+        // ~4 chars per input token (the style annotation is tokenized too),
+        // and ~150 words/min of audio at 25 tokens/sec.
+        const estimatedInputTokens = Math.max(
+            1,
+            Math.ceil((text.length + (style?.length ?? 0)) / 4),
+        );
         const wordCount = text.split(/\s+/).length;
         const estimatedDurationSec = Math.max(1, (wordCount / 150) * 60);
         const estimatedOutputTokens = Math.ceil(estimatedDurationSec * 25);
 
-        const estimatedInputCostCents =
-            (estimatedInputTokens / 1_000_000) * costs.input;
-        const estimatedOutputCostCents =
-            (estimatedOutputTokens / 1_000_000) * costs.output_audio;
-        const estimatedTotalMicroCents = this.#toMicroCents(
-            estimatedInputCostCents + estimatedOutputCostCents,
-        );
+        const estimatedTotalMicroCents =
+            tokenCost(estimatedInputTokens, costs.input) +
+            tokenCost(estimatedOutputTokens, costs.output_audio);
+
+        const content: InteractionTextInput = { type: 'text', text };
+        if (style) {
+            content.annotations = [{ type: 'speech_metadata', style }];
+        }
+        const request: InteractionRequest = {
+            model,
+            input: [{ type: 'user_input', content: [content] }],
+            response_format: { type: 'audio' },
+            generation_config: { speech_config: [{ voice }] },
+            store: false,
+            background: false,
+            stream: false,
+        };
 
         return withAiCreditHold(
             this.meteringService,
@@ -223,36 +366,50 @@ export class GeminiTTSProvider implements ITTSProvider {
             `gemini:${model}`,
             estimatedTotalMicroCents,
             async (): Promise<DriverStreamResult> => {
-                // The TTS models require the text to be framed as a transcript
-                // to read aloud. Prefixing with "Say:" prevents the model from
-                // trying to generate conversational text instead of audio.
-                const inputText = instructions
-                    ? `${instructions}\n\nSay the following text aloud:\n${text}`
-                    : `Say the following text aloud:\n${text}`;
-
-                // Let Google GenAI `ApiError`s bubble — they carry `.status` and
-                // are mapped to `upstream_*` HttpErrors by the driver-boundary
-                // translator. Catching here and wrapping as 502 hid the upstream
-                // status and caused 4xx validation errors to page.
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const response: any = await this.#client.models.generateContent(
+                // Non-2xx answers and timeouts are classified at the driver
+                // boundary.
+                const response = await upstreamFetch(
+                    'gemini',
+                    INTERACTIONS_URL,
                     {
-                        model,
-                        contents: [{ parts: [{ text: inputText }] }],
-                        config: {
-                            responseModalities: ['AUDIO'],
-                            speechConfig: {
-                                voiceConfig: {
-                                    prebuiltVoiceConfig: { voiceName: voice },
-                                },
-                            },
+                        method: 'POST',
+                        headers: {
+                            'x-goog-api-key': this.#apiKey,
+                            'Content-Type': 'application/json',
                         },
+                        body: JSON.stringify(request),
+                        signal: Context.get('abortSignal'),
+                    },
+                    {
+                        providerLabel: 'Gemini',
+                        timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
                     },
                 );
+                const raw = await readBoundedBody(
+                    response,
+                    GEMINI_TTS_MAX_RESPONSE_BYTES,
+                    responseTooLarge,
+                );
 
-                // Extract audio data from response
-                const part = response?.candidates?.[0]?.content?.parts?.[0];
-                if (!part?.inlineData?.data) {
+                let interaction: Interaction | null = null;
+                try {
+                    interaction = JSON.parse(raw.toString('utf8'));
+                } catch {
+                    // Handled with the non-object case below.
+                }
+                if (!interaction || typeof interaction !== 'object') {
+                    throw upstreamFailure(
+                        'Gemini TTS returned an unreadable response',
+                    );
+                }
+                if (interaction.status !== 'completed') {
+                    throw upstreamFailure(
+                        'Gemini TTS did not complete the request',
+                    );
+                }
+
+                const audio = lastAudioContent(interaction);
+                if (!audio) {
                     throw new HttpError(
                         400,
                         'Gemini TTS did not return audio data',
@@ -262,69 +419,93 @@ export class GeminiTTSProvider implements ITTSProvider {
                         },
                     );
                 }
+                const { body, contentType } = this.#decodeAudio(audio);
 
-                const audioBase64: string = part.inlineData.data;
-                const mimeType: string =
-                    part.inlineData.mimeType || 'audio/L16;rate=24000';
-
-                // Convert base64 PCM to a WAV buffer for broad client compatibility
-                const pcmBuffer = Buffer.from(audioBase64, 'base64');
-                let outputBuffer: Buffer;
-                let contentType: string;
-
-                if (
-                    mimeType.startsWith('audio/L16') ||
-                    mimeType === 'audio/pcm'
-                ) {
-                    // Wrap raw PCM (16-bit LE, 24kHz, mono) in a WAV container
-                    outputBuffer = this.#wrapPcmInWav(pcmBuffer, 24000, 1, 16);
-                    contentType = 'audio/wav';
-                } else {
-                    // If the API returns encoded audio (unlikely today), pass through
-                    outputBuffer = pcmBuffer;
-                    contentType = mimeType;
-                }
-
-                // Meter actual usage from response metadata
-                const usage = response.usageMetadata;
-                const actualInputTokens =
-                    typeof usage?.promptTokenCount === 'number'
-                        ? usage.promptTokenCount
-                        : estimatedInputTokens;
-                const actualOutputTokens =
-                    typeof usage?.candidatesTokenCount === 'number'
-                        ? usage.candidatesTokenCount
-                        : estimatedOutputTokens;
-
-                const inputCostCents =
-                    (actualInputTokens / 1_000_000) * costs.input;
-                const outputCostCents =
-                    (actualOutputTokens / 1_000_000) * costs.output_audio;
+                const usage = interaction.usage;
+                const inputTokens =
+                    usageTokens(
+                        usage?.input_tokens_by_modality,
+                        usage?.total_input_tokens,
+                        'text',
+                        costs.input,
+                    ) ?? estimatedInputTokens;
+                const outputTokens =
+                    usageTokens(
+                        usage?.output_tokens_by_modality,
+                        usage?.total_output_tokens,
+                        'audio',
+                        costs.output_audio,
+                    ) ?? estimatedOutputTokens;
 
                 const usagePrefix = `gemini:${model}`;
                 this.meteringService.batchIncrementUsages(actor, [
                     {
                         usageType: `${usagePrefix}:input`,
-                        usageAmount: Math.max(actualInputTokens, 1),
-                        costOverride: this.#toMicroCents(inputCostCents),
+                        usageAmount: Math.max(inputTokens, 1),
+                        costOverride: tokenCost(inputTokens, costs.input),
                     },
                     {
                         usageType: `${usagePrefix}:output:audio`,
-                        usageAmount: Math.max(actualOutputTokens, 1),
-                        costOverride: this.#toMicroCents(outputCostCents),
+                        usageAmount: Math.max(outputTokens, 1),
+                        costOverride: tokenCost(
+                            outputTokens,
+                            costs.output_audio,
+                        ),
                     },
                 ]);
-
-                const stream = Readable.from(outputBuffer);
 
                 return {
                     dataType: 'stream',
                     content_type: contentType,
                     chunked: true,
-                    stream,
+                    stream: Readable.from(body),
                 };
             },
         );
+    }
+
+    /** WAV passes through byte for byte; raw PCM is wrapped in a WAV header. */
+    #decodeAudio(audio: InteractionContent): {
+        body: Buffer;
+        contentType: string;
+    } {
+        const { data, mime_type: mimeType } = audio;
+        if (
+            typeof data !== 'string' ||
+            !BASE64_PATTERN.test(data) ||
+            typeof mimeType !== 'string'
+        ) {
+            throw upstreamFailure('Gemini TTS returned invalid audio data');
+        }
+        const bytes = Buffer.from(data, 'base64');
+        const [essence, ...params] = mimeType
+            .split(';')
+            .map((part) => part.trim().toLowerCase());
+
+        if (WAV_MIME_TYPES.has(essence)) {
+            if (
+                bytes.length <= 44 ||
+                bytes.toString('latin1', 0, 4) !== 'RIFF' ||
+                bytes.toString('latin1', 8, 12) !== 'WAVE'
+            ) {
+                throw upstreamFailure('Gemini TTS returned invalid audio data');
+            }
+            return { body: bytes, contentType: 'audio/wav' };
+        }
+        if (PCM_MIME_TYPES.has(essence) && bytes.length > 0) {
+            const rate = Number(
+                params.find((p) => p.startsWith('rate='))?.slice(5),
+            );
+            const sampleRate =
+                Number.isSafeInteger(rate) && rate > 0
+                    ? rate
+                    : DEFAULT_PCM_SAMPLE_RATE;
+            return {
+                body: this.#wrapPcmInWav(bytes, sampleRate, 1, 16),
+                contentType: 'audio/wav',
+            };
+        }
+        throw upstreamFailure('Gemini TTS returned invalid audio data');
     }
 
     /** Wrap raw PCM samples in a WAV container so browsers can play it. */
@@ -361,10 +542,5 @@ export class GeminiTTSProvider implements ITTSProvider {
         pcm.copy(buffer, headerSize);
 
         return buffer;
-    }
-
-    #toMicroCents(cents: number): number {
-        if (!Number.isFinite(cents) || cents <= 0) return 1;
-        return Math.ceil(cents * 1_000_000);
     }
 }
