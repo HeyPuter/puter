@@ -2231,11 +2231,15 @@ export class MeteringService extends PuterService {
                     legacyCode: 'forbidden',
                 },
             );
-        const [{ res: purchased }, { res: consumed }] = await Promise.all([
-            this.stores.kv.get({ key: addonsKey(actor.user.uuid) }),
-            this.stores.kv.get({ key: addonsConsumedKey(actor.user.uuid) }),
-        ]);
+        const { res: purchased } = await this.stores.kv.get({
+            key: addonsKey(actor.user.uuid),
+        });
         const addons = { ...((purchased ?? {}) as UsageAddons) };
+        // Consumption is only ever written against purchased credit.
+        if (!(addons.purchasedCredits > 0)) return addons;
+        const { res: consumed } = await this.stores.kv.get({
+            key: addonsConsumedKey(actor.user.uuid),
+        });
         // Older consumption sits on the addons record itself.
         const spent = (consumed as Partial<UsageAddons> | null)
             ?.consumedPurchaseCredits;
