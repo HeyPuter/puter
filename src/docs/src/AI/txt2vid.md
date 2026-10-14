@@ -1,10 +1,10 @@
 ---
 title: puter.ai.txt2vid()
-description: Generate short video clips from text or reference images with Wan, Seedance, Veo and other models through Puter.js.
+description: Generate short video clips from text or reference images with Wan, Seedance, Veo, Gemini Omni and other models through Puter.js.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Given a prompt, generate a short video clip using AI. Puter routes the request to one of two upstream providers (Together AI, BytePlus Seedance) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers.
+Given a prompt, generate a short video clip using AI. Puter routes the request to one of three upstream providers (Together AI, BytePlus Seedance, Google Gemini) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers.
 
 ## Syntax
 
@@ -34,9 +34,9 @@ Additional settings for the generation request.
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the video generation |
 | `model` | `String` | Video model to use. Defaults to `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video). See [Choosing a model](#choosing-a-model) |
-| `provider` | `String` | Pin the request to one provider: `'together-video-generation'` or `'byteplus-video-generation'`. Only needed when a model id exists on more than one provider |
-| `seconds` | `Number` | Target clip length in seconds. Each model supports a fixed set of durations; an unsupported value falls back to the model default instead of failing. `duration` is an alias |
-| `size` | `String` | Output size as `'WIDTHxHEIGHT'` (e.g. `'1280x720'`) on every provider. Models that work in resolution tiers take the tier of the shorter side plus the aspect ratio, and also accept the tier directly (`'720p'`). An unsupported value falls back to the model default. `resolution` is an alias |
+| `provider` | `String` | Pin the request to one provider: `'together-video-generation'`, `'byteplus-video-generation'` or `'gemini-video-generation'`. Only needed when a model id exists on more than one provider |
+| `seconds` | `Number` | Target clip length in seconds. Each model supports a fixed set of durations; an unsupported value falls back to the model default instead of failing. Gemini Omni has no length control and rejects this option. `duration` is an alias |
+| `size` | `String` | Output size as `'WIDTHxHEIGHT'` (e.g. `'1280x720'`) on every provider. Models that work in resolution tiers take the tier of the shorter side plus the aspect ratio, and also accept the tier directly (`'720p'`). An unsupported value falls back to the model default, except on Gemini Omni, which rejects it. `resolution` is an alias |
 | `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when you leave them out |
 | `input_reference` | `String` | Image the clip starts from (image-to-video): a public URL, a `data:` URI or raw base64, on every provider |
 | `last_frame` | `String` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
@@ -55,7 +55,7 @@ When you pass no model, Puter uses Wan 2.7 text-to-video on Together AI (`wan2.7
 
 Google's Veo 3.1 preview models (`veo-3.1-generate-preview`, `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview`) are no longer offered: Google deprecated them with a shutdown on October 22, 2026, and requests for those ids fail with `Model not found`. Veo 3.1 and Veo 3.1 Lite remain available through Together AI (see below).
 
-`seconds` and `size` are normalized rather than rejected: a value the model does not offer is replaced by the model default, which is the first value listed in the tables below and also what you get when you leave the option out.
+On Together AI and Seedance, `seconds` and `size` are normalized rather than rejected: a value the model does not offer is replaced by the model default, which is the first value listed in the tables below and also what you get when you leave the option out. Gemini Omni rejects a value it doesn't offer with `bad_request` instead (see [Gemini Omni options](#gemini-omni-options)).
 
 #### Image inputs
 
@@ -65,6 +65,7 @@ Google's Veo 3.1 preview models (`veo-3.1-generate-preview`, `veo-3.1-fast-gener
 |----------|-------------|------------|------------------|
 | Together AI | Models with a `first` keyframe | Models with a `last` keyframe | Model-dependent (Seedance 2.5: up to 30) |
 | BytePlus Seedance | Yes | Yes, with `input_reference` | Seedance 2.0: up to 9; Seedance 2.5: up to 30; cannot be combined with frames |
+| Google Gemini | Yes, one PNG, JPEG or WebP image up to 5 MiB | No | No |
 
 #### Together AI options
 
@@ -157,6 +158,41 @@ An invalid combination (a last frame without a first frame, reference images tog
 
 For more details, see the [BytePlus ModelArk video generation reference](https://docs.byteplus.com/en/docs/ModelArk/1520757).
 
+#### Gemini Omni options
+
+Available when using `gemini-omni-1.1-flash` (provider `'gemini-video-generation'`), which also answers to `google/gemini-omni-1.1-flash`. It's offered when the Puter deployment has Gemini configured. It generates a clip from a prompt, or from a prompt and one starting image. The model picks the clip length and renders at 24 frames per second.
+
+| `size` | 16:9 (default) | 9:16 |
+|--------|----------------|------|
+| `'360p'` | `640x360` | `360x640` |
+| `'720p'` (default) | `1280x720` | `720x1280` |
+| `'1080p'` | `1920x1080` | `1080x1920` |
+| `'4k'` | `3840x2160` | `2160x3840` |
+
+Google produces 1080p and 4K by upscaling. Pass the resolution on its own for 16:9, or the exact size for either orientation.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `prompt` | `String` | Up to 4,000 characters |
+| `size` | `String` | A resolution or exact size from the table above, case-insensitive. Defaults to `'720p'` at 16:9. `resolution` is an alias, and must match `size` when you pass both |
+| `width`, `height` | `Number` | Together, an exact size from the table above. They must match `size` when you pass it |
+| `input_reference` | `String` | The image the clip starts from: a public URL, a `data:` URI, raw base64, or the path of a file in the user's Puter filesystem. PNG, JPEG or WebP, up to 5 MiB |
+| `output_format` | `String` | Only `'video/mp4'` |
+
+Gemini Omni rejects `seconds`, `duration`, `fps`, `steps`, `guidance_scale`, `seed`, `negative_prompt`, `output_quality`, `generate_audio`, `frame_images`, `last_frame`, `reference_images` and `metadata` with `bad_request`, test mode included, since it has no matching control.
+
+Gemini Omni is priced per token. Input costs $1.50 per million tokens. Video output costs $17.50 per million tokens. Other output and the model's thinking cost $9 per million tokens. The prompt and image together are limited to 131,072 input tokens. Other limits are listed in [Rate limits and quotas](/rate-limits-and-quotas/#video-generation).
+
+```html;ai-txt2vid-gemini
+<script src="https://js.puter.com/v2/"></script>
+<script>
+    puter.ai.txt2vid("A stationary red ball on a white table.", {
+        model: "gemini-omni-1.1-flash",
+        size: "360p"
+    }).then(video => document.body.appendChild(video)).catch(console.error);
+</script>
+```
+
 Any properties not set fall back to provider defaults.
 
 #### Saving to Puter filesystem
@@ -179,6 +215,7 @@ Every successful generation is charged to the user's AI credits according to the
 
 - **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
 - **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and the final charge is the amount Together AI reports for the job.
+- **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit.
 
 A request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).
 
@@ -190,7 +227,7 @@ Video generation is slow: expect anywhere from tens of seconds to several minute
 
 A `Promise` that resolves to an `HTMLVideoElement` (in browsers) that you can append to the DOM straight away:
 
-- `src` is the clip's URL: an `https:` URL on the provider's storage (Together AI or Seedance). Provider URLs are temporary; keep a copy with `puter_output_path` if you need the clip later.
+- `src` is the clip's URL: an `https:` URL on the provider's storage (Together AI or Seedance), or a `data:video/mp4;base64,…` URI holding the whole clip (Gemini Omni). Provider URLs are temporary; keep a copy with `puter_output_path` if you need the clip later.
 - `controls` is enabled and `preload` is `"metadata"`.
 - The `data-source` attribute carries the same URL, and `data-mime-type` the MIME type when it is known (for example `video/mp4`).
 - `String(video)` returns the URL, so the element can be dropped into a template or passed to `fetch()`.
@@ -210,14 +247,14 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | `message` | Human-readable reason. `error` carries the same text for older clients. |
 | `code` | Stable error code; see the table below. |
 | `errorCode` | A more specific code alongside a general `code`. Today the only value is `moderation_flagged`. |
-| `provider` | Which upstream handled the request: `together` or `byteplus`. Present on errors raised while a job was running. |
+| `provider` | Which upstream handled the request: `together`, `byteplus` or `gemini`. Present on errors raised while a job was running. |
 | `upstreamCode` | The provider's own error code, when it gave one. |
 | `upstreamStatus` | The HTTP status the provider returned, when it rejected the request before a job started. |
 
 | Code | Meaning |
 | --- | --- |
 | `prompt_required` | Raised by the SDK before any request is made: the call had no prompt. |
-| `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, or an image URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
+| `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, or an image URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
 | `access_denied` | `puter_output_path` points somewhere the caller may not write. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
 | `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
 | `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |

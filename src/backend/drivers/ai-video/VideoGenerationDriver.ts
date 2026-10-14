@@ -30,9 +30,11 @@ import {
     resolveOutputPath,
     saveGeneratedMediaToFS,
 } from '../util/generatedMedia.js';
+import { usesGoogleGeminiEndpoint } from '../util/geminiRest.js';
 import { ModelCatalog } from '../util/modelCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
+import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
 import type {
     IGenerateVideoParams,
@@ -72,8 +74,8 @@ const tierForPixels = ({
 /**
  * Driver implementing the `puter-video-generation` interface.
  *
- * Manages multiple upstream providers (Together, BytePlus/Seedance) and handles
- * model resolution, provider routing, and parameter normalisation. Each
+ * Manages multiple upstream providers (Together, BytePlus/Seedance, Gemini)
+ * and handles model resolution, provider routing, and parameter normalisation. Each
  * provider is a plain `IVideoProvider` -- the driver instantiates them from
  * config on boot.
  *
@@ -88,6 +90,7 @@ export class VideoGenerationDriver extends PuterDriver {
     readonly driverAliases = [
         'together-video-generation',
         'byteplus-video-generation',
+        'gemini-video-generation',
     ];
     readonly isDefault = true;
 
@@ -190,6 +193,11 @@ export class VideoGenerationDriver extends PuterDriver {
         }
 
         if (intendedProvider && !this.#providers[intendedProvider]) {
+            if (intendedProvider === 'gemini-video-generation') {
+                throw new HttpError(400, 'Gemini video generation is not configured', {
+                    legacyCode: 'bad_request',
+                });
+            }
             intendedProvider = fallbackProvider;
         }
 
@@ -339,6 +347,20 @@ export class VideoGenerationDriver extends PuterDriver {
                             string | undefined,
                     },
                     m,
+                );
+        }
+
+        // Shares the chat provider's `gemini` key. A custom `apiBaseUrl` is a
+        // proxy for chat only, so its key is never sent to Google directly.
+        const geminiKey = readProviderKey(providers['gemini']);
+        if (
+            geminiKey &&
+            usesGoogleGeminiEndpoint(providers['gemini']?.apiBaseUrl)
+        ) {
+            this.#providers['gemini-video-generation'] =
+                new GeminiVideoProvider(
+                    { apiKey: geminiKey },
+                    { stores: this.stores, fs: this.services.fs, metering: m },
                 );
         }
     }

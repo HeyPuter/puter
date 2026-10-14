@@ -35,6 +35,7 @@ import {
 import {
     geminiUpstreamFailure as upstreamFailure,
     postGeminiJson,
+    geminiTokenCount as tokenCount,
 } from '../../../util/geminiRest.js';
 import { isUpstreamTimeoutError } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
@@ -174,12 +175,6 @@ const audioTimedOut = (cause: unknown): HttpError =>
             cause,
         },
     );
-
-/** A usable token count: a finite, non-negative integer. */
-const tokenCount = (value: unknown): number | undefined =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : undefined;
 
 /**
  * `modality`'s tokens from a by-modality breakdown, or `total` when there is no

@@ -25,6 +25,7 @@ import { loadFileInput } from '../../../util/fileInput.js';
 import {
     geminiUpstreamFailure,
     postGeminiJson,
+    geminiTokenCount as tokenCount,
     usesGoogleGeminiEndpoint,
 } from '../../../util/geminiRest.js';
 import type {
@@ -212,12 +213,6 @@ const notConfigured = (): HttpError =>
         fields: { provider: 'gemini' },
         noAlarm: true,
     });
-
-/** A usable token count: a safe, non-negative integer. */
-const tokenCount = (value: unknown): number | undefined =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : undefined;
 
 /** Seconds from a Duration string such as `0.300s`. */
 const offsetSeconds = (value: unknown): number | undefined => {

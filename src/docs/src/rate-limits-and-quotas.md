@@ -47,7 +47,7 @@ For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
 - AI model rates can change. Check the [AI model directory](https://developer.puter.com/ai/models/) for current pricing.
-- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers.
+- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers. Gemini Omni video is the exception. Its reservation is an estimate, because Google can return more output tokens than requested, and it settles at the tokens actually used even when they cost more (see [Video generation](#video-generation)).
 
 ## Rate limits
 
@@ -115,6 +115,24 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
+
+### Video generation
+
+[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 10 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
+
+| Limit | Value |
+|-------|-------|
+| Prompt | 4,000 characters |
+| Starting image | One PNG, JPEG or WebP image, 5 MiB. A URL is fetched with a 30-second timeout |
+| Input tokens, prompt and image together | 131,072 |
+| Requested output tokens | 65,536 |
+| Input token count | 30-second timeout, 64 KiB reply |
+| Generation | 10-minute timeout, reply and clip included. 64 MiB reply |
+| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. Held for up to 11 minutes |
+
+A longer prompt, a larger image, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image file or `data:` URI over 5 MiB) before generation starts. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
+
+The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation.
 
 ### Remote chat image inlining
 
