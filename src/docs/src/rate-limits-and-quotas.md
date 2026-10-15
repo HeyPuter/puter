@@ -571,11 +571,3 @@ The promise still rejects with the error above. An app that writes files should 
 - `puter.auth.getMonthlyUsage()` → month-to-date spend and remaining allowance, per API.
 
 Total spend and remaining allowance are always current. The per-API and per-app breakdowns can lag by up to about a minute. Past 5,000 distinct APIs in a month, the rest are grouped under `other`.
-
-## Desktop Start menu
-
-The Start menu refresh request times out after 30 seconds. Downloads stop when
-progress reports more than 1 MiB of response data. Browser progress events can
-arrive after a chunk has downloaded, so this is an abort threshold, not an exact
-network-byte ceiling. Closing Start cancels its pending refresh. Failed refreshes
-keep the last successful app list.
