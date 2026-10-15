@@ -17,7 +17,7 @@ An optional string naming the model that produced the transcript.
 
 #### `language` (String)
 
-An optional string containing the detected or specified language of the audio. Gemini includes `language` only when you pass one.
+An optional string containing the detected or specified language of the audio. With Gemini, this field contains the `language` option you passed and is omitted otherwise. For OpenAI and xAI, whether it is present depends on the provider response.
 
 #### `segments` (Array)
 

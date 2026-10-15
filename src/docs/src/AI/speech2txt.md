@@ -64,7 +64,7 @@ Gemini rejects options it can't honor with `bad_request` instead of ignoring the
 
 Gemini accepts WAV, MP3, AIFF, AAC, OGG, FLAC, MPEG, M4A, L16, Opus, A-law, mu-law and WebM audio, sent with an `audio/*` MIME type (`audio/wav`, `audio/mpeg`, `audio/webm`, and so on). Other types fail with `bad_request`, and the audio isn't converted. The audio can be at most 10 MiB, or 1 hour long, or 30 minutes long with word timestamps or `diarize`. Gemini enforces the duration limits itself, and the call fails when the audio is longer. A transcript is limited to 8,192 output tokens. A longer one fails with `502 upstream_failed`, so split long recordings into shorter files.
 
-Gemini is billed per token at $2 per million audio input tokens and $12 per million output tokens, thinking tokens included. Before transcribing, Puter reserves the cost of the counted audio tokens plus the full 8,192 output tokens, then charges the tokens Gemini reports.
+Before transcribing, Puter reserves the cost of the counted audio tokens plus the full 8,192 output tokens, then charges the tokens Gemini reports.
 
 #### `testMode` (Boolean) (optional)
 
