@@ -40,6 +40,7 @@ import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
 import { ProfileService } from './profile/ProfileService';
+import { OpenAIRealtimeRelayService } from './realtime/OpenAIRealtimeRelayService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
@@ -89,6 +90,7 @@ declare module './types' {
         userAccount: UserAccountService;
         team: TeamService;
         signup: SignupService;
+        openaiRealtime: OpenAIRealtimeRelayService;
     }
 }
 
@@ -159,4 +161,6 @@ export const puterServices = {
     // check can reference the peer.
     health: ServerHealthService,
     localworkerservice: LocalWorkerService,
+    // Authenticates through `auth` and meters through `metering`.
+    openaiRealtime: OpenAIRealtimeRelayService,
 } satisfies IPuterServiceRegistry;

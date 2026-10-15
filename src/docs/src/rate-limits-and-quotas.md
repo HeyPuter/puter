@@ -75,6 +75,8 @@ Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; 
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
+Realtime sessions (`puter.ai.assistant.connect()`, `/puterai/openai/v1/realtime`) are open to every plan, unlike the other OpenAI-compatible endpoints, and capped at 20 open at once per account. A session over the cap gets an `error` event with code `rate_limit_exceeded` and closes.
+
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:

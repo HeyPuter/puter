@@ -44,6 +44,8 @@ export type {
     ListTTSEnginesOptions,
     ListTTSVoicesOptions,
     OcrAnnotationFormat,
+    RealtimeConnectOptions,
+    RealtimeServerEvent,
     Speech2SpeechOptions,
     Speech2TxtOptions,
     Speech2TxtResult,
@@ -58,7 +60,8 @@ export type {
     Txt2SpeechOptions,
     Txt2VidOptions,
 } from './types/modules/ai/types.js';
-export type { Txt2Speech } from './types/modules/ai/index.js';
+export type { Assistant, Txt2Speech } from './types/modules/ai/index.js';
+export type { RealtimeSession } from './types/modules/ai/assistant.js';
 
 // -- puter.apps --
 export type {
