@@ -14,6 +14,12 @@
  * Suites can read the resulting tags from `t.env.capabilities`.
  */
 
+import { fileURLToPath } from 'node:url';
+
+const IN_TREE_EXTENSIONS = fileURLToPath(
+    new URL('../../../../../extensions', import.meta.url),
+);
+
 type ConfigOverrides = Record<string, unknown>;
 
 type CapabilityMapping = {
@@ -40,6 +46,19 @@ const MAPPINGS: CapabilityMapping[] = [
         capability: 'net.wisp',
         envVars: ['PUTER_TEST_WISP_SERVER'],
         configOverrides: ([server]) => ({ wisp: { server } }),
+    },
+    {
+        // Teams registers its own routes, so the suite needs a build that
+        // provides them: the var points at a directory supplying the
+        // feature. Arrays replace on merge, so the in-tree directory the
+        // client env always loads has to be named again alongside it.
+        capability: 'teams',
+        envVars: ['PUTER_TEST_TEAMS_EXTENSION'],
+        configOverrides: ([dir]) => ({
+            teams_enabled: true,
+            import_ts_extensions: true,
+            extensions: [IN_TREE_EXTENSIONS, dir],
+        }),
     },
     aiProvider('ai.openai', 'PUTER_TEST_AI_OPENAI_API_KEY', 'openai-completion'),
     aiProvider('ai.claude', 'PUTER_TEST_AI_CLAUDE_API_KEY', 'claude'),

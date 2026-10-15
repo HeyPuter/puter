@@ -18,9 +18,9 @@
  */
 
 /**
- * What core asks of Teams, which ships separately. Nothing here is an
- * implementation: a deployment without the feature registers neither, and every
- * caller treats both as absent.
+ * What core asks of Teams. Nothing here is an implementation: the pair is
+ * registered by whatever provides the feature, and a deployment that does not
+ * run it registers neither, so every caller treats both as absent.
  */
 
 /** A team, as much of one as core reads back. */

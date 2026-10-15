@@ -24,9 +24,9 @@ import type { PuterServer } from './server.ts';
 import { createTestUser, setupTestServer } from './testUtil.ts';
 
 /**
- * Teams is moving to a private extension, so core has to work when neither the
- * service nor the store is registered. Both are dropped after boot here, which
- * is the shape core will see once the feature ships separately.
+ * Teams is optional, so core has to work when neither the service nor the
+ * store is registered. Both are dropped after boot here, which is the shape
+ * core sees wherever the feature is not installed.
  */
 describe('core without a teams registration', () => {
     let server: PuterServer;
@@ -48,7 +48,7 @@ describe('core without a teams registration', () => {
             // Without this the allowlist check returns before asking Teams.
             teams_allowed_email_domains: ['test.local'],
         } as never);
-        // What the registry looks like with the extension absent.
+        // What the registry looks like where Teams is not installed.
         delete (server.services as { team?: unknown }).team;
         delete (server.stores as { team?: unknown }).team;
     });

@@ -218,6 +218,10 @@ export async function buildUserDetails(
         try {
             return { seat: await stores.team?.getOrgSeat(user.id) };
         } catch (error) {
+            // Teams is optional, and an extension-registry read for one that
+            // is not installed throws rather than answering undefined. That
+            // is an absence, not a fault.
+            if (/missing property/.test(String(error))) return { seat: null };
             return { error };
         }
     };

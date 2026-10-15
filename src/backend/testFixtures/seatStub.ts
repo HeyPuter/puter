@@ -19,12 +19,16 @@
 
 import { onTestFinished } from 'vitest';
 
-import type { OrgSeatRow } from '../core/teams.js';
+import type {
+    OrgSeatRow,
+    TeamServiceContract,
+    TeamStoreContract,
+} from '../core/teams.js';
 
 /**
- * Teams ships as an extension, so core cannot build a real seat to test the
- * rules that refuse one. This answers the contract instead, which is all those
- * rules read.
+ * Teams is optional, so core cannot build a real seat to test the rules that
+ * refuse one. This answers the contract instead, which is all those rules
+ * read.
  */
 export interface SeatStubOptions {
     /** Whether the seat's team demands a second factor. */
@@ -68,7 +72,7 @@ export const installSeatStub = (
               } as OrgSeatRow)
             : null;
 
-    server.stores.team = {
+    const storeStub: TeamStoreContract = {
         getOrgSeat: async (userId: number) => seatFor(userId),
         isMember: async () => false,
         getByUid: async () => null,
@@ -81,7 +85,8 @@ export const installSeatStub = (
         countOwned: async () => 0,
         countOwnedTeamsWithAccounts: async () => 0,
     };
-    server.services.team = {
+    server.stores.team = storeStub;
+    const serviceStub: TeamServiceContract = {
         teamsAvailableTo: async () => false,
         captureSeatForBilling: async () => null,
         emitSeatDeleted: () => undefined,
@@ -100,6 +105,7 @@ export const installSeatStub = (
             );
         },
     };
+    server.services.team = serviceStub;
 
     // Deleted rather than set undefined: shutdown walks the registry values.
     const restore = () => {
