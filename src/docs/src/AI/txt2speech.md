@@ -86,7 +86,7 @@ Available when `provider: 'gemini'`:
 | `voice` | `String` | Voice name. Defaults to `'Kore'`. Available: `'Zephyr'`, `'Puck'`, `'Charon'`, `'Kore'`, `'Fenrir'`, `'Leda'`, `'Orus'`, `'Aoede'`, `'Callirrhoe'`, `'Autonoe'`, `'Enceladus'`, `'Iapetus'`, `'Umbriel'`, `'Algieba'`, `'Despina'`, `'Erinome'`, `'Algenib'`, `'Rasalgethi'`, `'Laomedeia'`, `'Achernar'`, `'Alnilam'`, `'Schedar'`, `'Gacrux'`, `'Pulcherrima'`, `'Achird'`, `'Zubenelgenubi'`, `'Vindemiatrix'`, `'Sadachbia'`, `'Sadaltager'`, `'Sulafat'` |
 | `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.) |
 
-Gemini reads `text` aloud exactly as written. The `instructions` string is sent to the model as separate style guidance, so it shapes how the text sounds but isn't spoken. Instructions count toward input tokens. Gemini audio is returned as WAV.
+Gemini generates speech from the `text` field. The `instructions` string isn't included in the generated audio. It guides delivery (tone, pacing, accent, emotion). Instructions count toward input tokens. Audio is returned as WAV.
 
 For more details about Gemini TTS, see the [Google Gemini speech generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation).
 
