@@ -370,9 +370,10 @@ export class ShareNotificationService extends PuterService {
             let members = byGroup.get(share.holderGroupId);
             if (!members) {
                 try {
-                    members = await this.stores.team.listMemberIdsByGroupId(
-                        share.holderGroupId,
-                    );
+                    members =
+                        (await this.stores.team?.listMemberIdsByGroupId(
+                            share.holderGroupId,
+                        )) ?? [];
                 } catch (err) {
                     // Silence is this path's failure mode, so say so out loud.
                     console.warn(

@@ -87,7 +87,7 @@ declare module './types' {
         homepage: PuterHomepageService;
         health: ServerHealthService;
         userAccount: UserAccountService;
-        team: TeamService;
+        team?: TeamService;
         signup: SignupService;
     }
 }

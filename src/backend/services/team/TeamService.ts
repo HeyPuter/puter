@@ -67,6 +67,7 @@ import type {
     TeamAuditRow,
     TeamMemberRow,
     TeamRow,
+    TeamStore,
 } from '../../stores/team/TeamStore';
 import {
     encodeCursor,
@@ -159,12 +160,17 @@ export class TeamService extends PuterService {
                 const userId = actor?.user?.id;
                 if (typeof userId !== 'number') return null;
                 // Cached, negatives included: almost nothing is a seat.
-                const seat = await this.stores.team.getOrgSeat(userId);
+                const seat = await this.#teams.getOrgSeat(userId);
                 return seat ? ORG_SEAT_FREE_SUBSCRIPTION : null;
             },
             // Ahead of anything read off the address, which nobody confirmed.
             { priority: ORG_SEAT_RESOLVER_PRIORITY },
         );
+    }
+
+    /** Registered only where its store is, so this is never absent. */
+    get #teams(): TeamStore {
+        return this.stores.team as TeamStore;
     }
 
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
@@ -194,7 +200,7 @@ export class TeamService extends PuterService {
     ): Promise<TeamBillingEvent | null> {
         if (this.config.teams_enabled !== true) return null;
         try {
-            const seat = await this.stores.team.getOrgSeat(userId);
+            const seat = await this.#teams.getOrgSeat(userId);
             if (!seat) return null;
             return {
                 team_uid: seat.team_uid,
@@ -211,9 +217,9 @@ export class TeamService extends PuterService {
 
     /** The membership cascaded away, so the cached reads over it must go too. */
     async forgetSeat(seat: TeamBillingEvent): Promise<void> {
-        const team = await this.stores.team.getByUid(seat.team_uid);
-        await this.stores.team.bustMembership(team?.id ?? -1, seat.user_id);
-        await this.stores.team.bustMember(seat.team_uid, seat.user_id);
+        const team = await this.#teams.getByUid(seat.team_uid);
+        await this.#teams.bustMembership(team?.id ?? -1, seat.user_id);
+        await this.#teams.bustMember(seat.team_uid, seat.user_id);
     }
 
     /** Paired with `captureSeatForBilling`, once the account is really gone. */
@@ -254,7 +260,7 @@ export class TeamService extends PuterService {
         ) {
             return true;
         }
-        return (await this.stores.team.listGroupIdsForUser(userId)).length > 0;
+        return (await this.#teams.listGroupIdsForUser(userId)).length > 0;
     }
 
     /**
@@ -264,7 +270,7 @@ export class TeamService extends PuterService {
      * ordinary self-paying account.
      */
     async #refuseIfOrgSeat(userId: number): Promise<void> {
-        const seat = await this.stores.team.getOrgSeat(userId);
+        const seat = await this.#teams.getOrgSeat(userId);
         if (!seat) return;
         throw new HttpError(
             403,
@@ -280,8 +286,8 @@ export class TeamService extends PuterService {
         teamUid: string,
         actorUserId: number,
     ): Promise<TeamRow> {
-        const team = await this.stores.team.getByUid(teamUid);
-        if (!team || !(await this.stores.team.isMember(teamUid, actorUserId))) {
+        const team = await this.#teams.getByUid(teamUid);
+        if (!team || !(await this.#teams.isMember(teamUid, actorUserId))) {
             throw new HttpError(404, 'Team not found', {
                 legacyCode: 'team_not_found',
             });
@@ -307,11 +313,11 @@ export class TeamService extends PuterService {
         opts: { includeDeleted?: boolean } = {},
     ): Promise<TeamMemberRow> {
         const membership = opts.includeDeleted
-            ? await this.stores.team.getMembershipIncludingDeleted(
+            ? await this.#teams.getMembershipIncludingDeleted(
                   teamUid,
                   targetUserId,
               )
-            : await this.stores.team.getMembership(teamUid, targetUserId);
+            : await this.#teams.getMembership(teamUid, targetUserId);
         // Tested explicitly, never inferred from NULL.
         if (!membership || Number(membership.org_owned) !== 1) {
             throw new HttpError(404, 'Not an account of this team', {
@@ -384,7 +390,7 @@ export class TeamService extends PuterService {
                 legacyCode: 'bad_request',
             });
         }
-        if (!(await this.stores.team.isHandleAvailable(handle))) {
+        if (!(await this.#teams.isHandleAvailable(handle))) {
             throw new HttpError(409, 'That handle is taken', {
                 legacyCode: 'conflict',
             });
@@ -452,7 +458,7 @@ export class TeamService extends PuterService {
         }
 
         const team = await this.#asHttpErrors(() =>
-            this.stores.team.update(teamUid, changes),
+            this.#teams.update(teamUid, changes),
         );
         if (!team) {
             throw new HttpError(404, 'Team not found', {
@@ -467,7 +473,7 @@ export class TeamService extends PuterService {
             changes.directoryEnabled !== undefined &&
             changes.directoryEnabled !== was
         ) {
-            await this.stores.team.appendAudit({
+            await this.#teams.appendAudit({
                 teamId: team.id,
                 userId: actorUserId,
                 actorUserId,
@@ -482,7 +488,7 @@ export class TeamService extends PuterService {
             changes.require2fa !== undefined &&
             changes.require2fa !== required
         ) {
-            await this.stores.team.appendAudit({
+            await this.#teams.appendAudit({
                 teamId: team.id,
                 userId: actorUserId,
                 actorUserId,
@@ -512,12 +518,12 @@ export class TeamService extends PuterService {
     async #bustSeatCaches(team: TeamRow): Promise<void> {
         let cursor: string | undefined;
         for (let page = 0; page < 50; page++) {
-            const res = await this.stores.team.listMembers(team.uid, {
+            const res = await this.#teams.listMembers(team.uid, {
                 limit: 100,
                 ...(cursor ? { cursor } : {}),
             });
             for (const member of res.items) {
-                await this.stores.team.bustMembership(
+                await this.#teams.bustMembership(
                     team.id,
                     Number(member.user_id),
                 );
@@ -553,7 +559,7 @@ export class TeamService extends PuterService {
         const team = await this.requireMembership(teamUid, actorUserId);
         this.assertDirectoryOpen(team);
 
-        const page = await this.stores.team.listDirectory(teamUid, opts);
+        const page = await this.#teams.listDirectory(teamUid, opts);
         return {
             items: page.items.map((m) => ({
                 username: m.username,
@@ -580,7 +586,7 @@ export class TeamService extends PuterService {
         await this.#refuseIfOrgSeat(ownerUserId);
         // First: a capped user should hear that, not that the name was taken.
         const cap = this.#teamCap();
-        if ((await this.stores.team.countOwned(ownerUserId)) >= cap) {
+        if ((await this.#teams.countOwned(ownerUserId)) >= cap) {
             throw new HttpError(
                 409,
                 `You may own ${cap} team${cap === 1 ? '' : 's'}`,
@@ -595,7 +601,7 @@ export class TeamService extends PuterService {
         if (handle !== null) await this.assertHandleUsable(handle);
 
         const team = await this.#asHttpErrors(() =>
-            this.stores.team.create({
+            this.#teams.create({
                 ownerUserId,
                 name: input.name,
                 handle,
@@ -603,15 +609,11 @@ export class TeamService extends PuterService {
         );
 
         // 0 makes the owner pay for itself; unchecked, it is unreachable.
-        const admitted = await this.stores.team.addMember(
-            team.uid,
-            ownerUserId,
-            {
-                orgOwned: false,
-            },
-        );
+        const admitted = await this.#teams.addMember(team.uid, ownerUserId, {
+            orgOwned: false,
+        });
         if (!admitted) {
-            await this.stores.team.softDelete(team.uid);
+            await this.#teams.softDelete(team.uid);
             throw new HttpError(500, 'Could not create the team', {
                 legacyCode: 'internal_error',
             });
@@ -621,16 +623,16 @@ export class TeamService extends PuterService {
 
     /** The owner is a member with `org_owned = 0`, and the only such member. */
     async checkOwnerInvariant(teamUid: string): Promise<boolean> {
-        const team = await this.stores.team.getByUid(teamUid);
+        const team = await this.#teams.getByUid(teamUid);
         if (!team) return false;
 
-        const owner = await this.stores.team.getMembership(
+        const owner = await this.#teams.getMembership(
             teamUid,
             team.owner_user_id,
         );
         if (!owner || Number(owner.org_owned) !== 0) return false;
 
-        return (await this.stores.team.countPayers(team.id)) === 1;
+        return (await this.#teams.countPayers(team.id)) === 1;
     }
 
     /** Soft delete disables the accounts it created; recovery is via support. */
@@ -640,7 +642,7 @@ export class TeamService extends PuterService {
         let disabled = 0;
 
         // Otherwise they keep working, unreachable through a deleted team.
-        let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
+        let page = await this.#teams.listMembers(teamUid, { limit: 200 });
         for (;;) {
             disabled += await this.#disableSeatsForDelete(
                 page.items.filter((m) => Number(m.org_owned) === 1),
@@ -649,19 +651,19 @@ export class TeamService extends PuterService {
                 billing,
             );
             if (!page.cursor) break;
-            page = await this.stores.team.listMembers(teamUid, {
+            page = await this.#teams.listMembers(teamUid, {
                 limit: 200,
                 cursor: page.cursor,
             });
         }
 
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: actorUserId,
             actorUserId,
             action: 'delete_team',
         });
-        await this.stores.team.softDelete(teamUid);
+        await this.#teams.softDelete(teamUid);
 
         this.#emitBilling('team.deleted', {
             ...billing,
@@ -695,7 +697,7 @@ export class TeamService extends PuterService {
         const held = await this.stores.fsEntry.getHeldBytesForUsers(ids);
         const rows = await this.stores.user.getByIds(ids);
         // Recorded first, so a failed append cannot leave an unlogged suspension.
-        await this.stores.team.appendAuditMany(
+        await this.#teams.appendAuditMany(
             todo.map((m) => ({
                 teamId: team.id,
                 userId: m.user_id,
@@ -744,9 +746,7 @@ export class TeamService extends PuterService {
         opts: { limit?: unknown; cursor?: string } = {},
     ) {
         const team = await this.requireOwnedTeam(teamUid, actorUserId);
-        return this.#withUsernames(
-            await this.stores.team.listAudit(team.id, opts),
-        );
+        return this.#withUsernames(await this.#teams.listAudit(team.id, opts));
     }
 
     /**
@@ -773,17 +773,13 @@ export class TeamService extends PuterService {
         const fromAudit = typeof cursor.a === 'number' ? cursor.a : undefined;
         const fromSignIn = typeof cursor.s === 'number' ? cursor.s : null;
 
-        const audit = await this.stores.team.listAuditForUser(
-            team.id,
-            actorUserId,
-            {
-                limit,
-                cursor:
-                    fromAudit === undefined
-                        ? undefined
-                        : encodeCursor({ id: fromAudit }),
-            },
-        );
+        const audit = await this.#teams.listAuditForUser(team.id, actorUserId, {
+            limit,
+            cursor:
+                fromAudit === undefined
+                    ? undefined
+                    : encodeCursor({ id: fromAudit }),
+        });
         // One past the limit, so a page that consumes no sign-in still knows
         // whether any remain.
         const signIns = await this.stores.session.listSignIns(actorUserId, {
@@ -851,11 +847,10 @@ export class TeamService extends PuterService {
         teamUid: string,
         actorUserId: number,
     ): Promise<TeamRow> {
-        const live = await this.stores.team.getByUid(teamUid);
+        const live = await this.#teams.getByUid(teamUid);
         if (live) return this.requireOwner(teamUid, actorUserId);
 
-        const deleted =
-            await this.stores.team.getByUidIncludingDeleted(teamUid);
+        const deleted = await this.#teams.getByUidIncludingDeleted(teamUid);
         if (!deleted || deleted.owner_user_id !== actorUserId) {
             throw new HttpError(404, 'Team not found', {
                 legacyCode: 'team_not_found',
@@ -1025,7 +1020,7 @@ export class TeamService extends PuterService {
 
         // Counted, never derived from a stored total: seats come and go.
         const cap = await this.#seatCap(team.owner_user_id);
-        if ((await this.stores.team.countSeats(team.id)) >= cap) {
+        if ((await this.#teams.countSeats(team.id)) >= cap) {
             throw new HttpError(409, `This team is limited to ${cap} seats`, {
                 legacyCode: 'seat_limit_reached',
                 fields: { limit: cap },
@@ -1098,7 +1093,7 @@ export class TeamService extends PuterService {
         }
 
         // Otherwise a vanished team leaves a real account nobody owns.
-        const admitted = await this.stores.team.addMember(teamUid, user.id, {
+        const admitted = await this.#teams.addMember(teamUid, user.id, {
             orgOwned: true,
         });
         if (!admitted) {
@@ -1108,7 +1103,7 @@ export class TeamService extends PuterService {
             });
         }
 
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: user.id,
             actorUserId,
@@ -1147,7 +1142,7 @@ export class TeamService extends PuterService {
      * is unconfirmed.
      */
     async releaseUnconfirmedSeatEmail(userId: number): Promise<boolean> {
-        if (!(await this.stores.team.getOrgSeat(userId))) return false;
+        if (!(await this.#teams.getOrgSeat(userId))) return false;
         return this.stores.user.clearUnconfirmedEmail(userId);
     }
 
@@ -1168,7 +1163,7 @@ export class TeamService extends PuterService {
         }
 
         // Recorded first, so a failed append cannot leave an unlogged credential.
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,
@@ -1195,7 +1190,7 @@ export class TeamService extends PuterService {
         const user = await this.#requireTargetAccount(teamUid, targetUserId);
 
         // Recorded first, so a failed append cannot leave an unlogged reset.
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,
@@ -1248,7 +1243,7 @@ export class TeamService extends PuterService {
             email_confirm_code: confirmCode,
             email_confirm_token: confirmCode ? uuidv4() : null,
         });
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,
@@ -1288,7 +1283,7 @@ export class TeamService extends PuterService {
         }
 
         // Recorded first, so a failed append cannot leave an unlogged reset.
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,
@@ -1309,13 +1304,11 @@ export class TeamService extends PuterService {
      * A no-op for everyone who is not a seat, which is almost every account.
      */
     async recordPasswordSelfChange(userId: number): Promise<void> {
-        const seat = await this.stores.team.getOrgSeat(userId);
+        const seat = await this.#teams.getOrgSeat(userId);
         if (!seat) return;
-        const team = await this.stores.team.getByUidIncludingDeleted(
-            seat.team_uid,
-        );
+        const team = await this.#teams.getByUidIncludingDeleted(seat.team_uid);
         if (!team) return;
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId,
             actorUserId: userId,
@@ -1411,7 +1404,7 @@ export class TeamService extends PuterService {
         if (current?.suspended) return;
 
         // Recorded first: a failed append must not leave an unlogged suspension.
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,
@@ -1455,7 +1448,7 @@ export class TeamService extends PuterService {
         // Never disabled, so there is no charge to close.
         if (!user?.suspended) return;
 
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,
@@ -1507,7 +1500,7 @@ export class TeamService extends PuterService {
         }
 
         // Written first; `_keep` is what makes it outlive the account.
-        await this.stores.team.appendAudit({
+        await this.#teams.appendAudit({
             teamId: team.id,
             userId: targetUserId,
             actorUserId,

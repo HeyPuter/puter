@@ -65,7 +65,7 @@ declare module './types.js' {
         notification: NotificationStore;
         share: ShareStore;
         group: GroupStore;
-        team: TeamStore;
+        team?: TeamStore;
         permission: PermissionStore;
         session: SessionStore;
         oidc: OIDCStore;
