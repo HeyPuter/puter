@@ -43,7 +43,6 @@ import { ProfileService } from './profile/ProfileService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
-import { TeamService } from './team/TeamService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
@@ -87,7 +86,6 @@ declare module './types' {
         homepage: PuterHomepageService;
         health: ServerHealthService;
         userAccount: UserAccountService;
-        team?: TeamService;
         signup: SignupService;
     }
 }
@@ -124,7 +122,6 @@ export const puterServices = {
     // first.
     userAccount: UserAccountService,
     // Leaf: team + user stores only.
-    team: TeamService,
     // Reaches `team` and `socket` at call time only.
     signup: SignupService,
     // AppPermissionService + SubdomainPermissionService register permission

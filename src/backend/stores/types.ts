@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { TeamStoreContract } from '../core/teams.js';
+
 import type { puterClients } from '../clients';
 import type { IExtensionClientInstances } from '../clients/types';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
@@ -30,6 +32,8 @@ export interface IPuterStoreInstances {}
 
 /** Extension-augmentable store registry; see `IExtensionClientInstances`. */
 export interface IExtensionStoreInstances {
+    /** Teams ships separately; absent where it is not installed. */
+    team?: TeamStoreContract;
     [key: string]: unknown;
 }
 
