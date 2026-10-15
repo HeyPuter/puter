@@ -809,7 +809,7 @@ describe('GeminiSpeechToTextProvider response', () => {
 
 describe('GeminiSpeechToTextProvider upstream failures', () => {
     it.each(['incomplete', 'failed', 'cancelled', 'in_progress'])(
-        'fails a %s interaction as 502 upstream_failed without charging',
+        'fails a %s interaction as 502 upstream_failed and charges its usage',
         async (status) => {
             const { actor } = await makeUser();
             const { released } = trackHolds();
@@ -821,9 +821,24 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
                 ),
             ).toMatchObject({ statusCode: 502, legacyCode: 'upstream_failed' });
             expect(released).toHaveBeenCalledTimes(1);
-            expect(batchSpy).not.toHaveBeenCalled();
+            expect(metered().map((u) => u.usageAmount)).toEqual([71, 6]);
         },
     );
+
+    it('charges the counted audio for an incomplete reply without usage', async () => {
+        const { actor } = await makeUser();
+        reply(interaction({ status: 'incomplete', usage: undefined }));
+        expect(
+            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+        ).toMatchObject({ statusCode: 502, legacyCode: 'upstream_failed' });
+        expect(metered()).toEqual([
+            expect.objectContaining({
+                usageType: 'gemini:gemini-3.5-transcribe:input:audio',
+                usageAmount: COUNTED_TOKENS,
+                costOverride: COUNTED_TOKENS * 200,
+            }),
+        ]);
+    });
 
     it('fails a reply with no transcript text as 400 upstream_bad_request', async () => {
         const { actor } = await makeUser();
@@ -834,7 +849,7 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });
-        expect(batchSpy).not.toHaveBeenCalled();
+        expect(metered().map((u) => u.usageAmount)).toEqual([71, 6]);
     });
 
     it.each([
@@ -868,7 +883,7 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
             statusCode: 502,
             message: 'Gemini transcription returned a malformed transcript',
         });
-        expect(batchSpy).not.toHaveBeenCalled();
+        expect(metered().map((u) => u.usageAmount)).toEqual([71, 6]);
     });
 
     it('fails a non-JSON reply as 502', async () => {
@@ -1262,22 +1277,21 @@ describe('GeminiSpeechToTextProvider usage', () => {
             },
         ],
     ])(
-        'fails %s as 502 without fabricating usage',
+        'charges only the counted audio for %s',
         async (_label, usage) => {
             const { actor } = await makeUser();
             const { released } = trackHolds();
             reply(interaction({ usage }));
-            expect(
-                await callerError(
-                    () => driver.transcribe({ file: dataUrl() }),
-                    actor,
-                ),
-            ).toMatchObject({
-                statusCode: 502,
-                legacyCode: 'upstream_failed',
-                message: 'Gemini transcription returned unusable usage',
-            });
-            expect(batchSpy).not.toHaveBeenCalled();
+            await expect(
+                withActor(actor, () => driver.transcribe({ file: dataUrl() })),
+            ).resolves.toMatchObject({ text: 'The blue lantern is ready.' });
+            expect(metered()).toEqual([
+                expect.objectContaining({
+                    usageType: 'gemini:gemini-3.5-transcribe:input:audio',
+                    usageAmount: COUNTED_TOKENS,
+                    costOverride: COUNTED_TOKENS * 200,
+                }),
+            ]);
             expect(released).toHaveBeenCalledTimes(1);
         },
     );

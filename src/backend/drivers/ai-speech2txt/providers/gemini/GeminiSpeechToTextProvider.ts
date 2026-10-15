@@ -402,19 +402,13 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
                     signal,
                 },
             );
-            if (interaction.status !== 'completed') {
-                throw geminiUpstreamFailure(
-                    'Gemini transcription did not complete the request',
-                );
-            }
-            const { text, words } = this.#readTranscript(interaction);
-
-            const billed = billedTokens(interaction.usage);
-            if (!billed) {
-                throw geminiUpstreamFailure(
-                    'Gemini transcription returned unusable usage',
-                );
-            }
+            // Google bills what it processed, finished or not, so usage is
+            // recorded before the reply is checked. The counted audio stands in
+            // when the reply's usage can't be read.
+            const billed = billedTokens(interaction.usage) ?? {
+                audio: inputTokens,
+                output: 0,
+            };
             const usages: UsageInput[] = [
                 {
                     usageType: `${usagePrefix}:input:audio`,
@@ -431,6 +425,12 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
                 await metering.batchIncrementUsages(actor, usages);
             }
 
+            if (interaction.status !== 'completed') {
+                throw geminiUpstreamFailure(
+                    'Gemini transcription did not complete the request',
+                );
+            }
+            const { text, words } = this.#readTranscript(interaction);
             return this.#result(text, options, words);
         } finally {
             await hold.release();
