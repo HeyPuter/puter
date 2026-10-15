@@ -1421,16 +1421,20 @@ describe.each(RESTORED)('$model served natively', ({ model, rates, usage }) => {
         ['low', 'LOW'],
         ['medium', 'MEDIUM'],
         ['high', 'HIGH'],
-    ])('sends reasoning_effort %s as thinkingLevel %s', async (effort, level) => {
-        generateContent.mockResolvedValueOnce(textResponse('OK', usage));
-        await complete({
-            model,
-            reasoning_effort: effort as ICompleteArguments['reasoning_effort'],
-        });
-        expect(requestOf().config.thinkingConfig).toEqual({
-            thinkingLevel: level,
-        });
-    });
+    ])(
+        'sends reasoning_effort %s as thinkingLevel %s',
+        async (effort, level) => {
+            generateContent.mockResolvedValueOnce(textResponse('OK', usage));
+            await complete({
+                model,
+                reasoning_effort:
+                    effort as ICompleteArguments['reasoning_effort'],
+            });
+            expect(requestOf().config.thinkingConfig).toEqual({
+                thinkingLevel: level,
+            });
+        },
+    );
 
     it.each(['none', 'xhigh', 'max'])(
         'rejects reasoning_effort %s before calling Google',
@@ -1438,7 +1442,8 @@ describe.each(RESTORED)('$model served natively', ({ model, rates, usage }) => {
             await expect(
                 complete({
                     model,
-                    reasoning_effort: effort as ICompleteArguments['reasoning_effort'],
+                    reasoning_effort:
+                        effort as ICompleteArguments['reasoning_effort'],
                 }),
             ).rejects.toMatchObject({
                 statusCode: 400,
@@ -1464,8 +1469,13 @@ describe.each(RESTORED)('$model served natively', ({ model, rates, usage }) => {
         generateContentStream.mockResolvedValueOnce(
             asAsyncIterable([
                 {
-                    candidates: [{ content: { role: 'model', parts: [{ text: 'O' }] } }],
-                    usageMetadata: { promptTokenCount: 16, totalTokenCount: 16 },
+                    candidates: [
+                        { content: { role: 'model', parts: [{ text: 'O' }] } },
+                    ],
+                    usageMetadata: {
+                        promptTokenCount: 16,
+                        totalTokenCount: 16,
+                    },
                 },
                 {
                     candidates: [
@@ -1503,6 +1513,15 @@ describe.each(RESTORED)('$model served natively', ({ model, rates, usage }) => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
     });
 });
+
+it.each(['gemini-3.1-flash-lite', 'gemini-3-flash-preview'])(
+    '%s retains its unary output allowance',
+    async (model) => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({ model, max_tokens: 65_536 });
+        expect(requestOf().config.maxOutputTokens).toBe(65_536);
+    },
+);
 
 describe('geminiNativeClient deadline', () => {
     type Request = { config?: { abortSignal?: AbortSignal } };

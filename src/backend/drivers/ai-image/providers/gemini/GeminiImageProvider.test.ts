@@ -207,7 +207,6 @@ describe('GeminiImageProvider.generate argument validation', () => {
         ['gemini-3-pro-image', 'high'],
         ['gemini-3-pro-image', ' 8K '],
         ['gemini-3.1-flash-lite-image', '2K'],
-        ['gemini-2.5-flash-image', '2K'],
     ])(
         'rejects an unsupported quality tier %s/%j before pricing',
         async (model, quality) => {
@@ -320,7 +319,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         expect(generateContentMock.mock.calls[0]![0].model).toBe('gemini-3-pro-image');
     });
 
-    it.each(['gemini-2.5-flash-image-preview', 'nano-banana'])(
+    it.each(['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview', 'nano-banana'])(
         'drops the deprecated %s instead of redirecting it',
         (model) => {
             const names = makeProvider()
@@ -677,70 +676,5 @@ describe('Gemini Nano Banana image generation', () => {
 
     it('keeps the existing provider default', () => {
         expect(makeProvider().getDefaultModel()).toBe('gemini-3.1-flash-image');
-    });
-});
-
-describe('Gemini 2.5 Flash Image generation', () => {
-    it('routes the google/ alias at 1K and meters the actual token split', async () => {
-        generateContentMock.mockResolvedValueOnce({
-            candidates: [
-                {
-                    content: {
-                        parts: [
-                            {
-                                inlineData: {
-                                    mimeType: 'image/png',
-                                    data: 'AAAA',
-                                },
-                            },
-                        ],
-                    },
-                },
-            ],
-            usageMetadata: {
-                promptTokenCount: 11,
-                candidatesTokenCount: 1298,
-                candidatesTokensDetails: [
-                    { modality: 'IMAGE', tokenCount: 1290 },
-                ],
-            },
-        });
-        const result = await withTestActor(() =>
-            makeProvider().generate({
-                model: 'google/gemini-2.5-flash-image',
-                prompt: 'A cup',
-            }),
-        );
-        expect(result).toBe('data:image/png;base64,AAAA');
-        expect(generateContentMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                model: 'gemini-2.5-flash-image',
-                config: expect.objectContaining({
-                    imageConfig: { aspectRatio: '1:1', imageSize: '1K' },
-                }),
-            }),
-        );
-        // Input + 1290 image tokens at $30/1M + 50 text tokens at $2.50/1M.
-        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
-        expect(Math.abs(estimate - 3_882_530)).toBeLessThanOrEqual(1);
-        expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
-            expect.anything(),
-            [
-                expect.objectContaining({
-                    usageType: 'gemini:gemini-2.5-flash-image:input',
-                    usageAmount: 11,
-                }),
-                expect.objectContaining({
-                    usageType: 'gemini:gemini-2.5-flash-image:output:text',
-                    usageAmount: 8,
-                    costOverride: 2000,
-                }),
-                expect.objectContaining({
-                    usageType: 'gemini:gemini-2.5-flash-image:output:image',
-                    usageAmount: 1290,
-                    costOverride: 3_870_000,
-                }),
-            ],
-        );
     });
 });

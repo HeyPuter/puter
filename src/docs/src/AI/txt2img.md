@@ -110,9 +110,9 @@ Available when `provider: 'gemini'` or inferred from model:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-nano-banana-2.1'` (Nano Banana 2.1), `'gemini-3.1-flash-lite-image'`, `'gemini-2.5-flash-image'`, or `'gemini-3-pro-image'`. |
+| `model` | `String` | `'gemini-3.1-flash-image'` (default), `'gemini-nano-banana-2.1'` (Nano Banana 2.1), `'gemini-3.1-flash-lite-image'`, or `'gemini-3-pro-image'`. |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). |
-| `quality` | `String` | Nano Banana 2.1 and 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite and 2.5 Flash: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on Nano Banana 2.1, 3 Pro, 3.1 Flash Lite, and 2.5 Flash. |
+| `quality` | `String` | Nano Banana 2.1 and 3 Pro: `'1K'`, `'2K'`, `'4K'`; 3.1 Flash: `'512'`, `'1K'`, `'2K'`, `'4K'`; 3.1 Flash Lite: `'1K'`. Case-insensitive; a tier the model does not offer returns `bad_request` before any credits are checked. Defaults to the first supported tier: `'512'` on 3.1 Flash, `'1K'` on Nano Banana 2.1, 3 Pro, and 3.1 Flash Lite. |
 | `input_images` | `Array<String>` | Input images for image-to-image, as URLs or base64/data-URIs. |
 
 #### xAI (Grok) Options

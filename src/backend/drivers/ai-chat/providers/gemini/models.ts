@@ -53,8 +53,27 @@ export const GEMINI_NATIVE_MODELS: ReadonlyMap<string, GeminiNativeOptions> =
         ['gemini-3-flash-preview', FLASH_NATIVE_OPTIONS],
     ]);
 
-// Gemini 3.6/3.8 Flash launch pricing; list pricing doubles from
-// 2027-01-01T00:00:00Z.
+const DOUBLED_RATES = [
+    'prompt_tokens',
+    'completion_tokens',
+    'thinking_tokens',
+    'cached_tokens',
+] as const;
+
+/** Launch pricing whose token rates all double to list pricing at `startsAt`. */
+const listPricingFrom = (
+    startsAt: string,
+    launch: ModelCost,
+): ModelPricingOverride[] => [
+    {
+        startsAt,
+        costs: Object.fromEntries(
+            DOUBLED_RATES.map((key) => [key, launch[key] * 2]),
+        ),
+    },
+];
+
+// Gemini 3.6/3.8 Flash launch pricing.
 const FLASH_LAUNCH_COSTS: ModelCost = {
     tokens: 1_000_000,
     prompt_tokens: 75,
@@ -64,17 +83,27 @@ const FLASH_LAUNCH_COSTS: ModelCost = {
     // Gemini 3.x grounding is $14 / 1,000 requests
     grounding_requests: 1_400_000,
 };
-const FLASH_LIST_PRICING: ModelPricingOverride[] = [
-    {
-        startsAt: '2027-01-01T00:00:00Z',
-        costs: {
-            prompt_tokens: 150,
-            completion_tokens: 750,
-            thinking_tokens: 750,
-            cached_tokens: 15,
-        },
-    },
-];
+const FLASH_LIST_PRICING = listPricingFrom(
+    '2027-01-01T00:00:00Z',
+    FLASH_LAUNCH_COSTS,
+);
+
+const ARGON_LAUNCH_COSTS: ModelCost = {
+    tokens: 1_000_000,
+    prompt_tokens: 200,
+    completion_tokens: 1000,
+    thinking_tokens: 1000,
+    cached_tokens: 10,
+};
+
+const ROBOTICS_LAUNCH_COSTS: ModelCost = {
+    tokens: 1_000_000,
+    prompt_tokens: 100,
+    completion_tokens: 500,
+    thinking_tokens: 500,
+    cached_tokens: 10,
+    grounding_requests: 1_400_000,
+};
 
 // Every rate rises for the whole request once the prompt, cached tokens
 // included, exceeds 200,000 tokens.
@@ -92,7 +121,6 @@ const PRO_LONG_CONTEXT_PRICING: ModelPricingOverride[] = [
 
 // Google's unary model metadata reports this cap; streaming keeps the catalog cap.
 export const GEMINI_ARGON_NON_STREAM_MAX_TOKENS = 32_768;
-
 
 export const GEMINI_MODELS: IChatModel[] = [
     {
@@ -114,25 +142,11 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        // Launch pricing; list pricing doubles from 2026-12-01T00:00:00Z.
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 200,
-            completion_tokens: 1000,
-            thinking_tokens: 1000,
-            cached_tokens: 10,
-        },
-        pricingOverrides: [
-            {
-                startsAt: '2026-12-01T00:00:00Z',
-                costs: {
-                    prompt_tokens: 400,
-                    completion_tokens: 2000,
-                    thinking_tokens: 2000,
-                    cached_tokens: 20,
-                },
-            },
-        ],
+        costs: ARGON_LAUNCH_COSTS,
+        pricingOverrides: listPricingFrom(
+            '2026-12-01T00:00:00Z',
+            ARGON_LAUNCH_COSTS,
+        ),
     },
     {
         puterId: 'google:google/gemini-3.5-flash',
@@ -482,26 +496,11 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        // Launch pricing; list pricing doubles from 2027-01-01T00:00:00Z.
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 100,
-            completion_tokens: 500,
-            thinking_tokens: 500,
-            cached_tokens: 10,
-            grounding_requests: 1_400_000,
-        },
-        pricingOverrides: [
-            {
-                startsAt: '2027-01-01T00:00:00Z',
-                costs: {
-                    prompt_tokens: 200,
-                    completion_tokens: 1000,
-                    thinking_tokens: 1000,
-                    cached_tokens: 20,
-                },
-            },
-        ],
+        costs: ROBOTICS_LAUNCH_COSTS,
+        pricingOverrides: listPricingFrom(
+            '2027-01-01T00:00:00Z',
+            ROBOTICS_LAUNCH_COSTS,
+        ),
     },
     {
         puterId: 'google:google/gemma-4-31b-it',
