@@ -18,8 +18,8 @@
  */
 
 /**
- * µ¢ per token (USD-cents per 1M tokens): audio input, and text output with
- * thinking billed at the output rate. Text input has no published rate.
+ * Rates in µ¢ per token (USD-cents per 1M tokens): audio input, and text output
+ * with thinking billed at the output rate. Text input has no published rate.
  */
 export interface GeminiSpeechToTextCosts {
     inputAudio: number;

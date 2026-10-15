@@ -273,7 +273,10 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
     #apiKey: string | null;
     #usesGoogleEndpoint: boolean;
 
-    constructor(deps: ISpeechToTextDeps, config: { apiKey?: string; apiBaseUrl?: string }) {
+    constructor(
+        deps: ISpeechToTextDeps,
+        config: { apiKey?: string; apiBaseUrl?: string },
+    ) {
         super(deps);
         this.#apiKey = config.apiKey ?? null;
         this.#usesGoogleEndpoint = usesGoogleGeminiEndpoint(config.apiBaseUrl);
@@ -314,7 +317,9 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
     }
 
     async translate(_args: ITranscribeArgs): Promise<never> {
-        throw badRequest('Translation is not supported by Gemini transcription');
+        throw badRequest(
+            'Translation is not supported by Gemini transcription',
+        );
     }
 
     async transcribe(
@@ -329,9 +334,13 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
         }
 
         if (!this.#usesGoogleEndpoint) {
-            throw new HttpError(500, 'Gemini transcription requires the Google endpoint', {
-                legacyCode: 'internal_error',
-            });
+            throw new HttpError(
+                500,
+                'Gemini transcription requires the Google endpoint',
+                {
+                    legacyCode: 'internal_error',
+                },
+            );
         }
         if (!this.#apiKey) {
             throw new HttpError(500, 'Gemini API key not configured', {
