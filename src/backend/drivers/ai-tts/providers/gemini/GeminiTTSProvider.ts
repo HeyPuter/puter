@@ -147,7 +147,7 @@ const upstreamFailure = (message: string): HttpError =>
 const responseTooLarge = (maxBytes: number): HttpError =>
     upstreamFailure(`Gemini TTS response exceeds ${maxBytes} bytes`);
 
-/** µ¢ for `tokens` at a cents-per-1M-tokens rate, which is µ¢ per token. */
+/** The µ¢ cost of `tokens` at a cents-per-1M rate, which is µ¢ per token. */
 const tokenCost = (tokens: number, centsPerMillion: number): number =>
     Math.max(1, Math.ceil(tokens * centsPerMillion));
 
