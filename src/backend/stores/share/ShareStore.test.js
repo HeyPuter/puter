@@ -1009,10 +1009,18 @@ describe('ShareStore', () => {
 
             it('returns the rows it inserts before the replica has them', async () => {
                 const entry = await makeEntry(issuer);
-                const team = await server.stores.team.create({
-                    ownerUserId: issuer.id,
-                    name: 'Lagging replica',
-                });
+                // A group row written directly: the share only needs its id,
+                // and teams ships separately.
+                const groupUid = uuidv4();
+                await server.clients.db.write(
+                    'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                        '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
+                );
+                const [team] = await server.clients.db.read(
+                    'SELECT id FROM `group` WHERE uid = ?',
+                    [groupUid],
+                );
 
                 const restore = lagShares();
                 try {

@@ -69,7 +69,8 @@ export class UserAccountService extends PuterService {
         }
 
         // Same reason, one table over: the membership row cascades on delete.
-        const seat = await this.services.team.captureSeatForBilling(userId);
+        const seat =
+            (await this.services.team?.captureSeatForBilling(userId)) ?? null;
 
         // The SQL rows cascade with the user; the flat entries are keyed on the
         // holder, so without this the access outlives the issuer.
@@ -149,11 +150,11 @@ export class UserAccountService extends PuterService {
             // ignore — event emission shouldn't block deletion
         }
         // Tells prod to stop charging the owner for this seat.
-        this.services.team.emitSeatDeleted(seat);
+        this.services.team?.emitSeatDeleted(seat);
         // The membership row cascaded away, so anything keyed on it is stale.
         if (seat) {
             try {
-                await this.services.team.forgetSeat(seat);
+                await this.services.team?.forgetSeat(seat);
             } catch (e) {
                 console.warn(
                     '[cascade-delete-user] seat cache cleanup failed:',

@@ -28,6 +28,7 @@
  * play along. Aligns with AGENTS.md: "Prefer test server over mocking deps."
  */
 
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { TOTP } from 'otpauth';
@@ -6274,29 +6275,25 @@ describe('AuthController password recovery', () => {
     it('send-pass-recovery-email: refuses a team seat, and writes no token', async () => {
         // The seat's address is admin-supplied and unverified; recovery there
         // would be a takeover channel. Its recovery is the admin's reset.
-        const { user: owner } = await makeUserAndActor();
         const { user: seat } = await makeUserAndActor();
-        const team = await server.stores.team.create({
-            ownerUserId: owner.id,
-            name: 'Acme',
-        });
         await server.stores.user.update(seat.id, { password: null });
-        await server.stores.team.addMember(team.uid, seat.id, {
-            orgOwned: true,
-        });
-
-        const res = makeRes();
-        await controller.handleSendPassRecoveryEmail(
-            makeReq({ username: seat.username }),
-            res,
-        );
-        expect((res.body as { message: string }).message).toMatch(
-            /If that account exists/i,
-        );
-        const after = await server.stores.user.getById(seat.id, {
-            force: true,
-        });
-        expect(after!.pass_recovery_token).toBeFalsy();
+        const restore = installSeatStub(server as never, [seat.id]);
+        try {
+            const res = makeRes();
+            await controller.handleSendPassRecoveryEmail(
+                makeReq({ username: seat.username }),
+                res,
+            );
+            expect((res.body as { message: string }).message).toMatch(
+                /If that account exists/i,
+            );
+            const after = await server.stores.user.getById(seat.id, {
+                force: true,
+            });
+            expect(after!.pass_recovery_token).toBeFalsy();
+        } finally {
+            restore();
+        }
     });
 
     // `system` is seeded by migration; `admin` only by the self-hosted boot.
@@ -6685,16 +6682,9 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: 403 for an account its team provisioned', async () => {
-        const { user: owner } = await makeUserAndActor();
         const { user: seat, actor } = await makeUserAndActor();
-        const team = await server.stores.team.create({
-            ownerUserId: owner.id,
-            name: 'Acme',
-        });
         await server.stores.user.update(seat.id, { password: null });
-        await server.stores.team.addMember(team.uid, seat.id, {
-            orgOwned: true,
-        });
+        installSeatStub(server as never, [seat.id]);
 
         await expect(
             controller.handleChangeEmail(
@@ -6710,17 +6700,9 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     it('change-username: 403 for an account its team provisioned', async () => {
         // The console lists members by username and the audit log records them
         // by it; a self-service rename would desync both.
-        const { user: owner } = await makeUserAndActor();
         const { user: seat, actor } = await makeUserAndActor();
-        const team = await server.stores.team.create({
-            ownerUserId: owner.id,
-            name: 'Acme',
-        });
-        // addMember refuses to adopt an account that has one.
         await server.stores.user.update(seat.id, { password: null });
-        await server.stores.team.addMember(team.uid, seat.id, {
-            orgOwned: true,
-        });
+        installSeatStub(server as never, [seat.id]);
 
         await expect(
             controller.handleChangeUsername(
@@ -8114,15 +8096,10 @@ describe('AuthController 2FA flows', () => {
     it('lets a team seat enable 2FA without a confirmed email', async () => {
         // A seat has no address by design (PUT-1792) while its team can
         // require 2FA, so this check would bar it forever.
-        const owner = await makeUserAndActor();
-        const team = await server.services.team.createTeam(owner.user.id, {
-            name: 'Acme',
-        });
-        const seatName = `s_${uniq()}`;
-        await server.services.team.provisionAccount(team.uid, owner.user.id, {
-            username: seatName,
-        });
-        const seat = await server.stores.user.getByUsername(seatName);
+        const { user: made } = await makeUserAndActor({ email_confirmed: 0 });
+        await server.stores.user.update(made.id, { password: null });
+        const seat = await server.stores.user.getById(made.id, { force: true });
+        installSeatStub(server as never, [seat!.id]);
         const actor = {
             user: {
                 id: seat!.id,
@@ -8143,15 +8120,10 @@ describe('AuthController 2FA flows', () => {
     });
 
     it('refuses to disable 2FA while the team requires it', async () => {
-        const owner = await makeUserAndActor({ otp_enabled: 1 });
-        const team = await server.services.team.createTeam(owner.user.id, {
-            name: 'Acme',
-        });
-        const seatName = `s_${uniq()}`;
-        await server.services.team.provisionAccount(team.uid, owner.user.id, {
-            username: seatName,
-        });
-        const seat = await server.stores.user.getByUsername(seatName);
+        const { user: made } = await makeUserAndActor();
+        await server.stores.user.update(made.id, { password: null });
+        const seat = await server.stores.user.getById(made.id, { force: true });
+        installSeatStub(server as never, [seat!.id], { require2fa: true });
         const actor = {
             user: {
                 id: seat!.id,
@@ -8162,9 +8134,6 @@ describe('AuthController 2FA flows', () => {
         } as Actor;
         const { secret } = await setup2fa(actor);
         await enable2fa(actor, { code: liveTotp(seat!.username, secret) });
-        await server.services.team.updateTeam(team.uid, owner.user.id, {
-            require2fa: true,
-        });
 
         await expect(
             controller.handleDisable2fa(makeReq({}, { actor }), makeRes()),
@@ -8455,16 +8424,9 @@ describe('AuthController.handleDeleteOwnUser', () => {
     it('refuses, and keeps the row, for an account its team provisioned', async () => {
         // The team is billed for the seat and closing it is theirs to do, from
         // the console that keeps the audit trail.
-        const { user: owner } = await makeUserAndActor();
         const { user: seat, actor } = await makeUserAndActor();
-        const team = await server.stores.team.create({
-            ownerUserId: owner.id,
-            name: 'Acme',
-        });
         await server.stores.user.update(seat.id, { password: null });
-        await server.stores.team.addMember(team.uid, seat.id, {
-            orgOwned: true,
-        });
+        installSeatStub(server as never, [seat.id]);
 
         await expect(
             controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes()),
@@ -10344,17 +10306,9 @@ describe('AuthController — app-data grants', () => {
 describe('AuthController — a seat address nobody confirmed', () => {
     /** A seat whose address its team typed in; unconfirmed. */
     const makeSeat = async () => {
-        const { user: owner } = await makeUserAndActor();
         const { user: seat } = await makeUserAndActor();
-        const team = await server.stores.team.create({
-            ownerUserId: owner.id,
-            name: 'Acme',
-        });
-        // A seat is created password-less and given a temporary one after.
         await server.stores.user.update(seat.id, { password: null });
-        await server.stores.team.addMember(team.uid, seat.id, {
-            orgOwned: true,
-        });
+        installSeatStub(server as never, [seat.id]);
         await server.stores.user.update(seat.id, {
             password: await bcrypt.hash('temporary-password', 8),
         });
