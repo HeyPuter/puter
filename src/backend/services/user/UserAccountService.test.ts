@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
@@ -304,8 +305,9 @@ describe('UserAccountService', () => {
 
         it('finishes when dropping the seat caches fails', async () => {
             const user = await seedUser();
+            installSeatStub(server as never, [user.id]);
             const capture = vi
-                .spyOn(server.services.team, 'captureSeatForBilling')
+                .spyOn(server.services.team as never, 'captureSeatForBilling')
                 .mockResolvedValue({
                     team_uid: `team-${uuidv4()}`,
                     owner_user_id: 1,
@@ -314,7 +316,7 @@ describe('UserAccountService', () => {
                     username: user.username,
                 });
             const lookup = vi
-                .spyOn(server.stores.team, 'getByUid')
+                .spyOn(server.stores.team as never, 'getByUid')
                 .mockRejectedValue(new Error('store down'));
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
             try {

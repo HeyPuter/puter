@@ -1,13 +1,7 @@
 import type { Request, Response } from 'express';
+import { installSeatStub } from '@heyputer/backend/testFixtures/seatStub';
 import { v4 as uuidv4 } from 'uuid';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
 import { configContainer } from '../src/backend/exports.ts';
@@ -83,21 +77,20 @@ describe('whoami extension — handleWhoami', () => {
         };
 
         const seatOf = async (teamName: string) => {
-            const owner = await seedUser();
             const seat = await seedSeat();
-            const team = await server.stores.team.create({
-                ownerUserId: owner.id as number,
+            const team = {
+                uid: `wt-${Math.random().toString(36).slice(2, 9)}`,
                 name: teamName,
-                handle: `wt-${Math.random().toString(36).slice(2, 9)}`,
-            });
-            await server.stores.team.addMember(team.uid, seat.id as number, {
-                orgOwned: true,
+            };
+            installSeatStub(server as never, [seat.id as number], {
+                teamUid: team.uid,
+                teamName: team.name,
             });
             return { seat, team };
         };
 
-        it('names the team for a seat', async () => {
-            const { seat, team } = await seatOf('Acme Corp');
+        it('names no team where teams is not installed', async () => {
+            const { seat } = await seatOf('Acme Corp');
             const { res, captured } = makeRes();
 
             await runWithContext(
@@ -105,10 +98,8 @@ describe('whoami extension — handleWhoami', () => {
                 () => handleWhoami(makeReq(), res),
             );
 
-            expect((captured.body as { team?: unknown }).team).toEqual({
-                uid: team.uid,
-                name: 'Acme Corp',
-            });
+            // `extension.import` resolves the registry, which has no team.
+            expect((captured.body as { team?: unknown }).team).toBeUndefined();
         });
 
         it('says nothing for an account that is not a seat', async () => {
@@ -451,9 +442,7 @@ describe('whoami extension — handleWhoami', () => {
             }),
         ]) {
             const { res, captured } = makeRes();
-            await runWithContext({ actor }, () =>
-                handleWhoami(makeReq(), res),
-            );
+            await runWithContext({ actor }, () => handleWhoami(makeReq(), res));
 
             const body = captured.body as Record<string, unknown>;
             expect(body.phone).toBeUndefined();

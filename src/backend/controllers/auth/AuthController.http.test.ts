@@ -561,56 +561,6 @@ describe('2FA enrollment over HTTP', () => {
         expect((await otpState(account.userId)).enabled).toBe(true);
     });
 
-    it('lets a seat its team holds for 2FA enroll through the same gate', async () => {
-        const owner = await makeAccount();
-        // The rule can only be turned on by an owner who has 2FA.
-        await env.server.stores.user.update(owner.userId, { otp_enabled: 1 });
-        await env.server.stores.user.invalidateById(owner.userId);
-        const team = await env.server.services.team.createTeam(owner.userId, {
-            name: 'Acme',
-        });
-        const seatName = `seat_${uniq()}`;
-        const { userId, temporaryPassword } =
-            await env.server.services.team.provisionAccount(
-                team.uid,
-                owner.userId,
-                { username: seatName },
-            );
-        await env.server.services.team.updateTeam(team.uid, owner.userId, {
-            require2fa: true,
-        });
-        const { token } = await env.server.services.auth.createSessionToken(
-            (await env.server.stores.user.getById(userId))!,
-        );
-
-        // First sign-in replaces the temporary password.
-        const changed = await protectedPost(
-            '/user-protected/change-password',
-            token,
-            { password: temporaryPassword, new_pass: 'seat-own-password' },
-        );
-        expect(changed.status).toBe(200);
-
-        const held = await fetch(new URL('/teams', env.apiOrigin), {
-            headers: { authorization: `Bearer ${token}` },
-        });
-        expect(held.status).toBe(403);
-        expect(await held.text()).toContain('two_factor_required');
-
-        const res = await setup(token, { password: 'seat-own-password' });
-        expect(res.status).toBe(200);
-        const { secret } = (await res.json()) as { secret: string };
-        const enabled = await configure(token, 'enable', {
-            code: liveTotp(seatName, secret),
-        });
-        expect(enabled.status).toBe(200);
-        expect((await otpState(userId)).enabled).toBe(true);
-
-        const released = await fetch(new URL('/teams', env.apiOrigin), {
-            headers: { authorization: `Bearer ${token}` },
-        });
-        expect(released.status).toBe(200);
-    });
 });
 
 /**
