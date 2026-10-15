@@ -39,6 +39,7 @@ import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
 import { ipc_target_window } from './helpers/ipcTargetWindow.js';
+import { addItemWatcher } from './helpers/watchItems.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
@@ -1213,12 +1214,8 @@ const ipc_listener = async (event, handled) => {
     // watchItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'watchItem' && event.data.item_uid !== undefined ) {
-        if ( ! window.watchItems[event.data.item_uid] )
-        {
-            window.watchItems[event.data.item_uid] = [];
-        }
-
-        window.watchItems[event.data.item_uid].push(event.data.appInstanceID);
+        // Taken only for a file this app can see; see `helpers/watchItems.js`.
+        addItemWatcher(event.data.item_uid, event.data.appInstanceID, app_uuid);
     }
     //--------------------------------------------------------
     // readAppDataFile

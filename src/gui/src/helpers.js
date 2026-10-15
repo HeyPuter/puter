@@ -27,6 +27,7 @@ import { invalidate_shared_roots } from './helpers/sharedAccess.js';
 import truncate_filename from './helpers/truncateFilename.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import update_username_in_gui from './helpers/updateUsernameInGui.js';
+import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
@@ -931,39 +932,14 @@ window.get_apps = async (app_names, callback) => {
 };
 
 /**
- * Sends an "itemChanged" event to all watching applications associated with a specific item.
+ * Sends an "itemChanged" event to the apps watching an item, re-checking that
+ * each one can still see it. See `helpers/watchItems.js`.
  *
- * @function sendItemChangeEventToWatchingApps
- * @memberof window
- * @param {string} item_uid - Unique identifier of the item that experienced the change.
- * @param {Object} event_data - Additional data about the event to be passed to the watching applications.
- *
- * @description
- * This function sends an "itemChanged" message to all applications that are currently watching
- * the specified item. If an application's iframe is not found or no longer valid,
- * it is removed from the list of watchers.
- *
- * The function expects that `window.watchItems` contains a mapping of item UIDs to arrays of app instance IDs.
- *
- * @example
- * // Example usage to send a change event to watching applications of an item with UID "item123".
- * window.sendItemChangeEventToWatchingApps('item123', { property: 'value' });
+ * @param {string} item_uid - Unique identifier of the item that changed.
+ * @param {Object} event_data - Data about the change, passed to the apps.
  */
 window.sendItemChangeEventToWatchingApps = function (item_uid, event_data) {
-    if ( window.watchItems[item_uid] ) {
-        window.watchItems[item_uid].forEach(app_instance_id => {
-            const iframe = $(`.window[data-element_uuid="${app_instance_id}"]`).find('.window-app-iframe');
-            if ( iframe && iframe.length > 0 ) {
-                iframe.get(0)?.contentWindow
-                    .postMessage({
-                        msg: 'itemChanged',
-                        data: event_data,
-                    }, '*');
-            } else {
-                window.watchItems[item_uid].splice(window.watchItems[item_uid].indexOf(app_instance_id), 1);
-            }
-        });
-    }
+    notifyItemWatchers(item_uid, event_data);
 };
 
 /**
