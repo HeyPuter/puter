@@ -26,6 +26,7 @@ import {
 import { OpenAI } from 'openai';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { usesGoogleGeminiEndpoint } from '../../../util/geminiRest.js';
 import type {
     IChatModel,
     ICompleteArguments,
@@ -76,11 +77,9 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         // A custom base URL may be a proxy that only speaks the
         // OpenAI-compatible API, so native models are left out rather than
         // sent straight to Google.
-        const native =
-            config.apiBaseUrl === undefined ||
-            config.apiBaseUrl.replace(/\/*$/, '/') === COMPAT_BASE_URL
-                ? geminiNativeClient(new GoogleGenAI({ apiKey: config.apiKey }))
-                : undefined;
+        const native = usesGoogleGeminiEndpoint(config.apiBaseUrl)
+            ? geminiNativeClient(new GoogleGenAI({ apiKey: config.apiKey }))
+            : undefined;
         const client: ChatCompletionsClient = {
             chat: {
                 completions: {

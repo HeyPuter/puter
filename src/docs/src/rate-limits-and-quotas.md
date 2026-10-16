@@ -65,6 +65,7 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
+| Gemini `instructions` for `txt2speech()`       | 3,000 characters |
 | Audio for `speech2speech()`                    | 25 MiB           |
 | Image inlined in a chat message                | 5 MB             |
 | File attached to a chat message, Claude models | 30 MB            |
@@ -78,7 +79,7 @@ A `gemini-4-argon` response that isn't streamed is capped at 32,768 output token
 
 Text-to-speech calls to ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
 
-A Gemini text-to-speech reply is capped at 32 MiB, about 8 minutes of audio. A larger reply fails with `502 upstream_failed`.
+A Gemini text-to-speech reply is capped at 32 MiB, about 8 minutes of audio. A larger reply fails with `502 upstream_failed`. A Gemini text-to-speech request is charged for the tokens Gemini reports, even when it fails or returns no audio.
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 

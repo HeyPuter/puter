@@ -32,7 +32,11 @@ import type { DriverStreamResult } from '../../meta.js';
 import { PuterServer } from '../../../server.js';
 import { setupTestServer } from '../../../testUtil.js';
 import { withAiCostFactor } from '../../util/aiCostFactor.js';
-import { characterCostReport, meterPerCharacter } from './common.js';
+import {
+    assertMaxChars,
+    characterCostReport,
+    meterPerCharacter,
+} from './common.js';
 
 let server: PuterServer;
 beforeAll(async () => {
@@ -224,6 +228,28 @@ describe('meterPerCharacter', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(synthesize).not.toHaveBeenCalled();
+    });
+});
+
+describe('assertMaxChars', () => {
+    it('accepts a string at the cap and values that are not strings', () => {
+        expect(() => assertMaxChars('text', 'x'.repeat(5), 5)).not.toThrow();
+        expect(() => assertMaxChars('text', undefined, 5)).not.toThrow();
+        expect(() => assertMaxChars('text', ['a', 'b'], 1)).not.toThrow();
+    });
+
+    it('rejects a string over the cap with a 400 input_too_large naming the key', () => {
+        let err: unknown;
+        try {
+            assertMaxChars('instructions', 'x'.repeat(6), 5);
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'input_too_large',
+            fields: { key: 'instructions', max: 5 },
+        });
     });
 });
 

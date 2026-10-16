@@ -20,11 +20,11 @@
 /**
  * Offline unit tests for GeminiTTSProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs GeminiTTSProvider directly against the live
- * wired `MeteringService` so holds and recording run end-to-end. Global
- * `fetch` is stubbed with canned Interactions API responses, the real
- * network egress point.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs GeminiTTSProvider directly against the live wired
+ * `MeteringService` so holds and recording run end-to-end. Global `fetch` is
+ * stubbed with canned Interactions API responses, the real network egress
+ * point.
  */
 
 import { Readable } from 'node:stream';
@@ -103,6 +103,20 @@ const USAGE = {
     total_thought_tokens: 0,
     total_tokens: 75,
 };
+
+/** What `USAGE` settles to on the default model at launch rates. */
+const SETTLED_USAGE = [
+    {
+        usageType: 'gemini:gemini-3.8-flash-tts:input',
+        usageAmount: 7,
+        costOverride: 7 * 50,
+    },
+    {
+        usageType: 'gemini:gemini-3.8-flash-tts:output:audio',
+        usageAmount: 68,
+        costOverride: 68 * 900,
+    },
+];
 
 /** A completed reply; `usage` given as undefined leaves the field out. */
 const interaction = (
@@ -183,9 +197,9 @@ const trackHolds = () => {
 beforeEach(() => {
     fetchSpy = vi
         .spyOn(globalThis, 'fetch')
-        .mockRejectedValue(
-            new Error('unexpected fetch'),
-        ) as MockInstance<typeof fetch>;
+        .mockRejectedValue(new Error('unexpected fetch')) as MockInstance<
+        typeof fetch
+    >;
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -360,6 +374,34 @@ describe('GeminiTTSProvider.synthesize argument validation', () => {
         });
         expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    it('accepts instructions of exactly 3000 characters', async () => {
+        const instructions = 'x'.repeat(3000);
+        replyWith(interaction());
+        await withTestActor(() =>
+            makeProvider().synthesize({ text: 'hi', instructions }),
+        );
+        expect(
+            sentRequest().body.input[0].content[0].annotations[0].style,
+        ).toBe(instructions);
+    });
+
+    it('rejects instructions over 3000 characters with 400 input_too_large before holding credit', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().synthesize({
+                    text: 'hi',
+                    instructions: 'x'.repeat(3001),
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'input_too_large',
+            fields: { key: 'instructions', max: 3000 },
+        });
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
 });
 
 // -- Credit gate --
@@ -460,9 +502,9 @@ describe('GeminiTTSProvider.synthesize request shape', () => {
             await withTestActor(() =>
                 makeProvider().synthesize({ text: 'hi', voice: requested }),
             );
-            expect(sentRequest().body.generation_config.speech_config).toEqual(
-                [{ voice: canonical }],
-            );
+            expect(sentRequest().body.generation_config.speech_config).toEqual([
+                { voice: canonical },
+            ]);
         },
     );
 
@@ -531,14 +573,23 @@ describe('GeminiTTSProvider.synthesize audio output', () => {
         replyWith(
             interaction({
                 steps: [
-                    { type: 'thought', content: [audioBlock(Buffer.from('x'))] },
                     {
-                        type: 'model_output',
-                        content: [{ type: 'text', text: 'note' }, audioBlock(first)],
+                        type: 'thought',
+                        content: [audioBlock(Buffer.from('x'))],
                     },
                     {
                         type: 'model_output',
-                        content: [audioBlock(last), { type: 'text', text: 'end' }],
+                        content: [
+                            { type: 'text', text: 'note' },
+                            audioBlock(first),
+                        ],
+                    },
+                    {
+                        type: 'model_output',
+                        content: [
+                            audioBlock(last),
+                            { type: 'text', text: 'end' },
+                        ],
                     },
                 ],
             }),
@@ -554,39 +605,136 @@ describe('GeminiTTSProvider.synthesize audio output', () => {
 // -- Upstream failures --
 
 describe('GeminiTTSProvider.synthesize upstream failures', () => {
-    it.each([
-        ['failed'],
-        ['cancelled'],
-        ['incomplete'],
-        ['in_progress'],
-    ])(
-        'fails a %s interaction as 502 upstream_failed without charging',
+    it.each([['failed'], ['cancelled'], ['incomplete'], ['in_progress']])(
+        'charges the reported usage once, then fails a %s interaction as 502 upstream_failed',
         async (status) => {
+            const { released } = trackHolds();
             replyWith(interaction({ status }));
-            await expect(
-                withTestActor(() => makeProvider().synthesize({ text: 'hi' })),
-            ).rejects.toMatchObject({
+
+            const err = await callerError(
+                () => makeProvider().synthesize({ text: 'hi' }),
+                payingUser(),
+            );
+
+            expect(err).toMatchObject({
                 statusCode: 502,
                 legacyCode: 'upstream_failed',
             });
-            expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(meteredUsages()).toEqual(SETTLED_USAGE);
+            expect(released).toHaveBeenCalledTimes(1);
         },
     );
 
-    it('fails a completed reply with only text (a refusal) as 400 upstream_bad_request', async () => {
+    it('charges the reported usage once, then fails a refusal (text only) as 400 upstream_bad_request', async () => {
+        const { released } = trackHolds();
         replyWith(
             interaction({
                 content: [{ type: 'text', text: 'I cannot read that.' }],
             }),
         );
-        await expect(
-            withTestActor(() => makeProvider().synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+
+        const err = await callerError(
+            () => makeProvider().synthesize({ text: 'hi' }),
+            payingUser(),
+        );
+
+        expect(err).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });
-        expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+        expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+        expect(meteredUsages()).toEqual(SETTLED_USAGE);
+        expect(released).toHaveBeenCalledTimes(1);
     });
+
+    const FAILED_REPLIES: [
+        string,
+        { status?: string; content?: unknown[] },
+        number,
+    ][] = [
+        ['a failed interaction', { status: 'failed' }, 502],
+        [
+            'a refusal',
+            { content: [{ type: 'text', text: 'I cannot read that.' }] },
+            400,
+        ],
+        [
+            'malformed audio',
+            { content: [{ type: 'audio', mime_type: 'audio/wav', data: '' }] },
+            502,
+        ],
+    ];
+
+    it.each(FAILED_REPLIES)(
+        'charges nothing for %s without usage, and releases the hold',
+        async (_label, opts, statusCode) => {
+            const { released } = trackHolds();
+            replyWith(interaction({ ...opts, usage: undefined }));
+
+            const err = await callerError(
+                () => makeProvider().synthesize({ text: 'hi' }),
+                payingUser(),
+            );
+
+            expect(err).toMatchObject({ statusCode });
+            expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+            expect(released).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each(FAILED_REPLIES)(
+        'charges only the input for %s whose output total has no audio breakdown',
+        async (_label, opts, statusCode) => {
+            const { released } = trackHolds();
+            replyWith(
+                interaction({
+                    ...opts,
+                    usage: { total_input_tokens: 7, total_output_tokens: 68 },
+                }),
+            );
+
+            const err = await callerError(
+                () => makeProvider().synthesize({ text: 'hi' }),
+                payingUser(),
+            );
+
+            expect(err).toMatchObject({ statusCode });
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(meteredUsages()).toEqual([SETTLED_USAGE[0]]);
+            expect(released).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each(FAILED_REPLIES)(
+        'charges only the input for %s when only the input count is usable',
+        async (_label, opts, statusCode) => {
+            const { released } = trackHolds();
+            replyWith(
+                interaction({
+                    ...opts,
+                    usage: {
+                        input_tokens_by_modality: [
+                            { modality: 'text', tokens: 7 },
+                        ],
+                        output_tokens_by_modality: [
+                            { modality: 'audio', tokens: -1 },
+                        ],
+                    },
+                }),
+            );
+
+            const err = await callerError(
+                () => makeProvider().synthesize({ text: 'hi' }),
+                payingUser(),
+            );
+
+            expect(err).toMatchObject({ statusCode });
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(meteredUsages()).toEqual([SETTLED_USAGE[0]]);
+            expect(released).toHaveBeenCalledTimes(1);
+        },
+    );
 
     it.each([
         ['no data', { type: 'audio', mime_type: 'audio/wav' }],
@@ -603,10 +751,7 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
             'invalid base64',
             { type: 'audio', mime_type: 'audio/wav', data: '***not base64***' },
         ],
-        [
-            'no MIME type',
-            { type: 'audio', data: WAV_BYTES.toString('base64') },
-        ],
+        ['no MIME type', { type: 'audio', data: WAV_BYTES.toString('base64') }],
         ['an unsupported MIME type', audioBlock(WAV_BYTES, 'audio/mpeg')],
         [
             'WAV bytes without a RIFF header',
@@ -614,7 +759,7 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
         ],
         ['empty PCM', audioBlock(Buffer.alloc(0), 'audio/L16;rate=24000')],
     ])(
-        'fails an audio block with %s as 502 upstream_failed',
+        'charges the reported usage once, then fails an audio block with %s as 502 upstream_failed',
         async (_label, block) => {
             replyWith(interaction({ content: [block] }));
             await expect(
@@ -625,7 +770,8 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
             });
             // Never follows a provider URI.
             expect(fetchSpy).toHaveBeenCalledTimes(1);
-            expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(meteredUsages()).toEqual(SETTLED_USAGE);
         },
     );
 
@@ -843,7 +989,7 @@ describe('GeminiTTSProvider.synthesize metering', () => {
         expect(metered(':output:audio').usageAmount).toBe(68);
     });
 
-    it('uses the aggregate totals when there is no modality breakdown', async () => {
+    it('uses the aggregate totals when audio comes back without a modality breakdown', async () => {
         replyWith(
             interaction({
                 usage: { total_input_tokens: 9, total_output_tokens: 80 },
@@ -854,8 +1000,6 @@ describe('GeminiTTSProvider.synthesize metering', () => {
         expect(metered(':output:audio').usageAmount).toBe(80);
     });
 
-    // 'hello there' with 'Speak softly' is 23 characters, so 6 input tokens;
-    // two words round up to one second of audio, so 25 output tokens.
     it.each([
         ['missing usage', undefined],
         ['null usage', null],
@@ -890,7 +1034,9 @@ describe('GeminiTTSProvider.synthesize metering', () => {
             'fractional and string counts',
             {
                 input_tokens_by_modality: [{ modality: 'text', tokens: 1.5 }],
-                output_tokens_by_modality: [{ modality: 'audio', tokens: '68' }],
+                output_tokens_by_modality: [
+                    { modality: 'audio', tokens: '68' },
+                ],
             },
         ],
         [
@@ -906,22 +1052,84 @@ describe('GeminiTTSProvider.synthesize metering', () => {
                 output_tokens_by_modality: [{ modality: 'text', tokens: 68 }],
             },
         ],
-    ])('falls back to the estimate on %s', async (_label, usage) => {
-        replyWith(interaction({ usage }));
-        await withTestActor(() =>
-            makeProvider().synthesize({
-                text: 'hello there',
-                instructions: 'Speak softly',
+        ['reported zeros', { total_input_tokens: 0, total_output_tokens: 0 }],
+    ])(
+        'charges nothing on %s and fails the audio as 502 upstream_failed',
+        async (_label, usage) => {
+            const { released } = trackHolds();
+            replyWith(interaction({ usage }));
+
+            const err = await callerError(
+                () =>
+                    makeProvider().synthesize({
+                        text: 'hello there',
+                        instructions: 'Speak softly',
+                    }),
+                payingUser(),
+            );
+
+            expect(err).toMatchObject({
+                statusCode: 502,
+                legacyCode: 'upstream_failed',
+            });
+            expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+            expect(released).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each([
+        [
+            'input',
+            {
+                total_input_tokens: 7,
+                output_tokens_by_modality: [{ modality: 'audio', tokens: -1 }],
+            },
+            [SETTLED_USAGE[0]],
+        ],
+        [
+            'audio',
+            {
+                total_input_tokens: 'seven',
+                output_tokens_by_modality: [{ modality: 'audio', tokens: 68 }],
+            },
+            [SETTLED_USAGE[1]],
+        ],
+    ])(
+        'charges only the readable %s count once, then fails the audio as 502 upstream_failed',
+        async (_label, usage, settled) => {
+            const { released } = trackHolds();
+            replyWith(interaction({ usage }));
+
+            const err = await callerError(
+                () => makeProvider().synthesize({ text: 'hi' }),
+                payingUser(),
+            );
+
+            expect(err).toMatchObject({
+                statusCode: 502,
+                legacyCode: 'upstream_failed',
+            });
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(meteredUsages()).toEqual(settled);
+            expect(released).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('charges a reported zero as nothing, with no one-token minimum', async () => {
+        replyWith(
+            interaction({
+                status: 'failed',
+                usage: {
+                    total_input_tokens: 7,
+                    output_tokens_by_modality: [
+                        { modality: 'audio', tokens: 0 },
+                    ],
+                },
             }),
         );
-        expect(metered(':input')).toMatchObject({
-            usageAmount: 6,
-            costOverride: 6 * 50,
-        });
-        expect(metered(':output:audio')).toMatchObject({
-            usageAmount: 25,
-            costOverride: 25 * 900,
-        });
+
+        await callerError(() => makeProvider().synthesize({ text: 'hi' }));
+        expect(meteredUsages()).toEqual([SETTLED_USAGE[0]]);
     });
 
     it('holds an estimate covering the instructions and releases it once metered', async () => {
@@ -978,9 +1186,7 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
 
             expect(held).toEqual([1 * inputRate + 25 * audioRate]);
             expect(metered(':input').costOverride).toBe(7 * inputRate);
-            expect(metered(':output:audio').costOverride).toBe(
-                68 * audioRate,
-            );
+            expect(metered(':output:audio').costOverride).toBe(68 * audioRate);
         },
     );
 

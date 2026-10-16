@@ -61,6 +61,16 @@ export const AI_CONCURRENT: DriverConcurrentConfig = {
     },
 };
 
+// -- Text-to-speech input caps ----------------------------------------
+//
+// Counted in UTF-16 code units, as puter.js counts them before sending.
+
+/** Longest `text` any TTS provider is sent. */
+export const AI_TTS_MAX_TEXT_CHARS = 3000;
+
+/** Longest Gemini TTS `instructions`, which are billed as input with `text`. */
+export const AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS = 3000;
+
 // -- Claude server-tool clamps ----------------------------------------
 //
 // Applied both when ClaudeProvider builds the request (so Anthropic never

@@ -24,7 +24,9 @@ import {
     type AiMeteringService,
     withAiCreditHold,
 } from '../../../util/aiCostFactor.js';
+import type { UsageInput } from '../../../../services/metering/types.js';
 import type { DriverStreamResult } from '../../../meta.js';
+import { AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS } from '../../../util/aiLimits.js';
 import { readBoundedBody } from '../../../util/fileInput.js';
 import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
@@ -34,7 +36,7 @@ import type {
     ISynthesizeArgs,
     ITTSProvider,
 } from '../../types.js';
-import { TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
+import { assertMaxChars, TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
 import { GEMINI_TTS_COSTS, geminiTTSCostsAt } from './costs.js';
 
 const INTERACTIONS_URL =
@@ -147,7 +149,10 @@ const upstreamFailure = (message: string): HttpError =>
 const responseTooLarge = (maxBytes: number): HttpError =>
     upstreamFailure(`Gemini TTS response exceeds ${maxBytes} bytes`);
 
-/** The µ¢ cost of `tokens` at a cents-per-1M rate, which is µ¢ per token. */
+/**
+ * The µ¢ held for an estimated `tokens` at a cents-per-1M rate (µ¢ per token).
+ * Never below 1; reported usage is charged at its exact cost instead.
+ */
 const tokenCost = (tokens: number, centsPerMillion: number): number =>
     Math.max(1, Math.ceil(tokens * centsPerMillion));
 
@@ -281,6 +286,11 @@ export class GeminiTTSProvider implements ITTSProvider {
                 fields: { key: 'instructions', expected: 'string' },
             });
         }
+        assertMaxChars(
+            'instructions',
+            instructions,
+            AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS,
+        );
         const style = instructions?.trim() ? instructions : undefined;
 
         const model = modelArg || DEFAULT_MODEL;
@@ -402,64 +412,86 @@ export class GeminiTTSProvider implements ITTSProvider {
                         'Gemini TTS returned an unreadable response',
                     );
                 }
-                if (interaction.status !== 'completed') {
-                    throw upstreamFailure(
-                        'Gemini TTS did not complete the request',
-                    );
-                }
 
-                const audio = lastAudioContent(interaction);
-                if (!audio) {
-                    throw new HttpError(
-                        400,
-                        'Gemini TTS did not return audio data',
-                        {
-                            legacyCode: 'upstream_bad_request',
-                            fields: { provider: 'gemini' },
-                        },
-                    );
-                }
-                const { body, contentType } = this.#decodeAudio(audio);
-
+                // A count Gemini doesn't report readably is left out, not
+                // estimated. Output without a modality breakdown may be refusal
+                // text, so it counts as audio only once audio came back.
                 const usage = interaction.usage;
-                const inputTokens =
-                    usageTokens(
-                        usage?.input_tokens_by_modality,
-                        usage?.total_input_tokens,
-                        'text',
-                        costs.input,
-                    ) ?? estimatedInputTokens;
-                const outputTokens =
-                    usageTokens(
+                const inputTokens = usageTokens(
+                    usage?.input_tokens_by_modality,
+                    usage?.total_input_tokens,
+                    'text',
+                    costs.input,
+                );
+                let outputTokens = usageTokens(
+                    usage?.output_tokens_by_modality,
+                    undefined,
+                    'audio',
+                    costs.output_audio,
+                );
+                try {
+                    if (interaction.status !== 'completed') {
+                        throw upstreamFailure(
+                            'Gemini TTS did not complete the request',
+                        );
+                    }
+
+                    const audio = lastAudioContent(interaction);
+                    if (!audio) {
+                        throw new HttpError(
+                            400,
+                            'Gemini TTS did not return audio data',
+                            {
+                                legacyCode: 'upstream_bad_request',
+                                fields: { provider: 'gemini' },
+                            },
+                        );
+                    }
+                    const { body, contentType } = this.#decodeAudio(audio);
+
+                    outputTokens = usageTokens(
                         usage?.output_tokens_by_modality,
                         usage?.total_output_tokens,
                         'audio',
                         costs.output_audio,
-                    ) ?? estimatedOutputTokens;
+                    );
+                    if (!inputTokens || !outputTokens) {
+                        throw upstreamFailure(
+                            'Gemini TTS did not report usage for the audio',
+                        );
+                    }
 
-                const usagePrefix = `gemini:${model}`;
-                this.meteringService.batchIncrementUsages(actor, [
-                    {
-                        usageType: `${usagePrefix}:input`,
-                        usageAmount: Math.max(inputTokens, 1),
-                        costOverride: tokenCost(inputTokens, costs.input),
-                    },
-                    {
-                        usageType: `${usagePrefix}:output:audio`,
-                        usageAmount: Math.max(outputTokens, 1),
-                        costOverride: tokenCost(
-                            outputTokens,
-                            costs.output_audio,
-                        ),
-                    },
-                ]);
-
-                return {
-                    dataType: 'stream',
-                    content_type: contentType,
-                    chunked: true,
-                    stream: Readable.from(body),
-                };
+                    return {
+                        dataType: 'stream',
+                        content_type: contentType,
+                        chunked: true,
+                        stream: Readable.from(body),
+                    };
+                } finally {
+                    // Every outcome pays once for the counts it reports.
+                    const usagePrefix = `gemini:${model}`;
+                    const usages: UsageInput[] = [];
+                    if (inputTokens) {
+                        usages.push({
+                            usageType: `${usagePrefix}:input`,
+                            usageAmount: inputTokens,
+                            costOverride: inputTokens * costs.input,
+                        });
+                    }
+                    if (outputTokens) {
+                        usages.push({
+                            usageType: `${usagePrefix}:output:audio`,
+                            usageAmount: outputTokens,
+                            costOverride: outputTokens * costs.output_audio,
+                        });
+                    }
+                    if (usages.length > 0) {
+                        await this.meteringService.batchIncrementUsages(
+                            actor,
+                            usages,
+                        );
+                    }
+                }
             },
         );
     }
