@@ -54,6 +54,7 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { normalize_messages } from '../../utils/Messages.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
@@ -962,6 +963,63 @@ describe('ClaudeProvider.complete request shape', () => {
             (sent.content as Array<Record<string, unknown>>)[0],
         ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
     });
+
+    it.each([
+        ['string', '{"city":"Paris"}'],
+        ['object', { city: 'Paris' }],
+    ])(
+        'drops a Gemini thought signature from a replayed tool call with %s arguments',
+        async (_form, args) => {
+            // A Gemini turn replayed against Claude on fallback keeps only
+            // Anthropic-compatible metadata, including cache_control.
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            const messages = normalize_messages([
+                { role: 'user', content: 'Weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    cache_control: { type: 'ephemeral', ttl: '1h' },
+                    tool_calls: [
+                        {
+                            id: 'fc_1',
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: args },
+                            extra_content: {
+                                google: { thought_signature: 'c2lnLTE=' },
+                            },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'fc_1', content: '18C' },
+            ]);
+            const before = JSON.parse(JSON.stringify(messages));
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages,
+                }),
+            );
+
+            const [sent] = messagesCreateMock.mock.calls[0]!;
+            expect(sent.messages[1].content).toEqual([
+                {
+                    type: 'tool_use',
+                    id: 'fc_1',
+                    name: 'get_weather',
+                    input: { city: 'Paris' },
+                    cache_control: { type: 'ephemeral', ttl: '1h' },
+                },
+            ]);
+            // The driver hands these same objects to the next fallback route.
+            expect(messages).toEqual(before);
+            expect(messages[1].content[0].extra_content).toEqual({
+                google: { thought_signature: 'c2lnLTE=' },
+            });
+        },
+    );
 
     it('survives the same messages array being sent twice', async () => {
         // This is the fallback hazard the copy-on-write exists for: the driver

@@ -48,6 +48,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { normalize_messages } from '../../utils/Messages.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { GEMINI_MODELS } from './models.js';
 import { GeminiChatProvider } from './GeminiChatProvider.js';
@@ -285,6 +286,46 @@ describe('GeminiChatProvider.complete request shape', () => {
 
         const [args] = createMock.mock.calls[0]!;
         expect('cache_control' in args.messages[0]).toBe(false);
+    });
+
+    it('replays a tool call with its thought signature', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: normalize_messages([
+                    { role: 'user', content: 'Weather in Paris?' },
+                    {
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: [
+                            {
+                                id: 'fc_1',
+                                type: 'function',
+                                function: {
+                                    name: 'get_weather',
+                                    arguments: '{"city":"Paris"}',
+                                },
+                                extra_content: {
+                                    google: { thought_signature: 'c2lnLTE=' },
+                                },
+                            },
+                        ],
+                    },
+                    { role: 'tool', tool_call_id: 'fc_1', content: '18C' },
+                ]),
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.messages[1].tool_calls).toEqual([
+            expect.objectContaining({
+                id: 'fc_1',
+                extra_content: { google: { thought_signature: 'c2lnLTE=' } },
+            }),
+        ]);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

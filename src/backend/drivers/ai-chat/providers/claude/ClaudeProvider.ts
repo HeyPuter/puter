@@ -931,7 +931,8 @@ export class ClaudeProvider implements IChatProvider {
             };
         });
 
-        // Claude requires tool_use.input to be a dictionary
+        // Claude requires tool_use.input to be a dictionary. Gemini metadata
+        // is not part of Anthropic's tool_use schema.
         messages = messages.map((message) => {
             if (!Array.isArray(message.content)) return message;
             let changed = false;
@@ -945,14 +946,14 @@ export class ClaudeProvider implements IChatProvider {
                         } catch {
                             input = {};
                         }
-                        changed = true;
                     } else if (input === undefined || input === null) {
                         input = {};
-                        changed = true;
-                    } else {
+                    } else if (!('extra_content' in part)) {
                         return part;
                     }
-                    return { ...part, input };
+                    changed = true;
+                    const { extra_content, ...rest } = part;
+                    return { ...rest, input };
                 },
             );
             return changed ? { ...message, content } : message;

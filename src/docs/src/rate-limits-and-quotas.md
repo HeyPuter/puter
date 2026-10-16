@@ -72,7 +72,7 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
 
-Chat requests time out after 10 minutes, including streamed responses. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
+A chat model has 10 minutes to start its response. A response that isn't streamed only arrives once it's complete, so it has to finish within 10 minutes. A streamed response can keep going past 10 minutes once it has started. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 
 A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
