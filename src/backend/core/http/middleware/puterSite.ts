@@ -94,6 +94,20 @@ const isWorkersSourcePath = (urlPath: string): boolean =>
         .split('/')
         .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
 
+/**
+ * Checks the stored path of a looked-up entry. The URL-level guards are not
+ * enough on MySQL: `fsentries.path` is utf8mb4_unicode_ci, so `__wörkers`,
+ * fullwidth or zero-width spellings resolve to the real `__workers` row.
+ */
+const isServableEntryPath = (
+    entryPath: string | null | undefined,
+    rootPath: string,
+): boolean => {
+    if (!entryPath?.startsWith(`${rootPath}/`)) return false;
+    const relPath = entryPath.slice(rootPath.length);
+    return !isWorkersSourcePath(relPath) && !isSiteConfigPath(relPath);
+};
+
 /** Inside some owner's top-level Trash, which is where Delete puts things. */
 const isTrashedPath = (path: string): boolean =>
     /^\/[^/]+\/Trash(\/|$)/u.test(path);
@@ -620,6 +634,9 @@ export const createPuterSiteMiddleware = (
                 pathPosix.join(filePath, 'index.html'),
             );
         }
+        if (entry && !isServableEntryPath(entry.path, rootPath)) {
+            entry = null;
+        }
 
         // Custom error page fallback. On a 404 we consult the site config
         // for a rule and, if one resolves to an existing file, serve that
@@ -640,7 +657,11 @@ export const createPuterSiteMiddleware = (
                 const candidate = await layers.stores.fsEntry.getEntryByPath(
                     errorTarget.absPath,
                 );
-                if (candidate && !candidate.isDir) {
+                if (
+                    candidate &&
+                    !candidate.isDir &&
+                    isServableEntryPath(candidate.path, rootPath)
+                ) {
                     entry = candidate;
                     statusOverride = errorTarget.status;
                 }
