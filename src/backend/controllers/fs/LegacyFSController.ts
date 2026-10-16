@@ -209,12 +209,19 @@ export class LegacyFSController extends PuterController {
         // Limits come from `./limits` and carry an explicit `scope`, so these
         // draw from the same per-user budget as their v2 counterparts rather
         // than handing a caller a second allowance for the same operation.
-        const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
-        // Read-side routes admit scoped access tokens: the ACL check each
-        // handler runs already intersects a token's grant with its issuer's,
-        // so the token reaches exactly what it was minted for. That is what a
-        // background events handler acts through — its `user` is a token
-        // scoped to the subscription's grant.
+        //
+        // The entry routes — reads and writes alike — admit scoped access
+        // tokens: the ACL check each handler runs already intersects a token's
+        // grant with its issuer's, so the token reaches exactly what it was
+        // minted for. That is what a background events handler acts through —
+        // its `user` is a token scoped to the subscription's grant — and it
+        // matches what WebDAV admits. Routes reaching past a single entry
+        // (search, df, sign, the app helpers) stay closed to them.
+        const mutate = {
+            ...apiOptions,
+            allowAccessToken: true,
+            rateLimit: FS_MUTATE_LIMIT,
+        } as RouteOptions;
         const reads = { ...apiOptions, allowAccessToken: true } as RouteOptions;
         router.post('/stat', { ...reads, rateLimit: FS_STAT_LIMIT }, this.stat);
         router.post(
@@ -264,6 +271,8 @@ export class LegacyFSController extends PuterController {
             '/batch',
             {
                 ...spends,
+                // Every op authorizes its own target.
+                allowAccessToken: true,
                 rateLimit: FS_BATCH_LIMIT,
                 concurrent: FS_BATCH_CONCURRENT,
             },
@@ -914,7 +923,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
@@ -1391,7 +1402,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1986,7 +1998,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

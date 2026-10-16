@@ -151,8 +151,14 @@ export class FSController extends PuterController {
         );
     }
 
+    // Write routes admit scoped access tokens for the same reason the reads
+    // do (see the note above `/stat`): every handler authorizes the target
+    // through the ACL, which intersects a token's grant with its issuer's, so
+    // a token writes exactly where it was granted write — the parity WebDAV
+    // already has. Upload sessions are re-checked on complete, sign and abort.
     @Post('/startWrite', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
@@ -219,6 +225,7 @@ export class FSController extends PuterController {
 
     @Post('/startBatchWrite', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
@@ -325,6 +332,7 @@ export class FSController extends PuterController {
 
     @Post('/completeWrite', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
@@ -367,6 +375,7 @@ export class FSController extends PuterController {
 
     @Post('/completeBatchWrite', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
@@ -424,6 +433,7 @@ export class FSController extends PuterController {
 
     @Post('/abortWrite', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MULTIPART_LIMIT,
     })
@@ -438,12 +448,31 @@ export class FSController extends PuterController {
             });
         }
 
+        // An unknown id stays a no-op, as it always was.
+        try {
+            await this.services.fs.getUploadSessions(userId, [
+                req.body.uploadId,
+            ]);
+        } catch (error) {
+            if (!(error instanceof HttpError && error.statusCode === 404)) {
+                throw error;
+            }
+            res.json({ ok: true });
+            return;
+        }
+        // Same re-check as complete/sign: a scoped token may only abort an
+        // upload whose target it could write.
+        await this.#assertUploadSessionWriteAccess(req, userId, [
+            req.body.uploadId,
+        ]);
+
         await this.services.fs.abortUrlWrite(userId, req.body.uploadId);
         res.json({ ok: true });
     }
 
     @Post('/signMultipartParts', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
@@ -476,6 +505,7 @@ export class FSController extends PuterController {
 
     @Post('/write', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_WRITE_LIMIT,
@@ -531,6 +561,7 @@ export class FSController extends PuterController {
 
     @Post('/batchWrite', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_WRITE_LIMIT,
@@ -1502,6 +1533,7 @@ export class FSController extends PuterController {
 
     @Post('/mkdir', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
@@ -1547,6 +1579,7 @@ export class FSController extends PuterController {
 
     @Post('/touch', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
@@ -1587,6 +1620,7 @@ export class FSController extends PuterController {
 
     @Post('/rename', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
@@ -1610,6 +1644,7 @@ export class FSController extends PuterController {
 
     @Post('/delete', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
@@ -1636,6 +1671,7 @@ export class FSController extends PuterController {
 
     @Post('/move', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
@@ -1689,6 +1725,7 @@ export class FSController extends PuterController {
 
     @Post('/copy', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         requireCredits: true,
         rateLimit: FS_MUTATE_LIMIT,
@@ -1740,6 +1777,7 @@ export class FSController extends PuterController {
 
     @Post('/mkshortcut', {
         subdomain: 'api',
+        allowAccessToken: true,
         requireVerified: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
