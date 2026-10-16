@@ -1892,6 +1892,53 @@ describe('FSEntryStore home and prefix rewrites', () => {
         expect(descendant).not.toBeNull();
     });
 
+    it("finishes a home rename that stopped partway, moving only the owner's rows", async () => {
+        const user = await makeUser();
+        const other = await makeUser();
+        const kept = await createFile(user, `${user.home}/Documents/kept.txt`);
+        // Resolve once so the old paths are cached.
+        expect(await store.getEntryByPath(kept.path)).not.toBeNull();
+        // A row another account owns under this home, as legacy writes left them.
+        const stray = await createFile(user, `${user.home}/Public/stray.txt`);
+        await server.clients.db.write(
+            'UPDATE fsentries SET user_id = ? WHERE id = ?',
+            [other.userId, stray.id],
+        );
+        const root = await store.getRootEntryForUser(user.userId);
+        const newPath = `/${user.username}-healed`;
+        // The rename wrote the home row, then the cascade stopped.
+        await server.clients.db.write(
+            'UPDATE fsentries SET name = ?, path = ? WHERE id = ?',
+            [newPath.slice(1), newPath, root!.id],
+        );
+        expect(
+            await store.countUserSubtree(user.userId, user.home),
+        ).toBeGreaterThan(0);
+
+        const moved = await store.rebaseUserSubtree(
+            user.userId,
+            user.home,
+            newPath,
+        );
+
+        expect(moved).toBeGreaterThan(0);
+        expect(
+            await store.countUserSubtree(user.userId, user.home, newPath),
+        ).toBe(0);
+        expect(await store.countUserSubtree(user.userId, newPath)).toBe(moved);
+        expect(
+            (await store.getEntryByPath(`${newPath}/Documents/kept.txt`))?.id,
+        ).toBe(kept.id);
+        expect(await store.getEntryByPath(kept.path)).toBeNull();
+        expect((await store.getEntryById(stray.id))?.path).toBe(stray.path);
+        await expect(
+            store.rebaseUserSubtree(user.userId, '/', newPath),
+        ).rejects.toThrow(HttpError);
+        expect(
+            await store.rebaseUserSubtree(user.userId, newPath, newPath),
+        ).toBe(0);
+    });
+
     it('is a no-op when the home row already matches, and null for an unknown user', async () => {
         const user = await makeUser();
         const first = await store.renameUserHome(user.userId, user.username);
@@ -2338,6 +2385,31 @@ describe('FSEntryStore subtree patterns on MySQL', () => {
                     typeof param === 'string' && param.startsWith('/u/tree/'),
             ),
         ).toHaveLength(500);
+    });
+
+    it('scopes a finishing rebase and its count to the owner, with every pattern', async () => {
+        const moved = tree.map((fixture) =>
+            fixture.id === 1 ? { ...fixture, path: '/u/renamed' } : fixture,
+        );
+        const { db, store: mysqlStore } = storeOver(moved);
+        const all = [
+            '/u/tree/%',
+            '/u/tree/🔥 a%',
+            '/u/tree/😀 50!%!_off!!.png%',
+            '/u/tree/🔥 a/🔥 b%',
+        ];
+
+        await mysqlStore.rebaseUserSubtree(7, '/u/tree', '/u/renamed');
+
+        const write = db.statements.find((st) => st.method === 'write');
+        expect(write!.query).toContain('WHERE user_id = ?');
+        expect(write!.params.slice(-5)).toEqual([7, ...all]);
+
+        db.statements.length = 0;
+        await mysqlStore.countUserSubtree(7, '/u/tree', '/u/renamed');
+        expect(db.statements).toEqual([
+            expect.objectContaining({ method: 'pread', params: [7, ...all] }),
+        ]);
     });
 
     it('adds nothing on other engines', async () => {
