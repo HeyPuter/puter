@@ -2758,6 +2758,15 @@ export class AuthService extends PuterService {
         };
     }
 
+    /**
+     * A session-less actor for a user whose password was verified outside a
+     * token (WebDAV Basic auth). Same row→actor mapping as the token paths, so
+     * the account gates see every flag they read.
+     */
+    buildPasswordActor(user: UserRow): Actor {
+        return this.#buildUserActor(user, null);
+    }
+
     #buildUserActor(user: UserRow, session: SessionRow | null): Actor {
         return makeActor({
             user: this.#actorUserFromRow(user),
