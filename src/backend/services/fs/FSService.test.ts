@@ -4533,6 +4533,14 @@ describe('FSService move', () => {
             }),
         );
         expect(intoItself.legacyCode).toBe('cannot_move_directory_into_itself');
+
+        const ontoItself = await caught(() =>
+            fs.move(user.userId, {
+                source: dir,
+                destinationParent: dir,
+            }),
+        );
+        expect(ontoItself.legacyCode).toBe('cannot_move_directory_into_itself');
     });
 
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {

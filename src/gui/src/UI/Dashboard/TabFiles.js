@@ -293,11 +293,12 @@ const TabFiles = {
             puter.kv.get('sort_direction').catch(() => null),
             puter.kv.get('column_widths').catch(() => null),
         ]);
-        this.currentView = savedView || 'list';
+        // Unknown stored values fall back to the defaults; sortColumn ends up in a selector.
+        this.currentView = ['list', 'grid', 'grid-sm'].includes(savedView) ? savedView : 'list';
 
         // Sorting state
-        this.sortColumn = savedSortColumn || 'name';
-        this.sortDirection = savedSortDirection || 'asc';
+        this.sortColumn = ['name', 'size', 'modified'].includes(savedSortColumn) ? savedSortColumn : 'name';
+        this.sortDirection = savedSortDirection === 'desc' ? 'desc' : 'asc';
 
         // Column widths state (for resizing). A corrupt saved value falls back
         // to the defaults instead of taking the whole tab down with it.

@@ -1867,12 +1867,16 @@ export class AuthService extends PuterService {
 
     /**
      * Materialize the `kind='asset'` session row that the cookie's
-     * `session_uuid` claim points at. Parented to the web session so a logout
-     * cascade kills every asset cookie minted under it. Both fields are `null`
-     * only when the caller didn't supply a web session at all — the cookie
-     * still mints unparented and without an `auth_id` claim (matches v1
-     * behavior for access-token-minted cookies that aren't tied to an
-     * interactive session).
+     * `session_uuid` claim points at. Parented to the minting session so
+     * revoking it kills the cookie. The cascade is one level deep, so a cookie
+     * minted from a godmode token (itself under a web session) outlives logout
+     * of that web session; accepted, as app tokens outlive it too and the
+     * cookie only serves one app's files after an entitlement check.
+     *
+     * Both fields are `null` only when the caller didn't supply a session at
+     * all — the cookie still mints unparented and without an `auth_id` claim
+     * (matches v1 behavior for access-token-minted cookies that aren't tied to
+     * an interactive session).
      *
      * If the caller DID supply a `webSessionUuid` but the lookup misses (row
      * revoked / expired between mint request and this lookup), throw —
@@ -1907,9 +1911,10 @@ export class AuthService extends PuterService {
     /**
      * Verify a hosted-asset cookie of `kind` against what the request expects,
      * and that the session it was minted under still exists and isn't revoked:
-     * `getByUuid` filters on `revoked_at IS NULL`, so a logout cascade
-     * invalidates every cookie minted under that web session. A cookie minted
-     * without a session (from an access-token actor) has nothing to bind.
+     * `getByUuid` filters on `revoked_at IS NULL`, so revoking the minting
+     * session invalidates the cookie. Only the leaf row is checked; see
+     * `#mintAssetSessionContext` for the godmode case. A cookie minted without
+     * a session (from an access-token actor) has nothing to bind.
      */
     async verifyHostedAssetToken(
         kind: HostedAssetKind,

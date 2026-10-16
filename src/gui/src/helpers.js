@@ -708,7 +708,10 @@ window.mutate_user_preferences = function (user_preferences_delta) {
 window.update_user_preferences = function (user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    const language = user_preferences.language ?? 'en';
+    // The stored value can be anything, and i18n/Intl throw on some bad locales.
+    const language = window.listSupportedLanguages().some(lang => lang.code === user_preferences.language)
+        ? user_preferences.language
+        : 'en';
     window.locale = language;
 
     // Broadcast locale change to apps

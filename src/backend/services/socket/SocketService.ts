@@ -399,11 +399,7 @@ export class SocketService extends PuterService {
         const base = this.#authOptions();
         const id = actor?.user?.id;
         if (typeof id !== 'number' || actor?.user?.otp_enabled) return base;
-        const seat = await (
-            this.stores.team as unknown as {
-                getOrgSeat?: (n: number) => Promise<{ require_2fa?: number }>;
-            }
-        )
+        const seat = await this.stores.team
             ?.getOrgSeat?.(id)
             .catch((): null => null);
         return { ...base, teamRequires2fa: Number(seat?.require_2fa) === 1 };
@@ -423,7 +419,8 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                Record<string, unknown> | undefined;
+                | Record<string, unknown>
+                | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -932,7 +929,8 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        { original_client_socket_id?: string } | undefined
+                        | { original_client_socket_id?: string }
+                        | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -946,7 +944,9 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            number | string | undefined;
+            | number
+            | string
+            | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;
