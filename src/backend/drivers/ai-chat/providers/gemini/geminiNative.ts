@@ -122,8 +122,10 @@ const contentParts = (content: ChatContent): Part[] => {
     for (const part of content) {
         if (typeof part === 'string') {
             if (part) parts.push({ text: part });
-        } else if (part.type === 'text' && typeof part.text === 'string') {
-            if (part.text) parts.push({ text: part.text });
+        } else if (part.type === 'text') {
+            if (typeof part.text === 'string' && part.text) {
+                parts.push({ text: part.text });
+            }
         } else if (part.type === 'image_url') {
             // http(s) images were already inlined as data URLs.
             const uri = parseDataUri(part.image_url?.url ?? '');
@@ -131,6 +133,14 @@ const contentParts = (content: ChatContent): Part[] => {
                 uri?.base64
                     ? { inlineData: { mimeType: uri.mimeType, data: uri.data } }
                     : unsupportedMediaTextPart('image could not be loaded'),
+            );
+        } else {
+            // Audio and file parts have no mapping here; dropping them would
+            // send Google a different prompt than the caller wrote.
+            throw new HttpError(
+                400,
+                `${part.type ?? 'untyped'} content is not supported by this model`,
+                { legacyCode: 'bad_request' },
             );
         }
     }
@@ -280,7 +290,9 @@ const finishReasonOf = (
     sawToolCall: boolean,
 ): string | undefined => {
     if (!reason) return undefined;
-    if (reason === 'MAX_TOKENS') return 'length';
+    // CONTINUATION is a cut at Google's output limit, and the SDK drops the
+    // token that would resume it, so it reads as any other truncation.
+    if (reason === 'MAX_TOKENS' || reason === 'CONTINUATION') return 'length';
     if (FILTERED_FINISH_REASONS.has(reason)) return 'content_filter';
     return promoteStopForToolCalls(
         reason === 'STOP' ? 'stop' : reason,

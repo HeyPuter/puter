@@ -1404,10 +1404,11 @@ export class ChatCompletionDriver extends PuterDriver {
         const { promptTokenEstimate, requestedMaxTokens, pricingTime } =
             estimates;
         // A provider can name its own cost keys for this request (Claude's
-        // fast-mode rate card) and size an extra reservation the per-token
-        // math can't see (a web-search/advisor tool that could run several
-        // times before the model answers) — the same clamps it applies when
-        // building the request, so the hold and the request agree.
+        // fast-mode rate card), cap its output, and size an extra reservation
+        // the per-token math can't see (a web-search/advisor tool that could
+        // run several times before the model answers) — the same clamps it
+        // applies when building the request, so the hold and the request
+        // agree.
         const pricing =
             this.#providers[model.provider!]?.requestPricing?.(args, model, {
                 promptTokenEstimate,
@@ -1475,6 +1476,7 @@ export class ChatCompletionDriver extends PuterDriver {
             const limit = Math.min(
                 requestedMaxTokens ?? Number.POSITIVE_INFINITY,
                 outputCeiling(model, promptTokenEstimate),
+                positiveOrInfinity(pricing.maxTokens),
             );
             const cap = Math.floor(
                 Math.min(limit, affordableOutputTokens(remainingCredits)),

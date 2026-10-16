@@ -24,12 +24,14 @@ export const GEMINI_NATIVE_MODEL_IDS: ReadonlySet<string> = new Set([
     'gemini-4-argon',
 ]);
 
-// Hardcoded from https://models.dev/api.json
+// Google's unary model metadata reports this cap; streaming keeps the catalog cap.
+export const GEMINI_ARGON_NON_STREAM_MAX_TOKENS = 32_768;
+
 export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-4-argon',
         id: 'gemini-4-argon',
-        // The driver has no audio or PDF part to forward.
+        // The native adapter forwards only text and image parts.
         modalities: {
             input: ['text', 'image'],
             output: ['text'],

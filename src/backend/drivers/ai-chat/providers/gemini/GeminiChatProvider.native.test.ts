@@ -18,9 +18,9 @@
  */
 
 /**
- * GeminiChatProvider models served over the native `generateContent` API.
- * Boots a real PuterServer so metering is recorded end to end; the Google and
- * OpenAI SDKs are mocked at the module boundary, which is the network egress.
+ * GeminiChatProvider models served over the native `generateContent` API. Boots
+ * a real PuterServer so metering is recorded end to end; the Google and OpenAI
+ * SDKs are mocked at the module boundary, which is the network egress.
  */
 
 import { Writable } from 'node:stream';
@@ -40,7 +40,11 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
+import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
 import type { ICompleteArguments, UsageDetails } from '../../types.js';
 import { normalize_messages } from '../../utils/Messages.js';
 import { trackedOutputTokens } from '../../utils/pricing.js';
@@ -181,7 +185,9 @@ const runStream = async (args: Partial<ICompleteArguments>) => {
     });
     await (
         result as {
-            init_chat_stream: (p: { chatStream: AIChatStream }) => Promise<void>;
+            init_chat_stream: (p: {
+                chatStream: AIChatStream;
+            }) => Promise<void>;
         }
     ).init_chat_stream({ chatStream });
     const events = chunks
@@ -258,7 +264,10 @@ describe('gemini-4-argon catalog and routing', () => {
             thinking_tokens: 3,
             grounding_requests: 0,
         });
-        expect(result.usageDetails).toEqual({ inputTokens: 10, outputTokens: 1 });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 10,
+            outputTokens: 1,
+        });
     });
 
     it.each([
@@ -358,7 +367,8 @@ describe('gemini-4-argon thinking levels', () => {
         async (effort) => {
             await expect(
                 complete({
-                    reasoning_effort: effort as ICompleteArguments['reasoning_effort'],
+                    reasoning_effort:
+                        effort as ICompleteArguments['reasoning_effort'],
                 }),
             ).rejects.toMatchObject({
                 statusCode: 400,
@@ -487,7 +497,9 @@ describe('gemini-4-argon text completion', () => {
                         { type: 'text', text: 'What is this?' },
                         {
                             type: 'image_url',
-                            image_url: { url: 'data:image/png;base64,iVBORw0K' },
+                            image_url: {
+                                url: 'data:image/png;base64,iVBORw0K',
+                            },
                         },
                     ],
                 },
@@ -505,24 +517,70 @@ describe('gemini-4-argon text completion', () => {
     });
 });
 
+describe('gemini-4-argon unsupported content', () => {
+    const AUDIO = {
+        type: 'input_audio',
+        input_audio: { data: 'UklGRg==', format: 'wav' },
+    };
+    const FILE = {
+        type: 'file',
+        file: {
+            filename: 'notes.pdf',
+            file_data: 'data:application/pdf;base64,JVBERi0=',
+        },
+    };
+
+    it.each([
+        [
+            'text and audio',
+            'input_audio',
+            [{ type: 'text', text: 'Transcribe this' }, AUDIO],
+        ],
+        ['audio only', 'input_audio', [AUDIO]],
+        [
+            'text and a file',
+            'file',
+            [{ type: 'text', text: 'Summarize this' }, FILE],
+        ],
+    ])(
+        'rejects %s before calling Google',
+        async (_label, partType, content) => {
+            await expect(
+                complete({ messages: [{ role: 'user', content }] }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message: `${partType} content is not supported by this model`,
+            });
+            expect(generateContent).not.toHaveBeenCalled();
+        },
+    );
+});
+
 describe('gemini-4-argon pricing by date', () => {
     it.each([
         ['2026-11-30T23:59:59.999Z', 200, 1000, 10],
         ['2026-12-01T00:00:00.000Z', 400, 2000, 20],
         ['2027-01-15T08:00:00.000Z', 400, 2000, 20],
-    ])('prices a request at %s at the matching rates', async (iso, input, output, cached) => {
-        generateContent.mockResolvedValueOnce(
-            textResponse('OK', { ...LIVE_USAGE, cachedContentTokenCount: 6 }),
-        );
-        await complete({}, new Date(iso));
-        const [, , , costs] = recordSpy.mock.calls[0]!;
-        expect(costs).toEqual({
-            prompt_tokens: 30 * input,
-            completion_tokens: 5 * output,
-            thinking_tokens: 69 * output,
-            cached_tokens: 6 * cached,
-        });
-    });
+    ])(
+        'prices a request at %s at the matching rates',
+        async (iso, input, output, cached) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('OK', {
+                    ...LIVE_USAGE,
+                    cachedContentTokenCount: 6,
+                }),
+            );
+            await complete({}, new Date(iso));
+            const [, , , costs] = recordSpy.mock.calls[0]!;
+            expect(costs).toEqual({
+                prompt_tokens: 30 * input,
+                completion_tokens: 5 * output,
+                thinking_tokens: 69 * output,
+                cached_tokens: 6 * cached,
+            });
+        },
+    );
 
     it('settles at the instant the driver priced the attempt at, not the clock', async () => {
         vi.useFakeTimers({
@@ -550,8 +608,13 @@ describe('gemini-4-argon streaming', () => {
         generateContentStream.mockResolvedValueOnce(
             asAsyncIterable([
                 {
-                    candidates: [{ content: { role: 'model', parts: [{ text: 'O' }] } }],
-                    usageMetadata: { promptTokenCount: 36, totalTokenCount: 36 },
+                    candidates: [
+                        { content: { role: 'model', parts: [{ text: 'O' }] } },
+                    ],
+                    usageMetadata: {
+                        promptTokenCount: 36,
+                        totalTokenCount: 36,
+                    },
                 },
                 {
                     candidates: [
@@ -597,7 +660,9 @@ describe('gemini-4-argon streaming', () => {
         generateContentStream.mockResolvedValueOnce(
             asAsyncIterable([
                 {
-                    candidates: [{ content: { role: 'model', parts: [{ text: 'O' }] } }],
+                    candidates: [
+                        { content: { role: 'model', parts: [{ text: 'O' }] } },
+                    ],
                     usageMetadata: {
                         promptTokenCount: 5,
                         candidatesTokenCount: 1,
@@ -634,30 +699,36 @@ describe('gemini-4-argon streaming', () => {
     it.each([
         ['no usage metadata', undefined],
         ['empty usage metadata', {}],
-    ])('leaves a stream with %s unreported so the driver estimates it', async (_label, usageMetadata) => {
-        generateContentStream.mockResolvedValueOnce(
-            asAsyncIterable([
-                {
-                    candidates: [
-                        {
-                            content: { role: 'model', parts: [{ text: 'OK' }] },
-                            finishReason: 'STOP',
-                        },
-                    ],
-                    usageMetadata,
-                },
-            ]),
-        );
+    ])(
+        'leaves a stream with %s unreported so the driver estimates it',
+        async (_label, usageMetadata) => {
+            generateContentStream.mockResolvedValueOnce(
+                asAsyncIterable([
+                    {
+                        candidates: [
+                            {
+                                content: {
+                                    role: 'model',
+                                    parts: [{ text: 'OK' }],
+                                },
+                                finishReason: 'STOP',
+                            },
+                        ],
+                        usageMetadata,
+                    },
+                ]),
+            );
 
-        const { events, chatStream } = await runStream({});
+            const { events, chatStream } = await runStream({});
 
-        expect(events.filter((e) => e.type === 'text')).toHaveLength(1);
-        // Null is what makes the driver charge its output estimate.
-        expect(chatStream.reportedUsage).toBeNull();
-        expect(
-            recordSpy.mock.calls.flatMap(([usage]) => Object.values(usage)),
-        ).toEqual([]);
-    });
+            expect(events.filter((e) => e.type === 'text')).toHaveLength(1);
+            // Null is what makes the driver charge its output estimate.
+            expect(chatStream.reportedUsage).toBeNull();
+            expect(
+                recordSpy.mock.calls.flatMap(([usage]) => Object.values(usage)),
+            ).toEqual([]);
+        },
+    );
 
     it('streams a tool call with its thought signature', async () => {
         generateContentStream.mockResolvedValueOnce(
@@ -700,6 +771,103 @@ describe('gemini-4-argon streaming', () => {
     });
 });
 
+describe('gemini-4-argon output cap', () => {
+    it.each([
+        ['no max_tokens', undefined],
+        ['a larger max_tokens', 65_536],
+    ])(
+        'caps a non-streamed request with %s at 32,768 output tokens',
+        async (_label, maxTokens) => {
+            generateContent.mockResolvedValueOnce(textResponse('OK'));
+            await complete({ max_tokens: maxTokens });
+            expect(requestOf().config.maxOutputTokens).toBe(32_768);
+        },
+    );
+
+    it('sends a stream the max_tokens it asked for', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([textResponse('OK')]),
+        );
+        await runStream({ max_tokens: 65_536 });
+        expect(requestOf(generateContentStream).config.maxOutputTokens).toBe(
+            65_536,
+        );
+    });
+
+    describe('through the driver', () => {
+        let driver: ChatCompletionDriver;
+        let reserve: MockInstance<MeteringService['reserveCredits']>;
+
+        beforeEach(async () => {
+            // Launch rates, so a hold converts to output tokens exactly.
+            vi.useFakeTimers({ toFake: ['Date'], now: LAUNCH });
+            driver = new ChatCompletionDriver(
+                {
+                    providers: {
+                        gemini: { apiKey: 'test-key' },
+                        ollama: { enabled: false },
+                    },
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            await driver.onServerStart();
+            // Enough balance that only the request and the model bound output.
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: Number.MAX_SAFE_INTEGER, held: 0 });
+            reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+        });
+
+        afterEach(() => {
+            driver.onServerShutdown();
+            vi.useRealTimers();
+        });
+
+        const viaDriver = (args: Partial<ICompleteArguments>) =>
+            withTestActor(() =>
+                driver.complete({
+                    model: 'gemini-4-argon',
+                    messages: [{ role: 'user', content: 'Say OK' }],
+                    ...args,
+                } as ICompleteArguments),
+            );
+
+        // The two-token prompt costs less than one output token.
+        const heldOutputTokens = () =>
+            Math.floor(
+                reserve.mock.calls[0]![1] / ARGON.costs.completion_tokens,
+            );
+
+        it.each([
+            ['no max_tokens', 32_768, undefined],
+            ['a larger max_tokens', 32_768, 65_536],
+            ['a smaller max_tokens', 1_000, 1_000],
+        ])(
+            'sends and holds a non-streamed request with %s at %i output tokens',
+            async (_label, expected, maxTokens) => {
+                generateContent.mockResolvedValueOnce(textResponse('OK'));
+                await viaDriver({ max_tokens: maxTokens });
+                expect(requestOf().config.maxOutputTokens).toBe(expected);
+                expect(heldOutputTokens()).toBe(expected);
+            },
+        );
+
+        it('sends and holds a stream at the full 65,536-token limit', async () => {
+            generateContentStream.mockResolvedValueOnce(
+                asAsyncIterable([textResponse('OK')]),
+            );
+            await readStreamResult(await viaDriver({ stream: true }));
+            expect(
+                requestOf(generateContentStream).config.maxOutputTokens,
+            ).toBe(65_536);
+            expect(heldOutputTokens()).toBe(65_536);
+        });
+    });
+});
+
 describe('gemini-4-argon finish reasons', () => {
     const LIVE_METERED = {
         prompt_tokens: 36,
@@ -732,7 +900,7 @@ describe('gemini-4-argon finish reasons', () => {
         ['UNEXPECTED_TOOL_CALL', 'UNEXPECTED_TOOL_CALL'],
         ['LANGUAGE', 'LANGUAGE'],
         ['OTHER', 'OTHER'],
-        ['CONTINUATION', 'CONTINUATION'],
+        ['CONTINUATION', 'length'],
         ['SOME_FUTURE_REASON', 'SOME_FUTURE_REASON'],
     ] as const;
 
@@ -765,6 +933,38 @@ describe('gemini-4-argon finish reasons', () => {
             });
         },
     );
+
+    // The raw API puts a resume token beside CONTINUATION; nothing here can
+    // use it, so it must not reach the caller.
+    const continued = {
+        candidates: [
+            {
+                content: { role: 'model', parts: [{ text: 'Partial' }] },
+                finishReason: 'CONTINUATION',
+                continuationToken: 'resume-token',
+            },
+        ],
+        usageMetadata: LIVE_USAGE,
+    };
+
+    it('ends a CONTINUATION cut as length without its resume token', async () => {
+        generateContent.mockResolvedValueOnce(continued);
+        const result = await complete({});
+        expect(result).toMatchObject({ finish_reason: 'length' });
+        expect(JSON.stringify(result)).not.toContain('resume-token');
+    });
+
+    it('streams a CONTINUATION cut as a max_tokens stop without its resume token', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([continued]),
+        );
+        const { events } = await runStream({});
+        expect(events.find((e) => e.type === 'usage')).toMatchObject({
+            finish_reason: 'length',
+            stopReason: 'max_tokens',
+        });
+        expect(JSON.stringify(events)).not.toContain('resume-token');
+    });
 });
 
 describe('gemini-4-argon blocked prompts', () => {
@@ -807,19 +1007,28 @@ describe('gemini-4-argon blocked prompts', () => {
     });
 
     it.each([
-        ['an unspecified block reason', { blockReason: 'BLOCKED_REASON_UNSPECIFIED' }],
-        ['the API docs spelling of it', { blockReason: 'BLOCK_REASON_UNSPECIFIED' }],
+        [
+            'an unspecified block reason',
+            { blockReason: 'BLOCKED_REASON_UNSPECIFIED' },
+        ],
+        [
+            'the API docs spelling of it',
+            { blockReason: 'BLOCK_REASON_UNSPECIFIED' },
+        ],
         ['no prompt feedback', undefined],
-    ])('still rejects a response with no candidates and %s', async (_label, promptFeedback) => {
-        generateContent.mockResolvedValueOnce({
-            ...(promptFeedback ? { promptFeedback } : {}),
-            usageMetadata: PROMPT_USAGE,
-        });
-        await expect(complete({})).rejects.toMatchObject({
-            statusCode: 400,
-            legacyCode: 'bad_response',
-        });
-    });
+    ])(
+        'still rejects a response with no candidates and %s',
+        async (_label, promptFeedback) => {
+            generateContent.mockResolvedValueOnce({
+                ...(promptFeedback ? { promptFeedback } : {}),
+                usageMetadata: PROMPT_USAGE,
+            });
+            await expect(complete({})).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_response',
+            });
+        },
+    );
 
     it('streams a blocked prompt as a content_filter end with its usage', async () => {
         generateContentStream.mockResolvedValueOnce(

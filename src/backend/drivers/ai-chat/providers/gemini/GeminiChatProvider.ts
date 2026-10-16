@@ -41,12 +41,25 @@ import {
     type UsageSource,
 } from '../OpenAICompatProvider.js';
 import { geminiNativeClient } from './geminiNative.js';
-import { GEMINI_MODELS, GEMINI_NATIVE_MODEL_IDS } from './models.js';
+import {
+    GEMINI_MODELS,
+    GEMINI_NATIVE_MODEL_IDS,
+    GEMINI_ARGON_NON_STREAM_MAX_TOKENS,
+} from './models.js';
 
 type GroundingContent = { grounding_metadata?: unknown };
 
 /** The thinking levels the native models accept; medium when unset. */
 const NATIVE_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
+
+/** Google's cap on non-streamed native output; streams keep the catalog's. */
+const nativeOutputCap = (
+    args: ICompleteArguments,
+    model: IChatModel,
+): number | undefined =>
+    model.id === 'gemini-4-argon' && !args.stream
+        ? GEMINI_ARGON_NON_STREAM_MAX_TOKENS
+        : undefined;
 
 const COMPAT_BASE_URL =
     'https://generativelanguage.googleapis.com/v1beta/openai/';
@@ -114,6 +127,15 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         });
     }
 
+    /** Sizes the credit hold to the same output cap `vendorParams` sends. */
+    requestPricing(
+        args: ICompleteArguments,
+        model: IChatModel,
+    ): { maxTokens?: number } {
+        const maxTokens = nativeOutputCap(args, model);
+        return maxTokens === undefined ? {} : { maxTokens };
+    }
+
     protected override prepareMessages(messages: PuterMessage[]) {
         for (const message of messages) delete message.cache_control;
         return messages;
@@ -134,8 +156,18 @@ export class GeminiChatProvider extends OpenAICompatProvider {
             );
         }
         const hasTools = Array.isArray(params.tools) && params.tools.length > 0;
+        const outputCap = nativeOutputCap(args, model);
+        const requested = params.max_completion_tokens as number | undefined;
         return {
             ...params,
+            ...(outputCap !== undefined
+                ? {
+                      max_completion_tokens: Math.min(
+                          requested ?? outputCap,
+                          outputCap,
+                      ),
+                  }
+                : {}),
             ...(effort ? { reasoning_effort: effort } : {}),
             ...(hasTools && args.tool_choice
                 ? { tool_choice: toolChoiceToWire(args.tool_choice, 'chat') }
@@ -152,8 +184,7 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         if (GEMINI_NATIVE_MODEL_IDS.has(model.id)) {
             return nativeMeteredUsage(
                 source.usage as unknown as
-                    | GenerateContentResponseUsageMetadata
-                    | undefined,
+                    GenerateContentResponseUsageMetadata | undefined,
             );
         }
         // Non-stream grounding metadata lives in choices[0].message; a stream
