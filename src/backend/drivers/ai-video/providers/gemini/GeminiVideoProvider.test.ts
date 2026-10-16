@@ -20,12 +20,12 @@
 /**
  * Offline unit tests for the Gemini Omni video provider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis)
- * with Gemini and Together keys and drives the unified
- * `puter-video-generation` driver, so routing, file loading, credit holds,
- * usage recording and `puter_output_path` run end to end. Global `fetch` is
- * stubbed with canned countTokens and Interactions replies, and `secureFetch`
- * with a canned image, the real network egress points.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) with
+ * Gemini and Together keys and drives the unified `puter-video-generation`
+ * driver, so routing, file loading, credit holds, usage recording and
+ * `puter_output_path` run end to end. Global `fetch` is stubbed with canned
+ * countTokens and Interactions replies, and `secureFetch` with a canned image,
+ * the real network egress points.
  */
 
 import {
@@ -61,7 +61,9 @@ import {
 const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
 
 vi.mock('../../../../util/secureHttp.js', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../../../../util/secureHttp.js')>()),
+    ...(await importOriginal<
+        typeof import('../../../../util/secureHttp.js')
+    >()),
     secureFetch: secureFetchMock,
 }));
 
@@ -206,6 +208,14 @@ const USAGE_360P_IMAGE = {
     output_tokens_by_modality: [{ modality: 'video', tokens: 19310 }],
     total_thought_tokens: 220,
     total_tokens: 21287,
+};
+
+/** A reply that produced text and thinking but no video. */
+const USAGE_TEXT_ONLY = {
+    total_input_tokens: 18,
+    total_output_tokens: 12,
+    output_tokens_by_modality: [{ modality: 'text', tokens: 12 }],
+    total_thought_tokens: 240,
 };
 
 const videoBlock = (bytes: Buffer = MP4) => ({
@@ -374,15 +384,27 @@ describe('GeminiVideoProvider routing', () => {
             const model = (await videoDriver.models()).find(
                 (entry) => entry.provider === 'together-video-generation',
             )!.id;
-            await expect(Promise.resolve(runWithContext({
-                actor: TEST_MODE_ACTOR,
-                ...(selection === 'driver' ? { driverName: PROVIDER } : {}),
-            }, () => videoDriver.generate({
-                prompt: PROMPT,
-                model,
-                test_mode: true,
-                ...(selection === 'provider' ? { provider: PROVIDER } : {}),
-            })))).rejects.toMatchObject({
+            await expect(
+                Promise.resolve(
+                    runWithContext(
+                        {
+                            actor: TEST_MODE_ACTOR,
+                            ...(selection === 'driver'
+                                ? { driverName: PROVIDER }
+                                : {}),
+                        },
+                        () =>
+                            videoDriver.generate({
+                                prompt: PROMPT,
+                                model,
+                                test_mode: true,
+                                ...(selection === 'provider'
+                                    ? { provider: PROVIDER }
+                                    : {}),
+                            }),
+                    ),
+                ),
+            ).rejects.toMatchObject({
                 statusCode: 400,
                 message: `Model not found: ${model}`,
             });
@@ -394,9 +416,15 @@ describe('GeminiVideoProvider routing', () => {
         const model = (await videoDriver.models()).find(
             (entry) => entry.provider === 'together-video-generation',
         )!.id;
-        await expect(withActor(TEST_MODE_ACTOR, () => videoDriver.generate({
-            prompt: PROMPT, model, test_mode: true,
-        }))).resolves.toBe(SAMPLE_URL);
+        await expect(
+            withActor(TEST_MODE_ACTOR, () =>
+                videoDriver.generate({
+                    prompt: PROMPT,
+                    model,
+                    test_mode: true,
+                }),
+            ),
+        ).resolves.toBe(SAMPLE_URL);
     });
 
     it('keeps Together as the default when both are configured', async () => {
@@ -441,16 +469,30 @@ describe('GeminiVideoProvider registration', () => {
             providers: { 'together-video-generation': { apiKey: 'tg-key' } },
         } as never);
         try {
-            const driver = bare.drivers.aiVideo as unknown as VideoGenerationDriver;
+            const driver = bare.drivers
+                .aiVideo as unknown as VideoGenerationDriver;
             expect(
                 (await driver.models()).some((m) => m.provider === PROVIDER),
             ).toBe(false);
-            await expect(withActor(TEST_MODE_ACTOR, () => driver.generate({
-                prompt: PROMPT, provider: PROVIDER,
-            }))).rejects.toMatchObject({ statusCode: 400 });
-            await expect(Promise.resolve(runWithContext({
-                actor: TEST_MODE_ACTOR, driverName: PROVIDER,
-            }, () => driver.generate({ prompt: PROMPT })))).rejects.toMatchObject({
+            await expect(
+                withActor(TEST_MODE_ACTOR, () =>
+                    driver.generate({
+                        prompt: PROMPT,
+                        provider: PROVIDER,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            await expect(
+                Promise.resolve(
+                    runWithContext(
+                        {
+                            actor: TEST_MODE_ACTOR,
+                            driverName: PROVIDER,
+                        },
+                        () => driver.generate({ prompt: PROMPT }),
+                    ),
+                ),
+            ).rejects.toMatchObject({
                 statusCode: 400,
             });
             expect(fetchSpy).not.toHaveBeenCalled();
@@ -470,16 +512,30 @@ describe('GeminiVideoProvider registration', () => {
             },
         } as never);
         try {
-            const driver = custom.drivers.aiVideo as unknown as VideoGenerationDriver;
+            const driver = custom.drivers
+                .aiVideo as unknown as VideoGenerationDriver;
             expect(
                 (await driver.models()).some((m) => m.provider === PROVIDER),
             ).toBe(false);
-            await expect(withActor(TEST_MODE_ACTOR, () => driver.generate({
-                prompt: PROMPT, provider: PROVIDER,
-            }))).rejects.toMatchObject({ statusCode: 400 });
-            await expect(Promise.resolve(runWithContext({
-                actor: TEST_MODE_ACTOR, driverName: PROVIDER,
-            }, () => driver.generate({ prompt: PROMPT })))).rejects.toMatchObject({
+            await expect(
+                withActor(TEST_MODE_ACTOR, () =>
+                    driver.generate({
+                        prompt: PROMPT,
+                        provider: PROVIDER,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            await expect(
+                Promise.resolve(
+                    runWithContext(
+                        {
+                            actor: TEST_MODE_ACTOR,
+                            driverName: PROVIDER,
+                        },
+                        () => driver.generate({ prompt: PROMPT }),
+                    ),
+                ),
+            ).rejects.toMatchObject({
                 statusCode: 400,
             });
             expect(fetchSpy).not.toHaveBeenCalled();
@@ -491,9 +547,17 @@ describe('GeminiVideoProvider registration', () => {
                 statusCode: 400,
                 message: `Model not found: ${MODEL}`,
             });
-            await expect(Promise.resolve(runWithContext({
-                actor: TEST_MODE_ACTOR, driverName: PROVIDER,
-            }, () => driver.generate({ prompt: PROMPT })))).rejects.toMatchObject({
+            await expect(
+                Promise.resolve(
+                    runWithContext(
+                        {
+                            actor: TEST_MODE_ACTOR,
+                            driverName: PROVIDER,
+                        },
+                        () => driver.generate({ prompt: PROMPT }),
+                    ),
+                ),
+            ).rejects.toMatchObject({
                 statusCode: 400,
             });
             expect(fetchSpy).not.toHaveBeenCalled();
@@ -518,9 +582,9 @@ describe('GeminiVideoProvider test_mode', () => {
             SAMPLE_URL,
         );
         expect(secureFetchMock).not.toHaveBeenCalled();
-        await expect(
-            testMode({ input_reference: 42 }),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        await expect(testMode({ input_reference: 42 })).rejects.toMatchObject({
+            statusCode: 400,
+        });
     });
 });
 
@@ -585,14 +649,26 @@ describe('GeminiVideoProvider option validation', () => {
         ['a size with spaces', { size: '1280 x 720' }],
         ['a non-string size', { size: 720 }],
         ['an empty resolution', { resolution: ' ' }],
-        ['conflicting size and resolution', { size: '720p', resolution: '1080p' }],
+        [
+            'conflicting size and resolution',
+            { size: '720p', resolution: '1080p' },
+        ],
         ['width without height', { width: 1280 }],
         ['height without width', { height: 720 }],
         ['an unpublished width and height', { width: 1000, height: 500 }],
         ['string width and height', { width: '1280', height: '720' }],
-        ['width and height against a pixel size', { size: '1280x720', width: 1920, height: 1080 }],
-        ['width and height against a resolution', { size: '720p', width: 640, height: 360 }],
-        ['a flipped width and height', { size: '1280x720', width: 720, height: 1280 }],
+        [
+            'width and height against a pixel size',
+            { size: '1280x720', width: 1920, height: 1080 },
+        ],
+        [
+            'width and height against a resolution',
+            { size: '720p', width: 640, height: 360 },
+        ],
+        [
+            'a flipped width and height',
+            { size: '1280x720', width: 720, height: 1280 },
+        ],
     ])('refuses %s, test mode included', async (_label, args) => {
         await expect(testMode(args)).rejects.toMatchObject({
             statusCode: 400,
@@ -727,7 +803,11 @@ describe('GeminiVideoProvider request shape', () => {
         const { actor, userId } = await makeUser();
         const path = `/${actor.user.username}/frame.png`;
         await server.services.fs.write(userId, {
-            fileMetadata: { path, size: PNG.byteLength, contentType: 'image/png' },
+            fileMetadata: {
+                path,
+                size: PNG.byteLength,
+                contentType: 'image/png',
+            },
             fileContent: PNG,
         });
         reply();
@@ -740,7 +820,11 @@ describe('GeminiVideoProvider request shape', () => {
         const intruder = await makeUser();
         const path = `/${owner.actor.user.username}/private.png`;
         await server.services.fs.write(owner.userId, {
-            fileMetadata: { path, size: PNG.byteLength, contentType: 'image/png' },
+            fileMetadata: {
+                path,
+                size: PNG.byteLength,
+                contentType: 'image/png',
+            },
             fileContent: PNG,
         });
         const err = await withActor(intruder.actor, () =>
@@ -773,7 +857,10 @@ describe('GeminiVideoProvider request shape', () => {
     });
 
     it.each([
-        ['text bytes', `data:image/png;base64,${Buffer.from('not an image').toString('base64')}`],
+        [
+            'text bytes',
+            `data:image/png;base64,${Buffer.from('not an image').toString('base64')}`,
+        ],
         ['a GIF', 'data:image/gif;base64,R0lGODlhAQABAAAAACw='],
     ])('refuses %s as the image', async (_label, input_reference) => {
         const { actor } = await makeUser();
@@ -813,7 +900,10 @@ describe('GeminiVideoProvider response', () => {
         reply(
             interaction({
                 steps: [
-                    { type: 'thought', content: [videoBlock(Buffer.from('x'))] },
+                    {
+                        type: 'thought',
+                        content: [videoBlock(Buffer.from('x'))],
+                    },
                     {
                         type: 'model_output',
                         content: [
@@ -842,36 +932,106 @@ describe('GeminiVideoProvider response', () => {
         expect(saved.mimeType).toBe('video/mp4');
     });
 
-    it('fails a reply with no video as 400 upstream_bad_request without charging', async () => {
+    it('charges the reported usage of a reply with no video, then fails it as 400 upstream_bad_request', async () => {
         const { actor } = await makeUser();
         const { released } = trackHolds();
         reply(interaction({ content: [{ type: 'text', text: 'No.' }] }));
         expect(await callerError(() => generate(), actor)).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            message: 'Gemini did not return a video',
         });
+        expect(batchSpy).toHaveBeenCalledTimes(1);
+        expect(metered().map((u) => u.usageAmount)).toEqual([
+            18,
+            57920,
+            58539 - 57920 + 418,
+        ]);
         expect(released).toHaveBeenCalledTimes(1);
-        expect(batchSpy).not.toHaveBeenCalled();
+        expect(batchSpy.mock.invocationCallOrder[0]).toBeLessThan(
+            released.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('charges text-only usage of a reply with no video as input and text', async () => {
+        const { actor } = await makeUser();
+        reply(
+            interaction({
+                content: [{ type: 'text', text: 'No.' }],
+                usage: USAGE_TEXT_ONLY,
+            }),
+        );
+        expect(await callerError(() => generate(), actor)).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+        expect(metered()).toEqual([
+            {
+                usageType: `${PROVIDER}:${MODEL}:input`,
+                usageAmount: 18,
+                costOverride: 18 * INPUT_RATE,
+            },
+            {
+                usageType: `${PROVIDER}:${MODEL}:output:text`,
+                usageAmount: 12 + 240,
+                costOverride: (12 + 240) * TEXT_RATE,
+            },
+        ]);
     });
 
     it.each([
         ['a non-MP4 MIME type', { ...videoBlock(), mime_type: 'video/webm' }],
-        ['a URI instead of bytes', { type: 'video', mime_type: 'video/mp4', uri: 'https://example.com/v.mp4' }],
-        ['invalid base64', { type: 'video', mime_type: 'video/mp4', data: 'not base64!' }],
+        [
+            'a URI instead of bytes',
+            {
+                type: 'video',
+                mime_type: 'video/mp4',
+                uri: 'https://example.com/v.mp4',
+            },
+        ],
+        [
+            'invalid base64',
+            { type: 'video', mime_type: 'video/mp4', data: 'not base64!' },
+        ],
         ['bytes that are not an MP4', videoBlock(Buffer.from('plain bytes!'))],
-    ])('fails a video with %s as 502 without charging', async (_label, block) => {
+    ])(
+        'charges the reported usage once and fails a video with %s as 502',
+        async (_label, block) => {
+            const { actor } = await makeUser();
+            const { released } = trackHolds();
+            reply(interaction({ content: [block] }));
+            expect(await callerError(() => generate(), actor)).toMatchObject({
+                statusCode: 502,
+                message: 'Gemini video generation returned a malformed video',
+            });
+            expect(batchSpy).toHaveBeenCalledTimes(1);
+            expect(metered().map((u) => u.usageAmount)).toEqual([
+                18,
+                57920,
+                58539 - 57920 + 418,
+            ]);
+            expect(released).toHaveBeenCalledTimes(1);
+            expect(secureFetchMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('fails a malformed video with unusable usage without charging', async () => {
         const { actor } = await makeUser();
-        reply(interaction({ content: [block] }));
+        reply(
+            interaction({
+                content: [videoBlock(Buffer.from('plain bytes!'))],
+                usage: null,
+            }),
+        );
         expect(await callerError(() => generate(), actor)).toMatchObject({
             statusCode: 502,
             message: 'Gemini video generation returned a malformed video',
         });
         expect(batchSpy).not.toHaveBeenCalled();
-        expect(secureFetchMock).not.toHaveBeenCalled();
     });
 
     it.each(['incomplete', 'failed', 'cancelled', 'in_progress'])(
-        'fails a %s interaction as 502 without charging',
+        'charges the reported usage of a %s interaction once, then fails it as 502',
         async (status) => {
             const { actor } = await makeUser();
             const { released } = trackHolds();
@@ -879,11 +1039,96 @@ describe('GeminiVideoProvider response', () => {
             expect(await callerError(() => generate(), actor)).toMatchObject({
                 statusCode: 502,
                 legacyCode: 'upstream_failed',
+                message: 'Gemini video generation did not complete the request',
             });
+            expect(batchSpy).toHaveBeenCalledTimes(1);
+            expect(metered().map((u) => u.usageAmount)).toEqual([
+                18,
+                57920,
+                58539 - 57920 + 418,
+            ]);
             expect(released).toHaveBeenCalledTimes(1);
-            expect(batchSpy).not.toHaveBeenCalled();
+            expect(batchSpy.mock.invocationCallOrder[0]).toBeLessThan(
+                released.mock.invocationCallOrder[0]!,
+            );
         },
     );
+
+    it('charges text-only usage of a failed interaction without inventing video', async () => {
+        const { actor } = await makeUser();
+        reply(
+            interaction({
+                status: 'failed',
+                content: [],
+                usage: USAGE_TEXT_ONLY,
+            }),
+        );
+        expect(await callerError(() => generate(), actor)).toMatchObject({
+            statusCode: 502,
+            message: 'Gemini video generation did not complete the request',
+        });
+        expect(metered().map((u) => [u.usageType, u.usageAmount])).toEqual([
+            [`${PROVIDER}:${MODEL}:input`, 18],
+            [`${PROVIDER}:${MODEL}:output:text`, 12 + 240],
+        ]);
+    });
+
+    it('charges input and thinking of a failed interaction that reports no output and no breakdown', async () => {
+        const { actor } = await makeUser();
+        reply(
+            interaction({
+                status: 'failed',
+                content: [],
+                usage: {
+                    total_input_tokens: 18,
+                    total_output_tokens: 0,
+                    total_thought_tokens: 240,
+                },
+            }),
+        );
+        expect(await callerError(() => generate(), actor)).toMatchObject({
+            statusCode: 502,
+            message: 'Gemini video generation did not complete the request',
+        });
+        expect(metered().map((u) => [u.usageType, u.usageAmount])).toEqual([
+            [`${PROVIDER}:${MODEL}:input`, 18],
+            [`${PROVIDER}:${MODEL}:output:text`, 240],
+        ]);
+    });
+
+    it.each([
+        ['missing usage', undefined],
+        [
+            'output without a modality breakdown',
+            { ...USAGE_TEXT_ONLY, output_tokens_by_modality: undefined },
+        ],
+    ])(
+        'fails a failed interaction with %s as not completed, without charging',
+        async (_label, usage) => {
+            const { actor } = await makeUser();
+            const { released } = trackHolds();
+            reply(interaction({ status: 'failed', content: [], usage }));
+            expect(await callerError(() => generate(), actor)).toMatchObject({
+                statusCode: 502,
+                legacyCode: 'upstream_failed',
+                message: 'Gemini video generation did not complete the request',
+            });
+            expect(batchSpy).not.toHaveBeenCalled();
+            expect(released).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('releases the hold when settling a failed interaction throws', async () => {
+        const { actor } = await makeUser();
+        const { released } = trackHolds();
+        batchSpy.mockRejectedValueOnce(new Error('metering down'));
+        reply(interaction({ status: 'failed' }));
+        await expect(withActor(actor, () => generate())).rejects.toThrow(
+            'metering down',
+        );
+        expect(batchSpy).toHaveBeenCalledTimes(1);
+        expect(released).toHaveBeenCalledTimes(1);
+    });
 
     it('stops reading a reply over 64 MiB', async () => {
         const { actor } = await makeUser();
@@ -1062,9 +1307,9 @@ describe('GeminiVideoProvider credit hold', () => {
         const { actor } = await makeUser();
         hasCreditsSpy.mockResolvedValueOnce(false);
         fetchSpy.mockResolvedValueOnce(Response.json({ totalTokens: 18 }));
-        await expect(
-            withActor(actor, () => generate()),
-        ).rejects.toMatchObject({ statusCode: 402 });
+        await expect(withActor(actor, () => generate())).rejects.toMatchObject({
+            statusCode: 402,
+        });
         expect(hasCreditsSpy.mock.calls[0]![1]).toBe(HOLD);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(batchSpy).not.toHaveBeenCalled();
@@ -1145,12 +1390,18 @@ describe('GeminiVideoProvider usage', () => {
 
     it('settles verified 4K usage beyond the requested output cap', async () => {
         const { actor } = await makeUser();
-        reply(interaction({ usage: {
-            total_input_tokens: 14,
-            total_output_tokens: 174289,
-            output_tokens_by_modality: [{ modality: 'video', tokens: 173760 }],
-            total_thought_tokens: 175,
-        } }));
+        reply(
+            interaction({
+                usage: {
+                    total_input_tokens: 14,
+                    total_output_tokens: 174289,
+                    output_tokens_by_modality: [
+                        { modality: 'video', tokens: 173760 },
+                    ],
+                    total_thought_tokens: 175,
+                },
+            }),
+        );
         await withActor(actor, () => generate({ size: '4k' }));
         expect(metered().map((u) => [u.usageAmount, u.costOverride])).toEqual([
             [14, 14 * INPUT_RATE],
@@ -1165,7 +1416,8 @@ describe('GeminiVideoProvider usage', () => {
             interaction({
                 usage: {
                     total_input_tokens: 1107,
-                    input_tokens_by_modality: USAGE_360P_IMAGE.input_tokens_by_modality,
+                    input_tokens_by_modality:
+                        USAGE_360P_IMAGE.input_tokens_by_modality,
                     total_output_tokens: 301_000,
                     output_tokens_by_modality: [
                         { modality: 'video', tokens: 300_000 },
@@ -1191,7 +1443,9 @@ describe('GeminiVideoProvider usage', () => {
             generate({ input_reference: pngDataUri, size: '360x640' }),
         );
         expect(metered().map((u) => u.usageAmount)).toEqual([
-            1107, 19310, 19960 - 19310 + 220,
+            1107,
+            19310,
+            19960 - 19310 + 220,
         ]);
     });
 
@@ -1243,14 +1497,28 @@ describe('GeminiVideoProvider usage', () => {
             { ...USAGE_720P, output_tokens_by_modality: undefined },
         ],
         [
-            'no video modality',
+            'no video tokens for the returned video',
             {
                 ...USAGE_720P,
                 output_tokens_by_modality: [{ modality: 'text', tokens: 10 }],
             },
         ],
-        ['a missing input total', { ...USAGE_720P, total_input_tokens: undefined }],
-        ['a missing output total', { ...USAGE_720P, total_output_tokens: undefined }],
+        [
+            'no video tokens and no breakdown',
+            {
+                ...USAGE_720P,
+                total_output_tokens: 0,
+                output_tokens_by_modality: undefined,
+            },
+        ],
+        [
+            'a missing input total',
+            { ...USAGE_720P, total_input_tokens: undefined },
+        ],
+        [
+            'a missing output total',
+            { ...USAGE_720P, total_output_tokens: undefined },
+        ],
         [
             'a negative video count',
             {
@@ -1269,10 +1537,15 @@ describe('GeminiVideoProvider usage', () => {
             'a string video count',
             {
                 ...USAGE_720P,
-                output_tokens_by_modality: [{ modality: 'video', tokens: '57920' }],
+                output_tokens_by_modality: [
+                    { modality: 'video', tokens: '57920' },
+                ],
             },
         ],
-        ['video over the output total', { ...USAGE_720P, total_output_tokens: 57919 }],
+        [
+            'video over the output total',
+            { ...USAGE_720P, total_output_tokens: 57919 },
+        ],
         [
             'modalities that sum past the output total',
             {
@@ -1283,7 +1556,10 @@ describe('GeminiVideoProvider usage', () => {
                 ],
             },
         ],
-        ['a negative thinking count', { ...USAGE_720P, total_thought_tokens: -1 }],
+        [
+            'a negative thinking count',
+            { ...USAGE_720P, total_thought_tokens: -1 },
+        ],
         ['a string input count', { ...USAGE_720P, total_input_tokens: '18' }],
         [
             'an unsafe cost',
@@ -1306,19 +1582,16 @@ describe('GeminiVideoProvider usage', () => {
                 ],
             },
         ],
-    ])(
-        'fails %s as 502 without fabricating usage',
-        async (_label, usage) => {
-            const { actor } = await makeUser();
-            const { released } = trackHolds();
-            reply(interaction({ usage }));
-            expect(await callerError(() => generate(), actor)).toMatchObject({
-                statusCode: 502,
-                legacyCode: 'upstream_failed',
-                message: 'Gemini video generation returned unusable usage',
-            });
-            expect(batchSpy).not.toHaveBeenCalled();
-            expect(released).toHaveBeenCalledTimes(1);
-        },
-    );
+    ])('fails %s as 502 without fabricating usage', async (_label, usage) => {
+        const { actor } = await makeUser();
+        const { released } = trackHolds();
+        reply(interaction({ usage }));
+        expect(await callerError(() => generate(), actor)).toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'Gemini video generation returned unusable usage',
+        });
+        expect(batchSpy).not.toHaveBeenCalled();
+        expect(released).toHaveBeenCalledTimes(1);
+    });
 });

@@ -162,8 +162,7 @@ interface Interaction {
 }
 
 type CountTokensPart =
-    | { text: string }
-    | { inlineData: { mimeType: string; data: string } };
+    { text: string } | { inlineData: { mimeType: string; data: string } };
 
 interface CountTokensRequest {
     contents: { parts: CountTokensPart[] }[];
@@ -183,10 +182,11 @@ const isSet = (value: unknown): boolean =>
  * Billable tokens from the reply's usage: input of every modality, video
  * output, and the rest of the output plus thinking as text. Undefined when a
  * count is missing, malformed, inconsistent or would cost more than a safe
- * integer.
+ * integer, or when a returned video has no video tokens.
  */
 const billedTokens = (
     usage: InteractionUsage | undefined,
+    returnedVideo: boolean,
 ): { input: number; video: number; text: number } | undefined => {
     if (!usage || typeof usage !== 'object') return undefined;
     const input = tokenCount(usage.total_input_tokens);
@@ -195,7 +195,11 @@ const billedTokens = (
         usage.total_thought_tokens === undefined
             ? 0
             : tokenCount(usage.total_thought_tokens);
-    const byModality = usage.output_tokens_by_modality;
+    // Only an empty output can go without a modality breakdown.
+    const byModality =
+        usage.output_tokens_by_modality === undefined && output === 0
+            ? []
+            : usage.output_tokens_by_modality;
     if (
         input === undefined ||
         output === undefined ||
@@ -213,7 +217,7 @@ const billedTokens = (
         if (String(entry.modality).toLowerCase() === 'video') video += tokens;
     }
     // `total_output_tokens` excludes thinking, so the modalities fit inside it.
-    if (video === 0 || listed > output) return undefined;
+    if ((returnedVideo && video === 0) || listed > output) return undefined;
 
     const text = output - video + thoughts;
     const costs = GEMINI_OMNI_COSTS;
@@ -335,37 +339,46 @@ export class GeminiVideoProvider extends VideoProvider {
                     signal,
                 },
             );
+            const videoBlock = this.#findVideo(interaction);
+
+            // Usage the reply reports is charged before the reply is checked,
+            // so a failed or videoless generation still pays for its tokens.
+            const billed = billedTokens(
+                interaction.usage,
+                videoBlock !== undefined,
+            );
+            if (billed) {
+                const usages: UsageInput[] = [
+                    {
+                        usageType: `${usagePrefix}:input`,
+                        usageAmount: billed.input,
+                        costOverride: billed.input * costs.input,
+                    },
+                    {
+                        usageType: `${usagePrefix}:output:video`,
+                        usageAmount: billed.video,
+                        costOverride: billed.video * costs.outputVideo,
+                    },
+                    {
+                        usageType: `${usagePrefix}:output:text`,
+                        usageAmount: billed.text,
+                        costOverride: billed.text * costs.outputText,
+                    },
+                ].filter((usage) => usage.usageAmount > 0);
+                await metering.batchIncrementUsages(actor, usages);
+            }
+
             if (interaction.status !== 'completed') {
                 throw geminiUpstreamFailure(
                     'Gemini video generation did not complete the request',
                 );
             }
-            const video = this.#readVideo(interaction);
-
-            const billed = billedTokens(interaction.usage);
+            const video = this.#readVideo(videoBlock);
             if (!billed) {
                 throw geminiUpstreamFailure(
                     'Gemini video generation returned unusable usage',
                 );
             }
-            const usages: UsageInput[] = [
-                {
-                    usageType: `${usagePrefix}:input`,
-                    usageAmount: billed.input,
-                    costOverride: billed.input * costs.input,
-                },
-                {
-                    usageType: `${usagePrefix}:output:video`,
-                    usageAmount: billed.video,
-                    costOverride: billed.video * costs.outputVideo,
-                },
-                {
-                    usageType: `${usagePrefix}:output:text`,
-                    usageAmount: billed.text,
-                    costOverride: billed.text * costs.outputText,
-                },
-            ].filter((usage) => usage.usageAmount > 0);
-            await metering.batchIncrementUsages(actor, usages);
 
             return `data:video/mp4;base64,${video}`;
         } finally {
@@ -394,7 +407,10 @@ export class GeminiVideoProvider extends VideoProvider {
                 throw badRequest(`${key} is not supported by Gemini Omni`);
             }
         }
-        if (isSet(params.output_format) && params.output_format !== 'video/mp4') {
+        if (
+            isSet(params.output_format) &&
+            params.output_format !== 'video/mp4'
+        ) {
             throw badRequest('output_format must be video/mp4');
         }
         const inputReference = params.input_reference;
@@ -416,9 +432,9 @@ export class GeminiVideoProvider extends VideoProvider {
     }
 
     /**
-     * `size` and `resolution` take a resolution or an exact pixel size;
-     * `width` with `height` take an exact pixel size. Controls that are given
-     * together must agree. Defaults to 720p at 16:9.
+     * `size` and `resolution` take a resolution or an exact pixel size; `width`
+     * with `height` take an exact pixel size. Controls that are given together
+     * must agree. Defaults to 720p at 16:9.
      */
     #readSize(params: IGenerateVideoParams): OmniSize {
         const unsupported = () =>
@@ -499,7 +515,9 @@ export class GeminiVideoProvider extends VideoProvider {
               ).buffer;
         const mimeType = sniffImageMime(bytes);
         if (!mimeType || !IMAGE_MIME_TYPES.has(mimeType)) {
-            throw badRequest('input_reference must be a PNG, JPEG or WebP image');
+            throw badRequest(
+                'input_reference must be a PNG, JPEG or WebP image',
+            );
         }
         return { mimeType, data: bytes.toString('base64') };
     }
@@ -568,10 +586,10 @@ export class GeminiVideoProvider extends VideoProvider {
         return body;
     }
 
-    /** The base64 MP4 of the last video the model returned. */
-    #readVideo(interaction: Interaction): string {
+    /** The last video block the model returned, not yet checked. */
+    #findVideo(interaction: Interaction): InteractionContent | undefined {
         const steps = Array.isArray(interaction.steps) ? interaction.steps : [];
-        const video = steps
+        return steps
             .flatMap((step) =>
                 step?.type === 'model_output' && Array.isArray(step.content)
                     ? step.content
@@ -579,6 +597,10 @@ export class GeminiVideoProvider extends VideoProvider {
             )
             .filter((content) => content?.type === 'video')
             .at(-1);
+    }
+
+    /** The base64 MP4 held by the video block. */
+    #readVideo(video: InteractionContent | undefined): string {
         if (!video) {
             throw new HttpError(400, 'Gemini did not return a video', {
                 legacyCode: 'upstream_bad_request',

@@ -132,7 +132,7 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 
 A longer prompt, a larger image, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image file or `data:` URI over 5 MiB) before generation starts. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
 
-The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation.
+The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
 ### Remote chat image inlining
 
