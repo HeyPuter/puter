@@ -155,7 +155,6 @@ const WAV_MIME_TYPES = new Set(['audio/wav', 'audio/x-wav', 'audio/wave']);
 const PCM_MIME_TYPES = new Set(['audio/l16', 'audio/pcm']);
 const BASE64_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
 
-
 const SPLIT_TEXT_HINT = 'Split the text into shorter requests.';
 
 const audioTooLong = (): HttpError =>
