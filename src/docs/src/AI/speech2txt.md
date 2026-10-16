@@ -57,7 +57,7 @@ Fine-tune how transcription runs.
 **Gemini-specific options** (when `provider: 'gemini'`):
 
 - `language` (String): Language code (e.g. `en`) the audio is spoken in. The result echoes it as `language`. Without it, the result has no `language`.
-- `timestamp_granularities` (Array): `['word']` adds a `words` array with each word's `start` and `end` in seconds. Only `word` entries are supported. Other entries fail with `bad_request`.
+- `timestamp_granularities` (Array): `['word']` adds a `words` array with each word's `start` and `end` in seconds. Only `word` entries are supported. Other entries fail with `bad_request`. When Gemini returns a word with an unusable timing or speaker, that word is left out of `words`, and `text` still has the full transcript.
 - `diarize` (Boolean): When `true`, the result includes `words`. Words can include a `speaker` label such as `spk:0`.
 
 Gemini rejects options it can't honor with `bad_request` instead of ignoring them. These are `prompt`, `temperature`, `logprobs: true`, `stream: true`, `chunking_strategy`, `known_speaker_names`, `extra_body`, and the xAI-specific options.
@@ -65,6 +65,8 @@ Gemini rejects options it can't honor with `bad_request` instead of ignoring the
 Gemini accepts WAV, MP3, AIFF, AAC, OGG, FLAC, MPEG, M4A, L16, Opus, A-law, mu-law and WebM audio, sent with an `audio/*` MIME type (`audio/wav`, `audio/mpeg`, `audio/webm`, and so on). Other types fail with `bad_request`, and the audio isn't converted. The audio can be at most 10 MiB, or 1 hour long, or 30 minutes long with word timestamps or `diarize`. Gemini enforces the duration limits itself, and the call fails when the audio is longer. A transcript is limited to 8,192 output tokens. A longer one fails with `502 upstream_failed`, so split long recordings into shorter files.
 
 Before transcribing, Puter reserves the cost of the counted audio tokens plus the full 8,192 output tokens, then charges the tokens Gemini reports. A transcription Gemini answers is charged even when it fails, as Gemini bills it, including one cut off at the output limit. When Gemini reports no usable token counts, only the counted audio is charged.
+
+On a Puter server that doesn't have Gemini set up, Gemini transcription fails with `503 service_unavailable` and isn't charged. Test mode still works there.
 
 #### `testMode` (Boolean) (optional)
 

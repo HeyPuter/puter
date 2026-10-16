@@ -123,7 +123,10 @@ export interface GeminiTranscript {
     model: string;
     /** The `language` the caller supplied; Gemini reports none of its own. */
     language?: string;
-    /** Present when word timestamps or diarization were requested. */
+    /**
+     * Present when word timestamps or diarization were requested. Words Gemini
+     * annotates with a malformed timing or speaker are left out.
+     */
     words?: GeminiTranscriptWord[];
 }
 
@@ -200,6 +203,15 @@ interface CountTokensReply {
 
 const badRequest = (message: string): HttpError =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
+
+// A deployment that leaves Gemini unconfigured answers every Gemini call this
+// way, so it doesn't alarm.
+const notConfigured = (): HttpError =>
+    new HttpError(503, 'Gemini transcription is not available on this server', {
+        legacyCode: 'service_unavailable',
+        fields: { provider: 'gemini' },
+        noAlarm: true,
+    });
 
 /** A usable token count: a safe, non-negative integer. */
 const tokenCount = (value: unknown): number | undefined =>
@@ -333,20 +345,8 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
             return this.#result(SAMPLE_TEXT, options, words);
         }
 
-        if (!this.#usesGoogleEndpoint) {
-            throw new HttpError(
-                500,
-                'Gemini transcription requires the Google endpoint',
-                {
-                    legacyCode: 'internal_error',
-                },
-            );
-        }
-        if (!this.#apiKey) {
-            throw new HttpError(500, 'Gemini API key not configured', {
-                legacyCode: 'internal_error',
-            });
-        }
+        // A custom endpoint's key is never sent to Google directly.
+        if (!this.#usesGoogleEndpoint || !this.#apiKey) throw notConfigured();
         this.requireFile(args);
         const actor = this.requireActor();
 
@@ -546,7 +546,11 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
         return tokens;
     }
 
-    /** The transcript text and word timings across the model's text output. */
+    /**
+     * The transcript text and word timings across the model's text output. Text
+     * is required; a malformed word annotation is skipped rather than failing a
+     * transcript that has already been charged.
+     */
     #readTranscript(interaction: Interaction): {
         text: string;
         words: GeminiTranscriptWord[];
@@ -566,16 +570,15 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
             });
         }
 
-        const malformed = () =>
-            geminiUpstreamFailure(
-                'Gemini transcription returned a malformed transcript',
-            );
         const words: GeminiTranscriptWord[] = [];
         for (const content of contents) {
-            if (typeof content.text !== 'string') throw malformed();
+            if (typeof content.text !== 'string') {
+                throw geminiUpstreamFailure(
+                    'Gemini transcription returned a malformed transcript',
+                );
+            }
             const annotations = content.annotations;
-            if (annotations === undefined) continue;
-            if (!Array.isArray(annotations)) throw malformed();
+            if (!Array.isArray(annotations)) continue;
             for (const info of annotations) {
                 if (info?.type !== 'word_info') continue;
                 const start = offsetSeconds(info.start_offset);
@@ -588,7 +591,7 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
                     (info.speaker !== undefined &&
                         typeof info.speaker !== 'string')
                 ) {
-                    throw malformed();
+                    continue;
                 }
                 const word: GeminiTranscriptWord = {
                     text: info.text,

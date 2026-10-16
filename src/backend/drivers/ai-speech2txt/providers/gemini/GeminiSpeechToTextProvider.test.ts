@@ -20,11 +20,11 @@
 /**
  * Offline unit tests for the Gemini speech-to-text provider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis)
- * with a Gemini key and drives the unified `puter-speech2txt` driver, so
- * file loading, credit holds and usage recording run end to end. Global
- * `fetch` is stubbed with canned countTokens and Interactions replies, the
- * real network egress point.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) with a
+ * Gemini key and drives the unified `puter-speech2txt` driver, so file loading,
+ * credit holds and usage recording run end to end. Global `fetch` is stubbed
+ * with canned countTokens and Interactions replies, the real network egress
+ * point.
  */
 
 import {
@@ -77,7 +77,10 @@ let batchSpy: MockInstance<MeteringService['batchIncrementUsages']>;
 
 const driver = {
     transcribe: (args: Record<string, unknown> = {}) =>
-        sttDriver.transcribe({ ...args, provider: 'gemini' } as ITranscribeArgs),
+        sttDriver.transcribe({
+            ...args,
+            provider: 'gemini',
+        } as ITranscribeArgs),
     translate: (args: Record<string, unknown> = {}) =>
         sttDriver.translate({ ...args, provider: 'gemini' } as ITranscribeArgs),
 };
@@ -325,9 +328,9 @@ describe('GeminiSpeechToTextProvider routing without credentials', () => {
         const ids = (await bareDriver.list_models()).map((m) => m.id);
         expect(ids).toContain('gpt-transcribe');
         expect(ids).not.toContain(MODEL);
-        expect(
-            await bareDriver.transcribe({ test_mode: true }),
-        ).toMatchObject({ model: 'gpt-transcribe' });
+        expect(await bareDriver.transcribe({ test_mode: true })).toMatchObject({
+            model: 'gpt-transcribe',
+        });
     });
 
     it.each(['gemini', 'google', 'gemini-speech2txt', ' Gemini '])(
@@ -336,17 +339,39 @@ describe('GeminiSpeechToTextProvider routing without credentials', () => {
             expect(
                 await bareDriver.transcribe({ provider, test_mode: true }),
             ).toMatchObject({ model: MODEL });
-            // The provider's own "not configured" rejection is the proof the
+            // The provider's own "not available" rejection is the proof the
             // call was routed there rather than to OpenAI.
             await expect(
                 bareDriver.transcribe({ provider, file: dataUrl() }),
             ).rejects.toMatchObject({
-                statusCode: 500,
-                message: 'Gemini API key not configured',
+                statusCode: 503,
+                legacyCode: 'service_unavailable',
             });
             expect(fetchSpy).not.toHaveBeenCalled();
         },
     );
+
+    it('rejects a call as 503 service_unavailable without a request or charge', async () => {
+        const reserveSpy = vi.spyOn(bare.services.metering, 'reserveCredits');
+        const usageSpy = vi.spyOn(
+            bare.services.metering,
+            'batchIncrementUsages',
+        );
+        expect(
+            await callerError(() =>
+                bareDriver.transcribe({ provider: 'gemini', file: dataUrl() }),
+            ),
+        ).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'service_unavailable',
+            message: 'Gemini transcription is not available on this server',
+            fields: { provider: 'gemini' },
+            noAlarm: true,
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(reserveSpy).not.toHaveBeenCalled();
+        expect(usageSpy).not.toHaveBeenCalled();
+    });
 });
 
 describe('GeminiSpeechToTextProvider custom endpoint', () => {
@@ -360,14 +385,30 @@ describe('GeminiSpeechToTextProvider custom endpoint', () => {
             },
         } as never);
         try {
-            await expect(custom.drivers.aiSpeech2Txt.transcribe({
-                provider: 'gemini',
-                file: dataUrl(),
-            })).rejects.toMatchObject({
-                statusCode: 500,
-                message: 'Gemini transcription requires the Google endpoint',
+            const reserveSpy = vi.spyOn(
+                custom.services.metering,
+                'reserveCredits',
+            );
+            const usageSpy = vi.spyOn(
+                custom.services.metering,
+                'batchIncrementUsages',
+            );
+            expect(
+                await callerError(() =>
+                    custom.drivers.aiSpeech2Txt.transcribe({
+                        provider: 'gemini',
+                        file: dataUrl(),
+                    }),
+                ),
+            ).toMatchObject({
+                statusCode: 503,
+                legacyCode: 'service_unavailable',
+                message: 'Gemini transcription is not available on this server',
+                noAlarm: true,
             });
             expect(fetchSpy).not.toHaveBeenCalled();
+            expect(reserveSpy).not.toHaveBeenCalled();
+            expect(usageSpy).not.toHaveBeenCalled();
         } finally {
             await custom.shutdown();
         }
@@ -425,31 +466,31 @@ describe('GeminiSpeechToTextProvider option validation', () => {
         ['channels', 2],
         ['audio_format', 'pcm'],
         ['sample_rate', 16000],
-    ])(
-        'refuses %s even in test mode',
-        async (key, value) => {
-            for (const test_mode of [true, false]) {
-                await expect(
-                    driver.transcribe({
-                        file: dataUrl(),
-                        [key]: value,
-                        test_mode,
-                    }),
-                ).rejects.toMatchObject({
-                    statusCode: 400,
-                    legacyCode: 'bad_request',
-                    message: `${key} is not supported by Gemini transcription`,
-                });
-            }
-            expect(fetchSpy).not.toHaveBeenCalled();
-        },
-    );
+    ])('refuses %s even in test mode', async (key, value) => {
+        for (const test_mode of [true, false]) {
+            await expect(
+                driver.transcribe({
+                    file: dataUrl(),
+                    [key]: value,
+                    test_mode,
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message: `${key} is not supported by Gemini transcription`,
+            });
+        }
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
 
     it.each([
         ['an unknown model', { model: 'gemini-2.5-flash' }],
         ['an srt response_format', { response_format: 'srt' }],
         ['a segment granularity', { timestamp_granularities: ['segment'] }],
-        ['granularities that are not an array', { timestamp_granularities: 'word' }],
+        [
+            'granularities that are not an array',
+            { timestamp_granularities: 'word' },
+        ],
         ['a non-boolean diarize', { diarize: 'yes' }],
         ['a malformed language', { language: 'english!' }],
         ['an empty language', { language: '' }],
@@ -718,7 +759,9 @@ describe('GeminiSpeechToTextProvider response', () => {
         const { actor } = await makeUser();
         reply();
         expect(
-            await withActor(actor, () => driver.transcribe({ file: dataUrl() })),
+            await withActor(actor, () =>
+                driver.transcribe({ file: dataUrl() }),
+            ),
         ).toEqual({ text: 'The blue lantern is ready.', model: MODEL });
     });
 
@@ -779,11 +822,108 @@ describe('GeminiSpeechToTextProvider response', () => {
                 timestamp_granularities: ['word'],
             }),
         )) as { words: Record<string, unknown>[] };
-        expect(withWords.words[0]).toEqual({ text: 'The', start: 0.3, end: 0.4 });
+        expect(withWords.words[0]).toEqual({
+            text: 'The',
+            start: 0.3,
+            end: 0.4,
+        });
 
         expect(
-            await withActor(actor, () => driver.transcribe({ file: dataUrl() })),
+            await withActor(actor, () =>
+                driver.transcribe({ file: dataUrl() }),
+            ),
         ).not.toHaveProperty('words');
+    });
+
+    it('keeps the text and valid words when some word annotations are malformed', async () => {
+        const { actor } = await makeUser();
+        const { released } = trackHolds();
+        reply(
+            interaction({
+                content: [
+                    textBlock('The blue lantern', [
+                        WORD_INFO[0],
+                        { ...WORD_INFO[1], start_offset: '400ms' },
+                        { ...WORD_INFO[1], end_offset: '0.100s' },
+                        { ...WORD_INFO[1], speaker: 0 },
+                        { ...WORD_INFO[1], text: 7 },
+                        null,
+                        WORD_INFO[2],
+                    ]),
+                ],
+            }),
+        );
+        expect(
+            await withActor(actor, () =>
+                driver.transcribe({ file: dataUrl(), diarize: true }),
+            ),
+        ).toEqual({
+            text: 'The blue lantern',
+            model: MODEL,
+            words: [
+                { text: 'The', start: 0.3, end: 0.4, speaker: 'spk:0' },
+                { text: 'lantern', start: 0.7, end: 1.2, speaker: 'spk:1' },
+            ],
+        });
+        expect(batchSpy).toHaveBeenCalledTimes(1);
+        expect(metered().map((u) => u.usageAmount)).toEqual([71, 6]);
+        expect(released).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['an object', {}],
+        ['a string', 'word_info'],
+        ['null', null],
+    ])(
+        'keeps the text when annotations are %s',
+        async (_label, annotations) => {
+            const { actor } = await makeUser();
+            reply(
+                interaction({
+                    content: [
+                        { type: 'text', text: 'The blue ', annotations },
+                        textBlock('lantern', [WORD_INFO[2]]),
+                    ],
+                }),
+            );
+            expect(
+                await withActor(actor, () =>
+                    driver.transcribe({
+                        file: dataUrl(),
+                        timestamp_granularities: ['word'],
+                    }),
+                ),
+            ).toEqual({
+                text: 'The blue lantern',
+                model: MODEL,
+                words: [
+                    { text: 'lantern', start: 0.7, end: 1.2, speaker: 'spk:1' },
+                ],
+            });
+            expect(batchSpy).toHaveBeenCalledTimes(1);
+            expect(metered().map((u) => u.usageAmount)).toEqual([71, 6]);
+        },
+    );
+
+    it('returns the bare text for response_format text despite malformed annotations', async () => {
+        const { actor } = await makeUser();
+        reply(
+            interaction({
+                content: [
+                    textBlock('The', [{ ...WORD_INFO[0], start_offset: 'x' }]),
+                ],
+            }),
+        );
+        expect(
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(),
+                    response_format: 'text',
+                    diarize: true,
+                }),
+            ),
+        ).toBe('The');
+        expect(batchSpy).toHaveBeenCalledTimes(1);
     });
 
     it('joins text across output blocks and skips thought steps', async () => {
@@ -794,13 +934,18 @@ describe('GeminiSpeechToTextProvider response', () => {
                     { type: 'thought', content: [textBlock('thinking')] },
                     {
                         type: 'model_output',
-                        content: [textBlock('The blue '), textBlock('lantern.')],
+                        content: [
+                            textBlock('The blue '),
+                            textBlock('lantern.'),
+                        ],
                     },
                 ],
             }),
         );
         expect(
-            await withActor(actor, () => driver.transcribe({ file: dataUrl() })),
+            await withActor(actor, () =>
+                driver.transcribe({ file: dataUrl() }),
+            ),
         ).toMatchObject({ text: 'The blue lantern.' });
     });
 });
@@ -829,7 +974,10 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
         const { actor } = await makeUser();
         reply(interaction({ status: 'incomplete', usage: undefined }));
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({ statusCode: 502, legacyCode: 'upstream_failed' });
         expect(metered()).toEqual([
             expect.objectContaining({
@@ -844,7 +992,10 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
         const { actor } = await makeUser();
         reply(interaction({ content: [] }));
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
@@ -854,18 +1005,9 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
 
     it.each([
         ['non-string text', [{ type: 'text', text: 7 }]],
-        ['non-array annotations', [{ type: 'text', text: 'a', annotations: {} }]],
         [
-            'an unparseable offset',
-            [textBlock('a', [{ ...WORD_INFO[0], start_offset: '300ms' }])],
-        ],
-        [
-            'an end before its start',
-            [textBlock('a', [{ ...WORD_INFO[0], end_offset: '0.100s' }])],
-        ],
-        [
-            'a non-string speaker',
-            [textBlock('a', [{ ...WORD_INFO[0], speaker: 0 }])],
+            'one text block missing its text',
+            [textBlock('The blue ', WORD_INFO), { type: 'text' }],
         ],
     ])('fails a transcript with %s as 502', async (_label, content) => {
         const { actor } = await makeUser();
@@ -892,7 +1034,10 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
             .mockResolvedValueOnce(Response.json({ totalTokens: 91 }))
             .mockResolvedValueOnce(new Response('<html>oops</html>'));
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({
             statusCode: 502,
             message: 'Gemini transcription returned an unreadable response',
@@ -908,7 +1053,10 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
                 oversizedBody(GEMINI_STT_MAX_RESPONSE_BYTES),
             );
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({
             statusCode: 502,
             legacyCode: 'upstream_failed',
@@ -963,7 +1111,10 @@ describe('GeminiSpeechToTextProvider upstream failures', () => {
                 ),
             );
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({ statusCode: 504, legacyCode: 'upstream_timeout' });
         expect(released).toHaveBeenCalledTimes(1);
         expect(batchSpy).not.toHaveBeenCalled();
@@ -1060,7 +1211,10 @@ describe('GeminiSpeechToTextProvider countTokens preflight', () => {
             ),
         );
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
@@ -1078,7 +1232,10 @@ describe('GeminiSpeechToTextProvider countTokens preflight', () => {
             ),
         );
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({ statusCode: 504, legacyCode: 'upstream_timeout' });
         expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
@@ -1089,7 +1246,10 @@ describe('GeminiSpeechToTextProvider countTokens preflight', () => {
             oversizedBody(GEMINI_COUNT_TOKENS_MAX_RESPONSE_BYTES),
         );
         expect(
-            await callerError(() => driver.transcribe({ file: dataUrl() }), actor),
+            await callerError(
+                () => driver.transcribe({ file: dataUrl() }),
+                actor,
+            ),
         ).toMatchObject({
             statusCode: 502,
             message: `Gemini token count response exceeds ${64 * 1024} bytes`,
@@ -1276,23 +1436,20 @@ describe('GeminiSpeechToTextProvider usage', () => {
                 ],
             },
         ],
-    ])(
-        'charges only the counted audio for %s',
-        async (_label, usage) => {
-            const { actor } = await makeUser();
-            const { released } = trackHolds();
-            reply(interaction({ usage }));
-            await expect(
-                withActor(actor, () => driver.transcribe({ file: dataUrl() })),
-            ).resolves.toMatchObject({ text: 'The blue lantern is ready.' });
-            expect(metered()).toEqual([
-                expect.objectContaining({
-                    usageType: 'gemini:gemini-3.5-transcribe:input:audio',
-                    usageAmount: COUNTED_TOKENS,
-                    costOverride: COUNTED_TOKENS * 200,
-                }),
-            ]);
-            expect(released).toHaveBeenCalledTimes(1);
-        },
-    );
+    ])('charges only the counted audio for %s', async (_label, usage) => {
+        const { actor } = await makeUser();
+        const { released } = trackHolds();
+        reply(interaction({ usage }));
+        await expect(
+            withActor(actor, () => driver.transcribe({ file: dataUrl() })),
+        ).resolves.toMatchObject({ text: 'The blue lantern is ready.' });
+        expect(metered()).toEqual([
+            expect.objectContaining({
+                usageType: 'gemini:gemini-3.5-transcribe:input:audio',
+                usageAmount: COUNTED_TOKENS,
+                costOverride: COUNTED_TOKENS * 200,
+            }),
+        ]);
+        expect(released).toHaveBeenCalledTimes(1);
+    });
 });
