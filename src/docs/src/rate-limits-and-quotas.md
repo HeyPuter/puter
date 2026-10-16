@@ -72,7 +72,7 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
 
-A chat model has 10 minutes to start its response. A response that isn't streamed only arrives once it's complete, so it has to finish within 10 minutes. A streamed response can keep going past 10 minutes once it has started. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
+The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streaming is bounded by the caller's cancellation signal. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 
 A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
