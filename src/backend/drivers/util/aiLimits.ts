@@ -71,6 +71,14 @@ export const AI_TTS_MAX_TEXT_CHARS = 3000;
 /** Longest Gemini TTS `instructions`, which are billed as input with `text`. */
 export const AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS = 3000;
 
+/**
+ * Tokens a Gemini TTS request holds credit for: both models' published input
+ * and output limits; `audio` is also sent as `max_output_tokens`. Characters
+ * don't predict tokens or audio length across scripts and delivery, so the
+ * hold covers the published token budget.
+ */
+export const AI_TTS_GEMINI_RESERVED_TOKENS = { input: 8192, audio: 16_384 };
+
 // -- Claude server-tool clamps ----------------------------------------
 //
 // Applied both when ClaudeProvider builds the request (so Anthropic never

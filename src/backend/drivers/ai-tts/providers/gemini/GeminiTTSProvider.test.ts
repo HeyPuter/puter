@@ -118,6 +118,13 @@ const SETTLED_USAGE = [
     },
 ];
 
+/** µ¢ held for the full 8,192 input and 16,384 audio token budget. */
+const reservation = (inputRate: number, audioRate: number) =>
+    8192 * inputRate + 16_384 * audioRate;
+
+/** The default model's hold at launch rates. */
+const FLASH_RESERVATION = reservation(50, 900);
+
 /** A completed reply; `usage` given as undefined leaves the field out. */
 const interaction = (
     opts: {
@@ -195,6 +202,12 @@ const trackHolds = () => {
 };
 
 beforeEach(() => {
+    // The full flash hold at later rates exceeds the system actor's allowance;
+    // tests of later rates set the clock themselves.
+    vi.useFakeTimers({
+        toFake: ['Date'],
+        now: GEMINI_TTS_LAUNCH_PRICING_ENDS - 1,
+    });
     fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockRejectedValue(new Error('unexpected fetch')) as MockInstance<
@@ -414,6 +427,63 @@ describe('GeminiTTSProvider.synthesize credit gate', () => {
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    /** Leaves `actor` exactly `available` µ¢ to commit by holding the rest. */
+    const leaveAvailable = async (actor: never, available: number) => {
+        const metering = server.services.metering;
+        const remaining = await metering.getRemainingUsage(actor);
+        expect(remaining).toBeGreaterThan(available);
+        return metering.reserveCredits(actor, remaining - available);
+    };
+
+    it.each([
+        ['covers the usage of a short text', 1_000_000],
+        ['is one µ¢ short of the full budget', FLASH_RESERVATION - 1],
+    ])(
+        'refuses with 402 before calling Gemini when available credit %s',
+        async (_label, available) => {
+            const actor = payingUser();
+            const blocking = await leaveAvailable(actor, available);
+            try {
+                await expect(
+                    withTestActor(
+                        () => makeProvider().synthesize({ text: 'hi' }),
+                        actor,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 402 });
+                expect(hasCreditsSpy).toHaveBeenCalledWith(
+                    actor,
+                    FLASH_RESERVATION,
+                );
+                expect(fetchSpy).not.toHaveBeenCalled();
+                expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+                expect(
+                    await server.services.metering.getRemainingUsage(actor),
+                ).toBe(available);
+            } finally {
+                await blocking.release();
+            }
+        },
+    );
+
+    it('runs with exactly the full budget available, then releases all but the reported usage', async () => {
+        const actor = payingUser();
+        const blocking = await leaveAvailable(actor, FLASH_RESERVATION);
+        try {
+            replyWith(interaction());
+            await withTestActor(
+                () => makeProvider().synthesize({ text: 'hi' }),
+                actor,
+            );
+
+            expect(meteredUsages()).toEqual(SETTLED_USAGE);
+            await expect
+                .poll(() => server.services.metering.getRemainingUsage(actor))
+                .toBe(FLASH_RESERVATION - 7 * 50 - 68 * 900);
+        } finally {
+            await blocking.release();
+        }
+    });
 });
 
 // -- Request shape --
@@ -461,11 +531,27 @@ describe('GeminiTTSProvider.synthesize request shape', () => {
                     },
                 ],
                 response_format: { type: 'audio' },
-                generation_config: { speech_config: [{ voice: 'Zephyr' }] },
+                generation_config: {
+                    speech_config: [{ voice: 'Zephyr' }],
+                    max_output_tokens: 16_384,
+                },
                 store: false,
                 background: false,
                 stream: false,
             });
+        },
+    );
+
+    it.each(['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts'])(
+        'caps %s output at the 16,384 audio tokens it holds credit for',
+        async (model) => {
+            replyWith(interaction());
+            await withTestActor(() =>
+                makeProvider().synthesize({ text: 'hi', model }),
+            );
+            expect(
+                sentRequest().body.generation_config.max_output_tokens,
+            ).toBe(16_384);
         },
     );
 
@@ -1132,29 +1218,37 @@ describe('GeminiTTSProvider.synthesize metering', () => {
         expect(meteredUsages()).toEqual([SETTLED_USAGE[0]]);
     });
 
-    it('holds an estimate covering the instructions and releases it once metered', async () => {
-        const { held, released } = trackHolds();
-        replyWith(interaction());
-        replyWith(interaction());
-        const provider = makeProvider();
-        const actor = payingUser();
+    const TEXTS: [string, string][] = [
+        ['short spaced text', 'hi'],
+        ['long spaced English', 'Read me. '.repeat(333)],
+        ['long unspaced Latin', 'a'.repeat(3000)],
+        ['unspaced Chinese', '你好世界'.repeat(750)],
+        ['unspaced Japanese', 'こんにちは世界'.repeat(428)],
+        ['unspaced Thai', 'สวัสดีครับ'.repeat(300)],
+        ['emoji', '😀'.repeat(1500)],
+    ];
+    const RESERVATION_CASES: [string, string, string | undefined][] =
+        TEXTS.flatMap(([label, text]) => [
+            [`${label} without instructions`, text, undefined],
+            [`${label} with maximum instructions`, text, '慢'.repeat(3000)],
+        ]);
 
-        await withTestActor(() => provider.synthesize({ text: 'hi' }), actor);
-        await withTestActor(
-            () =>
-                provider.synthesize({
-                    text: 'hi',
-                    instructions: 'x'.repeat(400),
-                }),
-            actor,
-        );
+    it.each(RESERVATION_CASES)(
+        'holds the full token budget for %s and settles only the reported usage',
+        async (_label, text, instructions) => {
+            const { held, released } = trackHolds();
+            replyWith(interaction());
 
-        // 'hi' is 1 input token and 25 audio tokens; 400 more characters
-        // of instructions add 100 input tokens.
-        expect(held).toEqual([1 * 50 + 25 * 900, 101 * 50 + 25 * 900]);
-        await expect.poll(() => released.mock.calls.length).toBe(2);
-        expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(2);
-    });
+            await withTestActor(
+                () => makeProvider().synthesize({ text, instructions }),
+                payingUser(),
+            );
+
+            expect(held).toEqual([FLASH_RESERVATION]);
+            expect(meteredUsages()).toEqual(SETTLED_USAGE);
+            await expect.poll(() => released.mock.calls.length).toBe(1);
+        },
+    );
 });
 
 // -- Scheduled rates --
@@ -1167,14 +1261,16 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
         vi.useFakeTimers({ toFake: ['Date'], now: BEFORE });
     });
 
-    it.each([
-        ['gemini-3.8-flash-tts', BEFORE, 50, 900],
-        ['gemini-3.8-flash-tts', AT, 100, 1800],
-        ['gemini-3.8-flash-lite-tts', BEFORE, 50, 600],
-        ['gemini-3.8-flash-lite-tts', AT, 100, 1200],
-    ])(
+    const SCHEDULE: [string, number, number, number, number][] = [
+        ['gemini-3.8-flash-tts', BEFORE, 50, 900, 15_155_200],
+        ['gemini-3.8-flash-tts', AT, 100, 1800, 30_310_400],
+        ['gemini-3.8-flash-lite-tts', BEFORE, 50, 600, 10_240_000],
+        ['gemini-3.8-flash-lite-tts', AT, 100, 1200, 20_480_000],
+    ];
+
+    it.each(SCHEDULE)(
         'holds and meters %s started at %i at %i/%i µ¢ per token',
-        async (model, startedAt, inputRate, audioRate) => {
+        async (model, startedAt, inputRate, audioRate, reserved) => {
             vi.setSystemTime(startedAt);
             const { held } = trackHolds();
             replyWith(interaction());
@@ -1184,9 +1280,41 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
                 payingUser(),
             );
 
-            expect(held).toEqual([1 * inputRate + 25 * audioRate]);
+            expect(held).toEqual([reserved]);
+            expect(reservation(inputRate, audioRate)).toBe(reserved);
             expect(metered(':input').costOverride).toBe(7 * inputRate);
             expect(metered(':output:audio').costOverride).toBe(68 * audioRate);
+        },
+    );
+
+    it.each(SCHEDULE)(
+        'holds and meters %s started at %i at its AI cost factor',
+        async (model, startedAt, inputRate, audioRate, reserved) => {
+            vi.setSystemTime(startedAt);
+            const { held } = trackHolds();
+            const factor = (_key: string, event: { factor: number }) => {
+                event.factor = 1.5;
+            };
+            server.clients.event.on('ai.cost.factor.*', factor);
+            replyWith(interaction());
+            try {
+                await withTestActor(
+                    () => makeProvider().synthesize({ text: 'hi', model }),
+                    payingUser(),
+                );
+            } finally {
+                server.clients.event.off('ai.cost.factor.*', factor);
+            }
+
+            expect(hasCreditsSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                reserved * 1.5,
+            );
+            expect(held).toEqual([reserved * 1.5]);
+            expect(metered(':input').costOverride).toBe(7 * inputRate * 1.5);
+            expect(metered(':output:audio').costOverride).toBe(
+                68 * audioRate * 1.5,
+            );
         },
     );
 
@@ -1202,7 +1330,7 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
             payingUser(),
         );
 
-        expect(held).toEqual([1 * 50 + 25 * 900]);
+        expect(held).toEqual([FLASH_RESERVATION]);
         expect(metered(':input').costOverride).toBe(7 * 50);
         expect(metered(':output:audio').costOverride).toBe(68 * 900);
     });

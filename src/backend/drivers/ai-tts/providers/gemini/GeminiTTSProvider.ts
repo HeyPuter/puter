@@ -26,7 +26,10 @@ import {
 } from '../../../util/aiCostFactor.js';
 import type { UsageInput } from '../../../../services/metering/types.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import { AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS } from '../../../util/aiLimits.js';
+import {
+    AI_TTS_GEMINI_RESERVED_TOKENS,
+    AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS,
+} from '../../../util/aiLimits.js';
 import { readBoundedBody } from '../../../util/fileInput.js';
 import { upstreamFetch } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
@@ -105,7 +108,10 @@ interface InteractionRequest {
     model: string;
     input: { type: 'user_input'; content: InteractionTextInput[] }[];
     response_format: { type: 'audio' };
-    generation_config: { speech_config: { voice: string }[] };
+    generation_config: {
+        speech_config: { voice: string }[];
+        max_output_tokens: number;
+    };
     store: false;
     background: false;
     stream: false;
@@ -148,13 +154,6 @@ const upstreamFailure = (message: string): HttpError =>
 
 const responseTooLarge = (maxBytes: number): HttpError =>
     upstreamFailure(`Gemini TTS response exceeds ${maxBytes} bytes`);
-
-/**
- * The µ¢ held for an estimated `tokens` at a cents-per-1M rate (µ¢ per token).
- * Never below 1; reported usage is charged at its exact cost instead.
- */
-const tokenCost = (tokens: number, centsPerMillion: number): number =>
-    Math.max(1, Math.ceil(tokens * centsPerMillion));
 
 /** A usable token count: a finite, non-negative integer. */
 const tokenCount = (value: unknown): number | undefined =>
@@ -342,19 +341,11 @@ export class GeminiTTSProvider implements ITTSProvider {
             });
         }
 
-        // ~4 chars per input token (the style annotation is tokenized too),
-        // and ~150 words/min of audio at 25 tokens/sec.
-        const estimatedInputTokens = Math.max(
-            1,
-            Math.ceil((text.length + (style?.length ?? 0)) / 4),
-        );
-        const wordCount = text.split(/\s+/).length;
-        const estimatedDurationSec = Math.max(1, (wordCount / 150) * 60);
-        const estimatedOutputTokens = Math.ceil(estimatedDurationSec * 25);
-
-        const estimatedTotalMicroCents =
-            tokenCost(estimatedInputTokens, costs.input) +
-            tokenCost(estimatedOutputTokens, costs.output_audio);
+        // The full token budget, whatever the text; settlement charges only
+        // the reported usage.
+        const reservedMicroCents =
+            AI_TTS_GEMINI_RESERVED_TOKENS.input * costs.input +
+            AI_TTS_GEMINI_RESERVED_TOKENS.audio * costs.output_audio;
 
         const content: InteractionTextInput = { type: 'text', text };
         if (style) {
@@ -364,7 +355,11 @@ export class GeminiTTSProvider implements ITTSProvider {
             model,
             input: [{ type: 'user_input', content: [content] }],
             response_format: { type: 'audio' },
-            generation_config: { speech_config: [{ voice }] },
+            generation_config: {
+                speech_config: [{ voice }],
+                // Request the same audio budget used for the credit hold.
+                max_output_tokens: AI_TTS_GEMINI_RESERVED_TOKENS.audio,
+            },
             store: false,
             background: false,
             stream: false,
@@ -374,7 +369,7 @@ export class GeminiTTSProvider implements ITTSProvider {
             this.meteringService,
             actor,
             `gemini:${model}`,
-            estimatedTotalMicroCents,
+            reservedMicroCents,
             async (): Promise<DriverStreamResult> => {
                 // Non-2xx answers and timeouts are classified at the driver
                 // boundary.
