@@ -407,10 +407,21 @@ export const GEMINI_MODELS: IChatModel[] = [
             prompt_tokens: 125,
             completion_tokens: 1000,
             thinking_tokens: 1000,
-            cached_tokens: 31,
+            cached_tokens: 12.5,
             // Gemini 2.x grounding is $35 / 1,000 requests
             grounding_requests: 3_500_000,
         },
+        pricingOverrides: [
+            {
+                minPromptTokens: 200_000,
+                costs: {
+                    prompt_tokens: 250,
+                    completion_tokens: 1500,
+                    thinking_tokens: 1500,
+                    cached_tokens: 25,
+                },
+            },
+        ],
         max_tokens: 65_536,
     },
     {

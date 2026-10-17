@@ -612,6 +612,24 @@ describe('GeminiChatProvider pricing tiers', () => {
             expect(listedCosts(entry, NOW)).toBe(entry.costs);
         });
     });
+
+    it('prices gemini-2.5-pro at its list rates on both sides of 200,000 tokens', () => {
+        const entry = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-pro')!;
+        const now = new Date('2026-10-14T12:00:00Z');
+        expect(costsForRequest(entry, 200_000, now)).toMatchObject({
+            prompt_tokens: 125,
+            completion_tokens: 1000,
+            thinking_tokens: 1000,
+            cached_tokens: 12.5,
+        });
+        expect(costsForRequest(entry, 200_001, now)).toMatchObject({
+            prompt_tokens: 250,
+            completion_tokens: 1500,
+            thinking_tokens: 1500,
+            cached_tokens: 25,
+            grounding_requests: 3_500_000,
+        });
+    });
 });
 
 // ── Non-stream completion ───────────────────────────────────────────
