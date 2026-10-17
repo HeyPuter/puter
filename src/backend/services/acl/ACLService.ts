@@ -220,12 +220,18 @@ export class ACLService extends PuterService {
         }
 
         // Public folders: /<user>/Public with read-ish mode, owner must have
-        // confirmed email (or be admin).
+        // confirmed email (or be admin). The folder has to be stored under
+        // exactly that name: a path lookup collates case-insensitively, so
+        // `/<user>/Public/...` can resolve a private `/<user>/public`, and the
+        // asked path alone would pass it as public.
         if (
             this.config.enable_public_folders &&
             (PUBLIC_READ_MODES as AclMode[]).includes(mode) &&
             components.length > 1 &&
-            components[1] === 'Public'
+            components[1] === 'Public' &&
+            ancestors.some(
+                (ancestor) => ancestor.path === `/${components[0]}/Public`,
+            )
         ) {
             const ownerUsername = components[0];
             const owner = await this.stores.user.getByUsername(ownerUsername);
