@@ -537,6 +537,82 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
             legacyCode: 'upstream_bad_request',
             fields: expect.objectContaining({ upstreamStatus: 404 }),
         });
+        expect(err.alarmSeverity).toBeUndefined();
+    });
+
+    it('maps an upstream 403 model_not_found to the model-unavailable 400, not an auth failure, and redacts its URL', async () => {
+        const err = await errorFor({
+            status: 403,
+            message:
+                'The model `fake` is not available to your account. See https://vendor.test/models (request id: req-secret)',
+            error: {
+                code: 'model_not_found',
+                message: 'The model `fake` is not available to your account.',
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            fields: expect.objectContaining({ upstreamStatus: 404 }),
+        });
+        expect(err.noAlarm).toBeFalsy();
+        expect(err.alarmSeverity).toBe('info');
+        expect(err.message).toBe('Model not available: fake');
+        expect(JSON.stringify(attemptsFrom(err))).not.toMatch(
+            /http|request id/i,
+        );
+    });
+
+    it.each([
+        ['no code', {}],
+        ['another code', { error: { code: 'access_denied' } }],
+    ])(
+        'keeps a 403 with %s as 500 upstream_auth_failed',
+        async (_label, extra) => {
+            const err = await errorFor({
+                status: 403,
+                message: 'Forbidden',
+                ...extra,
+            });
+            expect(err).toMatchObject({
+                statusCode: 500,
+                legacyCode: 'upstream_auth_failed',
+            });
+        },
+    );
+
+    it('keeps a 404 whose message reads like a credential failure an auth failure', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('Unauthorized'), { status: 404 }),
+        );
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+    });
+
+    it('keeps a 401 model_not_found an auth failure', async () => {
+        const err = await errorFor({
+            status: 401,
+            message: 'invalid api key',
+            error: { code: 'model_not_found' },
+        });
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+    });
+
+    it('classifies a 403 insufficient_user_quota as credit exhaustion', async () => {
+        const err = await errorFor({
+            status: 403,
+            message: 'user quota is not enough',
+            error: { code: 'insufficient_user_quota' },
+        });
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
     });
 
     it('sniffs a status out of the message when the provider throws a bare Error', async () => {

@@ -907,7 +907,7 @@ export const handle_completion_output = async (
             typeof upstreamMessage === 'string' && upstreamMessage
                 ? upstreamMessage
                 : 'no completion was returned',
-            { legacyCode: 'bad_response' },
+            { legacyCode: 'bad_response', cause: completion?.error },
         );
     }
 

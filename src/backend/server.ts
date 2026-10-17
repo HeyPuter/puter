@@ -793,7 +793,9 @@ export class PuterServer {
                     if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
-                    const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
+                    const forcedSeverity =
+                        (isHttp ? err.alarmSeverity : undefined) ??
+                        FORCED_ALERT_CODES.get(legacyCode);
                     if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
@@ -802,7 +804,7 @@ export class PuterServer {
                         ? err instanceof Error
                             ? err.message
                             : String(err)
-                        : status >= 500
+                        : status >= 500 || err.alarmSeverity
                           ? `${err.legacyCode || err.code || 'http'}:${err.message}`
                           : err.legacyCode || err.code || err.message;
                     const routePath =

@@ -309,10 +309,17 @@ const isRateLimit = (a: ProviderAttempt) =>
     a.status === 429 ||
     /rate[\s_-]?limit|too many requests|quota/i.test(a.error);
 
+const isModelAccessDenied = (a: ProviderAttempt) =>
+    a.status === 403 && a.code === 'model_not_found';
+
+const isModelUnavailable = (a: ProviderAttempt) =>
+    a.status === 404 || isModelAccessDenied(a);
+
 const isAuthFailure = (a: ProviderAttempt) =>
-    a.status === 401 ||
-    a.status === 403 ||
-    /unauthorized|forbidden|invalid api key/i.test(a.error);
+    !isModelAccessDenied(a) &&
+    (a.status === 401 ||
+        a.status === 403 ||
+        /unauthorized|forbidden|invalid api key/i.test(a.error));
 
 const isUpstream5xx = (a: ProviderAttempt) =>
     (a.status !== undefined && a.status >= 500) ||
@@ -333,7 +340,7 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  */
 const isRouteLevelFailure = (a: ProviderAttempt) =>
     a.status === undefined ||
-    a.status === 404 ||
+    isModelUnavailable(a) ||
     a.status === 408 ||
     isCreditExhaustion(a) ||
     isRateLimit(a) ||
@@ -373,8 +380,6 @@ const requestLevelError = (a: ProviderAttempt): HttpError =>
 const isOverloaded = (a: ProviderAttempt) =>
     a.status === 529 || a.upstreamType === 'overloaded_error';
 
-const isModelUnavailable = (a: ProviderAttempt) => a.status === 404;
-
 /**
  * The HTTP status an in-band mid-stream error chunk reports — a stream
  * populator failure never goes through `classifyAttempts` (there is no fallback
@@ -404,11 +409,12 @@ const streamErrorStatus = (a: ProviderAttempt): number => {
  * - All credit-exhausted → 503 `upstream_credits_exhausted` (alerted)
  * - All rate-limited → 429 `upstream_rate_limited` (alerted, unless every attempt
  *   was on a free model — see `allModelsFree`)
- * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
+ * - All auth failures, or any alongside 403 `model_not_found` → 500
+ *   `upstream_auth_failed` (paged: our config)
  * - All overloaded (529 / `overloaded_error`) → 400
  *   `upstream_provider_unavailable`, `upstreamStatus: 529` (no page)
- * - All model-not-found (404) → 400 `upstream_bad_request`, `upstreamStatus: 404`
- *   (no page)
+ * - All model-not-found (404, or 403 `model_not_found`) → 400
+ *   `upstream_bad_request`, `upstreamStatus: 404` (no page)
  * - All upstream 5xx or dropped connections → 400 `upstream_provider_unavailable`
  *   (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
@@ -449,7 +455,10 @@ const classifyAttempts = (
             noAlarm: allModelsFree,
         });
     }
-    if (attempts.every(isAuthFailure)) {
+    if (
+        attempts.some(isAuthFailure) &&
+        attempts.every((a) => isAuthFailure(a) || isModelAccessDenied(a))
+    ) {
         return new HttpError(500, 'AI provider authentication failed', {
             legacyCode: 'upstream_auth_failed',
             fields,
@@ -462,9 +471,16 @@ const classifyAttempts = (
         });
     }
     if (attempts.every(isModelUnavailable)) {
-        return new HttpError(400, attempts[0].error, {
+        const accessDenied = attempts.some(isModelAccessDenied);
+        const message = accessDenied
+            ? `Model not available: ${attempts[0].model}`
+            : attempts[0].error;
+        return new HttpError(400, message, {
             legacyCode: 'upstream_bad_request',
             fields: { ...fields, upstreamStatus: 404 },
+            // Our provider account lost access to the model; low alarm so
+            // someone notices.
+            ...(accessDenied ? { alarmSeverity: 'info' as const } : {}),
         });
     }
     if (
