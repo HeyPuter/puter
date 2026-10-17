@@ -635,6 +635,29 @@ describe('MeteringService', () => {
             await expect(target.updateAddonCredit('', 100)).rejects.toThrow();
         });
 
+        it('reads both addon records consistently when asked', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1000);
+            await server.stores.kv.incr({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:addonsConsumed`,
+                pathAndAmountMap: { consumedPurchaseCredits: 400 },
+            });
+            const getSpy = vi.spyOn(server.stores.kv, 'get');
+
+            const addons = await target.getActorAddons(actor, {
+                consistentRead: true,
+            });
+
+            expect(addons).toMatchObject({
+                purchasedCredits: 1000,
+                consumedPurchaseCredits: 400,
+            });
+            expect(getSpy).toHaveBeenCalledTimes(2);
+            for (const [args] of getSpy.mock.calls) {
+                expect(args).toMatchObject({ consistentRead: true });
+            }
+            getSpy.mockRestore();
+        });
+
         it('rejects getActorAddons for an actor with no user uuid', async () => {
             await expect(
                 target.getActorAddons({ user: { uuid: '' } }),
@@ -3222,7 +3245,9 @@ describe('MeteringService', () => {
             );
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         it('does not charge again for a month another deployment already claimed', async () => {
@@ -3369,7 +3394,9 @@ describe('MeteringService', () => {
             const usage = await target.incrementUsage(actor, 'kv:read', 1, 100);
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
             // Metering itself rather than pushing onto `charges` means the
             // cost lands on the record but misses the total this call already
             // computed — visible from the next read on.
@@ -3398,7 +3425,9 @@ describe('MeteringService', () => {
 
             expect(listener).toHaveBeenCalledTimes(1);
             expect(usage.total).toBe(315);
-            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         it('merges every listener into one amount map and one increment', async () => {
@@ -3499,7 +3528,9 @@ describe('MeteringService', () => {
             );
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         it('hands listeners a user-scoped actor', async () => {
@@ -3535,7 +3566,9 @@ describe('MeteringService', () => {
             const usage = await target.incrementUsage(actor, 'kv:read', 1, 50);
 
             expect(usage.total).toBe(50);
-            expect(await claimOf(actor)).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         // The v1 → v2 claim shim: September's claim stays on the v1 key so a

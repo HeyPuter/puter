@@ -92,9 +92,9 @@ type UsageWriteResult = {
 // -- Helpers ----------------------------------------------------------
 
 /**
- * Purchases and consumption live on separate items: global tables resolve
- * concurrent writes per item, so a purchase landing in one region while
- * another settles consumption could otherwise drop the purchase.
+ * Purchases and consumption live on separate items: replicas resolve concurrent
+ * writes per item, so a purchase landing in one region while another settles
+ * consumption could otherwise drop the purchase.
  */
 const addonsKey = (userId: string) => `${POLICY_PREFIX}:actor:${userId}:addons`;
 const addonsConsumedKey = (userId: string) =>
@@ -2222,7 +2222,11 @@ export class MeteringService extends PuterService {
         return addons;
     }
 
-    async getActorAddons(actor: Actor): Promise<UsageAddons> {
+    /** `consistentRead` is for checks made right around a credits change. */
+    async getActorAddons(
+        actor: Actor,
+        { consistentRead }: { consistentRead?: boolean } = {},
+    ): Promise<UsageAddons> {
         if (!actor.user?.uuid)
             throw new HttpError(
                 403,
@@ -2233,12 +2237,14 @@ export class MeteringService extends PuterService {
             );
         const { res: purchased } = await this.stores.kv.get({
             key: addonsKey(actor.user.uuid),
+            consistentRead,
         });
         const addons = { ...((purchased ?? {}) as UsageAddons) };
         // Consumption is only ever written against purchased credit.
         if (!(addons.purchasedCredits > 0)) return addons;
         const { res: consumed } = await this.stores.kv.get({
             key: addonsConsumedKey(actor.user.uuid),
+            consistentRead,
         });
         // Older consumption sits on the addons record itself.
         const spent = (consumed as Partial<UsageAddons> | null)
@@ -2552,8 +2558,8 @@ export class MeteringService extends PuterService {
      * of this field is to be the one value every deployment agrees on. Each
      * attempt writes a random token only if the field is empty, so exactly one
      * attempt reads its own token back (per replica: two regions claiming in
-     * the same second can both win). A failed write keeps its token
-     * for the retry, so a write that landed anyway still counts.
+     * the same second can both win). A failed write keeps its token for the
+     * retry, so a write that landed anyway still counts.
      *
      * Through `V1_CLAIM_THROUGH_MONTH`, the claim is taken on the v1 key —
      * every earlier September claim, from any node, landed there, and a fresh
