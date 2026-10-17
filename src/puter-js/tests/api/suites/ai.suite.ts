@@ -510,6 +510,95 @@ export default suite('ai', {
         }
     },
 
+    'speech2txt resolves every gemini provider alias': async (t) => {
+        useApiToken(t);
+        for (const provider of ['gemini', 'google', 'gemini-speech2txt']) {
+            const result = (await t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider,
+                test_mode: true,
+            })) as { model?: string };
+            t.assert.equal(
+                result.model,
+                'gemini-3.5-transcribe',
+                `provider "${provider}" should reach the gemini provider`,
+            );
+        }
+    },
+
+    'speech2txt on gemini returns words and speakers when asked': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+            test_mode: true,
+        })) as {
+            text?: string;
+            language?: string;
+            duration?: number;
+            words?: { start?: number; end?: number; speaker?: string }[];
+        };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+        t.assert.equal(result.language, 'en');
+        t.assert.equal(result.duration, undefined);
+        t.assert.ok(
+            Array.isArray(result.words) && result.words.length > 0,
+            `words should be returned, got ${JSON.stringify(result)}`,
+        );
+        for (const word of result.words!) {
+            t.assert.equal(typeof word.start, 'number');
+            t.assert.equal(typeof word.end, 'number');
+            t.assert.equal(typeof word.speaker, 'string');
+        }
+    },
+
+    'speech2txt on gemini unwraps the bare text for response_format text': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'gemini',
+            response_format: 'text',
+            test_mode: true,
+        });
+        t.assert.equal(typeof text, 'string');
+        t.assert.ok((text as string).includes('sample transcription'));
+    },
+
+    'speech2txt translate is rejected on gemini': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'gemini',
+                translate: true,
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('Translation is not supported'),
+            `translate should be refused, got ${text}`,
+        );
+    },
+
+    'speech2txt on gemini rejects options it cannot honor': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'gemini',
+                prompt: 'meeting notes',
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('prompt is not supported'),
+            `prompt should be refused, got ${text}`,
+        );
+    },
+
     'speech2txt keeps the whisper alias on openai': async (t) => {
         useApiToken(t);
         const result = (await t.puter.ai.speech2txt({
@@ -562,7 +651,7 @@ export default suite('ai', {
             ),
         ) as string[];
         t.assert.ok(Array.isArray(providers), 'list should return an array');
-        for (const expected of ['openai', 'xai']) {
+        for (const expected of ['openai', 'xai', 'gemini']) {
             t.assert.ok(
                 providers.includes(expected),
                 `provider list should include "${expected}", got ${JSON.stringify(providers)}`,
@@ -596,8 +685,14 @@ export default suite('ai', {
         const all = await callList({ provider: 'all' });
         const allIds = all.map((m) => m.id);
         t.assert.ok(
-            allIds.includes('gpt-transcribe') && allIds.includes('xai-stt'),
+            allIds.includes('gpt-transcribe') &&
+                allIds.includes('xai-stt') &&
+                allIds.includes('gemini-3.5-transcribe'),
             `provider "all" should aggregate every catalogue, got ${JSON.stringify(allIds)}`,
+        );
+        t.assert.ok(
+            !ids.includes('gemini-3.5-transcribe'),
+            'default list should not include gemini',
         );
         for (const model of all) {
             t.assert.ok(
@@ -620,6 +715,18 @@ export default suite('ai', {
         t.assert.deepEqual(
             models.map((m) => m.id),
             ['xai-stt', 'grok-voice-transcribe-2.0'],
+        );
+        const gemini = resultOf(
+            await t.puter.drivers.call(
+                'puter-speech2txt',
+                'ai-speech2txt',
+                'list_models',
+                { provider: 'google' },
+            ),
+        ) as Array<{ id?: string }>;
+        t.assert.deepEqual(
+            gemini.map((m) => m.id),
+            ['gemini-3.5-transcribe'],
         );
     },
 

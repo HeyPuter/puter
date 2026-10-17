@@ -32,11 +32,11 @@ import {
     AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS,
     AI_TTS_MAX_GEMINI_TEXT_CHARS,
 } from '../../../util/aiLimits.js';
-import { readBoundedBody } from '../../../util/fileInput.js';
 import {
-    isUpstreamTimeoutError,
-    upstreamFetch,
-} from '../../../util/upstreamErrors.js';
+    geminiUpstreamFailure as upstreamFailure,
+    postGeminiJson,
+} from '../../../util/geminiRest.js';
+import { isUpstreamTimeoutError } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
 import type {
     ITTSVoice,
@@ -50,9 +50,6 @@ import {
     type GeminiTTSCosts,
     geminiTTSCostsAt,
 } from './costs.js';
-
-const INTERACTIONS_URL =
-    'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 /**
  * Largest Interactions reply read; audio arrives base64-encoded inside JSON.
@@ -157,12 +154,6 @@ interface Interaction {
 const WAV_MIME_TYPES = new Set(['audio/wav', 'audio/x-wav', 'audio/wave']);
 const PCM_MIME_TYPES = new Set(['audio/l16', 'audio/pcm']);
 const BASE64_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
-
-const upstreamFailure = (message: string): HttpError =>
-    new HttpError(502, message, {
-        legacyCode: 'upstream_failed',
-        fields: { provider: 'gemini' },
-    });
 
 const SPLIT_TEXT_HINT = 'Split the text into shorter requests.';
 
@@ -403,32 +394,21 @@ export class GeminiTTSProvider implements ITTSProvider {
             async (): Promise<DriverStreamResult> => {
                 const signal = Context.get('abortSignal');
                 let overran = false;
-                let raw: Buffer;
+                let interaction: Interaction;
                 try {
-                    // Non-2xx answers are classified at the driver boundary.
-                    const response = await upstreamFetch(
-                        'gemini',
-                        INTERACTIONS_URL,
+                    interaction = await postGeminiJson<Interaction>(
+                        this.#apiKey,
+                        'interactions',
+                        request,
                         {
-                            method: 'POST',
-                            headers: {
-                                'x-goog-api-key': this.#apiKey,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify(request),
-                            signal,
-                        },
-                        {
-                            providerLabel: 'Gemini',
+                            label: 'Gemini TTS',
+                            maxBytes: GEMINI_TTS_MAX_RESPONSE_BYTES,
                             timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
-                        },
-                    );
-                    raw = await readBoundedBody(
-                        response,
-                        GEMINI_TTS_MAX_RESPONSE_BYTES,
-                        () => {
-                            overran = true;
-                            return audioTooLong();
+                            signal,
+                            tooLarge: () => {
+                                overran = true;
+                                return audioTooLong();
+                            },
                         },
                     );
                 } catch (err) {
@@ -445,18 +425,6 @@ export class GeminiTTSProvider implements ITTSProvider {
                         AI_TTS_GEMINI_RESERVED_TOKENS.audio,
                     );
                     throw overran ? err : audioTimedOut(err);
-                }
-
-                let interaction: Interaction | null = null;
-                try {
-                    interaction = JSON.parse(raw.toString('utf8'));
-                } catch {
-                    // Handled with the non-object case below.
-                }
-                if (!interaction || typeof interaction !== 'object') {
-                    throw upstreamFailure(
-                        'Gemini TTS returned an unreadable response',
-                    );
                 }
 
                 // A count Gemini doesn't report readably is left out, not

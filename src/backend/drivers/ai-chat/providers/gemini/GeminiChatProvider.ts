@@ -26,7 +26,6 @@ import {
 import { OpenAI } from 'openai';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { usesGoogleGeminiEndpoint } from '../../../util/geminiRest.js';
 import type {
     IChatModel,
     ICompleteArguments,
@@ -41,6 +40,7 @@ import {
     OpenAICompatProvider,
     type UsageSource,
 } from '../OpenAICompatProvider.js';
+import { usesGoogleGeminiEndpoint } from '../../../util/geminiRest.js';
 import { geminiNativeClient } from './geminiNative.js';
 import {
     GEMINI_MODELS,
