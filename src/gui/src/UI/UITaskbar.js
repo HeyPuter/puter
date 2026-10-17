@@ -23,6 +23,7 @@ import UIPopover from './UIPopover.js';
 import launch_app from '../helpers/launchApp.js';
 import UIContextMenu from './UIContextMenu.js';
 import { appIconAttrs, appIconSrc } from '../helpers/appIcon.js';
+import { filterLaunchableApps } from '../helpers/launchAppsList.js';
 
 async function UITaskbar (options) {
     window.global_element_id++;
@@ -64,15 +65,6 @@ async function UITaskbar (options) {
             contentType: 'application/json',
             timeout: 30000,
             headers: { 'Authorization': `Bearer ${window.auth_token}` },
-            xhr: function () {
-                const xhr = $.ajaxSettings.xhr();
-                xhr.addEventListener('progress', event => {
-                    if ( event.loaded > 1048576 ) {
-                        xhr.abort();
-                    }
-                });
-                return xhr;
-            },
         });
         return pendingLaunchApps;
     };
@@ -136,19 +128,21 @@ async function UITaskbar (options) {
             `);
 
             const renderApps = () => {
+                const recentApps = filterLaunchableApps(window.launch_apps.recent);
+                const recommendedApps = filterLaunchableApps(window.launch_apps.recommended);
                 let apps_str = '';
 
                 // -------------------------------------------
                 // Recent apps
                 // -------------------------------------------
-                if ( window.launch_apps.recent.length > 0 ) {
+                if ( recentApps.length > 0 ) {
                     // heading
                     apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
 
                     // apps
                     apps_str += '<div class="launch-apps-recent">';
-                    for ( let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++ ) {
-                        const app_info = window.launch_apps.recent[index];
+                    for ( let index = 0; index < window.launch_recent_apps_count && index < recentApps.length; index++ ) {
+                        const app_info = recentApps[index];
                         apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
                         const icon = appIconSrc(app_info);
                         apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
@@ -162,13 +156,13 @@ async function UITaskbar (options) {
                 // -------------------------------------------
                 // Recommended apps
                 // -------------------------------------------
-                if ( window.launch_apps.recommended.length > 0 ) {
+                if ( recommendedApps.length > 0 ) {
                     // heading
-                    apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
+                    apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${recentApps.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
                     // apps
                     apps_str += '<div class="launch-apps-recommended">';
-                    for ( let index = 0; index < window.launch_apps.recommended.length; index++ ) {
-                        const app_info = window.launch_apps.recommended[index];
+                    for ( let index = 0; index < recommendedApps.length; index++ ) {
+                        const app_info = recommendedApps[index];
                         apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
                         const icon = appIconSrc(app_info);
                         apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;

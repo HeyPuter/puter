@@ -35,7 +35,6 @@ const app = { name: 'test-app', uuid: 'test-uid', title: 'Test app' };
 let launchApps;
 let start;
 let requests;
-let exerciseXhr;
 
 afterEach(() => {
     $('.popover-launcher, .taskbar').remove();
@@ -66,13 +65,11 @@ beforeEach(async () => {
     });
     launchApps = { recent: [app], recommended: [] };
     requests = [];
-    exerciseXhr = false;
-    $.ajaxTransport('+*', (options) => {
+    $.ajaxTransport('+*', () => {
         let complete;
         const request = {
             send(headers, done) {
                 complete = done;
-                if (exerciseXhr) options.xhr();
             },
             abort: vi.fn(),
             resolve(data) {
@@ -164,21 +161,21 @@ it('cancels the startup request when Start opens', async () => {
     expect(startup.abort).toHaveBeenCalledOnce();
 });
 
-it('aborts an oversized download without replacing cached apps', () => {
-    let onProgress;
-    const xhr = {
-        addEventListener: (event, listener) => {
-            onProgress = listener;
-        },
-        abort: vi.fn(),
-    };
-    vi.spyOn($.ajaxSettings, 'xhr').mockReturnValue(xhr);
-    exerciseXhr = true;
+it('hides apps the backend marks unlaunchable', () => {
     start.trigger('click');
-    onProgress({ loaded: 1048576 });
-    expect(xhr.abort).not.toHaveBeenCalled();
-    onProgress({ loaded: 1048577 });
-    expect(xhr.abort).toHaveBeenCalledOnce();
+    requests.at(-1).resolve({
+        recent: [
+            app,
+            {
+                name: 'reclaimed',
+                uuid: 'reclaimed-uid',
+                title: 'Reclaimed',
+                index_url: null,
+                privateAccess: { hasAccess: false },
+            },
+        ],
+        recommended: [],
+    });
     expect($('.start-app[data-app-name="test-app"]')).toHaveLength(1);
-    expect(window.launch_apps.recent).toEqual([app]);
+    expect($('.start-app[data-app-name="reclaimed"]')).toHaveLength(0);
 });
