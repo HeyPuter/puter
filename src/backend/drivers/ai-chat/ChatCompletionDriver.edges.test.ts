@@ -537,6 +537,7 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
             legacyCode: 'upstream_bad_request',
             fields: expect.objectContaining({ upstreamStatus: 404 }),
         });
+        expect(err.alarmSeverity).toBeUndefined();
     });
 
     it('maps an upstream 403 model_not_found to the model-unavailable 400, not an auth failure, and redacts its URL', async () => {
@@ -555,6 +556,7 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
             fields: expect.objectContaining({ upstreamStatus: 404 }),
         });
         expect(err.noAlarm).toBeFalsy();
+        expect(err.alarmSeverity).toBe('info');
         expect(err.message).toBe('Model not available: fake');
         expect(JSON.stringify(attemptsFrom(err))).not.toMatch(
             /http|request id/i,

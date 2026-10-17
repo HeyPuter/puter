@@ -471,12 +471,16 @@ const classifyAttempts = (
         });
     }
     if (attempts.every(isModelUnavailable)) {
-        const message = attempts.some(isModelAccessDenied)
+        const accessDenied = attempts.some(isModelAccessDenied);
+        const message = accessDenied
             ? `Model not available: ${attempts[0].model}`
             : attempts[0].error;
         return new HttpError(400, message, {
             legacyCode: 'upstream_bad_request',
             fields: { ...fields, upstreamStatus: 404 },
+            // Our provider account lost access to the model; low alarm so
+            // someone notices.
+            ...(accessDenied ? { alarmSeverity: 'info' as const } : {}),
         });
     }
     if (
