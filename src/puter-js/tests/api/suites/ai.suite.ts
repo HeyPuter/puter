@@ -29,6 +29,8 @@ const TINY_AUDIO = 'data:audio/mp3;base64,QUJD';
 const TINY_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const TINY_MP4 = 'data:video/mp4;base64,QUJD';
+/** What every video provider returns in test mode. */
+const SAMPLE_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 
 /** The `{ message, code }` shape both client-side and driver rejections carry. */
 type SdkError = { message?: string; code?: string };
@@ -510,6 +512,95 @@ export default suite('ai', {
         }
     },
 
+    'speech2txt resolves every gemini provider alias': async (t) => {
+        useApiToken(t);
+        for (const provider of ['gemini', 'google', 'gemini-speech2txt']) {
+            const result = (await t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider,
+                test_mode: true,
+            })) as { model?: string };
+            t.assert.equal(
+                result.model,
+                'gemini-3.5-transcribe',
+                `provider "${provider}" should reach the gemini provider`,
+            );
+        }
+    },
+
+    'speech2txt on gemini returns words and speakers when asked': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+            test_mode: true,
+        })) as {
+            text?: string;
+            language?: string;
+            duration?: number;
+            words?: { start?: number; end?: number; speaker?: string }[];
+        };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+        t.assert.equal(result.language, 'en');
+        t.assert.equal(result.duration, undefined);
+        t.assert.ok(
+            Array.isArray(result.words) && result.words.length > 0,
+            `words should be returned, got ${JSON.stringify(result)}`,
+        );
+        for (const word of result.words!) {
+            t.assert.equal(typeof word.start, 'number');
+            t.assert.equal(typeof word.end, 'number');
+            t.assert.equal(typeof word.speaker, 'string');
+        }
+    },
+
+    'speech2txt on gemini unwraps the bare text for response_format text': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'gemini',
+            response_format: 'text',
+            test_mode: true,
+        });
+        t.assert.equal(typeof text, 'string');
+        t.assert.ok((text as string).includes('sample transcription'));
+    },
+
+    'speech2txt translate is rejected on gemini': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'gemini',
+                translate: true,
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('Translation is not supported'),
+            `translate should be refused, got ${text}`,
+        );
+    },
+
+    'speech2txt on gemini rejects options it cannot honor': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'gemini',
+                prompt: 'meeting notes',
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('prompt is not supported'),
+            `prompt should be refused, got ${text}`,
+        );
+    },
+
     'speech2txt keeps the whisper alias on openai': async (t) => {
         useApiToken(t);
         const result = (await t.puter.ai.speech2txt({
@@ -562,7 +653,7 @@ export default suite('ai', {
             ),
         ) as string[];
         t.assert.ok(Array.isArray(providers), 'list should return an array');
-        for (const expected of ['openai', 'xai']) {
+        for (const expected of ['openai', 'xai', 'gemini']) {
             t.assert.ok(
                 providers.includes(expected),
                 `provider list should include "${expected}", got ${JSON.stringify(providers)}`,
@@ -596,8 +687,14 @@ export default suite('ai', {
         const all = await callList({ provider: 'all' });
         const allIds = all.map((m) => m.id);
         t.assert.ok(
-            allIds.includes('gpt-transcribe') && allIds.includes('xai-stt'),
+            allIds.includes('gpt-transcribe') &&
+                allIds.includes('xai-stt') &&
+                allIds.includes('gemini-3.5-transcribe'),
             `provider "all" should aggregate every catalogue, got ${JSON.stringify(allIds)}`,
+        );
+        t.assert.ok(
+            !ids.includes('gemini-3.5-transcribe'),
+            'default list should not include gemini',
         );
         for (const model of all) {
             t.assert.ok(
@@ -620,6 +717,18 @@ export default suite('ai', {
         t.assert.deepEqual(
             models.map((m) => m.id),
             ['xai-stt', 'grok-voice-transcribe-2.0'],
+        );
+        const gemini = resultOf(
+            await t.puter.drivers.call(
+                'puter-speech2txt',
+                'ai-speech2txt',
+                'list_models',
+                { provider: 'google' },
+            ),
+        ) as Array<{ id?: string }>;
+        t.assert.deepEqual(
+            gemini.map((m) => m.id),
+            ['gemini-3.5-transcribe'],
         );
     },
 
@@ -1119,6 +1228,125 @@ export default suite('ai', {
             }),
         );
         t.assert.equal(foreign.code, 'access_denied');
+    },
+
+    // Gemini Omni registers only with a Gemini key; test mode never calls it.
+
+    'txt2vid on gemini omni returns the sample clip in test mode': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            const video = await t.puter.ai.txt2vid(
+                {
+                    prompt: 'A stationary red ball.',
+                    model: 'gemini-omni-1.1-flash',
+                    size: '360x640',
+                    input_reference: TINY_PNG,
+                },
+                true,
+            );
+            t.assert.equal(String(video), SAMPLE_VIDEO_URL);
+            t.assert.equal(video.src, SAMPLE_VIDEO_URL);
+        },
+    },
+
+    'txt2vid reaches gemini omni through its model aliases and driver name': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            // Gemini Omni refuses `seconds` even in test mode, which proves
+            // where the call landed.
+            for (const options of [
+                { model: 'google/gemini-omni-1.1-flash' },
+                { model: 'google:google/gemini-omni-1.1-flash' },
+                { driver: 'gemini-video-generation' },
+                { provider: 'gemini-video-generation' },
+            ]) {
+                const error = await errorOf(t, () =>
+                    t.puter.ai.txt2vid({
+                        prompt: 'a cat',
+                        seconds: 4,
+                        test_mode: true,
+                        ...options,
+                    }),
+                );
+                t.assert.equal(error.code, 'bad_request');
+                t.assert.equal(
+                    error.message,
+                    'seconds is not supported by Gemini Omni',
+                    `${JSON.stringify(options)} should reach Gemini Omni`,
+                );
+            }
+            const video = await t.puter.ai.txt2vid({
+                prompt: 'a cat',
+                driver: 'gemini-video-generation',
+                test_mode: true,
+            });
+            t.assert.equal(String(video), SAMPLE_VIDEO_URL);
+        },
+    },
+
+    'txt2vid on gemini omni rejects duration and unsupported sizes': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            const duration = await errorOf(t, () =>
+                t.puter.ai.txt2vid({
+                    prompt: 'a cat',
+                    model: 'gemini-omni-1.1-flash',
+                    duration: 4,
+                    test_mode: true,
+                }),
+            );
+            t.assert.equal(
+                duration.message,
+                'seconds is not supported by Gemini Omni',
+            );
+            for (const size of ['480p', '1024x576']) {
+                const error = await errorOf(t, () =>
+                    t.puter.ai.txt2vid({
+                        prompt: 'a cat',
+                        model: 'gemini-omni-1.1-flash',
+                        size,
+                        test_mode: true,
+                    }),
+                );
+                t.assert.equal(error.code, 'bad_request');
+                t.assert.ok(
+                    (error.message ?? '').startsWith('size must be one of'),
+                    `size ${size} should be refused, got ${error.message}`,
+                );
+            }
+        },
+    },
+
+    'the video model catalog lists gemini omni with per-token rates': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            const res = await fetch(
+                `${t.env.apiOrigin}/puterai/video/models/details?provider=gemini-video-generation`,
+            );
+            t.assert.equal(res.status, 200);
+            const { models } = (await res.json()) as {
+                models: Array<{
+                    id?: string;
+                    costs?: Record<string, number>;
+                    output_cost_key?: string;
+                    durationSeconds?: unknown;
+                    dimensions?: unknown;
+                }>;
+            };
+            const omni = models.find((m) => m.id === 'gemini-omni-1.1-flash');
+            t.assert.ok(omni, `catalog should list Gemini Omni, got ${JSON.stringify(models)}`);
+            t.assert.deepEqual(omni!.costs, {
+                input: 0.00015,
+                'output:text': 0.0009,
+                'output:video': 0.00175,
+            });
+            t.assert.equal(omni!.output_cost_key, 'output:video');
+            t.assert.equal(omni!.durationSeconds, undefined);
+            t.assert.equal(omni!.dimensions, undefined);
+        },
     },
 
     // -- txt2speech --------------------------------------------------

@@ -1401,6 +1401,76 @@ describe('TeamService', () => {
         ).rejects.toMatchObject({ statusCode: 409 });
     });
 
+    it('stops an owner who keeps deleting and re-provisioning seats', async () => {
+        // The cap frees the slot on delete; the budget does not.
+        const cfg = () =>
+            (service as unknown as { config: Record<string, unknown> }).config;
+        const churner = await makeUser();
+        const team = await service.createTeam(churner.id, {
+            name: 'Churn Co',
+            handle: freeHandle(),
+        });
+        const saved = {
+            seats: cfg().max_seats_per_team,
+            teams: cfg().max_teams_per_user,
+        };
+        cfg().max_seats_per_team = 1;
+        cfg().max_teams_per_user = 1;
+
+        let made = 0;
+        let refusal: { statusCode?: number } | null = null;
+        try {
+            for (let i = 0; i < 40; i++) {
+                const seat = await service.provisionAccount(
+                    team.uid,
+                    churner.id,
+                    { username: `ch_${i}_${Math.random().toString(36).slice(2, 7)}` },
+                );
+                made += 1;
+                // Frees the only slot, so the cap never refuses.
+                await service.disableMember(team.uid, churner.id, seat.userId);
+                await service.deleteMember(team.uid, churner.id, seat.userId);
+            }
+        } catch (e) {
+            refusal = e as { statusCode?: number };
+        } finally {
+            cfg().max_seats_per_team = saved.seats;
+            cfg().max_teams_per_user = saved.teams;
+        }
+
+        expect(refusal?.statusCode).toBe(429);
+        expect(made).toBeLessThan(40);
+    });
+
+    it('asks the signup gate about a seat, and refuses what it blocks', async () => {
+        const { team } = await makeTeam();
+        const gate = vi
+            .spyOn(server.services.signup, 'runSignupGate')
+            .mockResolvedValue({
+                verdict: 'blocked',
+                message: 'no',
+                code: null,
+            } as never);
+
+        try {
+            await expect(
+                service.provisionAccount(
+                    team.uid,
+                    owner.id,
+                    {
+                        username: `gated_${Math.random()
+                            .toString(36)
+                            .slice(2, 7)}`,
+                    },
+                    { req: {} as never },
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(gate).toHaveBeenCalled();
+        } finally {
+            gate.mockRestore();
+        }
+    });
+
     // -- notifications -------------------------------------------------
 
     /** Captures what would go out, without standing up a transport. */

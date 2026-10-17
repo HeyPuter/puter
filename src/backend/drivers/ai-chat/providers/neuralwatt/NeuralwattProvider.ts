@@ -158,7 +158,11 @@ export class NeuralwattProvider extends OpenAICompatProvider {
         },
     });
 
-    override async complete(args: ICompleteArguments, resolved?: IChatModel) {
+    override async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+        pricingTime?: Date,
+    ) {
         const model = resolved ?? (await this.resolveModel(args.model));
         if (
             messagesHaveImageContent(args.messages ?? []) &&
@@ -171,7 +175,7 @@ export class NeuralwattProvider extends OpenAICompatProvider {
             );
         }
         this.#accountingMethod = await this.getAccountingMethod();
-        return super.complete(args, model);
+        return super.complete(args, model, pricingTime);
     }
 
     protected override vendorParams(

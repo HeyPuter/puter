@@ -247,16 +247,7 @@ export class SubdomainDriver extends PuterDriver {
     async read(args: Record<string, unknown>): Promise<unknown> {
         const actor = requireContextUserActor();
         const row = await this.#resolve(args);
-        // Worker deployments live in this table but aren't sites. `select`
-        // excludes them and the workers driver serves them under its own
-        // scoping, so answering for them here would make the hosting API a
-        // by-name lookup for objects it doesn't manage. Same 404 as a miss:
-        // the name is resolved globally, so a distinct refusal would confirm
-        // the row exists.
-        const isWorkerRow =
-            typeof row?.subdomain === 'string' &&
-            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX);
-        if (!row || isWorkerRow)
+        if (!row)
             throw new HttpError(404, 'Subdomain not found', {
                 legacyCode: 'not_found',
             });
@@ -461,7 +452,29 @@ export class SubdomainDriver extends PuterDriver {
 
     // -- Resolve -----------------------------------------------------
 
+    /**
+     * Worker deployments live in this table but aren't sites, so every method
+     * here resolves them as a miss. `select` excludes them and the workers
+     * driver serves them under its own scoping. Answering for them would make
+     * the hosting API a by-name lookup for objects it doesn't manage, and
+     * deleting one here would drop the row with no Cloudflare delete behind it
+     * — the script stays live and the user loses the handle to destroy it. Same
+     * 404 as a miss: the name is resolved globally, so a distinct refusal would
+     * confirm the row exists.
+     */
     async #resolve(
+        args: Record<string, unknown>,
+    ): Promise<Record<string, unknown> | null> {
+        const row = await this.#resolveAny(args);
+        if (
+            typeof row?.subdomain === 'string' &&
+            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX)
+        )
+            return null;
+        return row;
+    }
+
+    async #resolveAny(
         args: Record<string, unknown>,
     ): Promise<Record<string, unknown> | null> {
         if (args.uid) return this.stores.subdomain.getByUuid(String(args.uid));

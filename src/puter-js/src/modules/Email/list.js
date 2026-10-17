@@ -12,36 +12,49 @@ import {
 /** @typedef {import('../../lib/types.js').ListPage<EmailSummary>} EmailListPage */
 /** @typedef {import('./lib/mailbox.js').ListPosition} ListPosition */
 
-// Page size for the SDK's own walks over the mailbox's day folders.
-const DIRECTORY_PAGE_LIMIT = 1000;
+// Day folders read per directory page. Small on purpose: a listing resumes
+// from the page its cursor's day came from, so this bounds what every later
+// page re-reads before reaching its own day. About a month of a mailbox that
+// gets mail daily.
+const DAY_PAGE_LIMIT = 30;
 
 /**
- * Every day folder in `folder`, newest first. A mailbox that was never
- * written to has no folder at all, which lists as empty.
+ * The day folders in `folder`, newest first, read a directory page at a time
+ * starting at `daysCursor`. Each day comes with the cursor of the page it was
+ * read from, which is where a later listing can pick the walk back up. A
+ * mailbox that was never written to has no folder at all, which walks as
+ * empty.
  *
- * @this {import('./Email.js').EmailModule}
+ * @param {import('../../index.js').Puter} puter
  * @param {EmailFolder} folder
- * @returns {Promise<string[]>}
+ * @param {string | undefined} daysCursor
+ * @returns {AsyncGenerator<{ day: string, daysCursor?: string }>}
  */
-async function listDays (folder) {
-    const fetchPage = pageParams => this.puter.fs.readdir({
-        path: folderRoot(folder),
-        limit: DIRECTORY_PAGE_LIMIT,
-        sortBy: 'name',
-        sortOrder: 'desc',
-        ...pageParams,
-    });
-    const days = [];
-    try {
-        for await ( const page of iteratePages(fetchPage) ) {
-            for ( const entry of page.items ) {
-                if ( entry.is_dir && isDayName(entry.name) ) days.push(entry.name);
+async function* walkDays (puter, folder, daysCursor) {
+    let cursor = daysCursor ?? null;
+    while ( true ) {
+        /** @type {{ items: Array<Record<string, any>>, cursor?: string }} */
+        let page;
+        try {
+            page = await puter.fs.readdir({
+                path: folderRoot(folder),
+                limit: DAY_PAGE_LIMIT,
+                sortBy: 'name',
+                sortOrder: 'desc',
+                cursor,
+            });
+        } catch (e) {
+            if ( ! isMissingDirectory(e) ) throw e;
+            return;
+        }
+        for ( const entry of page.items ) {
+            if ( entry.is_dir && isDayName(entry.name) ) {
+                yield { day: entry.name, ...(cursor ? { daysCursor: cursor } : {}) };
             }
         }
-    } catch (e) {
-        if ( ! isMissingDirectory(e) ) throw e;
+        if ( ! page.cursor ) return;
+        cursor = page.cursor;
     }
-    return days.sort().reverse();
 }
 
 /**
@@ -56,18 +69,20 @@ async function listDays (folder) {
  * @returns {Promise<EmailListPage>}
  */
 async function fetchPage (folder, limit, position) {
-    const days = await listDays.call(this, folder);
+    const days = walkDays(this.puter, folder, position?.daysCursor);
     /** @type {EmailSummary[]} */
     const items = [];
 
     // Resume at the cursor's day; a day folder deleted since the cursor was
     // issued means continuing from the next older one.
-    let dayIndex = position ? days.findIndex(day => day <= position.day) : 0;
-    if ( dayIndex === -1 ) return { items };
-    let fsCursor = position && days[dayIndex] === position.day ? position.fsCursor : undefined;
+    let next = await days.next();
+    while ( position && ! next.done && next.value.day > position.day ) {
+        next = await days.next();
+    }
+    let fsCursor = position && ! next.done && next.value.day === position.day ? position.fsCursor : undefined;
 
-    while ( dayIndex < days.length && items.length < limit ) {
-        const day = days[dayIndex];
+    while ( ! next.done && items.length < limit ) {
+        const { day, daysCursor } = next.value;
         // Keep reading this day until the page is full or the day is spent:
         // entries that are not mail objects are skipped, and skipping must
         // not shorten the page while the same day still has messages.
@@ -94,13 +109,14 @@ async function fetchPage (folder, limit, position) {
             if ( ! fsCursor ) break;
         }
         if ( fsCursor ) {
-            return { items, cursor: encodeCursor({ folder, day, fsCursor }) };
+            return { items, cursor: encodeCursor({ folder, day, fsCursor, daysCursor }) };
         }
-        dayIndex += 1;
+        next = await days.next();
     }
 
-    if ( dayIndex < days.length ) {
-        return { items, cursor: encodeCursor({ folder, day: days[dayIndex] }) };
+    if ( ! next.done ) {
+        const { day, daysCursor } = next.value;
+        return { items, cursor: encodeCursor({ folder, day, daysCursor }) };
     }
     return { items };
 }

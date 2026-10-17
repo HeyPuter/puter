@@ -562,6 +562,12 @@ const showSeatLimit = async ($el_window, e) => {
 
 const showError = ($el_window, e) => {
     if ( e?.code === 'seat_limit_reached' ) return showSeatLimit($el_window, e);
+    // A rule answering, not a fault.
+    if ( e?.code === 'too_many_requests' ) return dialog($el_window, {
+        title: i18n('teams_add_account', [], false),
+        tone: 'warning',
+        message: html_encode(e?.message ?? ''),
+    });
     return dialog($el_window, {
         title: i18n('something_went_wrong', [], false),
         tone: 'error',

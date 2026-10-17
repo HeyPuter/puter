@@ -20,19 +20,17 @@
 /**
  * Offline unit tests for ChatCompletionDriver.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) so the driver runs against the live `EventClient`,
- * `MeteringService`, stores, and `FSService`. The driver is
- * exercised through its public `complete()` interface against the
- * always-available `FakeChatProvider` — no real upstream API keys
- * are needed because no `config.providers.*` entries are set, so
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) so the
+ * driver runs against the live `EventClient`, `MeteringService`, stores, and
+ * `FSService`. The driver is exercised through its public `complete()`
+ * interface against the always-available `FakeChatProvider` — no real upstream
+ * API keys are needed because no `config.providers.*` entries are set, so
  * `fake-chat` is the only provider registered.
  *
- * Provider behaviour (request shape, streaming dialect) is covered
- * separately by each provider's test file. This file pins down
- * driver-level behaviour: auth gate, model resolution, validation
- * event routing, credit/quota gates, max_tokens cap, fallback,
- * event emission and cost calculation.
+ * Provider behaviour (request shape, streaming dialect) is covered separately
+ * by each provider's test file. This file pins down driver-level behaviour:
+ * auth gate, model resolution, validation event routing, credit/quota gates,
+ * max_tokens cap, fallback, event emission and cost calculation.
  */
 import type { Readable } from 'node:stream';
 import {
@@ -256,7 +254,10 @@ describe('ChatCompletionDriver model map', () => {
 
 describe('ChatCompletionDriver.complete auth and model resolution', () => {
     it('uses a free fake completion in test mode without taking a credit hold', async () => {
-        const creditGate = vi.spyOn(server.services.metering, 'getUsageHeadroom');
+        const creditGate = vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        );
         const complete = vi.spyOn(FakeChatProvider.prototype, 'complete');
 
         const result = await withTestActor(() =>
@@ -290,10 +291,15 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         );
 
         expect(complete.mock.calls[0]![0].model).toBe('fake');
-        const streamResult = result as unknown as { dataType: string; stream: Readable };
+        const streamResult = result as unknown as {
+            dataType: string;
+            stream: Readable;
+        };
         expect(streamResult.dataType).toBe('stream');
         const chunks = await collectStream(streamResult.stream);
-        expect(chunks).toContainEqual(expect.objectContaining({ type: 'text' }));
+        expect(chunks).toContainEqual(
+            expect.objectContaining({ type: 'text' }),
+        );
     });
 
     it('throws 401 when no actor is in context', async () => {
@@ -368,7 +374,10 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
 
         const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
         completeSpy.mockResolvedValueOnce({
-            message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
             usage: {},
             finish_reason: 'stop',
         } as never);
@@ -617,7 +626,11 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
                 id: 'priced',
                 aliases: [],
                 costs_currency: 'usd-cents',
-                costs: { input_tokens: 1000, output_tokens: 2000, web_search_requests: 1_000_000 },
+                costs: {
+                    input_tokens: 1000,
+                    output_tokens: 2000,
+                    web_search_requests: 1_000_000,
+                },
                 long_context_pricing: {
                     threshold: 5,
                     input_multiplier: 2,
@@ -633,7 +646,11 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
                 role: 'assistant',
                 content: [{ type: 'text', text: 'ok' }],
             },
-            usage: { input_tokens: 10, output_tokens: 7, web_search_requests: 1 },
+            usage: {
+                input_tokens: 10,
+                output_tokens: 7,
+                web_search_requests: 1,
+            },
             finish_reason: 'stop',
         } as never);
 
@@ -751,7 +768,10 @@ describe('ChatCompletionDriver.complete validation event routing', () => {
 
 describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
     it('throws 402 `insufficient_funds` when the actor has no remaining credits', async () => {
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 0, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 0, held: 0 });
 
         await expect(
             withTestActor(() =>
@@ -786,7 +806,10 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         // Approx input cost is tiny (very short prompt), so allowed
         // output ≈ 100_000 / 2000 = 50 tokens, comfortably below the
         // caller's 10_000 ceiling.
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 100_000, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 100_000, held: 0 });
 
         const completeSpy = vi
             .spyOn(FakeChatProvider.prototype, 'complete')
@@ -813,62 +836,102 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(passed.max_tokens!).toBeGreaterThan(0);
     });
 
-    it.each(['multipliers', 'catalog overrides'])('caps `max_tokens` at the conditional output rate using %s', async pricingKind => {
+    it.each(['multipliers', 'catalog overrides'])(
+        'caps `max_tokens` at the conditional output rate using %s',
+        async (pricingKind) => {
+            vi.spyOn(
+                FakeChatProvider.prototype,
+                'models',
+            ).mockResolvedValueOnce([
+                {
+                    id: 'capme',
+                    aliases: [],
+                    costs_currency: 'usd-cents',
+                    costs: { input_tokens: 1000, output_tokens: 2000 },
+                    ...(pricingKind === 'multipliers'
+                        ? {
+                              long_context_pricing: {
+                                  threshold: 10,
+                                  input_multiplier: 2,
+                                  output_multiplier: 1.5,
+                              },
+                          }
+                        : {
+                              pricingOverrides: [
+                                  {
+                                      minPromptTokens: 10,
+                                      costs: {
+                                          input_tokens: 2000,
+                                          output_tokens: 3000,
+                                      },
+                                  },
+                              ],
+                          }),
+                    max_tokens: 8192,
+                },
+            ]);
+            const d = await makeDriver();
+
+            // A ~100-token prompt is past the threshold. 1_000_000 microcents at
+            // 2000 * 1.5 per output token leaves at most 333 output tokens before
+            // the prompt is paid for; the standard rate would allow ~450 after it.
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 1_000_000, held: 0 });
+
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce({
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'ok' }],
+                    },
+                    usage: { input_tokens: 1, output_tokens: 1 },
+                    finish_reason: 'stop',
+                } as never);
+
+            await withTestActor(() =>
+                d.complete({
+                    model: 'capme',
+                    messages: [{ role: 'user', content: 'x'.repeat(400) }],
+                    max_tokens: 10_000,
+                }),
+            );
+
+            const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+            expect(passed.max_tokens!).toBeLessThanOrEqual(333);
+            expect(passed.max_tokens!).toBeGreaterThan(0);
+        },
+    );
+
+    it('reserves a catalog fixed request fee before calling the provider', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
-                id: 'capme',
-                aliases: [],
+                id: 'request-fee',
                 costs_currency: 'usd-cents',
-                costs: { input_tokens: 1000, output_tokens: 2000 },
-                ...(pricingKind === 'multipliers' ? { long_context_pricing: {
-                    threshold: 10,
-                    input_multiplier: 2,
-                    output_multiplier: 1.5,
-                } } : { pricingOverrides: [{ minPromptTokens: 10, costs: { input_tokens: 2000, output_tokens: 3000 } }] }),
-                max_tokens: 8192,
+                max_tokens: 1000,
+                costs: {
+                    input_tokens: 1,
+                    output_tokens: 1,
+                    request: 1_000_001,
+                },
             },
         ]);
         const d = await makeDriver();
-
-        // A ~100-token prompt is past the threshold. 1_000_000 microcents at
-        // 2000 * 1.5 per output token leaves at most 333 output tokens before
-        // the prompt is paid for; the standard rate would allow ~450 after it.
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
-
-        const completeSpy = vi
-            .spyOn(FakeChatProvider.prototype, 'complete')
-            .mockResolvedValueOnce({
-                message: {
-                    role: 'assistant',
-                    content: [{ type: 'text', text: 'ok' }],
-                },
-                usage: { input_tokens: 1, output_tokens: 1 },
-                finish_reason: 'stop',
-            } as never);
-
-        await withTestActor(() =>
-            d.complete({
-                model: 'capme',
-                messages: [{ role: 'user', content: 'x'.repeat(400) }],
-                max_tokens: 10_000,
-            }),
-        );
-
-        const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
-        expect(passed.max_tokens!).toBeLessThanOrEqual(333);
-        expect(passed.max_tokens!).toBeGreaterThan(0);
-    });
-
-    it('reserves a catalog fixed request fee before calling the provider', async () => {
-        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([{
-            id: 'request-fee', costs_currency: 'usd-cents', max_tokens: 1000,
-            costs: { input_tokens: 1, output_tokens: 1, request: 1_000_001 },
-        }]);
-        const d = await makeDriver();
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1_000_000, held: 0 });
         const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
-        await expect(withTestActor(() => d.complete({ model: 'request-fee', messages: [{ role: 'user', content: 'hi' }] })))
-            .rejects.toMatchObject({ statusCode: 402 });
+        await expect(
+            withTestActor(() =>
+                d.complete({
+                    model: 'request-fee',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
         expect(completeSpy).not.toHaveBeenCalled();
     });
 
@@ -889,7 +952,10 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
 
         // Pass the cheap pre-flight check but leave a balance too small to
         // afford a single 2000-microcent output token.
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 100, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 100, held: 0 });
 
         const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
 
@@ -927,23 +993,31 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         // extraCost alone (50_000) eats most of a 100_000-microcent balance;
         // the fast cost keys (half the standard rate) are what is left to
         // afford output with.
-        (FakeChatProvider.prototype as unknown as {
-            requestPricing: NonNullable<IChatProvider['requestPricing']>;
-        }).requestPricing = () => ({
+        (
+            FakeChatProvider.prototype as unknown as {
+                requestPricing: NonNullable<IChatProvider['requestPricing']>;
+            }
+        ).requestPricing = () => ({
             inputKey: 'fast_input_tokens',
             outputKey: 'fast_output_tokens',
             extraCost: 50_000,
         });
 
         try {
-            vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({
                 balance: 100_000,
                 held: 0,
             });
             const completeSpy = vi
                 .spyOn(FakeChatProvider.prototype, 'complete')
                 .mockResolvedValueOnce({
-                    message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'ok' }],
+                    },
                     usage: { input_tokens: 1, output_tokens: 1 },
                     finish_reason: 'stop',
                 } as never);
@@ -963,12 +1037,13 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             expect(passed.max_tokens!).toBeLessThanOrEqual(50);
             expect(passed.max_tokens!).toBeGreaterThan(30);
         } finally {
-            delete (FakeChatProvider.prototype as unknown as Record<string, unknown>)
-                .requestPricing;
+            delete (
+                FakeChatProvider.prototype as unknown as Record<string, unknown>
+            ).requestPricing;
         }
     });
 
-    it('rejects with 402 when a low balance cannot cover a tool\'s extraCost reservation', async () => {
+    it("caps `max_tokens` and the hold at the provider's requestPricing maxTokens", async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
                 id: 'capme',
@@ -980,16 +1055,87 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         ]);
         const d = await makeDriver();
 
-        (FakeChatProvider.prototype as unknown as {
-            requestPricing: NonNullable<IChatProvider['requestPricing']>;
-        }).requestPricing = () => ({ extraCost: 1_000_000 });
+        (
+            FakeChatProvider.prototype as unknown as {
+                requestPricing: NonNullable<IChatProvider['requestPricing']>;
+            }
+        ).requestPricing = () => ({ maxTokens: 100 });
 
         try {
-            vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({
+                balance: 100_000_000,
+                held: 0,
+            });
+            const reserve = vi.spyOn(
+                server.services.metering,
+                'reserveCredits',
+            );
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce({
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'ok' }],
+                    },
+                    usage: { input_tokens: 1, output_tokens: 1 },
+                    finish_reason: 'stop',
+                } as never);
+
+            await withTestActor(() =>
+                d.complete({
+                    model: 'capme',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    max_tokens: 10_000,
+                }),
+            );
+
+            const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+            expect(passed.max_tokens).toBe(100);
+            // The balance and the request both allow more; the hold is the
+            // tiny prompt plus 100 output tokens at 2000.
+            const [, held] = reserve.mock.calls[0]!;
+            expect(held).toBeGreaterThanOrEqual(100 * 2000);
+            expect(held).toBeLessThan(101 * 2000);
+        } finally {
+            delete (
+                FakeChatProvider.prototype as unknown as Record<string, unknown>
+            ).requestPricing;
+        }
+    });
+
+    it("rejects with 402 when a low balance cannot cover a tool's extraCost reservation", async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'capme',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        (
+            FakeChatProvider.prototype as unknown as {
+                requestPricing: NonNullable<IChatProvider['requestPricing']>;
+            }
+        ).requestPricing = () => ({ extraCost: 1_000_000 });
+
+        try {
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({
                 balance: 100,
                 held: 0,
             });
-            const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+            const completeSpy = vi.spyOn(
+                FakeChatProvider.prototype,
+                'complete',
+            );
 
             await expect(
                 withTestActor(() =>
@@ -999,11 +1145,15 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
                         tools: [{ type: 'web_search' }],
                     }),
                 ),
-            ).rejects.toMatchObject({ statusCode: 402, legacyCode: 'insufficient_funds' });
+            ).rejects.toMatchObject({
+                statusCode: 402,
+                legacyCode: 'insufficient_funds',
+            });
             expect(completeSpy).not.toHaveBeenCalled();
         } finally {
-            delete (FakeChatProvider.prototype as unknown as Record<string, unknown>)
-                .requestPricing;
+            delete (
+                FakeChatProvider.prototype as unknown as Record<string, unknown>
+            ).requestPricing;
         }
     });
 
@@ -1011,14 +1161,20 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
     // unexempted `web_search_preview` became an unnamed function tool, which
     // OpenAI rejects and the provider's search pricing no longer recognizes.
     it('passes web_search_preview through to the provider unchanged', async () => {
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({
             balance: 100_000_000,
             held: 0,
         });
         const completeSpy = vi
             .spyOn(FakeChatProvider.prototype, 'complete')
             .mockResolvedValueOnce({
-                message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
                 usage: { input_tokens: 1, output_tokens: 1 },
                 finish_reason: 'stop',
             } as never);
@@ -1103,7 +1259,10 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             },
         ]);
         const d = await makeDriver();
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1_000_000, held: 0 });
         vi.spyOn(
             server.services.metering,
             'getActorSubscription',
@@ -1134,7 +1293,10 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             },
         ]);
         const d = await makeDriver();
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1_000_000, held: 0 });
         vi.spyOn(
             server.services.metering,
             'getActorSubscription',
@@ -1173,7 +1335,10 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         ]);
         const d = await makeDriver();
         // Plenty of credits so the credit gate doesn't intercept first.
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue({ balance: 1_000_000, held: 0 });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1_000_000, held: 0 });
 
         await expect(
             withTestActor(() =>
@@ -1303,9 +1468,10 @@ describe('ChatCompletionDriver Claude usage.thinking_tokens', () => {
         const d = await makeClaudeDriver();
         // Affords exactly 300 output tokens at 1000 µ¢ each: above the real
         // 233 output tokens, below 233 + 110 thinking_tokens (343).
-        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue(
-            { balance: 300_000, held: 0 },
-        );
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 300_000, held: 0 });
         vi.spyOn(ClaudeProvider.prototype, 'complete').mockResolvedValueOnce({
             message: { role: 'assistant', content: 'hi' },
             finish_reason: 'stop',
@@ -1323,8 +1489,7 @@ describe('ChatCompletionDriver Claude usage.thinking_tokens', () => {
                 messages: [{ role: 'user', content: 'hi' }],
             });
             return Context.get('driverMetadata') as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
         });
 
         expect(metadata?.usage_limited).toBeUndefined();
@@ -1370,7 +1535,10 @@ describe('ChatCompletionDriver.complete normalization', () => {
     ])(
         'normalizes a raw wire-form tool_choice (%j) before it reaches the provider',
         async (wireToolChoice, normalized) => {
-            const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+            const completeSpy = vi.spyOn(
+                FakeChatProvider.prototype,
+                'complete',
+            );
             completeSpy.mockResolvedValueOnce({
                 message: { role: 'assistant', content: 'ok' },
                 usage: {},
@@ -1672,9 +1840,7 @@ describe('ChatCompletionDriver.complete OpenAI-shape normalization', () => {
             content_type: 'application/x-ndjson',
         });
         // Drain so the fake provider's populator finishes cleanly.
-        await collectStream(
-            (res as unknown as { stream: Readable }).stream,
-        );
+        await collectStream((res as unknown as { stream: Readable }).stream);
     });
 
     it('a blocked prompt rerouted to fake-chat keeps its historical native shape', async () => {
@@ -1733,8 +1899,11 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
             legacyCode: 'upstream_timeout',
             message: 'AI provider timed out',
         });
-        const attempts = (caught as unknown as { fields: { attempts: { timedOut?: boolean }[] } })
-            .fields.attempts;
+        const attempts = (
+            caught as unknown as {
+                fields: { attempts: { timedOut?: boolean }[] };
+            }
+        ).fields.attempts;
         expect(attempts).toHaveLength(1);
         expect(attempts[0].timedOut).toBe(true);
     });
@@ -1829,8 +1998,9 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
         expect(caught).toBeInstanceOf(HttpError);
         expect(caught!.statusCode).toBe(500);
         expect(caught!.message).toBe('All providers failed');
-        const attempts = (caught as unknown as { fields: { attempts: unknown[] } })
-            .fields.attempts;
+        const attempts = (
+            caught as unknown as { fields: { attempts: unknown[] } }
+        ).fields.attempts;
         expect(Array.isArray(attempts)).toBe(true);
         // No second provider serves `fake`, so we record exactly one attempt
         // before falling out of the loop.
@@ -2020,8 +2190,9 @@ describe('ChatCompletionDriver.countTokens', () => {
 
     it('prefers the provider’s own countTokens hook when it exists', async () => {
         const hook = vi.fn().mockResolvedValue(42);
-        (FakeChatProvider.prototype as unknown as { countTokens?: unknown }).countTokens =
-            hook;
+        (
+            FakeChatProvider.prototype as unknown as { countTokens?: unknown }
+        ).countTokens = hook;
         try {
             const result = await driver[COUNT_TOKENS]({
                 model: 'fake',
@@ -2034,8 +2205,11 @@ describe('ChatCompletionDriver.countTokens', () => {
                 provider: 'fake-chat',
             });
         } finally {
-            delete (FakeChatProvider.prototype as unknown as { countTokens?: unknown })
-                .countTokens;
+            delete (
+                FakeChatProvider.prototype as unknown as {
+                    countTokens?: unknown;
+                }
+            ).countTokens;
         }
     });
 

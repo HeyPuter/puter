@@ -194,10 +194,10 @@ describe('SpeechToTextDriver.getReportedCosts', () => {
     it('mirrors every entry in costs.ts as a per-second line item', () => {
         const reported = driver.getReportedCosts();
 
-        // One extra line item comes from the xAI provider, which the
-        // driver aggregates alongside OpenAI's catalogue.
+        // The driver aggregates the xAI line item and Gemini's two token
+        // rates alongside OpenAI's catalogue.
         expect(reported).toHaveLength(
-            Object.keys(SPEECH_TO_TEXT_COSTS).length + 1,
+            Object.keys(SPEECH_TO_TEXT_COSTS).length + 3,
         );
         for (const [usageType, ucentsPerUnit] of Object.entries(
             SPEECH_TO_TEXT_COSTS,

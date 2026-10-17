@@ -1523,6 +1523,86 @@ describe('createPuterSiteMiddleware — __workers/ is never served', () => {
         expect(Buffer.isBuffer(piped)).toBe(true);
         expect(piped!.equals(shell)).toBe(true);
     });
+
+    // SQLite compares paths bytewise; MySQL's utf8mb4_unicode_ci folds
+    // accents, fullwidth forms and zero-width chars. Emulate that fold.
+    const withCollationAlias = async (
+        alias: string,
+        real: string,
+        fn: () => Promise<void>,
+    ) => {
+        const store = server.stores.fsEntry;
+        const original = store.getEntryByPath.bind(store);
+        const spy = vi
+            .spyOn(store, 'getEntryByPath')
+            .mockImplementation((path, options) =>
+                original(
+                    path.startsWith(alias)
+                        ? real + path.slice(alias.length)
+                        : path,
+                    options,
+                ),
+            );
+        try {
+            await fn();
+        } finally {
+            spy.mockRestore();
+        }
+    };
+
+    it('404s a collation alias of __workers/ that the database resolves to the real file', async () => {
+        const { homePath, sub } = await setupSiteWithWorker();
+        await withCollationAlias(
+            `${homePath}/__wörkers/matchmaking.worker.js`,
+            `${homePath}/__workers/matchmaking.worker.js`,
+            async () => {
+                const out = await request(
+                    sub,
+                    '/__w%C3%B6rkers/matchmaking.worker.js',
+                );
+                expect(out.statusCode).toBe(404);
+                expect(String(out.body)).not.toContain('secret');
+            },
+        );
+    });
+
+    it('404s a collation alias of a folder whose index.html sits in __workers/', async () => {
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        await writeFile(
+            owner.id,
+            `${homePath}/__workers/index.html`,
+            Buffer.from('<html>listing</html>'),
+            'text/html',
+        );
+        await withCollationAlias(
+            `${homePath}/__wörkers`,
+            `${homePath}/__workers`,
+            async () => {
+                const out = await request(sub, '/__w%C3%B6rkers');
+                expect(out.statusCode).toBe(404);
+                expect(String(out.body)).not.toContain('listing');
+            },
+        );
+    });
+
+    it('404s a collation alias of .puter_site_config', async () => {
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        await writeFile(
+            owner.id,
+            `${homePath}/.puter_site_config`,
+            Buffer.from(JSON.stringify({ errors: {}, marker: 'cfg-body' })),
+            'application/json',
+        );
+        await withCollationAlias(
+            `${homePath}/.püter_site_config`,
+            `${homePath}/.puter_site_config`,
+            async () => {
+                const out = await request(sub, '/.p%C3%BCter_site_config');
+                expect(out.statusCode).toBe(404);
+                expect(String(out.body)).not.toContain('cfg-body');
+            },
+        );
+    });
 });
 
 describe('createPuterSiteMiddleware — hosting CSP', () => {

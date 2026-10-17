@@ -38,6 +38,8 @@ export interface ModelPricingOverride {
     utcStart?: number;
     utcEnd?: number;
     utcDays?: number[];
+    /** ISO instant from which this override applies, e.g. a list-price change. */
+    startsAt?: string;
     costs: ModelCost;
 }
 
@@ -306,10 +308,13 @@ export interface IChatProvider {
     /**
      * `model` is this provider's own catalog entry for `arg.model`, as the
      * driver resolved it; a provider resolves `arg.model` itself without it.
+     * `pricingTime` is the instant the driver's credit gate priced this attempt
+     * at; usage metered for the attempt is priced at the same instant.
      */
     complete(
         arg: ICompleteArguments,
         model?: IChatModel,
+        pricingTime?: Date,
     ): Promise<IChatCompleteResult>;
     checkModeration(
         text: string,
@@ -329,12 +334,19 @@ export interface IChatProvider {
     /**
      * Request-specific pricing the credit gate must reserve for (web search,
      * fast mode, the advisor tool), in µ¢, before the AI cost factor.
+     * `maxTokens` is an output cap the provider holds this request to; the gate
+     * caps `max_tokens` and sizes the hold to it as well.
      */
     requestPricing?(
         args: ICompleteArguments,
         model: IChatModel,
         est: { promptTokenEstimate: number },
-    ): { inputKey?: string; outputKey?: string; extraCost?: number };
+    ): {
+        inputKey?: string;
+        outputKey?: string;
+        extraCost?: number;
+        maxTokens?: number;
+    };
     /**
      * Exact prompt token count, when the vendor offers one (e.g. Claude's
      * `count_tokens`).

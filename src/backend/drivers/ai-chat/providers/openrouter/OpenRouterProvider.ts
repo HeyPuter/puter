@@ -19,7 +19,8 @@
 
 import axios from 'axios';
 import { OpenAI } from 'openai';
-import { HttpError } from '../../../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../../../core/http/HttpError.js';
+import { UpstreamResponseError } from '../../../util/upstreamErrors.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatModel, ICompleteArguments } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
@@ -35,6 +36,29 @@ import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 
 type OpenrouterUsage = OpenAI.Completions.CompletionUsage & {
     cost?: number;
+};
+
+const POLICY_BLOCK_MESSAGE =
+    'Policy Violation: this user has been blocked for a previous policy violation.';
+
+const upstreamErrorBody = (err: unknown): unknown => {
+    if (isHttpError(err)) {
+        return err.legacyCode === 'bad_response' ? err.cause : undefined;
+    }
+    const e = err as { status?: unknown; error?: unknown } | undefined;
+    return e?.status === 403 ? e.error : undefined;
+};
+
+const isPolicyBlock = (err: unknown): boolean => {
+    const { code, message } = (upstreamErrorBody(err) ?? {}) as {
+        code?: unknown;
+        message?: unknown;
+    };
+    return (
+        code === 403 &&
+        typeof message === 'string' &&
+        message.startsWith(POLICY_BLOCK_MESSAGE)
+    );
 };
 
 export class OpenRouterProvider extends OpenAICompatProvider {
@@ -63,7 +87,11 @@ export class OpenRouterProvider extends OpenAICompatProvider {
         this.#apiBaseUrl = apiBaseUrl;
     }
 
-    override async complete(args: ICompleteArguments, resolved?: IChatModel) {
+    override async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+        pricingTime?: Date,
+    ) {
         if (args.model === 'openrouter/auto') {
             throw new HttpError(
                 400,
@@ -78,7 +106,17 @@ export class OpenRouterProvider extends OpenAICompatProvider {
                 },
             );
         }
-        return super.complete(args, resolved);
+        try {
+            return await super.complete(args, resolved, pricingTime);
+        } catch (e) {
+            if (!isPolicyBlock(e)) throw e;
+            throw new UpstreamResponseError(
+                `Model not available: ${args.model}`,
+                403,
+                'openrouter',
+                'model_not_found',
+            );
+        }
     }
 
     override async models(): Promise<IChatModel[]> {
@@ -105,7 +143,8 @@ export class OpenRouterProvider extends OpenAICompatProvider {
         for (const model of models) {
             if (
                 typeof model.id !== 'string' ||
-                model.id.includes('openrouter/auto')
+                model.id.includes('openrouter/auto') ||
+                model.id.endsWith(':batch')
             ) {
                 continue;
             }

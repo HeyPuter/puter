@@ -134,7 +134,6 @@ window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
 window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_visit_animation ? 6000 : 1000);
-window.watchItems = [];
 window.appdata_signatures = {};
 window.appCallbackFunctions = [];
 
