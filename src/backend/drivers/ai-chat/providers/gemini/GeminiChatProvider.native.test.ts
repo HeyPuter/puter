@@ -113,6 +113,11 @@ const makeProvider = (
 
 const ARGON = GEMINI_MODELS.find((m) => m.id === 'gemini-4-argon')!;
 const LAUNCH = new Date('2026-10-14T12:00:00Z');
+const NATIVE_IDS = [
+    'gemini-4-argon',
+    'gemini-3.1-flash-lite',
+    'gemini-3-flash-preview',
+];
 
 // The usage Google returned for a live gemini-4-argon "Say OK" request.
 const LIVE_USAGE = {
@@ -289,25 +294,28 @@ describe('gemini-4-argon catalog and routing', () => {
                 apiBaseUrl: 'https://gemini-proxy.test/v1beta/openai/',
             });
 
-        it('leaves Argon out of the catalog and never builds the native client', async () => {
+        it('leaves every native model out of the catalog and never builds the native client', async () => {
             const ids = (await proxied().models()).map((m) => m.id);
-            expect(ids).not.toContain('gemini-4-argon');
+            for (const id of NATIVE_IDS) expect(ids).not.toContain(id);
             expect(ids).toContain('gemini-3.7-flash');
             expect(genAICtor).not.toHaveBeenCalled();
         });
 
-        it('rejects Argon without calling Google', async () => {
-            await expect(
-                withTestActor(() =>
-                    proxied().complete({
-                        model: 'gemini-4-argon',
-                        messages: [{ role: 'user', content: 'hi' }],
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-            expect(generateContent).not.toHaveBeenCalled();
-            expect(openAICreate).not.toHaveBeenCalled();
-        });
+        it.each(NATIVE_IDS)(
+            'rejects %s without calling Google or the proxy',
+            async (model) => {
+                await expect(
+                    withTestActor(() =>
+                        proxied().complete({
+                            model,
+                            messages: [{ role: 'user', content: 'hi' }],
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                expect(generateContent).not.toHaveBeenCalled();
+                expect(openAICreate).not.toHaveBeenCalled();
+            },
+        );
 
         it('still serves the other Gemini models through the proxy', async () => {
             openAICreate.mockResolvedValueOnce({
@@ -1305,6 +1313,215 @@ describe('gemini-4-argon tool calls', () => {
         expect(generateContent).not.toHaveBeenCalled();
     });
 });
+
+// The usage Google returned for live "Say OK" requests at the model default.
+const RESTORED = [
+    {
+        model: 'gemini-3.1-flash-lite',
+        rates: { input: 25, output: 150, cached: 2.5 },
+        usage: {
+            promptTokenCount: 16,
+            candidatesTokenCount: 3,
+            thoughtsTokenCount: 206,
+            totalTokenCount: 225,
+        },
+    },
+    {
+        model: 'gemini-3-flash-preview',
+        rates: { input: 50, output: 300, cached: 5 },
+        usage: {
+            promptTokenCount: 16,
+            candidatesTokenCount: 3,
+            thoughtsTokenCount: 169,
+            totalTokenCount: 188,
+        },
+    },
+];
+
+describe.each(RESTORED)('$model served natively', ({ model, rates, usage }) => {
+    const entry = GEMINI_MODELS.find((m) => m.id === model)!;
+    const thoughts = usage.thoughtsTokenCount;
+
+    it('lists text and image input only', () => {
+        expect(entry).toMatchObject({
+            puterId: `google:google/${model}`,
+            context: 1_048_576,
+            max_tokens: 65_536,
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            tool_call: true,
+        });
+    });
+
+    it('routes the alias natively and bills candidates and thoughts separately', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK', usage));
+        const result = await complete({ model: `google/${model}` });
+
+        expect(requestOf().model).toBe(model);
+        expect(requestOf().config).not.toHaveProperty('thinkingConfig');
+        expect(openAICreate).not.toHaveBeenCalled();
+        const [metered, , prefix, costs] = recordSpy.mock.calls[0]!;
+        expect(prefix).toBe(`gemini:${model}`);
+        expect(metered).toEqual({
+            prompt_tokens: 16,
+            completion_tokens: 3,
+            thinking_tokens: thoughts,
+            cached_tokens: 0,
+        });
+        expect(costs).toEqual({
+            prompt_tokens: 16 * rates.input,
+            completion_tokens: 3 * rates.output,
+            thinking_tokens: thoughts * rates.output,
+            cached_tokens: 0,
+        });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 16,
+            outputTokens: 3 + thoughts,
+            reasoningTokens: thoughts,
+        });
+        expect((result.usageDetails as UsageDetails).outputTokens).toBe(
+            trackedOutputTokens(metered, entry),
+        );
+    });
+
+    it('bills cached, prompt, candidate and thought tokens once each', async () => {
+        generateContent.mockResolvedValueOnce(
+            textResponse('OK', {
+                promptTokenCount: 1000,
+                cachedContentTokenCount: 400,
+                candidatesTokenCount: 10,
+                thoughtsTokenCount: 20,
+                totalTokenCount: 1030,
+            }),
+        );
+        const result = await complete({ model });
+
+        const [metered, , , costs] = recordSpy.mock.calls[0]!;
+        expect(metered).toEqual({
+            prompt_tokens: 600,
+            completion_tokens: 10,
+            thinking_tokens: 20,
+            cached_tokens: 400,
+        });
+        expect(costs).toEqual({
+            prompt_tokens: 600 * rates.input,
+            completion_tokens: 10 * rates.output,
+            thinking_tokens: 20 * rates.output,
+            cached_tokens: 400 * rates.cached,
+        });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 600,
+            outputTokens: 30,
+            reasoningTokens: 20,
+            cacheReadTokens: 400,
+        });
+    });
+
+    it.each([
+        ['minimal', 'MINIMAL'],
+        ['low', 'LOW'],
+        ['medium', 'MEDIUM'],
+        ['high', 'HIGH'],
+    ])(
+        'sends reasoning_effort %s as thinkingLevel %s',
+        async (effort, level) => {
+            generateContent.mockResolvedValueOnce(textResponse('OK', usage));
+            await complete({
+                model,
+                reasoning_effort:
+                    effort as ICompleteArguments['reasoning_effort'],
+            });
+            expect(requestOf().config.thinkingConfig).toEqual({
+                thinkingLevel: level,
+            });
+        },
+    );
+
+    it.each(['none', 'xhigh', 'max'])(
+        'rejects reasoning_effort %s before calling Google',
+        async (effort) => {
+            await expect(
+                complete({
+                    model,
+                    reasoning_effort:
+                        effort as ICompleteArguments['reasoning_effort'],
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(generateContent).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([0, 0.5])('forwards temperature %s', async (temperature) => {
+        generateContent.mockResolvedValueOnce(textResponse('OK', usage));
+        await complete({ model, temperature });
+        expect(requestOf().config.temperature).toBe(temperature);
+    });
+
+    it('leaves temperature unset when the caller omits it', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK', usage));
+        await complete({ model });
+        expect(requestOf().config).not.toHaveProperty('temperature');
+    });
+
+    it('streams text and meters the final usage with its thoughts once', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([
+                {
+                    candidates: [
+                        { content: { role: 'model', parts: [{ text: 'O' }] } },
+                    ],
+                    usageMetadata: {
+                        promptTokenCount: 16,
+                        totalTokenCount: 16,
+                    },
+                },
+                {
+                    candidates: [
+                        {
+                            content: { role: 'model', parts: [{ text: 'K' }] },
+                            finishReason: 'STOP',
+                        },
+                    ],
+                    usageMetadata: usage,
+                },
+            ]),
+        );
+
+        const { events } = await runStream({ model, reasoning_effort: 'high' });
+
+        expect(requestOf(generateContentStream).config.thinkingConfig).toEqual({
+            thinkingLevel: 'HIGH',
+        });
+        expect(
+            events.filter((e) => e.type === 'text').map((e) => e.text),
+        ).toEqual(['O', 'K']);
+        expect(events.find((e) => e.type === 'usage')).toMatchObject({
+            usage: {
+                prompt_tokens: 16,
+                completion_tokens: 3,
+                thinking_tokens: thoughts,
+                cached_tokens: 0,
+            },
+            usageDetails: {
+                inputTokens: 16,
+                outputTokens: 3 + thoughts,
+                reasoningTokens: thoughts,
+            },
+        });
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+});
+
+it.each(['gemini-3.1-flash-lite', 'gemini-3-flash-preview'])(
+    '%s retains its unary output allowance',
+    async (model) => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({ model, max_tokens: 65_536 });
+        expect(requestOf().config.maxOutputTokens).toBe(65_536);
+    },
+);
 
 describe('geminiNativeClient deadline', () => {
     type Request = { config?: { abortSignal?: AbortSignal } };

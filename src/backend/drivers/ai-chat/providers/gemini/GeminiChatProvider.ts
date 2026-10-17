@@ -18,7 +18,7 @@
  */
 
 // Most models go through Google's OpenAI-compatible endpoint with the openai
-// SDK; only GEMINI_NATIVE_MODEL_IDS use the native generateContent API.
+// SDK; only GEMINI_NATIVE_MODELS use the native generateContent API.
 import {
     type GenerateContentResponseUsageMetadata,
     GoogleGenAI,
@@ -43,16 +43,13 @@ import {
 import { geminiNativeClient } from './geminiNative.js';
 import {
     GEMINI_MODELS,
-    GEMINI_NATIVE_MODEL_IDS,
+    GEMINI_NATIVE_MODELS,
     GEMINI_ARGON_NON_STREAM_MAX_TOKENS,
 } from './models.js';
 
 type GroundingContent = { grounding_metadata?: unknown };
 
-/** The thinking levels the native models accept; medium when unset. */
-const NATIVE_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
-
-/** Google's cap on non-streamed native output; streams keep the catalog's. */
+/** Unary Argon uses a lower output cap than streaming. */
 const nativeOutputCap = (
     args: ICompleteArguments,
     model: IChatModel,
@@ -66,7 +63,7 @@ const COMPAT_BASE_URL =
 
 /** The catalog without the native models, for a custom `apiBaseUrl`. */
 const COMPAT_ONLY_MODELS = GEMINI_MODELS.filter(
-    (m) => !GEMINI_NATIVE_MODEL_IDS.has(m.id),
+    (m) => !GEMINI_NATIVE_MODELS.has(m.id),
 );
 
 export class GeminiChatProvider extends OpenAICompatProvider {
@@ -89,7 +86,7 @@ export class GeminiChatProvider extends OpenAICompatProvider {
                 completions: {
                     create: (params, options) => {
                         const { model } = params as { model: string };
-                        if (!GEMINI_NATIVE_MODEL_IDS.has(model)) {
+                        if (!GEMINI_NATIVE_MODELS.has(model)) {
                             return compat.chat.completions.create(
                                 params,
                                 options,
@@ -141,20 +138,26 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         args: ICompleteArguments,
         model: IChatModel,
     ) {
-        if (!GEMINI_NATIVE_MODEL_IDS.has(model.id)) return params;
+        const native = GEMINI_NATIVE_MODELS.get(model.id);
+        if (!native) return params;
+        // Unset leaves the thinking level to Google's per-model default.
         const effort = args.reasoning_effort ?? args.reasoning?.effort;
-        if (effort !== undefined && !NATIVE_REASONING_EFFORTS.has(effort)) {
+        if (effort !== undefined && !native.reasoningEfforts.has(effort)) {
             throw new HttpError(
                 400,
-                `reasoning_effort must be low, medium or high for ${model.id}`,
+                `reasoning_effort must be one of ${[...native.reasoningEfforts].join(', ')} for ${model.id}`,
                 { legacyCode: 'bad_request' },
             );
         }
+        const { temperature, ...shared } = params;
         const hasTools = Array.isArray(params.tools) && params.tools.length > 0;
         const outputCap = nativeOutputCap(args, model);
         const requested = params.max_completion_tokens as number | undefined;
         return {
-            ...params,
+            ...shared,
+            ...(native.temperature && temperature !== undefined
+                ? { temperature }
+                : {}),
             ...(outputCap !== undefined
                 ? {
                       max_completion_tokens: Math.min(
@@ -172,7 +175,7 @@ export class GeminiChatProvider extends OpenAICompatProvider {
 
     protected override preservesToolCallOrder(model: IChatModel) {
         // Gemini expects parallel calls back in order, signature on the first.
-        return GEMINI_NATIVE_MODEL_IDS.has(model.id);
+        return GEMINI_NATIVE_MODELS.has(model.id);
     }
 
     protected override keepsToolCallExtraContent() {
@@ -181,7 +184,7 @@ export class GeminiChatProvider extends OpenAICompatProvider {
     }
 
     protected override meteredUsage(source: UsageSource, model: IChatModel) {
-        if (GEMINI_NATIVE_MODEL_IDS.has(model.id)) {
+        if (GEMINI_NATIVE_MODELS.has(model.id)) {
             return nativeMeteredUsage(
                 source.usage as unknown as
                     GenerateContentResponseUsageMetadata | undefined,

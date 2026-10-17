@@ -46,6 +46,47 @@ import { GeminiChatProvider } from './GeminiChatProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';
 
+/** The reported output breakdown matches the tokens that were billed. */
+const expectBilledOutput = (
+    usage: Record<string, number>,
+    details: UsageDetails | undefined,
+) => {
+    expect(usage.prompt_tokens).toBeGreaterThan(0);
+    expect(usage.completion_tokens).toBeGreaterThan(0);
+    expect(details?.outputTokens).toBe(
+        usage.completion_tokens + usage.thinking_tokens,
+    );
+    expect(details?.reasoningTokens).toBe(usage.thinking_tokens);
+};
+
+/** Runs a streamed result through `AIChatStream` and returns its events. */
+const collectStream = async (result: unknown) => {
+    const lines: string[] = [];
+    const chatStream = new AIChatStream({
+        stream: new Writable({
+            write(chunk, _enc, cb) {
+                lines.push(chunk.toString('utf8'));
+                cb();
+            },
+        }),
+    });
+    await withTestActor(() =>
+        (
+            result as {
+                init_chat_stream: (p: {
+                    chatStream: AIChatStream;
+                }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream }),
+    );
+    const events = lines
+        .join('')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+    return { events, chatStream };
+};
+
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'GeminiChatProvider (integration)',
     () => {
@@ -72,6 +113,70 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                     .message?.content;
                 expect(typeof text === 'string' && text.length > 0).toBe(true);
             },
+        );
+
+    },
+);
+
+// Four requests in all. Assertions never print responses or signatures.
+describe.skipIf(skipUnlessEnv(ENV_VAR))(
+    'GeminiChatProvider native Flash models (integration)',
+    () => {
+        const restored = (model: string, args: Partial<ICompleteArguments>) =>
+            withTestActor(() =>
+                new GeminiChatProvider(
+                    { apiKey: optionalEnv(ENV_VAR)! },
+                    makeMeteringStub(),
+                ).complete({
+                    model,
+                    messages: [
+                        { role: 'user', content: 'Say hi in one word.' },
+                    ],
+                    reasoning_effort: 'high',
+                    // Thinking counts against the cap; leave room for it.
+                    max_tokens: 2048,
+                    ...args,
+                } as ICompleteArguments),
+            );
+
+        it.each([
+            'google/gemini-3.1-flash-lite',
+            'google/gemini-3-flash-preview',
+        ])(
+            'answers %s at high thinking with explicit thought usage',
+            async (model) => {
+                const result = (await restored(
+                    model,
+                    {},
+                )) as IChatMessageResult;
+
+                const text = result.message.content;
+                expect(typeof text).toBe('string');
+                expect((text as string).trim().length).toBeGreaterThan(0);
+                expect(result.usageDetails?.reasoningTokens).toBeGreaterThan(0);
+                expectBilledOutput(result.usage, result.usageDetails);
+            },
+            INTEGRATION_TEST_TIMEOUT_MS,
+        );
+
+        it.each([
+            'google/gemini-3.1-flash-lite',
+            'google/gemini-3-flash-preview',
+        ])(
+            'streams %s with a final explicit thought usage report',
+            async (model) => {
+                const { events, chatStream } = await collectStream(
+                    await restored(model, { stream: true }),
+                );
+                const usageLine = events.find((e) => e.type === 'usage');
+                expect(events.some((e) => e.type === 'text')).toBe(true);
+                expect(chatStream.reportedUsage).not.toBeNull();
+                expect(usageLine.usageDetails.reasoningTokens).toBeGreaterThan(
+                    0,
+                );
+                expectBilledOutput(usageLine.usage, usageLine.usageDetails);
+            },
+            INTEGRATION_TEST_TIMEOUT_MS,
         );
     },
 );
@@ -102,18 +207,6 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 } as ICompleteArguments),
             );
 
-        const expectBilledOutput = (
-            usage: Record<string, number>,
-            details: UsageDetails | undefined,
-        ) => {
-            expect(usage.prompt_tokens).toBeGreaterThan(0);
-            expect(usage.completion_tokens).toBeGreaterThan(0);
-            expect(details?.outputTokens).toBe(
-                usage.completion_tokens + usage.thinking_tokens,
-            );
-            expect(details?.reasoningTokens).toBe(usage.thinking_tokens);
-        };
-
         it.each(['low', 'medium', 'high'] as const)(
             'answers at thinking level %s with explicit usage',
             async (effort) => {
@@ -130,33 +223,9 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
             'streams with a final explicit usage report',
             { timeout: INTEGRATION_TEST_TIMEOUT_MS },
             async () => {
-                const result = await argon({
-                    stream: true,
-                    reasoning_effort: 'low',
-                });
-                const lines: string[] = [];
-                const chatStream = new AIChatStream({
-                    stream: new Writable({
-                        write(chunk, _enc, cb) {
-                            lines.push(chunk.toString('utf8'));
-                            cb();
-                        },
-                    }),
-                });
-                await withTestActor(() =>
-                    (
-                        result as {
-                            init_chat_stream: (p: {
-                                chatStream: AIChatStream;
-                            }) => Promise<void>;
-                        }
-                    ).init_chat_stream({ chatStream }),
+                const { events, chatStream } = await collectStream(
+                    await argon({ stream: true, reasoning_effort: 'low' }),
                 );
-                const events = lines
-                    .join('')
-                    .split('\n')
-                    .filter(Boolean)
-                    .map((line) => JSON.parse(line));
                 const usageLine = events.find((e) => e.type === 'usage');
                 expect(events.some((e) => e.type === 'text')).toBe(true);
                 expect(chatStream.reportedUsage).not.toBeNull();
