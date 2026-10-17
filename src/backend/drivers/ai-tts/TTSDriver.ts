@@ -25,16 +25,11 @@ import {
     type AiMeteringService,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
-import {
-    AI_CONCURRENT,
-    AI_RATE_LIMIT,
-    AI_TTS_MAX_TEXT_CHARS,
-} from '../util/aiLimits.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { usesGoogleGeminiEndpoint } from '../util/geminiRest.js';
 import { ProviderRegistry, readProviderKey } from '../util/providerRegistry.js';
 import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
-import { assertMaxChars } from './providers/common.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
@@ -140,8 +135,6 @@ export class TTSDriver extends PuterDriver {
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
-
-        assertMaxChars('text', args.text, AI_TTS_MAX_TEXT_CHARS);
 
         const providerName = this.#resolveProvider(args);
         const provider = this.#providers.get(providerName);

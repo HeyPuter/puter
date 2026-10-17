@@ -388,6 +388,27 @@ describe('GeminiTTSProvider.synthesize argument validation', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
+    it('accepts text of exactly 3000 characters', async () => {
+        const text = 'x'.repeat(3000);
+        replyWith(interaction());
+        await withTestActor(() => makeProvider().synthesize({ text }));
+        expect(sentRequest().body.input[0].content[0].text).toBe(text);
+    });
+
+    it('rejects text over 3000 characters with 400 input_too_large before holding credit', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().synthesize({ text: 'x'.repeat(3001) }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'input_too_large',
+            fields: { key: 'text', max: 3000 },
+        });
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it('accepts instructions of exactly 3000 characters', async () => {
         const instructions = 'x'.repeat(3000);
         replyWith(interaction());
@@ -908,8 +929,8 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
         },
     );
 
-    it('surfaces a transport timeout as 504 upstream_timeout and releases the hold', async () => {
-        const { released } = trackHolds();
+    it('charges the held budget for a transport timeout and says how to avoid it', async () => {
+        const { held, released } = trackHolds();
         fetchSpy.mockRejectedValueOnce(
             new DOMException(
                 'The operation was aborted due to timeout',
@@ -925,9 +946,14 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
         expect(err).toMatchObject({
             statusCode: 504,
             legacyCode: 'upstream_timeout',
+            message: expect.stringContaining('Split the text'),
         });
         expect(released).toHaveBeenCalledTimes(1);
-        expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+        expect(metered(':input').usageAmount).toBe(8192);
+        expect(metered(':output:audio').usageAmount).toBe(16_384);
+        expect(
+            meteredUsages().reduce((sum, u) => sum + u.costOverride!, 0),
+        ).toBe(held[0]);
     });
 
     it('surfaces a body that times out mid-read as 504 upstream_timeout', async () => {
@@ -957,7 +983,7 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
         });
     });
 
-    it('stops reading a reply over the size cap with an upstream error, not a 413', async () => {
+    it('stops reading a reply over the size cap, charges the held budget and says how to avoid it', async () => {
         const { released } = trackHolds();
         const chunk = new Uint8Array(1024 * 1024).fill(0x20);
         let sent = 0;
@@ -982,12 +1008,22 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
         );
 
         expect(err).toMatchObject({
-            statusCode: 502,
-            legacyCode: 'upstream_failed',
-            message: `Gemini TTS response exceeds ${32 * 1024 * 1024} bytes`,
+            statusCode: 400,
+            legacyCode: 'input_too_large',
+            message: expect.stringContaining('Split the text'),
         });
+        expect(sent).toBeLessThanOrEqual(
+            GEMINI_TTS_MAX_RESPONSE_BYTES + 2 ** 20,
+        );
         expect(released).toHaveBeenCalledTimes(1);
-        expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+        expect(metered(':output:audio').usageAmount).toBe(16_384);
+    });
+
+    it('reads a reply big enough for the whole audio budget', () => {
+        // ~25 tokens/s of 24 kHz 16-bit PCM, base64-encoded.
+        const seconds = 16_384 / 25;
+        const base64Bytes = Math.ceil((seconds * 24_000 * 2) / 3) * 4;
+        expect(GEMINI_TTS_MAX_RESPONSE_BYTES).toBeGreaterThan(base64Bytes);
     });
 
     it('aborts the upstream call when the caller disconnects, and releases the hold', async () => {

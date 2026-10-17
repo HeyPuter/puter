@@ -18,6 +18,7 @@
  */
 
 import { Readable } from 'node:stream';
+import type { Actor } from '../../../../core/actor.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import {
@@ -29,9 +30,13 @@ import type { DriverStreamResult } from '../../../meta.js';
 import {
     AI_TTS_GEMINI_RESERVED_TOKENS,
     AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS,
+    AI_TTS_MAX_GEMINI_TEXT_CHARS,
 } from '../../../util/aiLimits.js';
 import { readBoundedBody } from '../../../util/fileInput.js';
-import { upstreamFetch } from '../../../util/upstreamErrors.js';
+import {
+    isUpstreamTimeoutError,
+    upstreamFetch,
+} from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
 import type {
     ITTSVoice,
@@ -40,13 +45,20 @@ import type {
     ITTSProvider,
 } from '../../types.js';
 import { assertMaxChars, TTS_UPSTREAM_TIMEOUT_MS } from '../common.js';
-import { GEMINI_TTS_COSTS, geminiTTSCostsAt } from './costs.js';
+import {
+    GEMINI_TTS_COSTS,
+    type GeminiTTSCosts,
+    geminiTTSCostsAt,
+} from './costs.js';
 
 const INTERACTIONS_URL =
     'https://generativelanguage.googleapis.com/v1beta/interactions';
 
-/** Largest Interactions reply read; audio arrives base64-encoded inside JSON. */
-export const GEMINI_TTS_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+/**
+ * Largest Interactions reply read; audio arrives base64-encoded inside JSON.
+ * The full audio budget (~11 min of 24 kHz PCM at ~25 tokens/s) is ~42 MB.
+ */
+export const GEMINI_TTS_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 const DEFAULT_MODEL = 'gemini-3.8-flash-tts';
 const DEFAULT_VOICE = 'Kore';
@@ -152,8 +164,25 @@ const upstreamFailure = (message: string): HttpError =>
         fields: { provider: 'gemini' },
     });
 
-const responseTooLarge = (maxBytes: number): HttpError =>
-    upstreamFailure(`Gemini TTS response exceeds ${maxBytes} bytes`);
+const SPLIT_TEXT_HINT = 'Split the text into shorter requests.';
+
+const audioTooLong = (): HttpError =>
+    new HttpError(
+        400,
+        `Gemini TTS generated more audio than one request can return. ${SPLIT_TEXT_HINT}`,
+        { legacyCode: 'input_too_large', fields: { provider: 'gemini' } },
+    );
+
+const audioTimedOut = (cause: unknown): HttpError =>
+    new HttpError(
+        504,
+        `Gemini TTS timed out generating the audio. ${SPLIT_TEXT_HINT}`,
+        {
+            legacyCode: 'upstream_timeout',
+            fields: { provider: 'gemini' },
+            cause,
+        },
+    );
 
 /** A usable token count: a finite, non-negative integer. */
 const tokenCount = (value: unknown): number | undefined =>
@@ -278,6 +307,7 @@ export class GeminiTTSProvider implements ITTSProvider {
                 fields: { key: 'text' },
             });
         }
+        assertMaxChars('text', text, AI_TTS_MAX_GEMINI_TEXT_CHARS);
 
         if (instructions != null && typeof instructions !== 'string') {
             throw new HttpError(400, 'instructions must be a string', {
@@ -371,30 +401,51 @@ export class GeminiTTSProvider implements ITTSProvider {
             `gemini:${model}`,
             reservedMicroCents,
             async (): Promise<DriverStreamResult> => {
-                // Non-2xx answers and timeouts are classified at the driver
-                // boundary.
-                const response = await upstreamFetch(
-                    'gemini',
-                    INTERACTIONS_URL,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'x-goog-api-key': this.#apiKey,
-                            'Content-Type': 'application/json',
+                const signal = Context.get('abortSignal');
+                let overran = false;
+                let raw: Buffer;
+                try {
+                    // Non-2xx answers are classified at the driver boundary.
+                    const response = await upstreamFetch(
+                        'gemini',
+                        INTERACTIONS_URL,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'x-goog-api-key': this.#apiKey,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(request),
+                            signal,
                         },
-                        body: JSON.stringify(request),
-                        signal: Context.get('abortSignal'),
-                    },
-                    {
-                        providerLabel: 'Gemini',
-                        timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
-                    },
-                );
-                const raw = await readBoundedBody(
-                    response,
-                    GEMINI_TTS_MAX_RESPONSE_BYTES,
-                    responseTooLarge,
-                );
+                        {
+                            providerLabel: 'Gemini',
+                            timeoutMs: TTS_UPSTREAM_TIMEOUT_MS,
+                        },
+                    );
+                    raw = await readBoundedBody(
+                        response,
+                        GEMINI_TTS_MAX_RESPONSE_BYTES,
+                        () => {
+                            overran = true;
+                            return audioTooLong();
+                        },
+                    );
+                } catch (err) {
+                    const timedOut =
+                        isUpstreamTimeoutError(err) && !signal?.aborted;
+                    if (!overran && !timedOut) throw err;
+                    // Google bills audio we never got to read, and there is
+                    // no usage to settle from, so the held budget is charged.
+                    await this.#meter(
+                        actor,
+                        model,
+                        costs,
+                        AI_TTS_GEMINI_RESERVED_TOKENS.input,
+                        AI_TTS_GEMINI_RESERVED_TOKENS.audio,
+                    );
+                    throw overran ? err : audioTimedOut(err);
+                }
 
                 let interaction: Interaction | null = null;
                 try {
@@ -464,31 +515,44 @@ export class GeminiTTSProvider implements ITTSProvider {
                     };
                 } finally {
                     // Every outcome pays once for the counts it reports.
-                    const usagePrefix = `gemini:${model}`;
-                    const usages: UsageInput[] = [];
-                    if (inputTokens) {
-                        usages.push({
-                            usageType: `${usagePrefix}:input`,
-                            usageAmount: inputTokens,
-                            costOverride: inputTokens * costs.input,
-                        });
-                    }
-                    if (outputTokens) {
-                        usages.push({
-                            usageType: `${usagePrefix}:output:audio`,
-                            usageAmount: outputTokens,
-                            costOverride: outputTokens * costs.output_audio,
-                        });
-                    }
-                    if (usages.length > 0) {
-                        await this.meteringService.batchIncrementUsages(
-                            actor,
-                            usages,
-                        );
-                    }
+                    await this.#meter(
+                        actor,
+                        model,
+                        costs,
+                        inputTokens,
+                        outputTokens,
+                    );
                 }
             },
         );
+    }
+
+    async #meter(
+        actor: Actor,
+        model: string,
+        costs: GeminiTTSCosts,
+        inputTokens: number | undefined,
+        outputTokens: number | undefined,
+    ): Promise<void> {
+        const usagePrefix = `gemini:${model}`;
+        const usages: UsageInput[] = [];
+        if (inputTokens) {
+            usages.push({
+                usageType: `${usagePrefix}:input`,
+                usageAmount: inputTokens,
+                costOverride: inputTokens * costs.input,
+            });
+        }
+        if (outputTokens) {
+            usages.push({
+                usageType: `${usagePrefix}:output:audio`,
+                usageAmount: outputTokens,
+                costOverride: outputTokens * costs.output_audio,
+            });
+        }
+        if (usages.length > 0) {
+            await this.meteringService.batchIncrementUsages(actor, usages);
+        }
     }
 
     /** WAV passes through byte for byte; raw PCM is wrapped in a WAV header. */

@@ -65,8 +65,8 @@ export const AI_CONCURRENT: DriverConcurrentConfig = {
 //
 // Counted in UTF-16 code units, as puter.js counts them before sending.
 
-/** Longest `text` any TTS provider is sent. */
-export const AI_TTS_MAX_TEXT_CHARS = 3000;
+/** Longest Gemini TTS `text`. Other providers enforce their own limits. */
+export const AI_TTS_MAX_GEMINI_TEXT_CHARS = 3000;
 
 /** Longest Gemini TTS `instructions`, which are billed as input with `text`. */
 export const AI_TTS_MAX_GEMINI_INSTRUCTIONS_CHARS = 3000;

@@ -391,43 +391,13 @@ describe('TTSDriver.synthesize provider routing', () => {
 // -- Text length cap --
 
 describe('TTSDriver.synthesize text length cap', () => {
-    it('passes text of exactly 3000 characters to the provider', async () => {
+    it('leaves text length to the provider', async () => {
         openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
-        const text = 'x'.repeat(3000);
+        const text = 'x'.repeat(3001);
 
         await withActor(() => driver.synthesize({ text, provider: 'openai' }));
 
         expect(openaiSpeechCreateMock.mock.calls[0][0].input).toBe(text);
-    });
-
-    it.each([undefined, 'openai', 'gemini', 'xai', 'elevenlabs'])(
-        'rejects 3001 characters with 400 input_too_large before provider %s is called',
-        async (provider) => {
-            await expect(
-                withActor(() =>
-                    driver.synthesize({ text: 'x'.repeat(3001), provider }),
-                ),
-            ).rejects.toMatchObject({
-                statusCode: 400,
-                legacyCode: 'input_too_large',
-                fields: { key: 'text', max: 3000 },
-            });
-            expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
-            expect(pollySendMock).not.toHaveBeenCalled();
-            expect(fetchSpy).not.toHaveBeenCalled();
-        },
-    );
-
-    it('rejects over-long text in test mode too, as puter.js does', async () => {
-        await expect(
-            withActor(() =>
-                driver.synthesize({
-                    text: 'x'.repeat(3001),
-                    provider: 'openai',
-                    test_mode: true,
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
     });
 });
 
