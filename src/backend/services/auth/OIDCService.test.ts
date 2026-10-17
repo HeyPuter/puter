@@ -58,6 +58,10 @@ let jwk: Record<string, unknown>;
 const fetchedUrls: string[] = [];
 /** Per-test fetch responses, consulted before the built-in discovery stubs. */
 const stubbedResponses = new Map<string, () => Partial<Response>>();
+/** Per-test delays before a URL answers, in ms. */
+const fetchDelays = new Map<string, number>();
+/** Per-test gates a URL waits on before it answers. */
+const fetchGates = new Map<string, Promise<void>>();
 
 beforeAll(async () => {
     const pair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -117,6 +121,10 @@ beforeAll(async () => {
     vi.stubGlobal('fetch', (async (input: unknown) => {
         const url = String(input);
         fetchedUrls.push(url);
+        const delay = fetchDelays.get(url);
+        if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+        const gate = fetchGates.get(url);
+        if (gate) await gate;
         const stubbed = stubbedResponses.get(url);
         if (stubbed) return stubbed() as Response;
         if (url === MS_DISCOVERY_URL) {
@@ -605,6 +613,198 @@ describe('OIDCService.getProviderConfig', () => {
         } finally {
             stubbedResponses.delete(GOOGLE_DISCOVERY_URL);
             warn.mockRestore();
+        }
+    });
+});
+
+describe('OIDCService.getEnabledProviderIds', () => {
+    const appleKeyPem = () =>
+        crypto
+            .generateKeyPairSync('ec', { namedCurve: 'P-256' })
+            .privateKey.export({ format: 'pem', type: 'pkcs8' })
+            .toString();
+
+    // A cold instance, so discovery and the provider list start uncached.
+    const fresh = (providers: Record<string, Record<string, string>>) => {
+        const svc = new OIDCServiceClass(
+            ...([
+                { origin: TEST_ORIGIN, oidc: { providers } },
+                {},
+                {},
+                {},
+            ] as unknown as ConstructorParameters<typeof OIDCServiceClass>),
+        );
+        svc.onServerStart();
+        return svc;
+    };
+
+    const fetchesOf = (from: number, url: string) =>
+        fetchedUrls.slice(from).filter((u) => u === url).length;
+
+    it('shares one fetch per discovery document across concurrent calls, in config order', async () => {
+        const svc = fresh({
+            microsoft: { client_id: 'm', client_secret: 's' },
+            google: { client_id: 'g', client_secret: 's' },
+            custom: {
+                client_id: 'c',
+                client_secret: 's',
+                authorization_endpoint: 'https://idp.example/authorize',
+                token_endpoint: CUSTOM_TOKEN,
+                userinfo_endpoint: CUSTOM_USERINFO,
+            },
+        });
+        const before = fetchedUrls.length;
+        // Microsoft answers last.
+        fetchDelays.set(MS_DISCOVERY_URL, 30);
+        fetchDelays.set(GOOGLE_DISCOVERY_URL, 5);
+        try {
+            const [first, second] = await Promise.all([
+                svc.getEnabledProviderIds(),
+                svc.getEnabledProviderIds(),
+            ]);
+            expect(first).toEqual(['microsoft', 'google', 'custom']);
+            expect(second).toEqual(first);
+        } finally {
+            fetchDelays.clear();
+        }
+        expect(fetchesOf(before, MS_DISCOVERY_URL)).toBe(1);
+        expect(fetchesOf(before, GOOGLE_DISCOVERY_URL)).toBe(1);
+    });
+
+    it('answers from memory once every discovery has succeeded', async () => {
+        const svc = fresh({
+            google: { client_id: 'g', client_secret: 's' },
+            apple: {
+                client_id: 'a',
+                team_id: 'T',
+                key_id: 'K',
+                private_key: appleKeyPem(),
+            },
+            nameless: { client_secret: 'x' },
+        });
+        expect(await svc.getEnabledProviderIds()).toEqual(['google', 'apple']);
+
+        const before = fetchedUrls.length;
+        const sign = vi.spyOn(crypto, 'sign');
+        try {
+            const again = await svc.getEnabledProviderIds();
+            expect(again).toEqual(['google', 'apple']);
+            // A caller editing its copy leaves the next answer alone.
+            again.pop();
+            expect(await svc.getEnabledProviderIds()).toEqual([
+                'google',
+                'apple',
+            ]);
+            expect(sign).not.toHaveBeenCalled();
+        } finally {
+            sign.mockRestore();
+        }
+        expect(fetchedUrls.length).toBe(before);
+    });
+
+    it('asks again for a discovery document that failed', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const svc = fresh({
+            google: { client_id: 'g', client_secret: 's' },
+            custom: {
+                client_id: 'c',
+                client_secret: 's',
+                authorization_endpoint: 'https://idp.example/authorize',
+                token_endpoint: CUSTOM_TOKEN,
+                userinfo_endpoint: CUSTOM_USERINFO,
+            },
+        });
+        try {
+            stubbedResponses.set(GOOGLE_DISCOVERY_URL, () => ({ ok: false }));
+            expect(await svc.getEnabledProviderIds()).toEqual(['custom']);
+            stubbedResponses.set(GOOGLE_DISCOVERY_URL, () => {
+                throw new Error('network down');
+            });
+            expect(await svc.getEnabledProviderIds()).toEqual(['custom']);
+            stubbedResponses.delete(GOOGLE_DISCOVERY_URL);
+            expect(await svc.getEnabledProviderIds()).toEqual([
+                'google',
+                'custom',
+            ]);
+        } finally {
+            stubbedResponses.delete(GOOGLE_DISCOVERY_URL);
+            warn.mockRestore();
+        }
+    });
+
+    it('keeps no list from a call that joined a discovery fetch which then failed', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const providers = {
+            google: { client_id: 'g', client_secret: 's' },
+            custom: {
+                client_id: 'c',
+                client_secret: 's',
+                authorization_endpoint: 'https://idp.example/authorize',
+                token_endpoint: CUSTOM_TOKEN,
+                userinfo_endpoint: CUSTOM_USERINFO,
+            },
+        };
+        try {
+            // A second call lands a few microtasks after the failing fetch
+            // answers; every landing point has to leave the list unkept.
+            for (let ticks = 0; ticks < 8; ticks++) {
+                const svc = fresh(providers);
+                let open!: () => void;
+                const gate = new Promise<void>((resolve) => {
+                    open = resolve;
+                });
+                fetchGates.set(GOOGLE_DISCOVERY_URL, gate);
+                stubbedResponses.set(GOOGLE_DISCOVERY_URL, () => ({
+                    ok: false,
+                }));
+                const first = svc.getEnabledProviderIds();
+                const second = (async () => {
+                    await gate;
+                    for (let i = 0; i < ticks; i++) await null;
+                    return svc.getEnabledProviderIds();
+                })();
+                open();
+                expect(await first).toEqual(['custom']);
+                expect(await second).toEqual(['custom']);
+
+                fetchGates.delete(GOOGLE_DISCOVERY_URL);
+                stubbedResponses.delete(GOOGLE_DISCOVERY_URL);
+                expect(
+                    await svc.getEnabledProviderIds(),
+                    `ticks=${ticks}`,
+                ).toEqual(['google', 'custom']);
+            }
+        } finally {
+            fetchGates.delete(GOOGLE_DISCOVERY_URL);
+            stubbedResponses.delete(GOOGLE_DISCOVERY_URL);
+            warn.mockRestore();
+        }
+    });
+
+    it('keeps failing for an Apple key that does not parse', async () => {
+        const svc = fresh({
+            google: { client_id: 'g', client_secret: 's' },
+            apple: {
+                client_id: 'a',
+                team_id: 'T',
+                key_id: 'K',
+                private_key: 'not a key',
+            },
+        });
+        const parse = vi.spyOn(crypto, 'createPrivateKey');
+        try {
+            let first: unknown;
+            try {
+                await svc.getEnabledProviderIds();
+            } catch (error) {
+                first = error;
+            }
+            expect(first).toBeInstanceOf(Error);
+            await expect(svc.getEnabledProviderIds()).rejects.toBe(first);
+            await expect(svc.getProviderConfig('apple')).rejects.toBe(first);
+            expect(parse).toHaveBeenCalledTimes(1);
+        } finally {
+            parse.mockRestore();
         }
     });
 });

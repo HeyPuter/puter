@@ -783,6 +783,87 @@ describe('AuthService (integration)', () => {
             expect(app.icon).toBe('data:image/png;base64,ICON');
         });
 
+        describe('listSessions app lookups', () => {
+            const insertApp = async (userId: number, title: string) => {
+                const uid = `app-${uuidv4()}`;
+                await server.clients.db.write(
+                    'INSERT INTO `apps` (`uid`, `name`, `title`, `icon`, `description`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        uid,
+                        `n-${uid}`,
+                        title,
+                        `data:image/png;base64,${title}`,
+                        '',
+                        `https://${uuidv4()}.example`,
+                        userId,
+                    ],
+                );
+                return uid;
+            };
+
+            /** A user with sessions under two live apps and one that is gone. */
+            const seed = async () => {
+                const user = await makeUser();
+                const liveA = await insertApp(user.id, 'Alpha');
+                const liveB = await insertApp(user.id, 'Beta');
+                const gone = `app-${uuidv4()}`;
+                for (const appUid of [liveA, liveB, gone]) {
+                    await server.stores.session.create(user.id, {
+                        kind: 'app',
+                        app_uid: appUid,
+                    });
+                }
+                const actor = {
+                    user: { id: user.id, uuid: user.uuid },
+                } as unknown as Actor;
+                return { actor, liveA, liveB, gone };
+            };
+
+            const appsByUid = (rows: Array<Record<string, unknown>>) =>
+                Object.fromEntries(rows.map((r) => [r.app_uid, r.app]));
+
+            it('reads the apps in one batch and looks up only what it missed', async () => {
+                const { actor, liveA, liveB, gone } = await seed();
+                const getByUids = vi.spyOn(server.stores.app, 'getByUids');
+                const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+                let rows: Array<Record<string, unknown>>;
+                try {
+                    rows = await authService.listSessions(actor);
+                    expect(getByUids).toHaveBeenCalledTimes(1);
+                    expect(getByUid.mock.calls).toEqual([[gone]]);
+                } finally {
+                    getByUids.mockRestore();
+                    getByUid.mockRestore();
+                }
+                expect(appsByUid(rows)).toEqual({
+                    [liveA]: expect.objectContaining({
+                        uid: liveA,
+                        title: 'Alpha',
+                    }),
+                    [liveB]: expect.objectContaining({
+                        uid: liveB,
+                        title: 'Beta',
+                    }),
+                    [gone]: null,
+                });
+            });
+
+            it('lists the same apps when the batch read fails', async () => {
+                const { actor } = await seed();
+                const expected = await authService.listSessions(actor);
+                const getByUids = vi
+                    .spyOn(server.stores.app, 'getByUids')
+                    .mockRejectedValue(new Error('batch failed'));
+                try {
+                    expect(await authService.listSessions(actor)).toEqual(
+                        expected,
+                    );
+                } finally {
+                    getByUids.mockRestore();
+                }
+            });
+        });
+
         it('listSessions sorts the actor’s current session first, then by last_activity desc', async () => {
             // Manage-sessions GUI anchors "you are here" at the top of the
             // list; downstream rendering doesn't re-sort, so the backend

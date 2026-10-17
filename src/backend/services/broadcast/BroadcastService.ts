@@ -65,7 +65,7 @@ interface IncomingHeaders {
 /** Connections one peer may hold open, and how long an idle one survives. */
 const ADDRESSED_MAX_SOCKETS_PER_PEER = 16;
 const ADDRESSED_MAX_FREE_SOCKETS_PER_PEER = 4;
-const ADDRESSED_SOCKET_IDLE_MS = 30_000;
+const PEER_SOCKET_IDLE_MS = 30_000;
 const ADDRESSED_REQUEST_TIMEOUT_MS = 5_000;
 
 /** What a deployment with no configured identity calls itself. */
@@ -132,8 +132,16 @@ export class BroadcastService extends PuterService {
         OUTBOUND_BACKLOG_BODIES * DEFAULT_OUTBOUND_MAX_BODY_BYTES;
     #webhookProtocol: 'http' | 'https' = 'https';
     #webhookHostHeader: string | null = null;
-    /** Self-signed certs are common between Puter nodes — accept them. */
-    #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
+    /**
+     * Self-signed certs are common between Puter nodes — accept them. Kept
+     * alive across flushes, and a pool of its own so a flush never waits for a
+     * socket behind addressed sends at their cap.
+     */
+    #webhookHttpsAgent = new HttpsAgent({
+        rejectUnauthorized: false,
+        keepAlive: true,
+        timeout: PEER_SOCKET_IDLE_MS,
+    });
     /**
      * The agent addressed sends use. Separate because they run at event rates,
      * where a fresh handshake per request outweighs the payload; the pool is
@@ -144,7 +152,7 @@ export class BroadcastService extends PuterService {
         keepAlive: true,
         maxSockets: ADDRESSED_MAX_SOCKETS_PER_PEER,
         maxFreeSockets: ADDRESSED_MAX_FREE_SOCKETS_PER_PEER,
-        timeout: ADDRESSED_SOCKET_IDLE_MS,
+        timeout: PEER_SOCKET_IDLE_MS,
     });
     #redisSub: ReturnType<typeof this.clients.redis.duplicate> | null = null;
 
@@ -467,27 +475,34 @@ export class BroadcastService extends PuterService {
             const fresh = this.#outboundQueue;
             this.#outboundQueue = new Set();
 
-            for (const peer of this.#webhookPeers) {
-                const backlog = this.#outboundBacklogs.get(peer) ?? [];
-                // A fresh copy of a backlogged event keeps its later place.
-                const pending = [
-                    ...backlog.filter((event) => !fresh.has(event)),
-                    ...fresh,
-                ];
-                const undelivered = await this.#sendWebhookToPeer(
-                    peer,
-                    pending,
-                );
-                // A lost flat-perm invalidation has no TTL to heal it.
-                if (undelivered.length > 0) {
-                    this.#outboundBacklogs.set(
+            // Peers at once, each still in order: a slow or hung peer must not
+            // hold up the others' invalidations. Settled, so the flush lock
+            // stays held until every peer is done.
+            const flushed = await Promise.allSettled(
+                this.#webhookPeers.map(async (peer) => {
+                    const backlog = this.#outboundBacklogs.get(peer) ?? [];
+                    // A fresh copy of a backlogged event keeps its later place.
+                    const pending = [
+                        ...backlog.filter((event) => !fresh.has(event)),
+                        ...fresh,
+                    ];
+                    const undelivered = await this.#sendWebhookToPeer(
                         peer,
-                        this.#boundBacklog(peer, undelivered),
+                        pending,
                     );
-                } else {
-                    this.#outboundBacklogs.delete(peer);
-                }
-            }
+                    // A lost flat-perm invalidation has no TTL to heal it.
+                    if (undelivered.length > 0) {
+                        this.#outboundBacklogs.set(
+                            peer,
+                            this.#boundBacklog(peer, undelivered),
+                        );
+                    } else {
+                        this.#outboundBacklogs.delete(peer);
+                    }
+                }),
+            );
+            for (const result of flushed)
+                if (result.status === 'rejected') throw result.reason;
         } finally {
             this.#outboundIsFlushing = false;
             // Anything that arrived during flush, or is still owed to a peer,

@@ -823,9 +823,10 @@ describe('DriverController.#handleCall tracing', () => {
             'driver.method': 'set',
             'driver.name': 'puter-kvstore',
         });
-        // The call path exercises the permission gate and the KV store's
-        // dynamo writes — both should have produced spans of their own.
-        expect(names).toContain('permission.scan');
+        // The KV store's dynamo writes produce spans of their own. The
+        // permission gate doesn't: every user holds `service` by default, which
+        // `check` answers without a scan.
+        expect(names).not.toContain('permission.scan');
         expect(names.some((n) => n.startsWith('ddb.'))).toBe(true);
     });
 });

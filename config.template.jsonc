@@ -7,9 +7,8 @@
     // Each setting lives at exactly one canonical key — there are no fallback
     // aliases. Values shown are illustrative, not production secrets.
     //
-    // Keys consumed only by closed-source / hosted-prod extensions (clickhouse,
-    // cacheUpdateHandler, pages, prodMeteringAndBilling, …) are intentionally
-    // omitted.
+    // Keys consumed only by closed-source / hosted-prod extensions are
+    // intentionally omitted.
 
     // ── Environment / identity ──────────────────────────────────────────
     "config_name": "template",

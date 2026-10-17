@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { PuterServer } from '../../server.js';
+import { createTestUser, setupTestServer } from '../../testUtil.js';
 import {
     asRecord,
     fsEntryMimeType,
@@ -360,7 +362,7 @@ describe('toLegacyEntry', () => {
 
     it('probes for children to set is_empty on a directory', async () => {
         const fsEntryStore = {
-            listChildren: async () => [{ uuid: 'child' }],
+            hasChildrenByParentUid: async () => true,
         } as never;
         const shaped = await toLegacyEntry(
             undefined,
@@ -373,7 +375,7 @@ describe('toLegacyEntry', () => {
 
     it('treats a failed child probe as non-empty rather than throwing', async () => {
         const fsEntryStore = {
-            listChildren: async () => {
+            hasChildrenByParentUid: async () => {
                 throw new Error('db down');
             },
         } as never;
@@ -383,6 +385,61 @@ describe('toLegacyEntry', () => {
             { fsEntryStore },
         );
         expect(shaped.is_empty).toBe(false);
+    });
+
+    it('leaves is_empty unset for a directory with no store to ask', async () => {
+        const shaped = await toLegacyEntry(
+            undefined,
+            baseEntry({ isDir: true }),
+        );
+        expect(shaped).not.toHaveProperty('is_empty');
+    });
+
+    it('runs the child probe, owner and thumbnail lookups together, keeping key order', async () => {
+        const started: string[] = [];
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fsEntryStore = {
+            hasChildrenByParentUid: async () => {
+                started.push('children');
+                await gate;
+                return false;
+            },
+        } as never;
+        const userStore = {
+            getById: async () => {
+                started.push('owner');
+                await gate;
+                return { username: 'alice' };
+            },
+        };
+        const eventClient = {
+            emitAndWait: async (_key: string, data: { thumbnail: string }) => {
+                started.push('thumbnail');
+                await gate;
+                data.thumbnail = 'https://signed.example/t.png';
+            },
+        } as never;
+
+        const pending = toLegacyEntry(
+            eventClient,
+            baseEntry({ isDir: true, thumbnail: 's3://bucket/t.png' }),
+            { fsEntryStore, userStore },
+        );
+        await vi.waitFor(() => expect(started).toHaveLength(3));
+        release();
+        const shaped = await pending;
+
+        expect(shaped).toMatchObject({
+            is_empty: true,
+            owner: { username: 'alice' },
+            thumbnail: 'https://signed.example/t.png',
+        });
+        const keys = Object.keys(shaped);
+        expect(keys.slice(-2)).toEqual(['is_empty', 'owner']);
+        expect(keys.indexOf('thumbnail')).toBe(keys.indexOf('is_public') + 1);
     });
 
     it('hydrates the owner as a username-only object', async () => {
@@ -520,5 +577,44 @@ describe('signEntry', () => {
             ttlSeconds: 30,
         });
         expect(inSeconds(signed.expires)).toBeLessThanOrEqual(30);
+    });
+});
+
+describe('toLegacyEntry is_empty against stored children', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    }, 60_000);
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('reports an empty directory as empty, and one with a child as not', async () => {
+        const username = `lfh${Math.random().toString(36).slice(2, 10)}`;
+        await createTestUser(server, { username, password: 'lfh-password' });
+        const fsEntryStore = server.stores.fsEntry;
+        const dir = await fsEntryStore.createNonFileEntry({
+            parent: (await fsEntryStore.getEntryByPath(
+                `/${username}/Documents`,
+            ))!,
+            name: 'maybe-empty',
+            kind: 'directory',
+        });
+        const shape = async () =>
+            toLegacyEntry(
+                undefined,
+                (await fsEntryStore.getEntryByUuid(dir.uuid))!,
+                { fsEntryStore },
+            );
+
+        expect((await shape()).is_empty).toBe(true);
+        await fsEntryStore.createNonFileEntry({
+            parent: dir,
+            name: 'child',
+            kind: 'directory',
+        });
+        expect((await shape()).is_empty).toBe(false);
     });
 });

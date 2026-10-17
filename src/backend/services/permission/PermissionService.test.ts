@@ -2203,6 +2203,39 @@ describe('PermissionService — scan paths', () => {
             expect(nonShortcutRan).toBe(false);
         });
 
+        it('asks each rule about an option once, however many requested options explode into it', async () => {
+            const { actor } = await makeLooseUser();
+            const root = `zzdup${uuidv4().replaceAll('-', '')}`;
+            const asked = { shortcut: [] as string[], plain: [] as string[] };
+            permService.registerImplicator({
+                id: 'test-dup-shortcut',
+                shortcut: true,
+                matches: (p) => p.startsWith(root),
+                check: async ({ permission }) => {
+                    asked.shortcut.push(permission);
+                    return undefined;
+                },
+            });
+            permService.registerImplicator({
+                id: 'test-dup-plain',
+                matches: (p) => p.startsWith(root),
+                check: async ({ permission }) => {
+                    asked.plain.push(permission);
+                    return permission === `${root}:a` ? {} : undefined;
+                },
+            });
+
+            // Both options share the parents `${root}:a` and `${root}`.
+            expect(
+                await permService.check(actor, [`${root}:a:b`, `${root}:a`], {
+                    noCache: true,
+                }),
+            ).toBe(true);
+            const firstSeen = [`${root}:a:b`, `${root}:a`, root];
+            expect(asked.shortcut).toEqual(firstSeen);
+            expect(asked.plain).toEqual(firstSeen);
+        });
+
         it('a non-shortcut implicator contributes an option alongside the scanners', async () => {
             const { actor } = await makeLooseUser();
             const permission = `plain-${uuidv4()}:go`;

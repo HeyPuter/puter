@@ -3750,6 +3750,7 @@ export class AuthController extends PuterController {
                 APP_AUTHENTICATED_FLAG,
                 {},
                 {},
+                app,
             );
 
         const tokenPromise: Promise<{ token: string; expiresAt?: number }> =
@@ -3759,6 +3760,7 @@ export class AuthController extends PuterController {
                       token: await this.services.auth.getUserAppToken(
                           req.actor!,
                           app_uid,
+                          app,
                       ),
                   }))();
 
@@ -3861,6 +3863,7 @@ export class AuthController extends PuterController {
             result.token = await this.services.auth.getUserAppToken(
                 req.actor!,
                 app!.uid,
+                app!,
             );
         }
         res.json(result);
@@ -4240,13 +4243,10 @@ export class AuthController extends PuterController {
             throw new HttpError(400, 'No session bound to this actor', {
                 legacyCode: 'session_required' as never,
             });
-        const user = await this.stores.user.getById(req.actor.user.id!);
-        if (!user)
-            throw new HttpError(404, 'User not found', {
-                legacyCode: 'not_found',
-            });
+        // Token auth built this actor from the user's row in this request, and
+        // a deleted user fails it.
         const guiToken = this.services.auth.createGuiToken(
-            user,
+            req.actor.user as UserRow,
             req.actor.session.uid,
         );
         res.json({ token: guiToken });
@@ -4276,13 +4276,9 @@ export class AuthController extends PuterController {
             res.status(400).end();
             return;
         }
-        const user = await this.stores.user.getById(req.actor.user.id!);
-        if (!user) {
-            res.status(404).end();
-            return;
-        }
+        // As in `/get-gui-token`: the actor is the user's row as auth read it.
         const sessionToken = this.services.auth.createSessionTokenForSession(
-            user,
+            req.actor.user as UserRow,
             req.actor.session.uid,
         );
         res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {

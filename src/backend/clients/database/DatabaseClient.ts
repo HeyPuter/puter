@@ -28,6 +28,12 @@ export interface WriteResult {
     insertId: number | bigint;
     affectedRows: number;
     anyRowsAffected: boolean;
+    /**
+     * Warnings the statement raised; nonzero means a value may have been stored
+     * differently from how it was sent. Absent when the engine can't vouch that
+     * a clean insert stored exactly what was sent, on a fresh id.
+     */
+    warningStatus?: number;
 }
 
 export interface BatchEntry {

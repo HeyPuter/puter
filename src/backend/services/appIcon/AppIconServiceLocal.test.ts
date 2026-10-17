@@ -191,6 +191,148 @@ describe('AppIconService', () => {
                 `http://puter-app-icons.site.puter.localhost/${app.uid}.png`,
             );
         });
+        it('probes a missing original by path alone, without the legacy lineage walk', async () => {
+            await appIcon.ensureIconsDirectory();
+            const systemUser =
+                await server.stores.user.getByUuid(SYSTEM_ACTOR_UUID);
+            const uid = `app-${uuidv4()}`;
+            const png = Buffer.from(PNG_2X2_BASE64, 'base64');
+            await server.services.fs.write(systemUser!.id, {
+                fileMetadata: {
+                    path: `${ICONS_PATH}/${uid}-64.png`,
+                    size: png.byteLength,
+                    contentType: 'image/png',
+                },
+                fileContent: png,
+            });
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            try {
+                expect(await appIcon.resolveIconRedirectUrl(uid, 64)).toBe(
+                    `http://puter-app-icons.site.puter.localhost/${uid}-64.png`,
+                );
+                // The original probe may still be running after the answer.
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                expect(
+                    read.mock.calls.filter(([sql]) =>
+                        String(sql).includes('WITH RECURSIVE'),
+                    ),
+                ).toEqual([]);
+            } finally {
+                read.mockRestore();
+            }
+        });
+
+        describe('when the probes fail', () => {
+            const store = () => server.stores.fsEntry;
+
+            /**
+             * Answer each probe after its own delay, failing the listed ones.
+             * Patched by hand: a `vi.spyOn` spy subscribes to the promise it
+             * returns, which would hide a rejection nothing else awaits.
+             */
+            const probeWith = async (
+                answers: {
+                    sized: { ms: number; fail?: boolean; found?: boolean };
+                    original: { ms: number; fail?: boolean; found?: boolean };
+                },
+                run: () => Promise<unknown>,
+            ) => {
+                const unhandled: unknown[] = [];
+                const onUnhandled = (reason: unknown) => unhandled.push(reason);
+                process.on('unhandledRejection', onUnhandled);
+                const target = store() as unknown as Record<string, unknown>;
+                target.getEntryByPath = async (path: string) => {
+                    const answer = /-\d+\.png$/.test(path)
+                        ? answers.sized
+                        : answers.original;
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, answer.ms),
+                    );
+                    if (answer.fail) throw new Error(`${path} probe failed`);
+                    return answer.found ? { path } : null;
+                };
+                try {
+                    let outcome: unknown;
+                    try {
+                        outcome = { url: await run() };
+                    } catch (error) {
+                        outcome = { error: (error as Error).message };
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, 30));
+                    expect(unhandled).toEqual([]);
+                    return outcome;
+                } finally {
+                    delete target.getEntryByPath;
+                    process.off('unhandledRejection', onUnhandled);
+                }
+            };
+
+            const uid = 'app-probe';
+            const sizedError = `/system/app_icons/${uid}-64.png probe failed`;
+
+            it("rethrows the sized probe's failure ahead of a faster original", async () => {
+                for (const original of [
+                    { ms: 0, fail: true },
+                    { ms: 0, found: true },
+                ]) {
+                    expect(
+                        await probeWith(
+                            { sized: { ms: 15, fail: true }, original },
+                            () => appIcon.resolveIconRedirectUrl(uid, 64),
+                        ),
+                    ).toEqual({ error: sizedError });
+                }
+            });
+
+            it('starts both probes before either answers', async () => {
+                const events: string[] = [];
+                const target = store() as unknown as Record<string, unknown>;
+                target.getEntryByPath = async (path: string) => {
+                    const label = /-\d+\.png$/.test(path)
+                        ? 'sized'
+                        : 'original';
+                    events.push(`${label}:start`);
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                    events.push(`${label}:end`);
+                    return null;
+                };
+                try {
+                    await appIcon.resolveIconRedirectUrl(uid, 64);
+                } finally {
+                    delete target.getEntryByPath;
+                }
+                expect(events.slice(0, 2)).toEqual([
+                    'sized:start',
+                    'original:start',
+                ]);
+            });
+
+            it('answers with the sized icon whatever the original probe does', async () => {
+                expect(
+                    await probeWith(
+                        {
+                            sized: { ms: 15, found: true },
+                            original: { ms: 0, fail: true },
+                        },
+                        () => appIcon.resolveIconRedirectUrl(uid, 64),
+                    ),
+                ).toEqual({
+                    url: `http://puter-app-icons.site.puter.localhost/${uid}-64.png`,
+                });
+            });
+
+            it("rethrows the original probe's failure when there is no sized icon", async () => {
+                expect(
+                    await probeWith(
+                        { sized: { ms: 0 }, original: { ms: 15, fail: true } },
+                        () => appIcon.resolveIconRedirectUrl(uid, 64),
+                    ),
+                ).toEqual({
+                    error: `/system/app_icons/${uid}.png probe failed`,
+                });
+            });
+        });
     });
 
     describe('icon pipeline', () => {

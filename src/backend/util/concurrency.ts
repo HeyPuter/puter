@@ -94,3 +94,19 @@ export async function runWithConcurrencyLimitSettled<TInput, TOutput>(
     await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
     return results;
 }
+
+/**
+ * For a promise started before the code that needs it: marks it handled, so an
+ * early return or throw that never awaits it doesn't leave an unhandled
+ * rejection. Its rejection still surfaces where it is awaited.
+ */
+export function awaitLater<T>(promise: Promise<T>): Promise<T> {
+    void (async () => {
+        try {
+            await promise;
+        } catch {
+            // Surfaced where awaited.
+        }
+    })();
+    return promise;
+}

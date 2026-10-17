@@ -3597,6 +3597,46 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         );
     });
 
+    // The handler's own lookup is the row the grant and the token use.
+    it('reads the app row once per get-user-app-token and check-app', async () => {
+        const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+        const lookupsOf = () =>
+            getByUid.mock.calls.filter(([uid]) => uid === app.uid).length;
+        try {
+            const tokenRes = makeRes();
+            await inCtx(actor, () =>
+                controller.handleGetUserAppToken(
+                    makeReq({ app_uid: app.uid }, { actor }),
+                    tokenRes,
+                ),
+            );
+            expect(lookupsOf()).toBe(1);
+            const minted = tokenRes.body as { token: string };
+
+            getByUid.mockClear();
+            const checkRes = makeRes();
+            await inCtx(actor, () =>
+                controller.handleCheckApp(
+                    makeReq({ app_uid: app.uid }, { actor }),
+                    checkRes,
+                ),
+            );
+            expect(lookupsOf()).toBe(1);
+            const checked = checkRes.body as { token: string };
+
+            // Both tokens name the same app session.
+            const sessionOf = (token: string) =>
+                (
+                    server.services.token.verify('auth', token) as {
+                        session_uid: string;
+                    }
+                ).session_uid;
+            expect(sessionOf(checked.token)).toBe(sessionOf(minted.token));
+        } finally {
+            getByUid.mockRestore();
+        }
+    });
+
     it('after get-user-app-token, check-app reports authenticated:true and returns a token', async () => {
         // Ensure the flag is granted (re-run is idempotent).
         await inCtx(actor, () =>
@@ -9400,56 +9440,6 @@ describe('AuthController.handleGetDevProfile additional branches', () => {
         await expect(
             controller.handleGetDevProfile(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 404 });
-    });
-});
-
-describe('AuthController.handleGetGuiToken / handleSessionSyncCookie additional branches', () => {
-    it('get-gui-token: 404 when actor has a session but the user row is gone', async () => {
-        const { user, actor } = await makeUserAndActor();
-        const sessionRes = await server.services.auth.createSessionToken(
-            user,
-            {},
-        );
-        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
-        const sessionedActor = {
-            ...actor,
-            session: { uid: sessionUid },
-        } as Actor;
-        // Pull the user row out from under the session.
-        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
-            user.id,
-        ]);
-        await server.stores.user.invalidateById(user.id);
-        await expect(
-            controller.handleGetGuiToken(
-                makeReq({}, { actor: sessionedActor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('session/sync-cookie: 404 when actor has a session but the user row is gone', async () => {
-        const { user, actor } = await makeUserAndActor();
-        const sessionRes = await server.services.auth.createSessionToken(
-            user,
-            {},
-        );
-        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
-        const sessionedActor = {
-            ...actor,
-            session: { uid: sessionUid },
-        } as Actor;
-        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
-            user.id,
-        ]);
-        await server.stores.user.invalidateById(user.id);
-
-        const res = makeRes();
-        await controller.handleSessionSyncCookie(
-            makeReq({}, { actor: sessionedActor, tokenSource: 'header' }),
-            res,
-        );
-        expect(res.statusCode).toBe(404);
     });
 });
 

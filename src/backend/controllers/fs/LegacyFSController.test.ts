@@ -467,6 +467,88 @@ describe('LegacyFSController.stat', () => {
         expect(body.size).toBe(0);
     });
 
+    it('reports is_empty from the same children a listing returns', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const emptyPath = `/${username}/Documents/probe-empty`;
+        const fullPath = `/${username}/Documents/probe-full`;
+        for (const path of [emptyPath, fullPath]) {
+            await withActor(actor, () =>
+                controller.mkdir(
+                    makeReq({ body: { path }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: `${fullPath}/inner.txt`,
+                size: 5,
+                contentType: 'text/plain',
+            },
+            fileContent: 'hello',
+        } as never);
+
+        for (const path of [emptyPath, fullPath]) {
+            const entry = (await server.stores.fsEntry.getEntryByPath(path))!;
+            const listed = await server.stores.fsEntry.listChildren(
+                entry.uuid,
+                { limit: 1 },
+            );
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.stat(
+                    makeReq({ body: { path, return_size: true }, actor }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.is_empty).toBe(listed.length === 0);
+            expect(body.size).toBe(path === fullPath ? 5 : 0);
+            expect(body.owner).toEqual({ username });
+        }
+    });
+
+    it('surfaces an earlier failure ahead of a failed subtree size, with nothing left unhandled', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/size-order`;
+        await withActor(actor, () =>
+            controller.mkdir(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+        const flagsFailure = new Error('share flags failed');
+        const sizeFailure = new Error('subtree size failed');
+        const flags = vi
+            .spyOn(server.services.share, 'shareFlags')
+            .mockRejectedValueOnce(flagsFailure);
+        const size = vi
+            .spyOn(server.services.fs, 'getSubtreeSize')
+            .mockRejectedValue(sizeFailure);
+        try {
+            await expect(
+                withActor(actor, () =>
+                    controller.stat(
+                        makeReq({ body: { path, return_size: true }, actor }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toBe(flagsFailure);
+
+            // On its own, the size failure is what the caller sees.
+            await expect(
+                withActor(actor, () =>
+                    controller.stat(
+                        makeReq({ body: { path, return_size: true }, actor }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toBe(sizeFailure);
+        } finally {
+            flags.mockRestore();
+            size.mockRestore();
+        }
+    });
+
     it('reports the share flag, and the recipients when asked', async () => {
         const { actor } = await makeUser();
         const recipient = await makeUser();

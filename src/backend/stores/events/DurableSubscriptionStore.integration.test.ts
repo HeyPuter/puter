@@ -24,7 +24,15 @@
  * it has not looked.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { EVENTS_DURABLE_SUBSCRIPTIONS_MAX } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
@@ -168,6 +176,39 @@ describe('creating a subscription', () => {
         ]);
         // The region has read the table, so nothing else has to.
         await expect(cache().isRegionWarm(userId)).resolves.toBe(true);
+    });
+
+    // A snapshot taken any earlier widens the window in which a concurrent
+    // removal of the owner's other rows gets cached again.
+    it('reads the rows it caches only once the recount is back', async () => {
+        const db = env.server.clients.db;
+        const realPread = db.pread.bind(db);
+        let recounts = 0;
+        let readBeforeRecount = false;
+        const pread = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql, ...rest) => {
+                const text = String(sql);
+                if (
+                    text.includes(
+                        '`owner_user_id` = ? AND `suspended_at` IS NULL',
+                    ) &&
+                    recounts < 2
+                )
+                    readBeforeRecount = true;
+                const rows = await realPread(sql, ...rest);
+                if (text.includes('SUM(CASE WHEN `app_uid`')) recounts++;
+                return rows;
+            });
+        try {
+            const { row } = await durable().create(input());
+            expect(readBeforeRecount).toBe(false);
+            await expect(
+                cache().getForTokens(userId, [token()]),
+            ).resolves.toEqual([row]);
+        } finally {
+            pread.mockRestore();
+        }
     });
 
     it('indexes a shared anchor under its owner, not its subscriber', async () => {
