@@ -42,6 +42,7 @@ import {
     isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
+    UpstreamDeadlineError,
 } from '../util/upstreamErrors.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
@@ -846,7 +847,12 @@ export class ChatCompletionDriver extends PuterDriver {
             const attempt = toAttempt(failed.id, failed.provider!, err);
             attempts.push(attempt);
             if (!isFreeModel(failed)) allModelsFree = false;
-            if (isRouteLevelFailure(attempt)) {
+            // A request that outlived its deadline says nothing about the
+            // route's health.
+            if (
+                isRouteLevelFailure(attempt) &&
+                !(err instanceof UpstreamDeadlineError)
+            ) {
                 markRouteUnhealthy(
                     failed.provider!,
                     failed.id,

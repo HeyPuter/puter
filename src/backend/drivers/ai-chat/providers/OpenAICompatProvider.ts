@@ -193,6 +193,7 @@ export class OpenAICompatProvider implements IChatProvider {
         messages = this.prepareMessages(
             await OpenAIUtil.process_input_messages(messages, {
                 preserveToolCallOrder: this.preservesToolCallOrder(model),
+                keepExtraContent: this.keepsToolCallExtraContent(model),
             }),
         );
 
@@ -315,6 +316,11 @@ export class OpenAICompatProvider implements IChatProvider {
 
     /** Whether a replayed turn's tool calls must keep the model's order. */
     protected preservesToolCallOrder(_model: IChatModel): boolean {
+        return false;
+    }
+
+    /** Whether replayed tool calls keep their vendor `extra_content`. */
+    protected keepsToolCallExtraContent(_model: IChatModel): boolean {
         return false;
     }
 

@@ -152,11 +152,12 @@ export const toOpenAIChatMessages = (
  * Moves a message's `tool_use` blocks into OpenAI `tool_calls`, in place. True
  * when this call created `tool_calls`. `canonicalId` keeps the Responses item
  * id a replayed call carries. `preserveOrder` appends the hoisted calls in
- * content order instead of reversed.
+ * content order instead of reversed. `extraContent` keeps Gemini's
+ * `extra_content`, which other vendors may reject as an unknown field.
  */
 const hoistToolUseBlocks = (
     msg,
-    { canonicalId = false, preserveOrder = false } = {},
+    { canonicalId = false, preserveOrder = false, extraContent = false } = {},
 ) => {
     const content = msg.content;
     const calls = [];
@@ -171,7 +172,7 @@ const hoistToolUseBlocks = (
                 name: block.name,
                 arguments: JSON.stringify(block.input),
             },
-            ...(block.extra_content
+            ...(extraContent && block.extra_content
                 ? { extra_content: block.extra_content }
                 : {}),
         });
@@ -189,13 +190,14 @@ const hoistToolUseBlocks = (
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
- * @param {{ preserveToolCallOrder?: boolean }} [opts] `preserveToolCallOrder`
- *   keeps a turn's tool calls in the order the model made them.
+ * @param {{ preserveToolCallOrder?: boolean; keepExtraContent?: boolean }} [opts]
+ *   `preserveToolCallOrder` keeps a turn's tool calls in the order the model made
+ *   them. `keepExtraContent` keeps each tool call's `extra_content`.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
 export const process_input_messages = async (
     messages,
-    { preserveToolCallOrder = false } = {},
+    { preserveToolCallOrder = false, keepExtraContent = false } = {},
 ) => {
     for (const msg of messages) {
         if (!msg.content) continue;
@@ -213,7 +215,10 @@ export const process_input_messages = async (
         }
 
         if (
-            hoistToolUseBlocks(msg, { preserveOrder: preserveToolCallOrder })
+            hoistToolUseBlocks(msg, {
+                preserveOrder: preserveToolCallOrder,
+                extraContent: keepExtraContent,
+            })
         )
             msg.content = null;
 
@@ -426,9 +431,6 @@ export const process_input_messages_responses_api = async (messages) => {
                     id: toolCall.canonical_id,
                     name: toolCall.function.name,
                     arguments: toolCall.function.arguments,
-                    ...(toolCall.extra_content
-                        ? { extra_content: toolCall.extra_content }
-                        : {}),
                 });
             }
             continue;

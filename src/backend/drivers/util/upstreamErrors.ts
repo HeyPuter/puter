@@ -92,6 +92,17 @@ export const isUpstreamTimeoutError = (err: unknown): boolean => {
     );
 };
 
+/**
+ * A request ran past its overall deadline. It reads as a timeout, but it means
+ * the request was long, not that the route is down.
+ */
+export class UpstreamDeadlineError extends Error {
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
+        this.name = 'TimeoutError';
+    }
+}
+
 /** The connection to an upstream provider dropped or never opened. */
 export const isUpstreamConnectionError = (err: unknown): boolean => {
     const e = asShape(err);

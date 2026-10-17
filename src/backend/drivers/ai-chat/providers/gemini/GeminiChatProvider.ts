@@ -33,7 +33,7 @@ import type {
     UsageDetails,
 } from '../../types.js';
 import { toolChoiceToWire } from '../../utils/openaiParams.js';
-import { SDK_TIMEOUT_MS, sdkClientOptions } from '../../utils/sdkClient.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatCompletionsClient,
     type ChatProviderConfig,
@@ -82,12 +82,7 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         const native =
             config.apiBaseUrl === undefined ||
             config.apiBaseUrl.replace(/\/*$/, '/') === COMPAT_BASE_URL
-                ? geminiNativeClient(
-                      new GoogleGenAI({
-                          apiKey: config.apiKey,
-                          httpOptions: { timeout: SDK_TIMEOUT_MS },
-                      }),
-                  )
+                ? geminiNativeClient(new GoogleGenAI({ apiKey: config.apiKey }))
                 : undefined;
         const client: ChatCompletionsClient = {
             chat: {
@@ -178,6 +173,11 @@ export class GeminiChatProvider extends OpenAICompatProvider {
     protected override preservesToolCallOrder(model: IChatModel) {
         // Gemini expects parallel calls back in order, signature on the first.
         return GEMINI_NATIVE_MODEL_IDS.has(model.id);
+    }
+
+    protected override keepsToolCallExtraContent() {
+        // Carries the thought signature Gemini needs replayed with each call.
+        return true;
     }
 
     protected override meteredUsage(source: UsageSource, model: IChatModel) {

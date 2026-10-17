@@ -36,7 +36,9 @@ import {
     parseDataUri,
     unsupportedMediaTextPart,
 } from '../../utils/mediaParts.js';
+import { SDK_TIMEOUT_MS } from '../../utils/sdkClient.js';
 import { promoteStopForToolCalls } from '../../utils/stopReason.js';
+import { UpstreamDeadlineError } from '../../../util/upstreamErrors.js';
 import type { ChatCompletionsClient } from '../OpenAICompatProvider.js';
 
 type ChatContentPart =
@@ -454,23 +456,57 @@ async function* toChatChunks(stream: AsyncIterable<GenerateContentResponse>) {
     }
 }
 
+async function* rethrowMapped<T>(
+    stream: AsyncIterable<T>,
+    map: (err: unknown) => unknown,
+) {
+    try {
+        yield* stream;
+    } catch (err) {
+        throw map(err);
+    }
+}
+
 export const geminiNativeClient = (
     client: GoogleGenAI,
+    timeoutMs = SDK_TIMEOUT_MS,
 ): ChatCompletionsClient => ({
     chat: {
         completions: {
             create: async (params: never, { signal }) => {
                 // The SDK only listens for a later abort event.
                 signal?.throwIfAborted();
+                // The SDK aborts without a reason, so its own timeout would
+                // look like a client disconnect. This deadline is told apart.
+                const deadline = AbortSignal.timeout(timeoutMs);
+                const timedOut = (err: unknown) =>
+                    deadline.aborted && !signal?.aborted
+                        ? new UpstreamDeadlineError(
+                              'Gemini request timed out',
+                              { cause: err },
+                          )
+                        : err;
                 const chatParams = params as ChatParams;
-                const request = toGenerateContentRequest(chatParams, signal);
-                return chatParams.stream
-                    ? toChatChunks(
-                          await client.models.generateContentStream(request),
-                      )
-                    : toChatCompletion(
-                          await client.models.generateContent(request),
-                      );
+                const request = toGenerateContentRequest(
+                    chatParams,
+                    signal ? AbortSignal.any([signal, deadline]) : deadline,
+                );
+                try {
+                    return chatParams.stream
+                        ? rethrowMapped(
+                              toChatChunks(
+                                  await client.models.generateContentStream(
+                                      request,
+                                  ),
+                              ),
+                              timedOut,
+                          )
+                        : toChatCompletion(
+                              await client.models.generateContent(request),
+                          );
+                } catch (err) {
+                    throw timedOut(err);
+                }
             },
         },
     },

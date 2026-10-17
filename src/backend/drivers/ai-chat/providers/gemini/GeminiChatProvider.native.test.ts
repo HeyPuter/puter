@@ -49,7 +49,12 @@ import type { ICompleteArguments, UsageDetails } from '../../types.js';
 import { normalize_messages } from '../../utils/Messages.js';
 import { trackedOutputTokens } from '../../utils/pricing.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import {
+    isUpstreamTimeoutError,
+    UpstreamDeadlineError,
+} from '../../../util/upstreamErrors.js';
 import { GeminiChatProvider } from './GeminiChatProvider.js';
+import { geminiNativeClient } from './geminiNative.js';
 import { GEMINI_MODELS } from './models.js';
 
 const { generateContent, generateContentStream, genAICtor, openAICreate } =
@@ -216,13 +221,10 @@ describe('gemini-4-argon catalog and routing', () => {
         });
     });
 
-    it('builds the native client once with the SDK timeout', () => {
+    it('builds the native client once', () => {
         makeProvider();
         expect(genAICtor).toHaveBeenCalledTimes(1);
-        expect(genAICtor).toHaveBeenCalledWith({
-            apiKey: 'test-key',
-            httpOptions: { timeout: 10 * 60 * 1000 },
-        });
+        expect(genAICtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
     });
 
     it('routes the alias to the native API under the canonical id', async () => {
@@ -1301,5 +1303,85 @@ describe('gemini-4-argon tool calls', () => {
             }),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(generateContent).not.toHaveBeenCalled();
+    });
+});
+
+describe('geminiNativeClient deadline', () => {
+    type Request = { config?: { abortSignal?: AbortSignal } };
+    // The SDK aborts its own controller without a reason.
+    const abortedBy = (request: Request) =>
+        new Promise<never>((_resolve, reject) => {
+            request.config!.abortSignal!.addEventListener('abort', () =>
+                reject(
+                    new DOMException(
+                        'This operation was aborted',
+                        'AbortError',
+                    ),
+                ),
+            );
+        });
+    const clientWith = (models: Record<string, unknown>, timeoutMs = 10) =>
+        geminiNativeClient({ models } as never, timeoutMs);
+    const params = (stream: boolean) =>
+        ({
+            model: 'gemini-4-argon',
+            messages: [{ role: 'user', content: 'hi' }],
+            stream,
+        }) as never;
+    const errorOf = async (run: () => Promise<unknown>) => {
+        try {
+            await run();
+        } catch (err) {
+            return err;
+        }
+        throw new Error('expected a rejection');
+    };
+
+    it('reports its own deadline as a timeout', async () => {
+        const client = clientWith({ generateContent: abortedBy });
+        const err = await errorOf(() =>
+            client.chat.completions.create(params(false), {}),
+        );
+        expect(err).toBeInstanceOf(UpstreamDeadlineError);
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+    });
+
+    it('reports a stream cut by its deadline as a timeout', async () => {
+        const client = clientWith({
+            generateContentStream: async (request: Request) =>
+                (async function* () {
+                    yield* [];
+                    await abortedBy(request);
+                })(),
+        });
+        const err = await errorOf(async () => {
+            const stream = (await client.chat.completions.create(
+                params(true),
+                {},
+            )) as AsyncIterable<unknown>;
+            for await (const _chunk of stream);
+        });
+        expect(err).toBeInstanceOf(UpstreamDeadlineError);
+    });
+
+    it('leaves a caller abort as an abort', async () => {
+        const abort = new AbortController();
+        const client = clientWith(
+            {
+                generateContent: (request: Request) => {
+                    const pending = abortedBy(request);
+                    abort.abort();
+                    return pending;
+                },
+            },
+            60_000,
+        );
+        const err = await errorOf(() =>
+            client.chat.completions.create(params(false), {
+                signal: abort.signal,
+            }),
+        );
+        expect((err as Error).name).toBe('AbortError');
+        expect(isUpstreamTimeoutError(err)).toBe(false);
     });
 });
