@@ -20,7 +20,7 @@ puter.ai.txt2speech(text, language, voice, engine, testMode = false)
 
 #### `text` (String) (required)
 
-A string containing the text you want to convert to speech. The text must be less than 3000 characters long. Defaults to AWS Polly provider when no options are provided.
+A string containing the text you want to convert to speech. The text can be up to 3,000 characters long. Longer text is rejected with an `input_too_large` error. Defaults to AWS Polly provider when no options are provided.
 
 #### `testMode` (Boolean) (optional)
 
@@ -84,9 +84,13 @@ Available when `provider: 'gemini'`:
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'gemini-3.8-flash-tts'` (default), `'gemini-3.8-flash-lite-tts'` |
 | `voice` | `String` | Voice name. Defaults to `'Kore'`. Available: `'Zephyr'`, `'Puck'`, `'Charon'`, `'Kore'`, `'Fenrir'`, `'Leda'`, `'Orus'`, `'Aoede'`, `'Callirrhoe'`, `'Autonoe'`, `'Enceladus'`, `'Iapetus'`, `'Umbriel'`, `'Algieba'`, `'Despina'`, `'Erinome'`, `'Algenib'`, `'Rasalgethi'`, `'Laomedeia'`, `'Achernar'`, `'Alnilam'`, `'Schedar'`, `'Gacrux'`, `'Pulcherrima'`, `'Achird'`, `'Zubenelgenubi'`, `'Vindemiatrix'`, `'Sadachbia'`, `'Sadaltager'`, `'Sulafat'` |
-| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.) |
+| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.), up to 3,000 characters |
 
-For more details about Gemini TTS, see the [Google Gemini TTS documentation](https://ai.google.dev/gemini-api/docs/text-to-speech).
+Gemini generates speech from the `text` field. The `instructions` string isn't included in the generated audio. It guides delivery (tone, pacing, accent, emotion). Instructions count toward input tokens. Longer instructions are rejected with an `input_too_large` error. Audio is returned as WAV.
+
+A Gemini request is charged for the tokens Gemini reports, even when it fails or returns no audio. If Gemini returns audio without reporting its token usage, the request fails with an `upstream_failed` error.
+
+For more details about Gemini TTS, see the [Google Gemini speech generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation).
 
 #### xAI (Grok) Options
 

@@ -17,18 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Gemini TTS pricing in USD per 1M tokens (launch pricing through
-// 2026-12-31; both rates double on 2027-01-01):
-//   gemini-3.8-flash-tts:       input $0.50, output (audio) $9.00
-//   gemini-3.8-flash-lite-tts:  input $0.50, output (audio) $6.00
-//
-// Audio output tokens = ~25 tokens/second of audio.
-//
-// Costs here are in USD-cents per 1M tokens for input and output.
-export const GEMINI_TTS_COSTS: Record<
-    string,
-    { input: number; output_audio: number }
-> = {
+/** USD-cents per 1M tokens: text input, and audio output (~25 tokens/s). */
+export interface GeminiTTSCosts {
+    input: number;
+    output_audio: number;
+}
+
+/** The instant launch pricing ends and both rates double. */
+export const GEMINI_TTS_LAUNCH_PRICING_ENDS = Date.UTC(2027, 0, 1);
+
+/** Launch pricing, through 2026-12-31 UTC. */
+export const GEMINI_TTS_COSTS: Record<string, GeminiTTSCosts> = {
     'gemini-3.8-flash-tts': {
         input: 50, // $0.50 per 1M tokens
         output_audio: 900, // $9.00 per 1M tokens
@@ -37,4 +36,14 @@ export const GEMINI_TTS_COSTS: Record<
         input: 50, // $0.50 per 1M tokens
         output_audio: 600, // $6.00 per 1M tokens
     },
+};
+
+/** `model`'s rates in force at `at` (ms since epoch); undefined when unpriced. */
+export const geminiTTSCostsAt = (
+    model: string,
+    at: number,
+): GeminiTTSCosts | undefined => {
+    const launch = GEMINI_TTS_COSTS[model];
+    if (!launch || at < GEMINI_TTS_LAUNCH_PRICING_ENDS) return launch;
+    return { input: launch.input * 2, output_audio: launch.output_audio * 2 };
 };

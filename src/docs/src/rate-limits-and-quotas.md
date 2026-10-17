@@ -65,6 +65,7 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
+| Gemini `instructions` for `txt2speech()`       | 3,000 characters |
 | Audio for `speech2speech()`                    | 25 MiB           |
 | Image inlined in a chat message                | 5 MB             |
 | File attached to a chat message, Claude models | 30 MB            |
@@ -76,7 +77,11 @@ The standard chat timeout is 10 minutes for a response to start, or to finish if
 
 A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
-Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
+Text-to-speech calls to ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+
+A Gemini text-to-speech reply is capped at 64 MiB, enough for the full audio budget. A readable Gemini text-to-speech reply is charged for the token usage it reports, even when it fails or returns no audio. A reply that times out or exceeds the cap reports no usage, so it is charged the full reservation and fails with `504 upstream_timeout` or `400 input_too_large`; split long text into shorter requests. Requests with an unreadable reply are not charged.
+
+Every Gemini text-to-speech request reserves credit for the models' full published budget of 8,192 input tokens and 16,384 audio tokens, at the model's current rate. Each request also limits Gemini's output to 16,384 tokens. An incomplete reply fails with `502 upstream_failed`. If the reply is readable within the size and time limits, it is charged for the usage it reports. The reservation is the same for any `text` and `instructions`, in any language. A request fails with `402 insufficient_funds` unless your available credit covers the whole reservation, even when the text is short. When the request ends, the unused part is released and you're charged only for the usage Gemini reports. The reservation isn't a cap on the charge. If Gemini reports more tokens than its published limits, the charge follows the report.
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 

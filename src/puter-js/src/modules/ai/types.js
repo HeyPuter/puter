@@ -379,7 +379,7 @@
  * Options for `txt2speech()`.
  *
  * @typedef {Object} Txt2SpeechOptions
- * @property {string} [text] Text to synthesize. Must be less than 3000 characters.
+ * @property {string} [text] Text to synthesize. At most 3000 characters.
  * @property {string} [language] Language code. For AWS Polly defaults to `'en-US'`; for xAI a BCP-47
  * code defaulting to `'en'` (supports `'auto'`).
  * @property {string} [voice] Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'`
@@ -396,7 +396,7 @@
  * @property {string} [output_format] Output format for ElevenLabs (defaults to `'mp3_44100_128'`) and
  * xAI (`'mp3'` default, `'wav'`, `'pcm'`, `'mulaw'`, `'alaw'`).
  * @property {string} [instructions] Natural-language guidance for voice style such as tone, speed, and
- * mood (OpenAI and Gemini).
+ * mood (OpenAI and Gemini). At most 3000 characters for Gemini.
  * @property {Record<string, unknown>} [voice_settings] ElevenLabs voice tuning options (e.g. stability,
  * similarity boost, speed).
  * @property {boolean} [ssml] When `true`, AWS Polly treats `text` as SSML markup.
