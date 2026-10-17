@@ -4901,7 +4901,8 @@ export class FSService extends PuterService {
         }
         if (
             source.isDir &&
-            destinationParent.path.startsWith(`${source.path}/`)
+            (destinationParent.uuid === source.uuid ||
+                destinationParent.path.startsWith(`${source.path}/`))
         ) {
             throw new HttpError(400, 'Cannot move a directory into itself', {
                 legacyCode: 'cannot_move_directory_into_itself',

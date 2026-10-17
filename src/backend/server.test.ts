@@ -924,6 +924,27 @@ describe('PuterServer HTTP alarm gate', () => {
                     });
                 }) as unknown as RequestHandler,
             },
+            {
+                method: 'get',
+                path: '/model-unavailable',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(400, 'Model not available: m', {
+                        legacyCode: 'upstream_bad_request',
+                        alarmSeverity: 'info',
+                    });
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/upstream-bad-request',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(400, 'bad tool schema', {
+                        legacyCode: 'upstream_bad_request',
+                    });
+                }) as unknown as RequestHandler,
+            },
         );
         port = await allocateEphemeralPort();
         server = await setupTestServer(
@@ -1034,6 +1055,25 @@ describe('PuterServer HTTP alarm gate', () => {
                 },
             ],
         });
+    });
+
+    it("alarms a 4xx at the thrower's alarmSeverity", async () => {
+        const { id, severity } = await raisedFor('/model-unavailable', 400);
+        expect(id).toBe(
+            'http_400:GET:/model-unavailable:upstream_bad_request:Model not available: m',
+        );
+        expect(severity).toBe('info');
+    });
+
+    it('does not alarm an upstream 4xx without one', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(port, '/upstream-bad-request', {
+            host: 'puter.localhost',
+        });
+        expect(res.status).toBe(400);
+        expect(alarm).not.toHaveBeenCalled();
     });
 });
 

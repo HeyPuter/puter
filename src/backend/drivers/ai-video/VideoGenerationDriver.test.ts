@@ -96,8 +96,8 @@ beforeAll(async () => {
     server = await setupTestServer({
         providers: {
             'together-video-generation': { apiKey: 'tg-key' },
-            // Configured on purpose: a Gemini key must no longer register a
-            // video provider now that its Veo previews are gone.
+            // Configured on purpose: Gemini video reads the shared `gemini`
+            // block, so this one alone must not register a provider.
             'gemini-video-generation': { apiKey: 'gem-key' },
         },
     } as never);
@@ -267,12 +267,11 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
-    it('registers no Gemini video provider even when a Gemini key is configured', async () => {
+    it('registers no Gemini video provider from a gemini-video-generation key alone', async () => {
         const all = await driver.models();
         expect(
             all.some((m) => m.provider === 'gemini-video-generation'),
         ).toBe(false);
-        expect(driver.driverAliases).not.toContain('gemini-video-generation');
     });
 
     it.each([

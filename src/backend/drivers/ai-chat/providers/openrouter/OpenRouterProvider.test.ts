@@ -144,6 +144,23 @@ const SAMPLE_API_MODELS = [
         expiration_date: '2026-10-09',
     },
     {
+        // Batch variants aren't served on chat/completions — filtered out.
+        id: 'openai/gpt-6-luna:batch',
+        name: 'GPT-6 Luna (batch)',
+        created: 1714564800,
+        context_length: 128000,
+        pricing: { prompt: 0.000005, completion: 0.000015 },
+        top_provider: { max_completion_tokens: 16000 },
+    },
+    {
+        id: 'openai/gpt-6-luna:free',
+        name: 'GPT-6 Luna (free)',
+        created: 1714564800,
+        context_length: 128000,
+        pricing: { prompt: 0, completion: 0 },
+        top_provider: { max_completion_tokens: 16000 },
+    },
+    {
         // 'openrouter/auto' is filtered out — disallowed.
         id: 'openrouter/auto',
         name: 'Auto',
@@ -266,6 +283,18 @@ describe('OpenRouterProvider model catalog', () => {
         const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('openrouter:qwen/qwen3-max');
         expect(ids).not.toContain('qwen/qwen3-max');
+    });
+
+    it('filters out batch variants and keeps their base model', async () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(await provider.models());
+        expect(ids).not.toContain('openrouter:openai/gpt-6-luna:batch');
+        expect(ids).not.toContain('openai/gpt-6-luna:batch');
+        expect(ids).not.toContain('gpt-6-luna:batch');
+        expect(ids).toContain('openrouter:openai/gpt-6-luna');
+        expect(ids).toContain('gpt-6-luna');
+        expect(ids).toContain('openrouter:openai/gpt-6-luna:free');
+        expect(ids).toContain('gpt-6-luna:free');
     });
 
     it('coerces string prices and normalizes conditional tiers', async () => {
@@ -608,6 +637,126 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         expect(createMock).toHaveBeenCalledTimes(1);
     });
+});
+
+describe('OpenRouterProvider account policy block', () => {
+    const POLICY_MESSAGE =
+        'Policy Violation: this user has been blocked for a previous policy violation. Learn more: https://openrouter.ai/docs/policy (request id: req-secret)';
+
+    // Shaped like the OpenAI SDK's APIError for OpenRouter's error body.
+    const apiError = (status: number, body: Record<string, unknown>) =>
+        Object.assign(new Error(`${status} ${String(body.message)}`), {
+            status,
+            error: body,
+            code: body.code,
+        });
+
+    const complete = () =>
+        withTestActor(() =>
+            makeProvider().provider.complete({
+                model: 'openrouter:openai/gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+    const expectModelUnavailable = async () => {
+        const err = await complete().catch((e: unknown) => e);
+        expect(err).toMatchObject({
+            name: 'UpstreamResponseError',
+            status: 403,
+            code: 'model_not_found',
+            provider: 'openrouter',
+            message: 'Model not available: openrouter:openai/gpt-6-luna',
+        });
+        expect(JSON.stringify(err)).not.toMatch(/policy|http|request id/i);
+        expect((err as Error).message).not.toMatch(/policy|http/i);
+    };
+
+    it('reports a numeric 403 policy block as the model being unavailable', async () => {
+        createMock.mockRejectedValueOnce(
+            apiError(403, { code: 403, message: POLICY_MESSAGE }),
+        );
+        await expectModelUnavailable();
+        expect(createMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the in-band 403 policy block of a 200 with no choices the same way', async () => {
+        createMock.mockResolvedValueOnce({
+            error: { code: 403, message: POLICY_MESSAGE },
+        });
+        await expectModelUnavailable();
+        expect(recordSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a generic 403', apiError(403, { code: 403, message: 'Forbidden' })],
+        [
+            'a key limit 403',
+            apiError(403, {
+                code: 403,
+                message: 'Key limit exceeded (daily limit).',
+            }),
+        ],
+        [
+            'a moderation 403',
+            apiError(403, {
+                code: 403,
+                message:
+                    'Your chosen model requires moderation and your input was flagged',
+                metadata: { reasons: ['violence'] },
+            }),
+        ],
+        [
+            'a similar 403 wording',
+            apiError(403, {
+                code: 403,
+                message: 'Policy Violation: this key has been blocked.',
+            }),
+        ],
+        [
+            'the policy wording without its numeric code',
+            apiError(403, { message: POLICY_MESSAGE }),
+        ],
+        [
+            'the policy wording on a 401',
+            apiError(401, { code: 401, message: POLICY_MESSAGE }),
+        ],
+        [
+            'the policy wording on a 503',
+            apiError(503, { code: 403, message: POLICY_MESSAGE }),
+        ],
+        [
+            'a 402 credit exhaustion',
+            apiError(402, { code: 402, message: 'Insufficient credits' }),
+        ],
+    ])('rethrows %s unchanged', async (_label, thrown) => {
+        createMock.mockRejectedValueOnce(thrown);
+        await expect(complete()).rejects.toBe(thrown);
+    });
+
+    it.each([
+        ['no error body', {}, 'no completion was returned'],
+        [
+            'an in-band error with another code',
+            { error: { code: 401, message: POLICY_MESSAGE } },
+            POLICY_MESSAGE,
+        ],
+        [
+            'an in-band error with other wording',
+            { error: { code: 403, message: 'Provider returned error' } },
+            'Provider returned error',
+        ],
+    ])(
+        'keeps a no-choice completion with %s as bad_response',
+        async (_label, completion, message) => {
+            createMock.mockResolvedValueOnce(completion);
+            await expect(complete()).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_response',
+                message,
+            });
+        },
+    );
 });
 
 // ── Non-stream completion: cost calculator branches ─────────────────
