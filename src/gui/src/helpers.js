@@ -29,6 +29,7 @@ import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.j
 import update_username_in_gui from './helpers/updateUsernameInGui.js';
 import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
+import { templateMenuItem } from './helpers/templateMenuItem.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -1163,29 +1164,7 @@ window.available_templates = () => {
                 return [];
             }
 
-            let result = [];
-
-            hasTemplateFiles.forEach(element => {
-                const extIndex = element.name.lastIndexOf('.');
-                const name = extIndex === -1
-                    ? element.name
-                    : element.name.slice(0, extIndex);
-                let extension = extIndex === -1
-                    ? ''
-                    : element.name.slice(extIndex + 1);
-
-                if ( extension == 'txt' ) extension = 'text';
-
-                const _path = path.join(templatesPath, element.name);
-
-                const itemStructure = {
-                    path: _path,
-                    html: `${html_encode(extension.toUpperCase())} ${html_encode(name)}`,
-                    extension: extension,
-                    name: element.name,
-                };
-                result.push(itemStructure);
-            });
+            const result = hasTemplateFiles.map(element => templateMenuItem(templatesPath, element.name));
 
             // Assign to window.file_templates when ready
             window.file_templates = result;
