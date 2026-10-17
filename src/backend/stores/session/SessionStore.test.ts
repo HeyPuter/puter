@@ -625,6 +625,150 @@ describe('SessionStore', () => {
                 uuid: second.uuid,
             });
         });
+
+        it('answers a lost insert race with the stored winner while the replica lags', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            // The racer that got there first: written, but not yet on the
+            // replica and not cached under the (user, app) key.
+            const winner = await target.create(user.id, {
+                kind: 'app',
+                app_uid: appUid,
+            });
+
+            const restore = lagReplica({ [winner.uuid]: null });
+            let row;
+            try {
+                row = await target.getOrCreateApp(user.id, appUid);
+            } finally {
+                restore();
+            }
+            expect(row.uuid).toBe(winner.uuid);
+            expect(await rawRow(row.uuid)).toMatchObject({ uuid: winner.uuid });
+            // The next call is served the same row from the cache.
+            expect((await target.getOrCreateApp(user.id, appUid)).uuid).toBe(
+                winner.uuid,
+            );
+        });
+
+        const appSelects = (calls: unknown[][]) =>
+            calls.filter(([sql]) =>
+                String(sql).includes("FROM `sessions` WHERE `kind` = 'app'"),
+            ).length;
+
+        it('returns the row it inserted without reading it back', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const db = server.clients.db;
+            const read = vi.spyOn(db, 'read');
+            const pread = vi.spyOn(db, 'pread');
+            let row;
+            try {
+                row = await target.getOrCreateApp(user.id, appUid, {
+                    auth_id: user.uuid,
+                });
+                // Only the lookup that found nothing to reuse.
+                expect(appSelects(read.mock.calls)).toBe(1);
+                expect(appSelects(pread.mock.calls)).toBe(0);
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+            // What it hands back is the row as stored.
+            const stored = await rawRow(row.uuid);
+            for (const column of [
+                'uuid',
+                'user_id',
+                'kind',
+                'app_uid',
+                'parent_session_id',
+                'created_at',
+                'last_activity',
+                'expires_at',
+                'revoked_at',
+                'auth_id',
+            ]) {
+                expect(row[column], column).toEqual(stored[column]);
+            }
+            expect(await target.getByUuid(row.uuid)).toMatchObject({
+                uuid: row.uuid,
+            });
+        });
+
+        it('returns a replica row before its cache write lands, and still caches it', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            const compositeKey = `sessions:v2:app:${user.id}:${appUid}`;
+            await server.clients.redis.del(compositeKey);
+
+            const redis = server.clients.redis;
+            const set = redis.set.bind(redis);
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const hold = vi
+                .spyOn(redis, 'set')
+                .mockImplementation(async (...args: unknown[]) => {
+                    await held;
+                    return (set as (...a: unknown[]) => Promise<unknown>)(
+                        ...args,
+                    );
+                });
+            try {
+                const again = await Promise.race([
+                    target.getOrCreateApp(user.id, appUid),
+                    new Promise((resolve) =>
+                        setTimeout(() => resolve('waited on the cache'), 1000),
+                    ),
+                ]);
+                expect(again).toMatchObject({ uuid: first.uuid });
+                expect(await redis.get(compositeKey)).toBeNull();
+            } finally {
+                release();
+                hold.mockRestore();
+            }
+            await vi.waitFor(async () => {
+                expect(JSON.parse((await redis.get(compositeKey))!).uuid).toBe(
+                    first.uuid,
+                );
+            });
+        });
+
+        it('caches a row only the primary has before returning it', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            const firstLive = await rawRow(first.uuid);
+            await target.revokeCascade(first.uuid);
+            const second = await target.getOrCreateApp(user.id, appUid);
+            const secondLive = await rawRow(second.uuid);
+            // Another region: none of this cached, the replica still shows the
+            // revoked row live and has yet to see the new one.
+            const redis = server.clients.redis;
+            await redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+                `sessions:v2:uuid:${first.uuid}`,
+                `sessions:v2:uuid:${second.uuid}`,
+            );
+
+            const restore = lagReplica({
+                [first.uuid]: firstLive,
+                [second.uuid]: null,
+            });
+            try {
+                const found = await target.getOrCreateApp(user.id, appUid);
+                expect(found.uuid).toBe(second.uuid);
+                // Token auth reads it back through the lagging replica.
+                expect(await target.getByUuid(second.uuid)).toMatchObject({
+                    uuid: second.uuid,
+                    revoked_at: secondLive.revoked_at,
+                });
+            } finally {
+                restore();
+            }
+        });
     });
 
     describe('getOrCreateGodmodeToken', () => {

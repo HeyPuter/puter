@@ -1129,6 +1129,102 @@ describe('SubdomainDriver associated_app derivation', () => {
     });
 });
 
+// -- Row hydration ordering --
+
+describe('SubdomainDriver row hydration', () => {
+    const DERIVE_SQL = '`index_url` IN';
+
+    const seedRow = async () => {
+        const { actor } = await makeUser();
+        const created = (await withActor(actor, () =>
+            driver.create({
+                object: {
+                    subdomain: uniqueSubdomain('hydrate'),
+                    root_dir: `/${actor.user!.username}/Public`,
+                },
+            }),
+        )) as Record<string, unknown>;
+        return { actor, uid: created.uid };
+    };
+
+    it('loads owners and root dirs while the app derive is still running', async () => {
+        const { actor, uid } = await seedRow();
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let deriveStarted = false;
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, ...rest) => {
+                if (String(sql).includes(DERIVE_SQL)) {
+                    deriveStarted = true;
+                    await gate;
+                }
+                return realRead(sql, ...rest);
+            });
+        const users = vi.spyOn(server.stores.user, 'getByIds');
+        const entries = vi.spyOn(server.stores.fsEntry, 'getEntriesByIds');
+        try {
+            const pending = withActor(actor, () => driver.read({ uid }));
+            await vi.waitFor(() => expect(deriveStarted).toBe(true));
+            expect(users).toHaveBeenCalled();
+            expect(entries).toHaveBeenCalled();
+            release();
+            const row = (await pending) as Record<string, unknown>;
+            expect((row.owner as { username: string }).username).toBe(
+                actor.user!.username,
+            );
+            expect((row.root_dir as { path: string }).path).toBe(
+                `/${actor.user!.username}/Public`,
+            );
+        } finally {
+            release();
+            read.mockRestore();
+            users.mockRestore();
+            entries.mockRestore();
+        }
+    });
+
+    it('surfaces a failed derive over failed owner and root dir lookups, with no unhandled rejection', async () => {
+        const { actor, uid } = await seedRow();
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, ...rest) => {
+                if (String(sql).includes(DERIVE_SQL)) {
+                    // Settles after the lookups below have already failed.
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                    throw new Error('derive failed');
+                }
+                return realRead(sql, ...rest);
+            });
+        const users = vi
+            .spyOn(server.stores.user, 'getByIds')
+            .mockRejectedValue(new Error('users failed'));
+        const entries = vi
+            .spyOn(server.stores.fsEntry, 'getEntriesByIds')
+            .mockRejectedValue(new Error('entries failed'));
+        try {
+            await expect(
+                withActor(actor, () => driver.read({ uid })),
+            ).rejects.toThrow('derive failed');
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+            read.mockRestore();
+            users.mockRestore();
+            entries.mockRestore();
+        }
+    });
+});
+
 // -- Embedded apps get the launch gates a direct app read applies --
 
 describe('SubdomainDriver embedded app launch gates', () => {

@@ -24,6 +24,7 @@ import { Context } from '../../core/context.js';
 import { abortOnDisconnect } from '../../core/http/abortOnDisconnect.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
+import { pipeToResponse } from '../../core/http/pipeToResponse.js';
 import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
@@ -337,8 +338,10 @@ export class PuterAIController extends PuterController {
             return;
         }
 
+        // A visitor who leaves stops the download, not just the reply.
         const upstream = await fetch(
             `${GEMINI_DOWNLOAD_BASE}/${fileId}:download?alt=media&key=${apiKey}`,
+            { signal: abortOnDisconnect(res) },
         );
         if (!upstream.ok) {
             res.status(upstream.status).send('Failed to fetch video');
@@ -351,9 +354,12 @@ export class PuterAIController extends PuterController {
             res.status(500).send('Empty response body');
             return;
         }
-        Readable.fromWeb(
-            upstream.body as unknown as import('node:stream/web').ReadableStream,
-        ).pipe(res);
+        void pipeToResponse(
+            Readable.fromWeb(
+                upstream.body as unknown as import('node:stream/web').ReadableStream,
+            ),
+            res,
+        );
     };
 
     #listModels(driverKey: 'aiChat' | 'aiImage' | 'aiVideo') {
@@ -539,7 +545,8 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -687,7 +694,8 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -741,7 +749,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,

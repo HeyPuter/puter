@@ -75,6 +75,8 @@ export type SubscriptionResolver = (
     actor: Actor,
 ) => Promise<string | null | undefined> | string | null | undefined;
 
+type ResolverOutcome = { id: string | null | undefined } | { error: unknown };
+
 /** One usage type's amount, pre-aggregated across one call. */
 type TypeAmounts = { units: number; cost: number; count: number };
 
@@ -499,7 +501,8 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a subscription id. The first
-     * resolver that returns a non-empty id wins; later resolvers are skipped. A
+     * resolver that returns a non-empty id wins; later answers are ignored. All
+     * resolvers are called concurrently, so each must be a pure read. A
      * resolver whose lookup fails should throw rather than return null, so the
      * fallback it causes isn't cached as the actor's plan.
      */
@@ -509,7 +512,8 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a _default_ subscription id,
-     * used when none is set. Lowest `priority` is asked first.
+     * used when none is set. Lowest `priority` is consulted first. Called
+     * concurrently with the others, so it must be a pure read.
      */
     registerDefaultSubscriptionResolver(
         fn: SubscriptionResolver,
@@ -2070,15 +2074,18 @@ export class MeteringService extends PuterService {
               ? DEFAULT_FREE_SUBSCRIPTION
               : DEFAULT_TEMP_SUBSCRIPTION;
 
-        const defaults = await this.firstResolver(
+        // Both lists start together; each is still read in its own order.
+        const pendingDefaults = this.#startResolvers(
             this.defaultSubscriptionResolvers.map((entry) => entry.fn),
             actor,
         );
-        const resolvedDefault = defaults.id || fallbackDefault;
-        const user = await this.firstResolver(
+        const pendingUser = this.#startResolvers(
             this.subscriptionResolvers,
             actor,
         );
+        const defaults = await this.firstResolver(pendingDefaults);
+        const resolvedDefault = defaults.id || fallbackDefault;
+        const user = await this.firstResolver(pendingUser);
         const resolvedUser = user.id || resolvedDefault;
         const resolverFailed = defaults.failed || user.failed;
 
@@ -2480,20 +2487,38 @@ export class MeteringService extends PuterService {
         tracked.finally(() => this.pendingAuxPromises.delete(tracked));
     }
 
-    /** The first non-empty answer, and whether any resolver threw on the way. */
-    private async firstResolver(
+    /** Calls every resolver at once; each outcome settles, never rejects. */
+    #startResolvers(
         resolvers: SubscriptionResolver[],
         actor: Actor,
+    ): Promise<ResolverOutcome>[] {
+        return resolvers.map(async (resolver): Promise<ResolverOutcome> => {
+            try {
+                return { id: await resolver(actor) };
+            } catch (error) {
+                return { error };
+            }
+        });
+    }
+
+    /**
+     * The first non-empty answer in registration order, and whether a resolver
+     * ahead of it threw. Outcomes after the winner are ignored, as if never
+     * asked.
+     */
+    private async firstResolver(
+        pending: Promise<ResolverOutcome>[],
     ): Promise<{ id: string | null; failed: boolean }> {
         let failed = false;
-        for (const resolver of resolvers) {
-            try {
-                const result = await resolver(actor);
-                if (result) return { id: result, failed };
-            } catch (e) {
+        for (const next of pending) {
+            const outcome = await next;
+            if ('error' in outcome) {
                 failed = true;
-                console.warn('[metering] subscription resolver failed', e);
-            }
+                console.warn(
+                    '[metering] subscription resolver failed',
+                    outcome.error,
+                );
+            } else if (outcome.id) return { id: outcome.id, failed };
         }
         return { id: null, failed };
     }

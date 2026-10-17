@@ -76,6 +76,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export class SQLBatcher {
     dbPool;
     maxTimeInQueue;
+    maxInFlightImmediate;
     maxBatchSize;
     maxQueueSize;
     failureThreshold;
@@ -84,7 +85,9 @@ export class SQLBatcher {
     readOnly;
     acquireTimeoutMs;
     queue = [];
-    timeouts = [];
+    #flushTimer = null;
+    #flushTimerIsImmediate = false;
+    #inFlight;
     #consecutiveFailures = 0;
     #lastFailureAt = 0;
     #metricAttrs;
@@ -93,6 +96,11 @@ export class SQLBatcher {
      * @param {object} dbPool Mysql2 pool
      * @param {object} [opts]
      * @param {number} [opts.maxTimeInQueue] Ms an item may wait before flush
+     * @param {number} [opts.maxInFlightImmediate] While fewer flushes than this
+     *   are in flight, a lone item flushes on the next turn instead of waiting
+     *   maxTimeInQueue; past it, items wait and coalesce to spare connections
+     * @param {{ count: number }} [opts.inFlight] In-flight flush counter the
+     *   cap reads; batchers sharing a pool can share one
      * @param {number} [opts.maxBatchSize] Items coalesced per flush
      * @param {number} [opts.maxQueueSize] Drop-oldest high-water mark
      * @param {number} [opts.failureThreshold] Consecutive failures to open the
@@ -111,6 +119,8 @@ export class SQLBatcher {
         dbPool,
         {
             maxTimeInQueue = 20,
+            maxInFlightImmediate = 0,
+            inFlight = { count: 0 },
             maxBatchSize = 50,
             maxQueueSize = DEFAULT_MAX_QUEUE_SIZE,
             failureThreshold = DEFAULT_FAILURE_THRESHOLD,
@@ -122,6 +132,8 @@ export class SQLBatcher {
     ) {
         this.dbPool = dbPool;
         this.maxTimeInQueue = maxTimeInQueue;
+        this.maxInFlightImmediate = maxInFlightImmediate;
+        this.#inFlight = inFlight;
         this.maxBatchSize = maxBatchSize;
         this.maxQueueSize = maxQueueSize;
         this.failureThreshold = failureThreshold;
@@ -185,15 +197,32 @@ export class SQLBatcher {
 
         if (this.queue.length >= this.maxBatchSize) {
             this.flush(this.queue.splice(0, this.maxBatchSize));
-        } else if (this.queue.length === 1) {
-            this.timeouts.push(
-                setTimeout(() => {
-                    this.flush(this.queue.splice(0, this.queue.length));
-                }, this.maxTimeInQueue),
-            );
+        } else if (this.#flushTimer === null) {
+            this.#armFlushTimer();
         }
 
         return promise;
+    }
+
+    // A lone flush holds a pooled connection for a full round trip, so only
+    // the first maxInFlightImmediate flushes skip the wait.
+    #armFlushTimer() {
+        const run = () => {
+            this.#flushTimer = null;
+            this.flush(this.queue.splice(0, this.queue.length));
+        };
+        this.#flushTimerIsImmediate =
+            this.#inFlight.count < this.maxInFlightImmediate;
+        this.#flushTimer = this.#flushTimerIsImmediate
+            ? setImmediate(run)
+            : setTimeout(run, this.maxTimeInQueue);
+    }
+
+    #clearFlushTimer() {
+        if (this.#flushTimer === null) return;
+        if (this.#flushTimerIsImmediate) clearImmediate(this.#flushTimer);
+        else clearTimeout(this.#flushTimer);
+        this.#flushTimer = null;
     }
 
     // Bounded wait for a pooled connection. Without a bound, a stalled
@@ -252,12 +281,18 @@ export class SQLBatcher {
     }
 
     async flush(batch) {
-        const timeout = this.timeouts.shift();
-        if (timeout && !timeout._destroyed) {
-            clearTimeout(timeout);
-        }
+        this.#clearFlushTimer();
         if (batch.length === 0) return;
 
+        this.#inFlight.count++;
+        try {
+            await this.#flushBatch(batch);
+        } finally {
+            this.#inFlight.count--;
+        }
+    }
+
+    async #flushBatch(batch) {
         let connection;
         try {
             connection = await this.#acquireConnection();

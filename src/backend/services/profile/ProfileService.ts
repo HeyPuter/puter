@@ -288,8 +288,10 @@ export class ProfileService extends PuterService {
     async #readStored(
         userUuid: string,
     ): Promise<Record<string, unknown> | null> {
+        // Profiles are only written through `fs.write`, which stores a path.
         const entry = await this.stores.fsEntry.getEntryByPath(
             profilePath(userUuid),
+            { lineage: false },
         );
         if (!entry || entry.isDir) return null;
         const { body } = await this.services.fs.readContent(entry);

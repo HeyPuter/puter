@@ -930,6 +930,7 @@ describe('SqliteDatabaseClient — query interface', () => {
             affectedRows: 1,
             anyRowsAffected: true,
         });
+        expect(inserted).not.toHaveProperty('warningStatus');
 
         const missed = await client.write(
             'UPDATE `widget` SET `name` = ? WHERE `id` = ?',

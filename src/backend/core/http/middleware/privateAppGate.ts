@@ -18,12 +18,12 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import type { AbstractDatabaseClient } from '@heyputer/backend/src/clients/database/DatabaseClient';
 import type { Request } from 'express';
 import {
     HOSTED_ASSET_COOKIES,
     type AuthService,
 } from '../../../services/auth/AuthService';
+import type { AppStore } from '../../../stores/app/AppStore.js';
 import type { IConfig } from '../../../types';
 import type { Actor } from '../../actor';
 
@@ -193,7 +193,7 @@ export function subdomainFromHost(
 export async function resolveOwnedAppForHostedSite(opts: {
     req: Request;
     site: SubdomainLike;
-    db: AbstractDatabaseClient;
+    appStore: Pick<AppStore, 'listOwnedByIndexUrlCandidates'>;
     config: PrivateHostingConfig;
     requirePrivate?: boolean;
 }): Promise<AppLike | null> {
@@ -247,15 +247,11 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const uniqueCandidates = [...new Set(urlCandidates)];
     if (uniqueCandidates.length === 0) return null;
 
-    const privateFilter = opts.requirePrivate
-        ? `AND \`is_private\` = ${opts.db.booleanLiteral(true)} `
-        : '';
-    const placeholders = uniqueCandidates.map(() => '?').join(', ');
     // Ambiguity fails closed: a private row wins; `id` keeps it deterministic.
-    const orderClause = `ORDER BY CASE WHEN \`is_private\` = ${opts.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\``;
-    const rows = await opts.db.read(
-        `SELECT * FROM apps WHERE owner_user_id = ? ${privateFilter}AND index_url IN (${placeholders}) ${orderClause} LIMIT 2`,
-        [opts.site.user_id, ...uniqueCandidates],
+    const rows = await opts.appStore.listOwnedByIndexUrlCandidates(
+        opts.site.user_id,
+        uniqueCandidates,
+        { requirePrivate: opts.requirePrivate },
     );
     if (rows.length === 0) return null;
     if (rows.length > 1) {

@@ -963,6 +963,59 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(found.id).toBe(app.id);
     });
 
+    it("lists at most two of an owner's index_url matches, private first, with only the gate's columns", async () => {
+        const url = `https://${freshName()}.example.com/`;
+        const candidates = [url, `${url}index.html`];
+        const publicApp = await createApp({
+            index_url: url,
+            icon: `data:image/png;base64,${'A'.repeat(512)}`,
+            description: 'not read by the gate',
+        });
+        const privateApp = await createApp({ index_url: candidates[1] });
+        await db.write('UPDATE `apps` SET `is_private` = 1 WHERE `id` = ?', [
+            privateApp.id,
+        ]);
+        await createApp({ index_url: url });
+        await createApp({ index_url: url }, { ownerUserId: OTHER_OWNER });
+
+        const rows = await appStore.listOwnedByIndexUrlCandidates(
+            OWNER,
+            candidates,
+        );
+        expect(rows.map((row) => row.id)).toEqual([
+            privateApp.id,
+            publicApp.id,
+        ]);
+        expect(Object.keys(rows[1]).sort()).toEqual([
+            'id',
+            'index_url',
+            'is_private',
+            'name',
+            'owner_user_id',
+            'title',
+            'uid',
+        ]);
+
+        const privateOnly = await appStore.listOwnedByIndexUrlCandidates(
+            OWNER,
+            candidates,
+            { requirePrivate: true },
+        );
+        expect(privateOnly.map((row) => row.id)).toEqual([privateApp.id]);
+    });
+
+    it('lists no index_url matches for no candidates, without a query', async () => {
+        const read = vi.spyOn(db, 'read');
+        try {
+            expect(
+                await appStore.listOwnedByIndexUrlCandidates(OWNER, []),
+            ).toEqual([]);
+            expect(read).not.toHaveBeenCalled();
+        } finally {
+            read.mockRestore();
+        }
+    });
+
     // -- createFromOrigin ----------------------------------------------
 
     it('creates an origin-bootstrap app with the marker shape', async () => {

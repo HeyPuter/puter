@@ -44,7 +44,7 @@ import {
     Put,
     Unlock,
 } from '../../core/http/decorators.js';
-import type { RouteOptions } from '../../core/http/types.js';
+import { PREFLIGHT_MAX_AGE, type RouteOptions } from '../../core/http/types.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { rootShowsHome } from '../../services/fs/rootListing.js';
@@ -116,9 +116,6 @@ const DAV_ROUTE_OPTIONS: RouteOptions = {
     rateLimit: DAV_LIMIT,
     concurrent: DAV_CONCURRENT,
 };
-
-/** How long a browser may cache a DAV preflight. */
-const PREFLIGHT_MAX_AGE = '86400';
 
 /** How many shared items the virtual share collections list. */
 const SHARE_LISTING_CAP = 200;

@@ -26,6 +26,7 @@ import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSController } from './FSController.js';
 import { FS_BATCH_WRITE_MAX_ITEMS, FS_MULTIPART_MAX_PARTS } from './limits.js';
@@ -1256,7 +1257,270 @@ describe('FSController.completeWrite', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
+
+    // One read for the access check and one for the status decision; the
+    // completion is recorded from the second without reading it back.
+    it('reads the session twice and records the completion from the second copy', async () => {
+        const { actor, username } = await makeUser();
+        const target = `/${username}/Documents/complete-once.txt`;
+        const started = await startSignedWrite(actor, target, 4);
+        await fetch(started.url!, { method: 'PUT', body: 'wxyz' });
+        const before = (await server.stores.fsEntry.getPendingEntryBySessionId(
+            started.sessionId,
+        ))!;
+
+        const reads = countSessionReads();
+        try {
+            await withActor(actor, () =>
+                controller.completeWrite(
+                    makeReq<CompleteWriteRequest>({
+                        body: { uploadId: started.sessionId },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            expect(reads.of(started.sessionId)).toBe(2);
+        } finally {
+            reads.restore();
+        }
+
+        const after = (await server.stores.fsEntry.getPendingEntryBySessionId(
+            started.sessionId,
+        ))!;
+        expect(after).toEqual({
+            ...before,
+            status: 'completed',
+            failureReason: null,
+            updatedAt: after.completedAt,
+            consumedAt: after.completedAt,
+            completedAt: expect.any(Number),
+        });
+    });
+
+    it('reads each session of a batch completion twice', async () => {
+        const { actor, username } = await makeUser();
+        const started = [];
+        for (const name of ['batch-once-a.txt', 'batch-once-b.txt']) {
+            const session = await startSignedWrite(
+                actor,
+                `/${username}/Documents/${name}`,
+                2,
+            );
+            await fetch(session.url!, { method: 'PUT', body: 'ab' });
+            started.push(session);
+        }
+
+        const reads = countSessionReads();
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.completeBatchWrites(
+                    makeReq<CompleteWriteRequest[]>({
+                        body: started.map((session) => ({
+                            uploadId: session.sessionId,
+                        })),
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect(
+                (captured.body as Array<{ fsEntry: { path: string } }>).map(
+                    (item) => item.fsEntry.path,
+                ),
+            ).toEqual([
+                `/${username}/Documents/batch-once-a.txt`,
+                `/${username}/Documents/batch-once-b.txt`,
+            ]);
+            for (const session of started) {
+                expect(reads.of(session.sessionId)).toBe(2);
+            }
+        } finally {
+            reads.restore();
+        }
+        for (const session of started) {
+            await expect(
+                server.stores.fsEntry.getPendingEntryBySessionId(
+                    session.sessionId,
+                ),
+            ).resolves.toMatchObject({ status: 'completed' });
+        }
+    });
+
+    it('leaves a malformed id in a batch to the service', async () => {
+        const { actor, username } = await makeUser();
+        const started = await startSignedWrite(
+            actor,
+            `/${username}/Documents/batch-malformed.txt`,
+            2,
+        );
+        await expect(
+            withActor(actor, () =>
+                controller.completeBatchWrites(
+                    makeReq<CompleteWriteRequest[]>({
+                        body: [
+                            { uploadId: started.sessionId },
+                            { uploadId: '' },
+                        ],
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    // The access check reads the session before the status decision; another
+    // request that settles it in between must still turn this one away.
+    const settleDuringAccessCheck = (settle: () => Promise<void>) => {
+        const fs = server.services.fs;
+        const read = fs.getUploadSessions.bind(fs);
+        return vi
+            .spyOn(fs, 'getUploadSessions')
+            .mockImplementationOnce(async (userId, uploadIds) => {
+                const sessions = await read(userId, uploadIds);
+                await settle();
+                return sessions;
+            });
+    };
+
+    it('turns away a completion whose session another one finished during the access check', async () => {
+        const { actor, userId, username } = await makeUser();
+        const target = `/${username}/Documents/raced-complete.txt`;
+        const started = await startSignedWrite(actor, target, 4);
+        await fetch(started.url!, { method: 'PUT', body: 'wxyz' });
+
+        const spy = settleDuringAccessCheck(async () => {
+            await server.services.fs.completeUrlWrite(userId, {
+                uploadId: started.sessionId,
+            });
+        });
+        try {
+            await expect(
+                withActor(actor, () =>
+                    controller.completeWrite(
+                        makeReq<CompleteWriteRequest>({
+                            body: { uploadId: started.sessionId },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                message: expect.stringContaining('not pending'),
+            });
+        } finally {
+            spy.mockRestore();
+        }
+
+        await expect(
+            server.stores.fsEntry.getPendingEntryBySessionId(started.sessionId),
+        ).resolves.toMatchObject({ status: 'completed' });
+        // A completed session's object backs the live file; a late abort must
+        // leave it alone.
+        await server.services.fs.abortUrlWrite(userId, started.sessionId);
+        const entry = (await server.stores.fsEntry.getEntryByPath(target))!;
+        const { body } = await server.services.fs.readContent(entry);
+        expect(await readAll(body)).toBe('wxyz');
+    });
+
+    it('turns away a completion whose session was aborted during the access check', async () => {
+        const { actor, userId, username } = await makeUser();
+        const target = `/${username}/Documents/raced-abort.txt`;
+        const started = await startSignedWrite(actor, target, 4);
+        await fetch(started.url!, { method: 'PUT', body: 'wxyz' });
+
+        const spy = settleDuringAccessCheck(() =>
+            server.services.fs.abortUrlWrite(userId, started.sessionId),
+        );
+        try {
+            await expect(
+                withActor(actor, () =>
+                    controller.completeWrite(
+                        makeReq<CompleteWriteRequest>({
+                            body: { uploadId: started.sessionId },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                message: expect.stringContaining('not pending'),
+            });
+        } finally {
+            spy.mockRestore();
+        }
+
+        await expect(
+            server.stores.fsEntry.getPendingEntryBySessionId(started.sessionId),
+        ).resolves.toMatchObject({
+            status: 'aborted',
+            failureReason: 'Upload aborted by caller',
+        });
+        await expect(
+            server.stores.fsEntry.getEntryByPath(target),
+        ).resolves.toBeNull();
+    });
+
+    it('turns away a batch completion whose session another one finished during the access check', async () => {
+        const { actor, userId, username } = await makeUser();
+        const target = `/${username}/Documents/raced-batch.txt`;
+        const started = await startSignedWrite(actor, target, 2);
+        await fetch(started.url!, { method: 'PUT', body: 'ab' });
+
+        const spy = settleDuringAccessCheck(async () => {
+            await server.services.fs.batchCompleteUrlWrite(userId, [
+                { uploadId: started.sessionId },
+            ]);
+        });
+        try {
+            await expect(
+                withActor(actor, () =>
+                    controller.completeBatchWrites(
+                        makeReq<CompleteWriteRequest[]>({
+                            body: [{ uploadId: started.sessionId }],
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                message: expect.stringContaining('not pending'),
+            });
+        } finally {
+            spy.mockRestore();
+        }
+
+        await expect(
+            server.stores.fsEntry.getPendingEntryBySessionId(started.sessionId),
+        ).resolves.toMatchObject({ status: 'completed' });
+    });
 });
+
+const readAll = async (body: Readable): Promise<string> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of body) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks).toString('utf8');
+};
+
+/** Counts system KV reads of each upload session's key. */
+const countSessionReads = () => {
+    const get = vi.spyOn(server.stores.kv, 'get');
+    return {
+        of: (sessionId: string) =>
+            get.mock.calls
+                .flatMap(([params]) =>
+                    [(params as { key: unknown }).key].flat(),
+                )
+                .filter((key) => key === toPendingUploadSessionKey(sessionId))
+                .length,
+        restore: () => get.mockRestore(),
+    };
+};
 
 describe('FSController.abortWrite', () => {
     it('rejects a request with no uploadId', async () => {
@@ -1381,6 +1645,48 @@ describe('FSController.signMultipartParts', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    it('reads the session once to sign more parts', async () => {
+        const { actor, username } = await makeUser();
+        const { res: startRes, captured: startCaptured } = makeRes();
+        await withActor(actor, () =>
+            controller.startWrite(
+                makeReq<SignedWriteRequest>({
+                    body: {
+                        fileMetadata: {
+                            path: `/${username}/Documents/sign-once.bin`,
+                            size: 8,
+                        },
+                        uploadMode: 'multipart',
+                    },
+                    actor,
+                }),
+                startRes,
+            ),
+        );
+        const started = startCaptured.body as ClientSignedWriteResponse;
+
+        const reads = countSessionReads();
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.signMultipartParts(
+                    makeReq<SignMultipartPartsRequest>({
+                        body: { uploadId: started.sessionId, partNumbers: [1] },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect(captured.body).toMatchObject({
+                uploadId: started.sessionId,
+                multipartPartUrls: [expect.anything()],
+            });
+            expect(reads.of(started.sessionId)).toBe(1);
+        } finally {
+            reads.restore();
+        }
+    });
+
     // The session is unknown, so reaching the lookup would answer 404.
     it.each([
         [FS_MULTIPART_MAX_PARTS + 1, 400],
@@ -1444,6 +1750,66 @@ describe('FSController.batchWrites (json)', () => {
         ]);
         for (const item of body) {
             expect(item.fsEntry).not.toHaveProperty('bucket');
+        }
+    });
+
+    it('stores a batch of thumbnails in one update and announces each with its thumbnail', async () => {
+        const { actor, username } = await makeUser();
+        const names = ['th-a.png', 'th-b.png', 'th-c.png', 'th-none.png'];
+        const thumbnailFor = (name: string) =>
+            name === 'th-none.png'
+                ? undefined
+                : `data:image/png;base64,${Buffer.from(name).toString('base64')}`;
+        const writeSpy = vi.spyOn(server.clients.db, 'write');
+        const announced: Array<{ response: Record<string, unknown> }> = [];
+        const listener = (_key: string, data: unknown) => {
+            announced.push(data as { response: Record<string, unknown> });
+        };
+        server.clients.event.on('outer.gui.item.added', listener as never);
+        const { res, captured } = makeRes();
+        let statements: string[];
+        try {
+            await withActor(actor, () =>
+                controller.batchWrites(
+                    makeReq<WriteRequest[]>({
+                        body: names.map((name) => ({
+                            fileMetadata: {
+                                path: `/${username}/Documents/${name}`,
+                                size: 1,
+                            },
+                            fileContent: 'x',
+                            thumbnailData: thumbnailFor(name),
+                        })) as WriteRequest[],
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+        } finally {
+            statements = writeSpy.mock.calls.map(([sql]) => String(sql));
+            writeSpy.mockRestore();
+            server.clients.event.off('outer.gui.item.added', listener as never);
+        }
+
+        expect(
+            statements.filter((sql) => sql.includes('SET thumbnail')),
+        ).toHaveLength(1);
+        const body = captured.body as Array<{
+            fsEntry: { path: string; thumbnail?: string | null };
+        }>;
+        expect(body.map((item) => item.fsEntry.path)).toEqual(
+            names.map((name) => `/${username}/Documents/${name}`),
+        );
+        for (const name of names) {
+            const path = `/${username}/Documents/${name}`;
+            const expected = thumbnailFor(name) ?? null;
+            await expect(
+                server.stores.fsEntry.getEntryByUuidFromPrimary(
+                    (await server.stores.fsEntry.getEntryByPath(path))!.uuid,
+                ),
+            ).resolves.toMatchObject({ thumbnail: expected });
+            const event = announced.find((data) => data.response.path === path);
+            expect(event?.response.thumbnail ?? null).toBe(expected);
         }
     });
 

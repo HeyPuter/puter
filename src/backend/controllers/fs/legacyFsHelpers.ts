@@ -28,6 +28,7 @@ import {
     type ACLService,
     type AclMode,
     type AclRefusalOptions,
+    type ResourceDescriptor,
 } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -229,7 +230,7 @@ export async function assertAccess(
     aclService: ACLService,
     _fsService: FSService,
     actor: Actor,
-    path: string,
+    path: string | ResourceDescriptor,
     mode: AclMode,
 ): Promise<void> {
     await aclService.assertFsAccess(actor, path, mode, LEGACY_REFUSAL);
@@ -474,39 +475,46 @@ export async function toLegacyEntry(
         ...(opts.isShared === undefined ? {} : { is_shared: opts.isShared }),
     };
 
-    // `is_empty` — only meaningful for directories. Single-row probe so we
-    // don't pay for listing every child.
-    if (entry.isDir && opts.fsEntryStore) {
-        try {
-            const children = await opts.fsEntryStore.listChildren(entry.uuid, {
-                limit: 1,
-            });
-            response.is_empty = children.length === 0;
-        } catch {
-            response.is_empty = false;
-        }
-    } else if (!entry.isDir) {
-        response.is_empty = false;
-    }
+    const { fsEntryStore, userStore } = opts;
+    const [isEmpty, ownerUsername, thumbnail] = await Promise.all([
+        // `is_empty` — only meaningful for directories.
+        entry.isDir && fsEntryStore
+            ? (async () => {
+                  try {
+                      return !(await fsEntryStore.hasChildrenByParentUid(
+                          entry.uuid,
+                      ));
+                  } catch {
+                      return false;
+                  }
+              })()
+            : undefined,
+        // `owner` — username-only. Matches the legacy safe-entry contract.
+        userStore
+            ? (async () => {
+                  try {
+                      const owner = await userStore.getById(entry.userId);
+                      return owner && typeof owner.username === 'string'
+                          ? owner.username
+                          : undefined;
+                  } catch {
+                      return undefined; // best-effort
+                  }
+              })()
+            : undefined,
+        // Let the thumbnail extension swap an s3:// key for a signed URL.
+        signEntryThumbnail(
+            eventClient,
+            entry.uuid,
+            response.thumbnail as string | null,
+        ),
+    ]);
 
-    // `owner` — username-only. Matches the legacy safe-entry contract.
-    if (opts.userStore) {
-        try {
-            const owner = await opts.userStore.getById(entry.userId);
-            if (owner && typeof owner.username === 'string') {
-                response.owner = { username: owner.username };
-            }
-        } catch {
-            /* best-effort */
-        }
-    }
-
-    // Let the thumbnail extension swap an s3:// key for a signed URL.
-    response.thumbnail = await signEntryThumbnail(
-        eventClient,
-        entry.uuid,
-        response.thumbnail as string | null,
-    );
+    if (isEmpty !== undefined) response.is_empty = isEmpty;
+    else if (!entry.isDir) response.is_empty = false;
+    if (ownerUsername !== undefined)
+        response.owner = { username: ownerUsername };
+    response.thumbnail = thumbnail;
 
     return response;
 }

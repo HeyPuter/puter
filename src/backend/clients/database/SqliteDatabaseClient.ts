@@ -207,6 +207,9 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
             insertId: info.lastInsertRowid,
             affectedRows: info.changes,
             anyRowsAffected: info.changes > 0,
+            // No warningStatus: SQLite raises none, but a new row can reuse a
+            // deleted row's rowid that other tables still name, so a clean
+            // insert doesn't prove the row is all the caller sent.
         };
     }
 

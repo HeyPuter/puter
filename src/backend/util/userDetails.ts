@@ -182,38 +182,65 @@ export async function buildUserDetails(
         hasDevAccountAccess: !!user.metadata?.hasDevAccountAccess,
     };
 
-    if (oidcOnly) {
+    // Not an inline literal, so a `TaskbarDeps` without `clients` still
+    // accepts it.
+    const taskbarDeps = {
+        clients,
+        stores,
+        apiBaseUrl: String(config.api_base_url ?? ''),
+        config,
+    };
+    const linkedProvider = async () => {
+        if (!oidcOnly) return null;
         try {
-            const provider = await services.oidc.getLinkedProviderForUser(
-                user.id,
-            );
-            if (provider) {
-                const origin = (config.origin ?? '').replace(/\/$/, '');
-                details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`;
-            }
+            return await services.oidc.getLinkedProviderForUser(user.id);
         } catch {
             // OIDC not configured
+            return null;
         }
+    };
+    const taskbarItems = async () => {
+        if (!isUser) return null;
+        try {
+            return {
+                items: await getTaskbarItems(user, taskbarDeps, {
+                    iconSize: opts.iconSize,
+                    noIcons: opts.noIcons,
+                }),
+            };
+        } catch (error) {
+            return { error };
+        }
+    };
+    // The team that pays for the account; every seat restriction keys on it.
+    const orgSeat = async () => {
+        if (!isUser || config.teams_enabled !== true) return null;
+        try {
+            return { seat: await stores.team.getOrgSeat(user.id) };
+        } catch (error) {
+            return { error };
+        }
+    };
+    // Independent and each best-effort, so read together; the results land
+    // below in the order the payload has always listed them.
+    const [provider, taskbar, team] = await Promise.all([
+        linkedProvider(),
+        taskbarItems(),
+        orgSeat(),
+    ]);
+
+    if (provider) {
+        const origin = (config.origin ?? '').replace(/\/$/, '');
+        details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`;
     }
 
-    if (isUser) {
+    if (taskbar) {
         // Best-effort: the account still works without them.
-        // Not an inline literal, so a `TaskbarDeps` without `clients` still
-        // accepts it.
-        const taskbarDeps = {
-            clients,
-            stores,
-            apiBaseUrl: String(config.api_base_url ?? ''),
-            config,
-        };
-        try {
-            details.taskbar_items = await getTaskbarItems(user, taskbarDeps, {
-                iconSize: opts.iconSize,
-                noIcons: opts.noIcons,
-            });
-        } catch (e) {
-            console.warn('[user-details] taskbar_items failed:', e);
+        if ('error' in taskbar) {
+            console.warn('[user-details] taskbar_items failed:', taskbar.error);
             details.taskbar_items = [];
+        } else {
+            details.taskbar_items = taskbar.items;
         }
 
         const directories: Record<string, unknown> = {};
@@ -231,18 +258,14 @@ export async function buildUserDetails(
         details.directories = directories;
     }
 
-    // The team that pays for the account; every seat restriction keys on it.
-    if (isUser && config.teams_enabled === true) {
-        try {
-            const seat = await stores.team.getOrgSeat(user.id);
-            if (seat) {
-                details.team = {
-                    uid: seat.team_uid,
-                    name: seat.team_name ?? null,
-                };
-            }
-        } catch (e) {
-            console.warn('[user-details] team lookup failed:', e);
+    if (team) {
+        if ('error' in team) {
+            console.warn('[user-details] team lookup failed:', team.error);
+        } else if (team.seat) {
+            details.team = {
+                uid: team.seat.team_uid,
+                name: team.seat.team_name ?? null,
+            };
         }
     }
 

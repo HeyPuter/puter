@@ -672,6 +672,165 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
     });
 });
 
+describe('ACLService.check — ancestor scans', () => {
+    const path = '/other/a/b/file.txt';
+
+    /**
+     * Scan answers by the ancestor they ask about: each after its own delay, a
+     * hit, a miss, or a failure.
+     */
+    const answering = (
+        services: ReturnType<typeof makeService>['services'],
+        answers: Record<string, { ms: number; hit?: boolean; fail?: boolean }>,
+        events: string[] = [],
+    ) =>
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) => {
+                const ancestor = Object.keys(answers).find((p) =>
+                    permissions.includes(`fs:uid\\C${p}:read`),
+                )!;
+                const answer = answers[ancestor];
+                events.push(`${ancestor}:start`);
+                await new Promise((resolve) => setTimeout(resolve, answer.ms));
+                events.push(`${ancestor}:end`);
+                if (answer.fail) throw new Error(`${ancestor} scan failed`);
+                return answer.hit ? [{ $: 'option', key: 'k' }] : [];
+            },
+        );
+
+    const outcome = async (run: () => Promise<boolean>) => {
+        try {
+            return { granted: await run() };
+        } catch (error) {
+            return { error: (error as Error).message };
+        }
+    };
+
+    it('answers a grant on the node itself with one scan', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 5, hit: true },
+                '/other/a/b': { ms: 5 },
+                '/other/a': { ms: 5 },
+                '/other': { ms: 5 },
+            },
+            events,
+        );
+        expect(await service.check(issuerActor, resource(path), 'read')).toBe(
+            true,
+        );
+        expect(events).toEqual([`${path}:start`, `${path}:end`]);
+    });
+
+    it('after a miss on the node, starts the scans above it before the first answers', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 5 },
+                '/other/a/b': { ms: 5 },
+                '/other/a': { ms: 5 },
+                '/other': { ms: 5 },
+            },
+            events,
+        );
+        expect(await service.check(issuerActor, resource(path), 'read')).toBe(
+            false,
+        );
+        expect(events.slice(0, 2)).toEqual([`${path}:start`, `${path}:end`]);
+        expect(events.slice(2, 5).every((e) => e.endsWith(':start'))).toBe(
+            true,
+        );
+        expect(services.permission.scan).toHaveBeenCalledTimes(4);
+    });
+
+    it('lets the deepest hit win over a failed scan above it', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, hit: true },
+            '/other/a': { ms: 0, fail: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ granted: true });
+    });
+
+    it('fails with the first failed scan below any hit, however fast the hit', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, fail: true },
+            '/other/a': { ms: 0, hit: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: '/other/a/b scan failed' });
+    });
+
+    it('fails with the deepest failure when nothing hits', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, fail: true },
+            '/other/a': { ms: 0 },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: '/other/a/b scan failed' });
+    });
+
+    it('fails on a failed node scan without scanning above it, even where a grant sits', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 0, fail: true },
+                '/other/a/b': { ms: 0, hit: true },
+                '/other/a': { ms: 0 },
+                '/other': { ms: 0 },
+            },
+            events,
+        );
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: `${path} scan failed` });
+        expect(events).toEqual([`${path}:start`, `${path}:end`]);
+    });
+
+    it('lets a grant on the node win before any scan above it could fail', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0, hit: true },
+            '/other/a/b': { ms: 0, fail: true },
+            '/other/a': { ms: 0, fail: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ granted: true });
+        expect(services.permission.scan).toHaveBeenCalledTimes(1);
+    });
+});
+
 // -- Scoped access tokens, manage mode ---------------------------------
 
 describe('ACLService.check — scoped tokens and manage', () => {

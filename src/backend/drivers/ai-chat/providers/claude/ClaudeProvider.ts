@@ -403,7 +403,8 @@ export class ClaudeProvider implements IChatProvider {
             try {
                 await completion.withResponse();
             } catch (e) {
-                await cleanupUploads();
+                // Best-effort and never rejects, so the fallback need not wait.
+                void cleanupUploads();
                 restoreUploads();
                 throw e;
             }
@@ -512,7 +513,8 @@ export class ClaudeProvider implements IChatProvider {
             restoreUploads();
             throw e;
         } finally {
-            await cleanupUploads();
+            // Best-effort and never rejects, so the response need not wait.
+            void cleanupUploads();
         }
     }
 

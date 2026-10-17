@@ -314,6 +314,136 @@ describe('MeteringService', () => {
             expect(stub).toHaveBeenCalledWith(actor);
         });
 
+        // Resolvers are asked concurrently, but the answer must be the one
+        // asking them one at a time, in order, would give.
+        describe('concurrent resolvers', () => {
+            const lookupFailedFor = (who: Actor) =>
+                (
+                    target as unknown as {
+                        subscriptionCache: Map<
+                            string,
+                            { lookupFailed: boolean }
+                        >;
+                    }
+                ).subscriptionCache.get(who.user!.uuid as string)?.lookupFailed;
+            const sleep = (ms: number) =>
+                new Promise((resolve) => setTimeout(resolve, ms));
+
+            it('starts every resolver in both lists before any answers', async () => {
+                const started: string[] = [];
+                let release!: () => void;
+                const gate = new Promise<null>((resolve) => {
+                    release = () => resolve(null);
+                });
+                target.registerDefaultSubscriptionResolver(async () => {
+                    started.push('default');
+                    return gate;
+                });
+                target.registerSubscriptionResolver(async () => {
+                    started.push('first');
+                    return gate;
+                });
+                target.registerSubscriptionResolver(async () => {
+                    started.push('second');
+                    return null;
+                });
+
+                const pending = target.getActorSubscription(actor);
+                expect(started).toEqual(['default', 'first', 'second']);
+                release();
+                expect((await pending).id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+            });
+
+            it('keeps the earlier resolver`s answer when a later one settles first', async () => {
+                for (const id of ['slow-plan', 'fast-plan'])
+                    target.registerPolicy({
+                        id,
+                        monthUsageAllowance: toMicroCents(10),
+                        monthlyStorageAllowance: 1024,
+                    });
+                target.registerSubscriptionResolver(async () => {
+                    await sleep(20);
+                    return 'slow-plan';
+                });
+                target.registerSubscriptionResolver(async () => 'fast-plan');
+
+                expect((await target.getActorSubscription(actor)).id).toBe(
+                    'slow-plan',
+                );
+                expect(lookupFailedFor(actor)).toBe(false);
+            });
+
+            it('counts a failure ahead of the winner as a failed lookup', async () => {
+                target.registerPolicy({
+                    id: 'after-failure',
+                    monthUsageAllowance: toMicroCents(10),
+                    monthlyStorageAllowance: 1024,
+                });
+                const warn = vi
+                    .spyOn(console, 'warn')
+                    .mockImplementation(() => {});
+                try {
+                    target.registerSubscriptionResolver(async () => {
+                        await sleep(10);
+                        throw new Error('store down');
+                    });
+                    target.registerSubscriptionResolver(
+                        async () => 'after-failure',
+                    );
+
+                    expect((await target.getActorSubscription(actor)).id).toBe(
+                        'after-failure',
+                    );
+                    expect(lookupFailedFor(actor)).toBe(true);
+                    expect(warn).toHaveBeenCalledWith(
+                        '[metering] subscription resolver failed',
+                        expect.any(Error),
+                    );
+                } finally {
+                    warn.mockRestore();
+                }
+            });
+
+            it('ignores failures after the winner, with no warning or unhandled rejection', async () => {
+                target.registerPolicy({
+                    id: 'early-winner',
+                    monthUsageAllowance: toMicroCents(10),
+                    monthlyStorageAllowance: 1024,
+                });
+                const unhandled = vi.fn();
+                process.on('unhandledRejection', unhandled);
+                const warn = vi
+                    .spyOn(console, 'warn')
+                    .mockImplementation(() => {});
+                try {
+                    target.registerSubscriptionResolver(async () => {
+                        await sleep(10);
+                        return 'early-winner';
+                    });
+                    target.registerSubscriptionResolver(async () => {
+                        throw new Error('later, async');
+                    });
+                    target.registerSubscriptionResolver(() => {
+                        throw new Error('later, sync');
+                    });
+
+                    expect((await target.getActorSubscription(actor)).id).toBe(
+                        'early-winner',
+                    );
+                    expect(lookupFailedFor(actor)).toBe(false);
+                    await sleep(20);
+                    expect(warn).not.toHaveBeenCalledWith(
+                        '[metering] subscription resolver failed',
+                        expect.anything(),
+                    );
+                    expect(unhandled).not.toHaveBeenCalled();
+                } finally {
+                    warn.mockRestore();
+                    process.off('unhandledRejection', unhandled);
+                }
+            });
+        });
+
         it('falls through to the default resolver when the primary returns nothing', async () => {
             const customDefault = {
                 id: 'custom-default',

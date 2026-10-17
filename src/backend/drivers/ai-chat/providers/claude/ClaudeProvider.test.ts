@@ -1725,6 +1725,98 @@ describe('ClaudeProvider.complete streaming', () => {
         expect(part).toEqual({ puter_path: path });
     });
 
+    it('answers without waiting for the uploaded files to be deleted', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_reply_1' });
+        // A delete that never settles must not hold the reply.
+        filesDeleteMock.mockReturnValue(new Promise(() => {}));
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        const result = await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [
+                        { role: 'user', content: [{ puter_path: path }] },
+                    ],
+                }),
+            actor,
+        );
+
+        expect(result).toMatchObject({ finish_reason: 'stop' });
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_reply_1', {
+            betas: [FILES_API_BETA],
+        });
+    });
+
+    it('hands a refused stream to the fallback without waiting for the deletes', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_stream_2' });
+        filesDeleteMock.mockReturnValue(new Promise(() => {}));
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        const part: Record<string, unknown> = { puter_path: path };
+        await expect(
+            withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [{ role: 'user', content: [part] }],
+                        stream: true,
+                    }),
+                actor,
+            ),
+        ).rejects.toBe(refused);
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_stream_2', {
+            betas: [FILES_API_BETA],
+        });
+        expect(part).toEqual({ puter_path: path });
+    });
+
+    it('leaves nothing unhandled when deleting an uploaded file fails', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_gone_1' });
+        filesDeleteMock.mockRejectedValue(new Error('already gone'));
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [
+                            { role: 'user', content: [{ puter_path: path }] },
+                        ],
+                    }),
+                actor,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_gone_1', {
+            betas: [FILES_API_BETA],
+        });
+        expect(unhandled).toEqual([]);
+    });
+
     it('surfaces a failure the event iterator swallowed instead of ending the stream clean', async () => {
         const { provider } = makeProvider();
         const dropped = Object.assign(new Error('Overloaded'), {

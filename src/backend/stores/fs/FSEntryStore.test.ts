@@ -60,7 +60,7 @@ describe('FSEntryStore', () => {
                 },
             },
             event: {
-                emitAndWait: async () => undefined,
+                emitAndWaitConcurrently: async () => undefined,
             },
         };
         const store = new FSEntryStore(
@@ -75,7 +75,7 @@ describe('FSEntryStore', () => {
         });
         expect(queries).toEqual([
             'SELECT COALESCE(SUM(size), 0) AS "totalUsage" FROM fsentries WHERE user_id = ?',
-            'SELECT free_storage AS "freeStorage" FROM "user" WHERE id = ? LIMIT 1',
+            'SELECT uuid, free_storage AS "freeStorage" FROM "user" WHERE id = ? LIMIT 1',
         ]);
     });
 });
@@ -641,6 +641,124 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         await expect(pathOf(file.uuid)).resolves.toBe(
             `${user.home}/Documents/heal.txt`,
         );
+    });
+
+    /**
+     * Holds each path-lineage read for a tick so overlapping lookups show up,
+     * and fails the ones `failures` names (by last segment) after their delay.
+     */
+    const watchLineageReads = (
+        failures: Record<string, { error: Error; delayMs: number }> = {},
+    ) => {
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const stats = { inFlight: 0, peak: 0, calls: 0 };
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (!sql.includes('segments(depth, name)')) {
+                    return originalRead.call(db, sql, params);
+                }
+                stats.calls++;
+                stats.inFlight++;
+                stats.peak = Math.max(stats.peak, stats.inFlight);
+                const failure = failures[String((params ?? []).at(-1))];
+                try {
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, failure?.delayMs ?? 5),
+                    );
+                    if (failure) throw failure.error;
+                    return await originalRead.call(db, sql, params);
+                } finally {
+                    stats.inFlight--;
+                }
+            });
+        return { stats, spy };
+    };
+
+    it('runs the lineage lookups of a batch concurrently, resolving each path', async () => {
+        const user = await makeUser();
+        const healed = await Promise.all(
+            [1, 2, 3].map((i) =>
+                createFile(user, `${user.home}/Documents/lineage-${i}.txt`),
+            ),
+        );
+        for (const file of healed) await blankPath(file.uuid);
+        const absent = [1, 2, 3].map(
+            (i) => `${user.home}/Documents/fresh-${i}.txt`,
+        );
+        const paths = [...healed.map((file) => file.path), ...absent];
+
+        const { stats, spy } = watchLineageReads();
+        let entries: (FSEntry | null)[];
+        try {
+            entries = await store.getEntriesByPathsForUser(user.userId, paths, {
+                skipCache: true,
+            });
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(stats.calls).toBe(paths.length);
+        expect(stats.peak).toBeGreaterThan(1);
+        expect(entries.map((entry) => entry?.uuid ?? null)).toEqual([
+            ...healed.map((file) => file.uuid),
+            null,
+            null,
+            null,
+        ]);
+        for (const file of healed) {
+            await expect(pathOf(file.uuid)).resolves.toBe(file.path);
+        }
+    });
+
+    it('surfaces the failure of the earliest path, whichever fails first', async () => {
+        const user = await makeUser();
+        const paths = ['a', 'b', 'c', 'd'].map(
+            (name) => `${user.home}/Documents/${name}.txt`,
+        );
+        const { spy } = watchLineageReads({
+            'b.txt': { error: new Error('b failed'), delayMs: 30 },
+            'd.txt': { error: new Error('d failed'), delayMs: 1 },
+        });
+        try {
+            await expect(
+                store.getEntriesByPathsForUser(user.userId, paths, {
+                    skipCache: true,
+                }),
+            ).rejects.toThrow('b failed');
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('skips the lineage walk when asked to', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/nolin.txt`);
+        await blankPath(file.uuid);
+
+        const { stats, spy } = watchLineageReads();
+        try {
+            await expect(
+                store.getEntryByPath(file.path, { lineage: false }),
+            ).resolves.toBeNull();
+            await expect(
+                store.getEntryByPath(file.path, {
+                    lineage: false,
+                    useTryHardRead: true,
+                }),
+            ).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+        expect(stats.calls).toBe(0);
+        await expect(pathOf(file.uuid)).resolves.toBeNull();
+
+        // A row that stores its path is found either way.
+        const stored = await createFile(user, `${user.home}/Documents/lin.txt`);
+        await expect(
+            store.getEntryByPath(stored.path, { lineage: false }),
+        ).resolves.toMatchObject({ uuid: stored.uuid });
     });
 
     it('returns null when a path segment cannot be resolved', async () => {
@@ -1327,6 +1445,172 @@ describe('FSEntryStore timestamps and updates', () => {
         });
     });
 
+    /** Every thumbnail UPDATE sent during `run`. */
+    const captureThumbnailUpdates = async (
+        run: () => Promise<unknown>,
+        failBatch = false,
+    ) => {
+        const db = server.clients.db;
+        const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
+        const statements: unknown[][] = [];
+        const spy = vi
+            .spyOn(db, 'write')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (sql.includes('SET thumbnail = CASE')) {
+                    statements.push(params ?? []);
+                    // A batch of more than one uuid: (2n + 3) params + n.
+                    if (failBatch && (params ?? []).length > 6) {
+                        throw new Error('batch rejected');
+                    }
+                }
+                return originalWrite.call(db, sql, params);
+            });
+        try {
+            await run();
+        } finally {
+            spy.mockRestore();
+        }
+        return statements;
+    };
+
+    it("updates a batch of the owner's thumbnails in one statement", async () => {
+        const user = await makeUser();
+        const files = await Promise.all(
+            ['b1', 'b2', 'b3'].map((name) =>
+                createFile(user, `${user.home}/Documents/${name}.png`),
+            ),
+        );
+
+        let results!: PromiseSettledResult<FSEntry>[];
+        const statements = await captureThumbnailUpdates(async () => {
+            results = await store.updateEntryThumbnailsByUuidForUser(
+                user.userId,
+                files.map((file, i) => ({
+                    uuid: file.uuid,
+                    thumbnail: `thumb-${i}`,
+                })),
+            );
+        });
+
+        expect(statements).toHaveLength(1);
+        results.forEach((result, i) => {
+            expect(result).toMatchObject({
+                status: 'fulfilled',
+                value: { uuid: files[i]!.uuid, thumbnail: `thumb-${i}` },
+            });
+        });
+        for (const [i, file] of files.entries()) {
+            const stored = await store.getEntryByUuidFromPrimary(file.uuid);
+            expect(stored?.thumbnail).toBe(`thumb-${i}`);
+            const fulfilled = results[i] as PromiseFulfilledResult<FSEntry>;
+            expect(stored?.modified).toBe(fulfilled.value.modified);
+            expect(stored?.accessed).toBe(fulfilled.value.accessed);
+            await expect(store.getEntryByUuid(file.uuid)).resolves.toEqual(
+                fulfilled.value,
+            );
+        }
+    });
+
+    it('closes a batch early once its thumbnails reach the size budget', async () => {
+        const user = await makeUser();
+        const files = await Promise.all(
+            ['s1', 's2', 's3', 's4'].map((name) =>
+                createFile(user, `${user.home}/Documents/${name}.png`),
+            ),
+        );
+        // Inline data URLs: 1.5M + 1.5M fit one batch, a third would not, and
+        // one past the budget goes alone.
+        const inline = (chars: number, i: number) =>
+            `data:image/png;base64,${String(i).repeat(chars)}`;
+        const thumbnails = [
+            inline(1_500_000, 0),
+            inline(1_500_000, 1),
+            inline(1_500_000, 2),
+            inline(5_000_000, 3),
+        ];
+
+        let results!: PromiseSettledResult<FSEntry>[];
+        const statements = await captureThumbnailUpdates(async () => {
+            results = await store.updateEntryThumbnailsByUuidForUser(
+                user.userId,
+                files.map((file, i) => ({
+                    uuid: file.uuid,
+                    thumbnail: thumbnails[i]!,
+                })),
+            );
+        });
+
+        // Params per batch of n: 2n (CASE) + 3 + n (IN).
+        expect(statements.map((params) => (params.length - 3) / 3)).toEqual([
+            2, 1, 1,
+        ]);
+        expect(results.map((result) => result.status)).toEqual([
+            'fulfilled',
+            'fulfilled',
+            'fulfilled',
+            'fulfilled',
+        ]);
+        for (const [i, file] of files.entries()) {
+            const stored = await store.getEntryByUuidFromPrimary(file.uuid);
+            expect(stored?.thumbnail).toBe(thumbnails[i]);
+        }
+    });
+
+    it('settles each entry alone when the batch matches only some', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const mine = await createFile(owner, `${owner.home}/Documents/m.png`);
+        const theirs = await createFile(other, `${other.home}/Documents/t.png`);
+
+        let results!: PromiseSettledResult<FSEntry>[];
+        const statements = await captureThumbnailUpdates(async () => {
+            results = await store.updateEntryThumbnailsByUuidForUser(
+                owner.userId,
+                [
+                    { uuid: theirs.uuid, thumbnail: 'hijacked' },
+                    { uuid: mine.uuid, thumbnail: 'mine' },
+                ],
+            );
+        });
+
+        // The batch, then one statement per entry.
+        expect(statements).toHaveLength(3);
+        expect(results[0]).toMatchObject({
+            status: 'rejected',
+            reason: { statusCode: 404 },
+        });
+        expect(results[1]).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'mine' },
+        });
+        await expect(
+            store.getEntryByUuidFromPrimary(theirs.uuid),
+        ).resolves.toMatchObject({ thumbnail: null });
+    });
+
+    it('settles each entry alone when the batch statement fails', async () => {
+        const user = await makeUser();
+        const files = await Promise.all(
+            ['f1', 'f2'].map((name) =>
+                createFile(user, `${user.home}/Documents/${name}.png`),
+            ),
+        );
+
+        let results!: PromiseSettledResult<FSEntry>[];
+        const statements = await captureThumbnailUpdates(async () => {
+            results = await store.updateEntryThumbnailsByUuidForUser(
+                user.userId,
+                files.map((file) => ({ uuid: file.uuid, thumbnail: 'x' })),
+            );
+        }, true);
+
+        expect(statements).toHaveLength(3);
+        expect(results.map((result) => result.status)).toEqual([
+            'fulfilled',
+            'fulfilled',
+        ]);
+    });
+
     it('updates a thumbnail by uuid and refreshes every cached key', async () => {
         const user = await makeUser();
         const file = await createFile(
@@ -1517,6 +1801,210 @@ describe('FSEntryStore timestamps and updates', () => {
     });
 });
 
+describe('FSEntryStore read-path cache backfill', () => {
+    const cached = async (key: string) =>
+        (await server.clients.redis.get(key)) as string | null;
+
+    /** True while `promise` is still unsettled after a short wait. */
+    const stillPending = async (promise: Promise<unknown>) => {
+        const waiting = Symbol('waiting');
+        const first = await Promise.race([
+            promise,
+            new Promise((resolve) => setTimeout(() => resolve(waiting), 20)),
+        ]);
+        return first === waiting;
+    };
+
+    /**
+     * Holds every pipeline built until released, counting the SETEXs queued on
+     * it and any sent one at a time.
+     */
+    const holdPipelines = () => {
+        const redis = server.clients.redis;
+        const realPipeline = redis.pipeline.bind(redis);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queued: string[][] = [];
+        const pipelineSpy = vi
+            .spyOn(redis, 'pipeline')
+            .mockImplementation(
+                (...args: Parameters<typeof redis.pipeline>) => {
+                    const pipeline = realPipeline(...args);
+                    const keys: string[] = [];
+                    queued.push(keys);
+                    const setex = pipeline.setex.bind(pipeline);
+                    pipeline.setex = ((key: string, ...rest: never[]) => {
+                        keys.push(key);
+                        return setex(key, ...rest);
+                    }) as typeof pipeline.setex;
+                    const exec = pipeline.exec.bind(pipeline);
+                    pipeline.exec = (async () => {
+                        await gate;
+                        return exec();
+                    }) as typeof pipeline.exec;
+                    return pipeline;
+                },
+            );
+        const setexSpy = vi.spyOn(redis, 'setex');
+        return {
+            queued,
+            setexSpy,
+            release: () => {
+                release();
+                pipelineSpy.mockRestore();
+                setexSpy.mockRestore();
+            },
+        };
+    };
+
+    /** Holds every SETEX sent one at a time until released. */
+    const holdSetex = () => {
+        const redis = server.clients.redis;
+        const realSetex = redis.setex.bind(redis);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const setexSpy = vi.spyOn(redis, 'setex').mockImplementation((async (
+            ...args: Parameters<typeof realSetex>
+        ) => {
+            await gate;
+            return realSetex(...args);
+        }) as typeof redis.setex);
+        return {
+            setexSpy,
+            release: () => {
+                release();
+                setexSpy.mockRestore();
+            },
+        };
+    };
+
+    it('lists children once the backfill lands, all keys in one pipeline', async () => {
+        const user = await makeUser();
+        const dir = await store.createNonFileEntry({
+            parent: (await store.getEntryByPath(`${user.home}/Documents`))!,
+            name: 'backfill',
+            kind: 'directory',
+        });
+        const files = await Promise.all(
+            ['x.txt', 'y.txt', 'z.txt'].map((name) =>
+                createFile(user, `${dir.path}/${name}`),
+            ),
+        );
+        await server.clients.redis.flushall?.();
+
+        const held = holdPipelines();
+        let listing!: Promise<FSEntry[]>;
+        try {
+            listing = store.listChildren(dir.uuid);
+            expect(await stillPending(listing)).toBe(true);
+            expect(held.setexSpy).not.toHaveBeenCalled();
+        } finally {
+            held.release();
+        }
+        const listed = await listing;
+
+        expect(listed.map((entry) => entry.uuid).sort()).toEqual(
+            files.map((file) => file.uuid).sort(),
+        );
+        expect(held.queued).toEqual([
+            listed.flatMap((entry) => entryCacheKeys(entry)),
+        ]);
+        for (const entry of listed) {
+            for (const key of entryCacheKeys(entry)) {
+                expect(JSON.parse((await cached(key))!)).toEqual(entry);
+            }
+        }
+    });
+
+    it('lets a later invalidation from this process win over a read backfill', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/order.txt`);
+        await server.clients.redis.flushall?.();
+
+        const byPath = await store.getEntryByPath(file.path);
+        await store.invalidateEntryCacheByUuid(file.uuid);
+        for (const key of entryCacheKeys(byPath!)) {
+            await expect(cached(key)).resolves.toBeNull();
+        }
+
+        const [listed] = await store.listChildren(byPath!.parentUid!);
+        await store.invalidateEntryCacheByUuid(listed!.uuid);
+        for (const key of entryCacheKeys(listed!)) {
+            await expect(cached(key)).resolves.toBeNull();
+        }
+    });
+
+    it('answers a single-entry read once its backfill lands', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/one.txt`);
+        const reads = [
+            () => store.getEntryByPath(file.path),
+            () => store.getEntryById(file.id),
+            () => store.getRootEntryForUser(user.userId),
+            async () =>
+                (await store.getEntriesByPaths([file.path])).get(file.path),
+            async () => (await store.getEntriesByIds([file.id])).get(file.id),
+        ];
+
+        for (const read of reads) {
+            await server.clients.redis.flushall?.();
+            const held = holdSetex();
+            let reading!: Promise<FSEntry | null | undefined>;
+            try {
+                reading = read();
+                expect(await stillPending(reading)).toBe(true);
+                expect(held.setexSpy).toHaveBeenCalled();
+            } finally {
+                held.release();
+            }
+            const entry = (await reading)!;
+            for (const key of entryCacheKeys(entry)) {
+                expect(JSON.parse((await cached(key))!)).toEqual(entry);
+            }
+        }
+    });
+
+    it('still answers a read whose backfill fails', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/down.txt`);
+        await server.clients.redis.flushall?.();
+
+        const redis = server.clients.redis;
+        const setexSpy = vi
+            .spyOn(redis, 'setex')
+            .mockRejectedValue(new Error('cache down'));
+        const realPipeline = redis.pipeline.bind(redis);
+        const pipelineSpy = vi
+            .spyOn(redis, 'pipeline')
+            .mockImplementation(
+                (...args: Parameters<typeof redis.pipeline>) => {
+                    const pipeline = realPipeline(...args);
+                    pipeline.exec = (async () => {
+                        throw new Error('cache down');
+                    }) as typeof pipeline.exec;
+                    return pipeline;
+                },
+            );
+        try {
+            await expect(
+                store.getEntryByPath(file.path),
+            ).resolves.toMatchObject({ uuid: file.uuid });
+            await expect(store.listChildren(file.parentUid!)).resolves.toEqual([
+                expect.objectContaining({ uuid: file.uuid }),
+            ]);
+            expect(setexSpy).toHaveBeenCalled();
+            expect(pipelineSpy).toHaveBeenCalled();
+        } finally {
+            setexSpy.mockRestore();
+            pipelineSpy.mockRestore();
+        }
+    });
+});
+
 describe('FSEntryStore listing and pagination', () => {
     let user: StoreUser;
     let parent: FSEntry;
@@ -1655,6 +2143,23 @@ describe('FSEntryStore listing and pagination', () => {
     it('counts direct children', async () => {
         await expect(store.countChildren(parent.uuid)).resolves.toBe(4);
         await expect(store.countChildren(uuidv4())).resolves.toBe(0);
+    });
+
+    it('reports children exactly when a one-row listing finds one', async () => {
+        const sub = (await store.getEntryByPath(`${parent.path}/sub`))!;
+        const leaf = (await store.getEntryByPath(`${parent.path}/a.txt`))!;
+        for (const uid of [parent.uuid, sub.uuid, leaf.uuid, uuidv4()]) {
+            const listed = await store.listChildren(uid, { limit: 1 });
+            await expect(store.hasChildrenByParentUid(uid)).resolves.toBe(
+                listed.length > 0,
+            );
+        }
+        await expect(store.hasChildrenByParentUid(leaf.uuid)).resolves.toBe(
+            false,
+        );
+        await expect(store.hasChildrenByParentUid(parent.uuid)).resolves.toBe(
+            true,
+        );
     });
 
     it('lists and counts descendants, refusing to walk from root', async () => {
@@ -2491,10 +2996,9 @@ describe('FSEntryStore pending upload sessions', () => {
 
     it('creates the real entry when a session completes', async () => {
         const user = await makeUser();
-        const session = makeSession(user);
-        await store.createPendingEntry(session);
+        const session = await store.createPendingEntry(makeSession(user));
 
-        const entry = await store.completePendingEntry(session.sessionId, {
+        const entry = await store.completePendingEntry(session, {
             userId: user.userId,
             uuid: session.objectKey,
             path: session.targetPath,
@@ -2521,14 +3025,15 @@ describe('FSEntryStore pending upload sessions', () => {
         const second = makeSession(user, {
             targetPath: `${user.home}/Documents/bp2.txt`,
         });
-        await store.batchCreatePendingEntries([first, second]);
+        const [firstSession, secondSession] =
+            await store.batchCreatePendingEntries([first, second]);
 
         await expect(store.batchCompletePendingEntries([])).resolves.toEqual(
             [],
         );
         const entries = await store.batchCompletePendingEntries([
             {
-                sessionId: first.sessionId,
+                session: firstSession!,
                 finalData: {
                     userId: user.userId,
                     uuid: first.objectKey,
@@ -2539,7 +3044,7 @@ describe('FSEntryStore pending upload sessions', () => {
                 },
             },
             {
-                sessionId: second.sessionId,
+                session: secondSession!,
                 finalData: {
                     userId: user.userId,
                     uuid: second.objectKey,
@@ -2559,6 +3064,78 @@ describe('FSEntryStore pending upload sessions', () => {
             await expect(
                 store.getPendingEntryBySessionId(session.sessionId),
             ).resolves.toMatchObject({ status: 'completed' });
+        }
+    });
+
+    const finalDataFor = (
+        user: StoreUser,
+        session: { objectKey: string; targetPath: string },
+    ): FSEntryCreateInput => ({
+        userId: user.userId,
+        uuid: session.objectKey,
+        path: session.targetPath,
+        size: 4,
+        bucket: 'puter-local',
+        bucketRegion: 'us-west-2',
+    });
+
+    it('completes from the caller’s copy without reading the session back', async () => {
+        const user = await makeUser();
+        const session = await store.createPendingEntry(
+            makeSession(user, {
+                targetPath: `${user.home}/Documents/in-hand.txt`,
+            }),
+        );
+        // Written in between: the completion still rewrites every field a
+        // status change touches.
+        await store.markPendingEntryFailed(session.sessionId, 'flaky');
+
+        const get = vi.spyOn(server.stores.kv, 'get');
+        try {
+            await store.completePendingEntry(
+                session,
+                finalDataFor(user, session),
+            );
+            expect(get).not.toHaveBeenCalled();
+        } finally {
+            get.mockRestore();
+        }
+
+        const stored = (await store.getPendingEntryBySessionId(
+            session.sessionId,
+        ))!;
+        expect(stored).toEqual({
+            ...session,
+            status: 'completed',
+            failureReason: null,
+            updatedAt: stored.completedAt,
+            consumedAt: stored.completedAt,
+            completedAt: expect.any(Number),
+        });
+    });
+
+    it('leaves an expired session for the sweep instead of rewriting it', async () => {
+        const user = await makeUser();
+        const session = await store.createPendingEntry(
+            makeSession(user, {
+                targetPath: `${user.home}/Documents/lapsed.txt`,
+                expiresAt: Date.now() - 1_000,
+            }),
+        );
+        await expect(
+            store.getPendingEntryBySessionId(session.sessionId),
+        ).resolves.toBeNull();
+
+        const put = vi.spyOn(server.stores.kv, 'batchPut');
+        try {
+            const entry = await store.completePendingEntry(
+                session,
+                finalDataFor(user, session),
+            );
+            expect(entry.path).toBe(session.targetPath);
+            expect(put).not.toHaveBeenCalled();
+        } finally {
+            put.mockRestore();
         }
     });
 
@@ -2698,6 +3275,290 @@ describe('FSEntryStore storage allowance', () => {
         expect(allowance.max).toBeGreaterThan(500);
 
         server.clients.event.off?.('storage.quota.bonus', bonus);
+    });
+
+    it('runs bonus listeners together, each adding its share, and names the user by uuid', async () => {
+        const user = await makeUser();
+        const { uuid } = (await server.stores.user.getById(user.userId))!;
+        let inFlight = 0;
+        let peak = 0;
+        const seen: unknown[] = [];
+        const share =
+            (bytes: number) =>
+            async (
+                _key: string,
+                event: { userId: number; userUuid?: string; extra: number },
+            ) => {
+                if (event.userId !== user.userId) return;
+                seen.push(event.userUuid);
+                inFlight++;
+                peak = Math.max(peak, inFlight);
+                const granted = await new Promise<number>((resolve) =>
+                    setTimeout(() => resolve(bytes), 10),
+                );
+                inFlight--;
+                event.extra += granted;
+            };
+        const listeners = [share(100), share(1000)];
+        for (const listener of listeners) {
+            server.clients.event.on('storage.quota.bonus', listener);
+        }
+        // The shared server doesn't limit storage, so `max` would ignore the
+        // bonus; same clients, limited config.
+        const limited = new FSEntryStore(
+            { port: 0, extensions: [], is_storage_limited: true },
+            server.clients as ConstructorParameters<typeof FSEntryStore>[1],
+            server.stores as ConstructorParameters<typeof FSEntryStore>[2],
+        );
+        try {
+            for (const consistentRead of [false, true]) {
+                await expect(
+                    limited.getUserStorageAllowance(user.userId, {
+                        consistentRead,
+                    }),
+                ).resolves.toEqual({ curr: 0, max: 100 * 1024 * 1024 + 1100 });
+            }
+        } finally {
+            for (const listener of listeners) {
+                server.clients.event.off('storage.quota.bonus', listener);
+            }
+        }
+        expect(peak).toBe(2);
+        expect(seen).toEqual([uuid, uuid, uuid, uuid]);
+    });
+
+    it('surfaces a failed allowance read and never asks the listeners without the user row', async () => {
+        const user = await makeUser();
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const asked: unknown[] = [];
+        let firstAsked!: () => void;
+        const askedOnce = new Promise<void>((resolve) => {
+            firstAsked = resolve;
+        });
+        const listener = (_key: string, event: { userId: number }) => {
+            if (event.userId !== user.userId) return;
+            asked.push(event);
+            firstAsked();
+        };
+        server.clients.event.on('storage.quota.bonus', listener);
+        const failOn = (fragment: string) =>
+            vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    if (sql.includes(fragment)) throw new Error(fragment);
+                    return originalRead.call(db, sql, params);
+                });
+        try {
+            // The listeners start off the user row, beside the usage read, so
+            // a failed usage read still surfaces while they run.
+            const usageSpy = failOn('SUM(size)');
+            await expect(
+                store.getUserStorageAllowance(user.userId),
+            ).rejects.toThrow('SUM(size)');
+            usageSpy.mockRestore();
+            await askedOnce;
+
+            const userSpy = failOn('free_storage');
+            await expect(
+                store.getUserStorageAllowance(user.userId),
+            ).rejects.toThrow('free_storage');
+            userSpy.mockRestore();
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(asked).toHaveLength(1);
+        } finally {
+            server.clients.event.off('storage.quota.bonus', listener);
+        }
+    });
+});
+
+describe('FSEntryStore created-file row', () => {
+    /** Primary reads of rows just inserted, during `run`. */
+    const countReadBacks = async (run: () => Promise<unknown>) => {
+        const spy = vi.spyOn(server.clients.db, 'pread');
+        try {
+            await run();
+            return spy.mock.calls.filter(([sql]) =>
+                String(sql).includes('WHERE uuid IN'),
+            ).length;
+        } finally {
+            spy.mockRestore();
+        }
+    };
+
+    /** Mapped and serialized, the entry must match the stored row exactly. */
+    const expectStored = async (entry: FSEntry) => {
+        const stored = await store.getEntryByUuidFromPrimary(entry.uuid);
+        expect(entry).toStrictEqual(stored);
+        expect(JSON.stringify(entry)).toBe(JSON.stringify(stored));
+        return stored!;
+    };
+
+    /** Runs `run` with fsentries inserts reporting `warningStatus`. */
+    const withInsertWarnings = async <T>(
+        warningStatus: number,
+        run: () => Promise<T>,
+    ): Promise<T> => {
+        const db = server.clients.db;
+        const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
+        const spy = vi
+            .spyOn(db, 'write')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const result = await originalWrite.call(db, sql, params);
+                return /INTO\s+`?fsentries`?/i.test(sql)
+                    ? { ...result, warningStatus }
+                    : result;
+            });
+        try {
+            return await run();
+        } finally {
+            spy.mockRestore();
+        }
+    };
+
+    // SQLite never vouches for an insert, so its schema is checked against
+    // the built row with the clean result MySQL reports.
+    const vouchedOnSqlite = <T>(run: () => Promise<T>): Promise<T> =>
+        server.clients.db.engineName === 'sqlite'
+            ? withInsertWarnings(0, run)
+            : run();
+
+    it('returns what the database stored, field for field, without reading it back', async () => {
+        const user = await makeUser();
+        const app = (await server.stores.app.create(
+            {
+                name: `row-${uuidv4()}`,
+                title: 'Created row test',
+                index_url: 'https://created-row.test/',
+            },
+            { ownerUserId: user.userId },
+        )) as { id: number };
+        const cases: Array<[string, Partial<FSEntryCreateInput>]> = [
+            ['plain.txt', {}],
+            [
+                'every-column.png',
+                {
+                    size: 2 ** 40,
+                    isPublic: true,
+                    immutable: true,
+                    thumbnail: 'data:image/png;base64,AAAA',
+                    associatedAppId: app.id,
+                    metadata: { note: 'é €', nested: { n: 1 } },
+                    contentType: 'image/png',
+                    checksumSha256: 'abc123',
+                },
+            ],
+            [
+                'raw-metadata.bin',
+                { size: 0, isPublic: false, metadata: '{"b":2, "a":1}' },
+            ],
+            ['nullish.txt', { isPublic: null, metadata: null }],
+            ['ünïcödé 🔥 名前 trailing .txt', { thumbnail: 'café' }],
+        ];
+
+        for (const [name, over] of cases) {
+            let entry!: FSEntry;
+            const readBacks = await countReadBacks(() =>
+                vouchedOnSqlite(async () => {
+                    entry = await createFile(
+                        user,
+                        `${user.home}/Documents/${name}`,
+                        over,
+                    );
+                }),
+            );
+            // Postgres reports no insert id for this statement.
+            expect(readBacks).toBe(
+                server.clients.db.engineName === 'postgres' ? 1 : 0,
+            );
+            await expectStored(entry);
+            await expect(
+                store.getEntryByPath(`${user.home}/Documents/${name}`),
+            ).resolves.toStrictEqual(entry);
+        }
+    });
+
+    it('reads the row back when a value may not be stored as sent', async () => {
+        const user = await makeUser();
+        const cases: Array<[string, Partial<FSEntryCreateInput>]> = [
+            // A lone surrogate reaches the database as U+FFFD.
+            ['surrogate.txt', { metadata: 'bad \ud800 text' }],
+        ];
+        // MySQL rounds a fractional integer without a warning; Postgres
+        // rejects it.
+        if (server.clients.db.engineName !== 'postgres') {
+            cases.push(['fraction.txt', { size: 1.5 }]);
+        }
+        for (const [name, over] of cases) {
+            let entry!: FSEntry;
+            const readBacks = await countReadBacks(() =>
+                vouchedOnSqlite(async () => {
+                    entry = await createFile(
+                        user,
+                        `${user.home}/Documents/${name}`,
+                        over,
+                    );
+                }),
+            );
+            expect(readBacks).toBe(1);
+            await expectStored(entry);
+        }
+    });
+
+    it('reads the row back when the insert raised a warning', async () => {
+        const user = await makeUser();
+        let entry!: FSEntry;
+        const readBacks = await countReadBacks(() =>
+            withInsertWarnings(1, async () => {
+                entry = await createFile(
+                    user,
+                    `${user.home}/Documents/warned.txt`,
+                );
+            }),
+        );
+        expect(readBacks).toBe(1);
+        await expectStored(entry);
+    });
+
+    // SQLite hands a new row the rowid of a deleted last row, and nothing
+    // clears a subdomain still naming that id, so only a read sees the join.
+    it('returns the stored row when the new id once named a deleted row', async () => {
+        const user = await makeUser();
+        const hosted = await createFile(
+            user,
+            `${user.home}/Public/hosted.html`,
+        );
+        await server.stores.subdomain.create({
+            userId: user.userId,
+            subdomain: `reused-${Math.random().toString(36).slice(2, 10)}`,
+            rootDirId: hosted.id,
+        });
+        await store.deleteEntry(hosted);
+
+        const fresh = await createFile(
+            user,
+            `${user.home}/Documents/fresh.txt`,
+        );
+        await expectStored(fresh);
+    });
+
+    it('reads a multi-row insert back in one query', async () => {
+        const user = await makeUser();
+        let entries!: FSEntry[];
+        const readBacks = await countReadBacks(async () => {
+            entries = await store.batchCreateEntries(
+                ['m1.txt', 'm2.txt', 'm3.txt'].map((name) => ({
+                    userId: user.userId,
+                    uuid: uuidv4(),
+                    path: `${user.home}/Documents/${name}`,
+                    size: 3,
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                })),
+            );
+        });
+        expect(readBacks).toBe(1);
+        for (const entry of entries) await expectStored(entry);
     });
 });
 

@@ -67,7 +67,10 @@ import type {
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { puterStores } from '../../stores/index.js';
 import type { LayerInstances } from '../../types.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import {
+    awaitLater,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { AclMode } from '../acl/ACLService.js';
 import type { puterServices } from '../index.js';
@@ -2742,9 +2745,11 @@ export class FSService extends PuterService {
         });
     }
 
+    /** `preloadedSession`: the caller's read of `request.uploadId`, reused. */
     async signMultipartParts(
         userId: number,
         request: SignMultipartPartsRequest,
+        preloadedSession?: PendingUploadSession,
     ): Promise<SignMultipartPartsResponse> {
         if (!request?.uploadId) {
             throw new HttpError(400, 'Missing uploadId', {
@@ -2774,9 +2779,11 @@ export class FSService extends PuterService {
             });
         }
 
-        const session = await this.stores.fsEntry.getPendingEntryBySessionId(
-            request.uploadId,
-        );
+        const session =
+            preloadedSession ??
+            (await this.stores.fsEntry.getPendingEntryBySessionId(
+                request.uploadId,
+            ));
         if (!session) {
             throw new HttpError(404, 'Upload session was not found', {
                 legacyCode: 'not_found',
@@ -3006,6 +3013,8 @@ export class FSService extends PuterService {
         userId: number,
         completeWriteRequest: CompleteWriteRequest,
     ): Promise<CompleteWriteResponse> {
+        // Read here, not taken from the caller's access check: an abort or a
+        // second completion landing during that check must still get a 409.
         const session = await this.stores.fsEntry.getPendingEntryBySessionId(
             completeWriteRequest.uploadId,
         );
@@ -3118,7 +3127,7 @@ export class FSService extends PuterService {
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
-                session.sessionId,
+                session,
                 createInput,
             );
             await this.#settleSessionUploadReservations([session]);
@@ -3167,6 +3176,7 @@ export class FSService extends PuterService {
             );
         }
 
+        // Read fresh for the same reason as completeUrlWrite.
         const sessions =
             await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
         const completionItems: Array<{
@@ -3367,7 +3377,7 @@ export class FSService extends PuterService {
         const completedEntries =
             await this.stores.fsEntry.batchCompletePendingEntries(
                 completionItems.map((item) => ({
-                    sessionId: item.session.sessionId,
+                    session: item.session,
                     finalData: item.finalData,
                 })),
             );
@@ -3640,23 +3650,34 @@ export class FSService extends PuterService {
         await this.#cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
     }
 
-    async updateEntryThumbnail(
+    /**
+     * Set thumbnails on entries `userId` owns, each result in input order: the
+     * updated entry, or why that one failed.
+     */
+    async updateEntryThumbnails(
         userId: number,
-        entryUuid: string,
-        thumbnail: string | null,
-    ): Promise<FSEntry> {
-        if (typeof entryUuid !== 'string' || entryUuid.length === 0) {
-            throw new HttpError(
-                400,
-                'Invalid file entry identifier for thumbnail update',
-                { legacyCode: 'bad_request' },
+        updates: Array<{ uuid: string; thumbnail: string | null }>,
+    ): Promise<PromiseSettledResult<FSEntry>[]> {
+        const isValid = ({ uuid }: { uuid: string }) =>
+            typeof uuid === 'string' && uuid.length > 0;
+        const stored =
+            await this.stores.fsEntry.updateEntryThumbnailsByUuidForUser(
+                userId,
+                updates.filter(isValid),
             );
-        }
-
-        return this.stores.fsEntry.updateEntryThumbnailByUuidForUser(
-            userId,
-            entryUuid,
-            thumbnail,
+        let next = 0;
+        return updates.map(
+            (update): PromiseSettledResult<FSEntry> =>
+                isValid(update)
+                    ? stored[next++]
+                    : {
+                          status: 'rejected',
+                          reason: new HttpError(
+                              400,
+                              'Invalid file entry identifier for thumbnail update',
+                              { legacyCode: 'bad_request' },
+                          ),
+                      },
         );
     }
 
@@ -3951,10 +3972,10 @@ export class FSService extends PuterService {
 
     /**
      * Resolve or create a parent directory for a given target path. Returns the
-     * parent entry. Throws 400 if the path has no parent (root) or 404 when
-     * parents are missing and create is disabled.
+     * parent entry. Throws 400 synchronously if the path has no parent (root),
+     * and rejects with 404 when parents are missing and create is disabled.
      */
-    async #resolveOrCreateParent(
+    #resolveOrCreateParent(
         userId: number,
         targetPath: string,
         createMissingParents: boolean,
@@ -3996,14 +4017,22 @@ export class FSService extends PuterService {
         },
     ): Promise<FSEntry> {
         const targetPath = input.path.trim();
-        const parent = await this.#resolveOrCreateParent(
+        const parentLookup = this.#resolveOrCreateParent(
             userId,
             targetPath,
             !!input.createMissingParents,
         );
+        // Looked up alongside the parent, but awaited after it so the parent's
+        // error still comes first. A target whose parent is still being created
+        // reads as missing; a concurrent create lands in the unique-violation
+        // handler below.
+        const existingLookup = awaitLater(
+            this.stores.fsEntry.getEntryByPath(targetPath),
+        );
+        const parent = await parentLookup;
 
         let name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const existing = await existingLookup;
         if (existing) {
             if (existing.isDir) {
                 if (input.dedupeName) {
