@@ -278,6 +278,12 @@ const examples = [
                 source: '/playground/examples/ai-txt2vid.html',
             },
             {
+                title: 'Text to Video with Gemini Omni',
+                description: 'Generate a video clip with Gemini Omni through Puter.js.',
+                slug: 'ai-txt2vid-gemini',
+                source: '/playground/examples/ai-txt2vid-gemini.html',
+            },
+            {
                 title: 'Text to Video with options',
                 description: 'Generate videos with custom options using Puter.js AI API. Run and experiment with advanced text-to-video parameters in the playground.',
                 slug: 'ai-txt2vid-options',

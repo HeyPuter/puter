@@ -88,3 +88,8 @@ export async function postGeminiJson<T extends object>(
     }
     return parsed as T;
 }
+
+export const geminiTokenCount = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined;

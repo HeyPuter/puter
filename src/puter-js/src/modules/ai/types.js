@@ -336,22 +336,28 @@
  *
  * @typedef {Object} Txt2VidOptions
  * @property {string} [prompt] Text description of the clip.
- * @property {string} [provider] Pin the request to one provider: `'together-video-generation'` or
- * `'byteplus-video-generation'`. Defaults to the provider that owns `model`, or Together AI when
- * neither is given.
+ * @property {string} [provider] Pin the request to one provider: `'together-video-generation'`,
+ * `'byteplus-video-generation'` or `'gemini-video-generation'`. Defaults to the provider that owns
+ * `model`, or Together AI when neither is given.
  * @property {string} [driver] Same effect as `provider`.
  * @property {string} [model] Video model id (provider-specific). Defaults to
- * `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video).
+ * `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video). `'gemini-omni-1.1-flash'` selects
+ * Gemini Omni, which rejects `seconds`, `duration`, `fps`, `steps`, `guidance_scale`, `seed`,
+ * `negative_prompt`, `output_quality`, `generate_audio`, `frame_images`, `last_frame`,
+ * `reference_images` and `metadata`, and takes a prompt of at most 4,000 characters.
  * @property {number} [seconds] Clip length in seconds. A value the model does not offer falls back
- * to the model default.
+ * to the model default. Gemini Omni has no length control and rejects it.
  * @property {number} [duration] Alias of `seconds`.
  * @property {boolean} [test_mode] When `true`, returns a sample clip without using credits.
  * @property {string} [size] Output size as `'WIDTHxHEIGHT'` on every provider (tier-based models map
- * it to the tier of the shorter side plus an aspect ratio), or a tier such as `'720p'` for Seedance
- * and Wan 2.7.
+ * it to the tier of the shorter side plus an aspect ratio), or a tier such as `'720p'` for Seedance,
+ * Wan 2.7 and Gemini Omni. Gemini Omni takes `'360p'`, `'720p'` (default), `'1080p'` or `'4k'`, or
+ * the exact 16:9 or 9:16 size of one of them (`'640x360'`, `'360x640'`, `'1280x720'`, …), and
+ * rejects any other value.
  * @property {string} [resolution] Alias of `size`.
  * @property {string} [input_reference] First-frame image for image-to-video: a URL, data URI or raw
- * base64, on every provider.
+ * base64, on every provider. Gemini Omni also takes a Puter file path, and accepts one PNG, JPEG or
+ * WebP image up to 5 MiB.
  * @property {string} [last_frame] Last-frame image, same formats as `input_reference`.
  * @property {string[]} [reference_images] Subject/style reference images (URL, data URI or base64).
  * Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
@@ -360,12 +366,14 @@
  * and Together models with audio). Defaults to `true` on Seedance.
  * @property {number} [seed] Random seed (Together, Seedance 1.x).
  * @property {number} [width] Output width in pixels on Together models sized in pixels; with `height`,
- * selects the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when omitted.
+ * selects the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when omitted. On Gemini
+ * Omni, `width` and `height` together must be one of its exact sizes and match `size` when both are
+ * given.
  * @property {number} [height] Output height in pixels; see `width`.
  * @property {number} [fps] TogetherAI.
  * @property {number} [steps] TogetherAI.
  * @property {number} [guidance_scale] TogetherAI.
- * @property {string} [output_format] TogetherAI.
+ * @property {string} [output_format] TogetherAI. Gemini Omni accepts only `'video/mp4'`.
  * @property {number} [output_quality] TogetherAI.
  * @property {Array<{ input_image: string, frame: number }>} [frame_images] TogetherAI: keyframe images
  * for image-to-video.
