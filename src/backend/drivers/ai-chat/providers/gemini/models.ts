@@ -19,8 +19,54 @@
 
 import type { IChatModel } from '../../types.js';
 
-// Hardcoded from https://models.dev/api.json
+/** Served natively: the OpenAI-compatible endpoint reports no thinking count. */
+export const GEMINI_NATIVE_MODEL_IDS: ReadonlySet<string> = new Set([
+    'gemini-4-argon',
+]);
+
+// Google's unary model metadata reports this cap; streaming keeps the catalog cap.
+export const GEMINI_ARGON_NON_STREAM_MAX_TOKENS = 32_768;
+
 export const GEMINI_MODELS: IChatModel[] = [
+    {
+        puterId: 'google:google/gemini-4-argon',
+        id: 'gemini-4-argon',
+        // The native adapter forwards only text and image parts.
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-10-13',
+        name: 'Gemini 4 Argon',
+        aliases: ['google/gemini-4-argon'],
+        // One window shared by input, thinking and output.
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        // Launch pricing; list pricing doubles from 2026-12-01T00:00:00Z.
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 1000,
+            thinking_tokens: 1000,
+            cached_tokens: 10,
+        },
+        pricingOverrides: [
+            {
+                startsAt: '2026-12-01T00:00:00Z',
+                costs: {
+                    prompt_tokens: 400,
+                    completion_tokens: 2000,
+                    thinking_tokens: 2000,
+                    cached_tokens: 20,
+                },
+            },
+        ],
+    },
     {
         puterId: 'google:google/gemini-3.5-flash',
         id: 'gemini-3.5-flash',

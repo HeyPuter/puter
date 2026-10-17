@@ -25,6 +25,7 @@ import {
     costsForRequest,
     isFreeModel,
     isOutputCostKey,
+    listedCosts,
     longContextMultipliers,
     trackedInputTokens,
     trackedOutputTokens,
@@ -518,4 +519,90 @@ describe('costsForRequest prompt-size overrides', () => {
             expect(costs.output_tokens).toBe(2);
         },
     );
+});
+
+describe('costsForRequest start-instant overrides', () => {
+    const repriced: IChatModel = {
+        ...model({ prompt_tokens: 200, completion_tokens: 1000 }),
+        pricingOverrides: [
+            {
+                startsAt: '2026-12-01T00:00:00Z',
+                costs: { prompt_tokens: 400, completion_tokens: 2000 },
+            },
+        ],
+    };
+
+    it.each([
+        ['2026-11-30T23:59:59.999Z', 200, 1000],
+        ['2026-12-01T00:00:00.000Z', 400, 2000],
+        ['2027-03-01T12:00:00.000Z', 400, 2000],
+    ])('at %s charges input %i and output %i', (iso, input, output) => {
+        const costs = costsForRequest(repriced, 10, new Date(iso));
+        expect(costs.prompt_tokens).toBe(input);
+        expect(costs.completion_tokens).toBe(output);
+    });
+
+    it('prices usage at the instant it is given, not the current time', () => {
+        const usage = { prompt_tokens: 10, completion_tokens: 1 };
+        const before = new Date('2026-11-30T23:59:59Z');
+        const after = new Date('2026-12-01T00:00:01Z');
+        expect(buildCostsOverride(usage, repriced, before)).toEqual({
+            prompt_tokens: 2000,
+            completion_tokens: 1000,
+        });
+        expect(usageCost(usage, repriced, undefined, before)).toEqual({
+            inputMicroCents: 2000,
+            outputMicroCents: 1000,
+        });
+        expect(usageCost(usage, repriced, undefined, after)).toEqual({
+            inputMicroCents: 4000,
+            outputMicroCents: 2000,
+        });
+    });
+});
+
+describe('listedCosts', () => {
+    const before = new Date('2026-11-30T23:59:59Z');
+    const after = new Date('2026-12-01T00:00:00Z');
+
+    it('lists the rates a scheduled change puts in force', () => {
+        const repriced: IChatModel = {
+            ...model({ prompt_tokens: 200, completion_tokens: 1000 }),
+            pricingOverrides: [
+                {
+                    startsAt: '2026-12-01T00:00:00Z',
+                    costs: { prompt_tokens: 400, completion_tokens: 2000 },
+                },
+            ],
+        };
+        expect(listedCosts(repriced, before)).toEqual({
+            prompt_tokens: 200,
+            completion_tokens: 1000,
+        });
+        expect(listedCosts(repriced, after)).toEqual({
+            prompt_tokens: 400,
+            completion_tokens: 2000,
+        });
+    });
+
+    it('leaves out rates that depend on the request', () => {
+        const conditional: IChatModel = {
+            ...model({ prompt_tokens: 100 }),
+            pricingOverrides: [
+                { minPromptTokens: 0, costs: { prompt_tokens: 300 } },
+                {
+                    utcStart: 0,
+                    utcEnd: 2400,
+                    costs: { prompt_tokens: 50 },
+                },
+                {
+                    startsAt: '2026-12-01T00:00:00Z',
+                    utcDays: [0, 1, 2, 3, 4, 5, 6],
+                    costs: { prompt_tokens: 900 },
+                },
+            ],
+        };
+        // The same object, so unaffected listings are unchanged.
+        expect(listedCosts(conditional, after)).toBe(conditional.costs);
+    });
 });

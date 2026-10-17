@@ -42,6 +42,7 @@ import {
     isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
+    UpstreamDeadlineError,
 } from '../util/upstreamErrors.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
@@ -102,6 +103,7 @@ import {
     costKeys,
     costsForRequest,
     isFreeModel,
+    listedCosts,
     longContextMultipliers,
     trackedOutputTokens,
     usageCost,
@@ -616,6 +618,10 @@ export class ChatCompletionDriver extends PuterDriver {
                 seen.add(model.id);
                 return true;
             })
+            .map((model) => {
+                const costs = listedCosts(model);
+                return costs === model.costs ? model : { ...model, costs };
+            })
             .sort((a, b) => {
                 if (a.provider === b.provider) return a.id.localeCompare(b.id);
                 return a.provider!.localeCompare(b.provider!);
@@ -635,7 +641,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 if (seen.has(key)) continue;
                 seen.add(key);
                 for (const [costKey, raw] of Object.entries(
-                    model.costs ?? {},
+                    model.costs ? listedCosts(model) : {},
                 )) {
                     // `tokens` is a scale descriptor ("costs expressed per N
                     // tokens"), not a real per-operation cost — skip it.
@@ -800,12 +806,15 @@ export class ChatCompletionDriver extends PuterDriver {
         let fundsCap: number | undefined;
         // The cost factor the current attempt's charges are recorded at.
         let costFactor = 1;
+        // The instant the current attempt is priced at, from its hold to its
+        // charge, so a rate change mid-request can't split the two.
+        let pricingTime = new Date();
         if (!useFakeProvider) {
             ({ hold, fundsCap, costFactor } = await this.#applyCreditGate(
                 actor,
                 model,
                 args,
-                { promptTokenEstimate, requestedMaxTokens },
+                { promptTokenEstimate, requestedMaxTokens, pricingTime },
             ));
         }
 
@@ -838,7 +847,12 @@ export class ChatCompletionDriver extends PuterDriver {
             const attempt = toAttempt(failed.id, failed.provider!, err);
             attempts.push(attempt);
             if (!isFreeModel(failed)) allModelsFree = false;
-            if (isRouteLevelFailure(attempt)) {
+            // A request that outlived its deadline says nothing about the
+            // route's health.
+            if (
+                isRouteLevelFailure(attempt) &&
+                !(err instanceof UpstreamDeadlineError)
+            ) {
                 markRouteUnhealthy(
                     failed.provider!,
                     failed.id,
@@ -864,6 +878,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     provider: attemptModel.provider,
                 },
                 this.#catalogEntries.get(attemptModel),
+                pricingTime,
             );
         };
 
@@ -924,11 +939,13 @@ export class ChatCompletionDriver extends PuterDriver {
                 // be capped against what is actually left.
                 // The previous attempt released its hold when it failed, so
                 // this one starts from nothing held.
+                pricingTime = new Date();
                 if (!useFakeProvider) {
                     ({ hold, fundsCap, costFactor } =
                         await this.#applyCreditGate(actor, fallback, args, {
                             promptTokenEstimate,
                             requestedMaxTokens,
+                            pricingTime,
                         }));
                 }
 
@@ -1031,7 +1048,12 @@ export class ChatCompletionDriver extends PuterDriver {
                 const usageCosts = chatStream.usageCosts ?? undefined;
                 const enrichedUsage = usage ? { ...usage } : usage;
                 if (enrichedUsage) {
-                    this.#injectUsdCents(enrichedUsage, model, usageCosts);
+                    this.#injectUsdCents(
+                        enrichedUsage,
+                        model,
+                        usageCosts,
+                        pricingTime,
+                    );
                     // An empty report recorded nothing; the stream is charged
                     // an estimate once it ends instead.
                     if (Object.values(usage!).some(Number.isFinite)) {
@@ -1063,6 +1085,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         model,
                         intendedProvider,
                         usageCosts,
+                        pricingTime,
                     });
                 }
                 // Fill in sensible defaults when the provider reported no
@@ -1142,6 +1165,7 @@ export class ChatCompletionDriver extends PuterDriver {
                                 completionId,
                                 username,
                                 intendedProvider,
+                                pricingTime,
                             });
                         }
                     } finally {
@@ -1194,7 +1218,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const usageCosts = (res as IChatMessageResult).usageCosts;
         if ('usage' in res && res.usage) {
-            this.#injectUsdCents(res.usage, model, usageCosts);
+            this.#injectUsdCents(res.usage, model, usageCosts, pricingTime);
             this.#emitCostCalculated({
                 completionId,
                 username,
@@ -1202,6 +1226,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 model,
                 intendedProvider,
                 usageCosts,
+                pricingTime,
             });
             res.usage.cost = charged();
         }
@@ -1377,15 +1402,19 @@ export class ChatCompletionDriver extends PuterDriver {
              * inherit the ceiling computed at an expensive model's price.
              */
             requestedMaxTokens: number | undefined;
+            /** The instant this attempt is priced at. */
+            pricingTime: Date;
         },
     ): Promise<{ hold: CreditHold; fundsCap?: number; costFactor: number }> {
         const metering = this.services.metering;
-        const { promptTokenEstimate, requestedMaxTokens } = estimates;
+        const { promptTokenEstimate, requestedMaxTokens, pricingTime } =
+            estimates;
         // A provider can name its own cost keys for this request (Claude's
-        // fast-mode rate card) and size an extra reservation the per-token
-        // math can't see (a web-search/advisor tool that could run several
-        // times before the model answers) — the same clamps it applies when
-        // building the request, so the hold and the request agree.
+        // fast-mode rate card), cap its output, and size an extra reservation
+        // the per-token math can't see (a web-search/advisor tool that could
+        // run several times before the model answers) — the same clamps it
+        // applies when building the request, so the hold and the request
+        // agree.
         const pricing =
             this.#providers[model.provider!]?.requestPricing?.(args, model, {
                 promptTokenEstimate,
@@ -1403,7 +1432,11 @@ export class ChatCompletionDriver extends PuterDriver {
             actor,
             this.#meteringModelKey(model),
         );
-        const requestCosts = costsForRequest(model, promptTokenEstimate);
+        const requestCosts = costsForRequest(
+            model,
+            promptTokenEstimate,
+            pricingTime,
+        );
         // `|| 0` also catches NaN from a malformed cost table.
         const inputTokenCost =
             (Number(requestCosts[inputKey] ?? 0) || 0) *
@@ -1449,6 +1482,7 @@ export class ChatCompletionDriver extends PuterDriver {
             const limit = Math.min(
                 requestedMaxTokens ?? Number.POSITIVE_INFINITY,
                 outputCeiling(model, promptTokenEstimate),
+                positiveOrInfinity(pricing.maxTokens),
             );
             const cap = Math.floor(
                 Math.min(limit, affordableOutputTokens(remainingCredits)),
@@ -1537,6 +1571,7 @@ export class ChatCompletionDriver extends PuterDriver {
         completionId: string;
         username?: string;
         intendedProvider: string;
+        pricingTime: Date;
     }): void {
         const {
             actor,
@@ -1546,6 +1581,7 @@ export class ChatCompletionDriver extends PuterDriver {
             completionId,
             username,
             intendedProvider,
+            pricingTime,
         } = params;
 
         const outputTokens = estimateOutputTokens(chatStream.outputChars ?? 0);
@@ -1558,7 +1594,7 @@ export class ChatCompletionDriver extends PuterDriver {
             [outputKey]: outputTokens,
         };
 
-        const cost = usageCost(usage, model);
+        const cost = usageCost(usage, model, undefined, pricingTime);
         this.#aiMetering.utilRecordUsageObject(
             {
                 [`estimated_${inputKey}`]: inputTokens,
@@ -1584,6 +1620,7 @@ export class ChatCompletionDriver extends PuterDriver {
             usage,
             model,
             intendedProvider,
+            pricingTime,
         });
     }
 
@@ -1593,7 +1630,8 @@ export class ChatCompletionDriver extends PuterDriver {
     #injectUsdCents(
         usage: Record<string, number>,
         model: IChatModel,
-        usageCosts?: Record<string, number>,
+        usageCosts: Record<string, number> | undefined,
+        pricingTime: Date,
     ): void {
         if (
             typeof usage.usd_cents === 'number' &&
@@ -1601,7 +1639,7 @@ export class ChatCompletionDriver extends PuterDriver {
         ) {
             return;
         }
-        const cost = usageCost(usage, model, usageCosts);
+        const cost = usageCost(usage, model, usageCosts, pricingTime);
         if (!cost) {
             (usage as Record<string, number | null>).usd_cents = null;
             return;
@@ -1620,6 +1658,7 @@ export class ChatCompletionDriver extends PuterDriver {
         model: IChatModel;
         intendedProvider: string;
         usageCosts?: Record<string, number>;
+        pricingTime: Date;
     }) {
         const {
             completionId,
@@ -1628,9 +1667,10 @@ export class ChatCompletionDriver extends PuterDriver {
             model,
             intendedProvider,
             usageCosts,
+            pricingTime,
         } = params;
 
-        const cost = usageCost(usage, model, usageCosts);
+        const cost = usageCost(usage, model, usageCosts, pricingTime);
         const { inputKey, outputKey } = costKeys(model);
         const inputTokens = cost
             ? Number(

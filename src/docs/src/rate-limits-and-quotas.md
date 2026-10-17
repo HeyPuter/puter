@@ -46,6 +46,7 @@ The main costs:
 For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
+- AI model rates can change. Check the [AI model directory](https://developer.puter.com/ai/models/) for current pricing.
 - In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers.
 
 ## Rate limits
@@ -70,6 +71,10 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | File attached to a chat message, OpenAI models | 5 MB             |
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
+
+The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streaming is bounded by the caller's cancellation signal. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
+
+A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
 Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
 

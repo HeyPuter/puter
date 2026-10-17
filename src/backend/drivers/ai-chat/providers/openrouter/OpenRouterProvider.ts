@@ -87,7 +87,11 @@ export class OpenRouterProvider extends OpenAICompatProvider {
         this.#apiBaseUrl = apiBaseUrl;
     }
 
-    override async complete(args: ICompleteArguments, resolved?: IChatModel) {
+    override async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+        pricingTime?: Date,
+    ) {
         if (args.model === 'openrouter/auto') {
             throw new HttpError(
                 400,
@@ -103,7 +107,7 @@ export class OpenRouterProvider extends OpenAICompatProvider {
             );
         }
         try {
-            return await super.complete(args, resolved);
+            return await super.complete(args, resolved, pricingTime);
         } catch (e) {
             if (!isPolicyBlock(e)) throw e;
             throw new UpstreamResponseError(

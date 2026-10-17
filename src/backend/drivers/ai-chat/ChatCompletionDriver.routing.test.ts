@@ -58,6 +58,7 @@ import {
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { UpstreamDeadlineError } from '../util/upstreamErrors.js';
 
 // -- OpenAI SDK mock ------------------------------------------------
 // Gemini reaches Google through `new openai.OpenAI()` (default export) and
@@ -1077,6 +1078,25 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         );
         await complete();
         expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
+    });
+
+    it('returns 504 for a request that outlived its deadline and keeps the route', async () => {
+        createMock.mockRejectedValue(
+            new UpstreamDeadlineError('Gemini request timed out'),
+        );
+
+        const err = await withTestActor(() =>
+            driver.complete({
+                model: 'deepseek-v4-pro',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(false);
     });
 
     describe('how long a failed route stays marked', () => {

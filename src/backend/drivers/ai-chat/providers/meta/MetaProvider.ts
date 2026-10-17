@@ -77,13 +77,17 @@ export class MetaProvider extends OpenAICompatProvider {
         });
     }
 
-    override async complete(args: ICompleteArguments, resolved?: IChatModel) {
+    override async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+        pricingTime?: Date,
+    ) {
         if (!Array.isArray(args.messages)) {
             throw new HttpError(400, '`messages` must be an array', {
                 legacyCode: 'bad_request',
             });
         }
-        return super.complete(args, resolved);
+        return super.complete(args, resolved, pricingTime);
     }
 
     protected override vendorParams(
