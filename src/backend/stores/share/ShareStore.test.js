@@ -441,7 +441,7 @@ describe('ShareStore', () => {
 
             expect(
                 await store.getSharedFsentryIds([shared.id, untouched.id]),
-            ).toEqual(new Set([shared.id]));
+            ).toEqual(new Map([[shared.id, true]]));
 
             await store.deleteActive({
                 holderUserId: holder.id,
@@ -450,7 +450,7 @@ describe('ShareStore', () => {
 
             expect(
                 await store.getSharedFsentryIds([shared.id, untouched.id]),
-            ).toEqual(new Set());
+            ).toEqual(new Map());
         });
 
         it('counts a node whose only share is an unclaimed invite', async () => {
@@ -463,7 +463,34 @@ describe('ShareStore', () => {
             });
 
             expect(await store.getSharedFsentryIds([entry.id])).toEqual(
-                new Set([entry.id]),
+                new Map([[entry.id, true]]),
+            );
+        });
+
+        it('tells a node whose only share is a link from one that also has a holder', async () => {
+            const linkOnly = await makeEntry(issuer);
+            const both = await makeEntry(issuer);
+            for (const entry of [linkOnly, both]) {
+                await store.upsertAnyone({
+                    issuerUserId: issuer.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+            }
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: both.id,
+                mode: 'read',
+            });
+
+            expect(
+                await store.getSharedFsentryIds([linkOnly.id, both.id]),
+            ).toEqual(
+                new Map([
+                    [linkOnly.id, false],
+                    [both.id, true],
+                ]),
             );
         });
 
@@ -522,13 +549,13 @@ describe('ShareStore', () => {
 
             expect(
                 await store.getSharedFsentryIds([...padding, entry.id]),
-            ).toEqual(new Set([entry.id]));
+            ).toEqual(new Map([[entry.id, true]]));
         });
 
         it('answers an empty request without a query', async () => {
             const read = vi.spyOn(store.clients.db, 'read');
             try {
-                expect(await store.getSharedFsentryIds([])).toEqual(new Set());
+                expect(await store.getSharedFsentryIds([])).toEqual(new Map());
                 expect(read).not.toHaveBeenCalled();
             } finally {
                 read.mockRestore();

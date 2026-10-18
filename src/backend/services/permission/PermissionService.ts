@@ -239,6 +239,7 @@ export class PermissionService extends PuterService {
         permissionOptions: string | string[],
         scanOptions?: ScanOptions,
     ): Promise<boolean> {
+        if (this.#heldByDefault(actor, permissionOptions)) return true;
         const reading = await this.scan(
             actor,
             permissionOptions,
@@ -247,6 +248,53 @@ export class PermissionService extends PuterService {
         );
         const options = PermissionUtil.readingToOptions(reading);
         return options.length > 0;
+    }
+
+    /**
+     * `scan`'s answer, without scanning, for what fixed config grants: a user's
+     * default permissions, and an app's default implicit grants that its user
+     * holds by default. Only while no rule matches any option or parent, since
+     * a rule is the only thing that could change what `scan` reads here.
+     */
+    #heldByDefault(
+        actor: Actor,
+        permissionOptions: string | string[],
+    ): boolean {
+        if (!actor.user?.id) return false;
+        const plainUser = isPlainUserActor(actor);
+        if (!plainUser && !isAppActor(actor)) return false;
+
+        // `getHigherPermissions`, minus exploders, which can't match here.
+        const exploded: string[] = [];
+        const requested = Array.isArray(permissionOptions)
+            ? permissionOptions
+            : [permissionOptions];
+        for (const permission of requested) {
+            if (typeof permission !== 'string') return false;
+            for (const parent of this.getParentPermissions(permission)) {
+                if (
+                    this.rewriters.some((rule) => rule.matches(parent)) ||
+                    this.exploders.some((rule) => rule.matches(parent)) ||
+                    this.implicators.some((rule) => rule.matches(parent))
+                ) {
+                    return false;
+                }
+                if (!isBareFsPermission(parent)) exploded.push(parent);
+            }
+        }
+
+        const held = (grants: Record<string, unknown>, option: string) =>
+            Object.prototype.hasOwnProperty.call(grants, option);
+        if (!exploded.some((option) => held(default_user_permissions, option)))
+            return false;
+        if (plainUser) return true;
+        const implied = default_implicit_user_app_permissions as Record<
+            string,
+            unknown
+        >;
+        return exploded.some(
+            (option) => held(implied, option) && !!implied[option],
+        );
     }
 
     /**
@@ -425,7 +473,9 @@ export class PermissionService extends PuterService {
                 reading.push({ $: 'explode', from: perm, to: higher });
             }
         }
-        options = exploded.flat();
+        // Options explode into overlapping sets; each is evaluated once, in
+        // the order it first appears.
+        options = [...new Set(exploded.flat())];
 
         // -- default user permissions --
         // A group-independent floor every user actor holds, resolved in
@@ -1410,12 +1460,14 @@ export class PermissionService extends PuterService {
         this.#assertFitsColumn(rewritten);
     }
 
+    /** `resolvedApp` is `appIdentifier`'s row when the caller already read it. */
     async grantUserAppPermission(
         actor: Actor,
         appIdentifier: string,
         permission: string,
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
+        resolvedApp?: { id: number; uid: string },
     ): Promise<void> {
         const grantedAs = this.#recordsSource(permission) ? permission : null;
         const askedFor = permission;
@@ -1423,7 +1475,7 @@ export class PermissionService extends PuterService {
         this.assertGrantableFsPermission(permission);
         await this.#assertReachableFsPath(actor, askedFor, permission);
         this.#assertFitsColumn(permission);
-        const app = await this.#requireApp(appIdentifier);
+        const app = resolvedApp ?? (await this.#requireApp(appIdentifier));
         const userId = this.#requireUserId(actor);
 
         // Only this layer writes `grantedAs`, so revoke can trust it.

@@ -402,6 +402,44 @@ export class AppStore extends PuterStore {
     }
 
     /**
+     * `ownerUserId`'s apps whose `index_url` is one of `candidates`, private
+     * first, then by id. At most two, so a caller can tell an ambiguous match;
+     * only the columns the hosted-site gate reads.
+     *
+     * @param {number} ownerUserId
+     * @param {string[]} candidates
+     * @param {{ requirePrivate?: boolean }} [opts]
+     * @returns {Promise<
+     *     {
+     *         id: number;
+     *         uid: string;
+     *         name: string;
+     *         title: string;
+     *         is_private: number | boolean | null;
+     *         owner_user_id: number;
+     *         index_url: string;
+     *     }[]
+     * >}
+     */
+    async listOwnedByIndexUrlCandidates(
+        ownerUserId,
+        candidates,
+        { requirePrivate = false } = {},
+    ) {
+        if (!Array.isArray(candidates) || candidates.length === 0) return [];
+        const isPrivate = `\`is_private\` = ${this.clients.db.booleanLiteral(true)}`;
+        const placeholders = candidates.map(() => '?').join(', ');
+        return this.clients.db.read(
+            'SELECT `id`, `uid`, `name`, `title`, `is_private`, `owner_user_id`, `index_url` ' +
+                'FROM `apps` WHERE `owner_user_id` = ? ' +
+                (requirePrivate ? `AND ${isPrivate} ` : '') +
+                `AND \`index_url\` IN (${placeholders}) ` +
+                `ORDER BY CASE WHEN ${isPrivate} THEN 0 ELSE 1 END, \`id\` LIMIT 2`,
+            [ownerUserId, ...candidates],
+        );
+    }
+
+    /**
      * One row per distinct `index_url` in `candidates` with its lowest private
      * id (`private_id`, null if none) and lowest id (`min_id`). An external
      * index_url can be shared by thousands of apps, so batch callers pick

@@ -40,6 +40,7 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
@@ -666,12 +667,6 @@ export class WorkerDriver extends PuterDriver {
             }
         }
 
-        const rootDirIds = rows
-            .map((r) => r.root_dir_id)
-            .filter((id): id is number => typeof id === 'number');
-        const entriesById =
-            await this.stores.fsEntry.getEntriesByIds(rootDirIds);
-
         // Make sure the user only sees their own workers
         rows = rows.filter((r) => {
             return r.user_id === actor.user.id;
@@ -686,10 +681,17 @@ export class WorkerDriver extends PuterDriver {
             });
         }
 
+        const rootDirIds = rows
+            .map((r) => r.root_dir_id)
+            .filter((id): id is number => typeof id === 'number');
         const appOwnerIds = rows
             .map((r) => r.app_owner)
             .filter((id): id is number => typeof id === 'number');
-        const appsById = await this.stores.app.getByIds(appOwnerIds);
+        // Together, but awaited in order so an entries failure still wins.
+        const pendingApps = awaitLater(this.stores.app.getByIds(appOwnerIds));
+        const entriesById =
+            await this.stores.fsEntry.getEntriesByIds(rootDirIds);
+        const appsById = await pendingApps;
 
         const items = rows.map((r) => {
             const name =

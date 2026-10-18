@@ -30,6 +30,7 @@ import {
     SPEECH_TO_TEXT_CATALOG,
     SPEECH_TO_TEXT_DRIVER_ALIASES,
 } from './providerAliases.js';
+import { GeminiSpeechToTextProvider } from './providers/gemini/GeminiSpeechToTextProvider.js';
 import { OpenAISpeechToTextProvider } from './providers/openai/OpenAISpeechToTextProvider.js';
 import { XAISpeechToTextProvider } from './providers/xai/XAISpeechToTextProvider.js';
 import type {
@@ -172,6 +173,13 @@ export class SpeechToTextDriver extends PuterDriver {
             'xai',
             new XAISpeechToTextProvider(deps, {
                 apiKey: readProviderKey(providers['xai']),
+            }),
+        );
+        this.#providers.register(
+            'gemini',
+            new GeminiSpeechToTextProvider(deps, {
+                apiKey: readProviderKey(providers['gemini']),
+                apiBaseUrl: providers['gemini']?.apiBaseUrl,
             }),
         );
     }

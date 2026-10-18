@@ -161,6 +161,33 @@ describe('OpenAICompatProvider', () => {
         expect('tools' in sent[1]!).toBe(false);
     });
 
+    it("drops a replayed tool call's Gemini extra_content", async () => {
+        const { provider, sent } = makeProvider({});
+        await complete(provider, {
+            messages: [
+                { role: 'user', content: 'Weather?' },
+                {
+                    role: 'assistant',
+                    content: [
+                        {
+                            type: 'tool_use',
+                            id: 'fc_1',
+                            name: 'get_weather',
+                            input: {},
+                            extra_content: {
+                                google: { thought_signature: 'c2lnLTE=' },
+                            },
+                        },
+                    ],
+                },
+            ] as ICompleteArguments['messages'],
+        });
+        const messages = sent[0]!.messages as Array<{
+            tool_calls?: Array<Record<string, unknown>>;
+        }>;
+        expect(messages[1]!.tool_calls![0]).not.toHaveProperty('extra_content');
+    });
+
     it('asks for stream usage only when the vendor reports it in-band', async () => {
         const stream = { async *[Symbol.asyncIterator]() {} };
         const reporting = makeProvider({}, stream);

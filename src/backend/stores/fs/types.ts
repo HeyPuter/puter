@@ -79,4 +79,9 @@ export interface ReadEntriesByPathsOptions {
      * paths in shared folders the writer has been granted access to).
      */
     crossNamespace?: boolean;
+    /**
+     * `false` skips the walk that finds legacy rows stored without a `path`.
+     * Only for paths this backend wrote, which always store one.
+     */
+    lineage?: boolean;
 }

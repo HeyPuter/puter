@@ -3610,6 +3610,136 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         }
     });
 
+    describe('parent and target lookups', () => {
+        const store = () => server.stores.fsEntry;
+        const realGetEntryByPath = () =>
+            (Object.getPrototypeOf(store()) as ReturnType<typeof store>)
+                .getEntryByPath;
+
+        it('looks the target up while the parent lookup is still in flight', async () => {
+            const parentPath = `${user.home}/Documents`;
+            const path = `${parentPath}/alongside`;
+            const original = realGetEntryByPath();
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const looked: string[] = [];
+            const spy = vi
+                .spyOn(store(), 'getEntryByPath')
+                .mockImplementation(async (candidate, options) => {
+                    looked.push(candidate);
+                    if (candidate === parentPath) await gate;
+                    return original.call(store(), candidate, options);
+                });
+            try {
+                const pending = fs.mkdir(user.userId, { path });
+                await vi.waitFor(() =>
+                    expect(looked).toEqual(
+                        expect.arrayContaining([parentPath, path]),
+                    ),
+                );
+                release();
+                const created = await pending;
+                expect(created.path).toBe(path);
+                expect(created.isDir).toBe(true);
+            } finally {
+                release();
+                spy.mockRestore();
+            }
+        });
+
+        it('surfaces the parent error ahead of a failed target lookup, leaving nothing unhandled', async () => {
+            const path = `${user.home}/Documents/nowhere/target`;
+            const original = realGetEntryByPath();
+            const spy = vi
+                .spyOn(store(), 'getEntryByPath')
+                .mockImplementation(async (candidate, options) => {
+                    if (candidate === path) throw new Error('replica down');
+                    return original.call(store(), candidate, options);
+                });
+            try {
+                const error = await caught(() =>
+                    fs.mkdir(user.userId, { path }),
+                );
+                expect(error.statusCode).toBe(404);
+                expect(error.legacyCode).toBe('not_found');
+
+                // With the parent in place, the target's own failure surfaces.
+                await fs.mkdir(user.userId, {
+                    path: `${user.home}/Documents/nowhere`,
+                });
+                await expect(fs.mkdir(user.userId, { path })).rejects.toThrow(
+                    'replica down',
+                );
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('writes and emits nothing when the parent is missing or a file', async () => {
+            await writeFile(user, `${user.home}/Documents/a-file`, 'x');
+            const cases = [
+                [`${user.home}/Documents/absent/target`, 404],
+                [`${user.home}/Documents/a-file/target`, 409],
+            ] as const;
+            for (const [path, status] of cases) {
+                const lookups = vi.spyOn(store(), 'getEntryByPath');
+                const writes = vi.spyOn(server.clients.db, 'write');
+                const emits = vi.spyOn(server.clients.event, 'emit');
+                try {
+                    const error = await caught(() =>
+                        fs.mkdir(user.userId, { path }),
+                    );
+                    expect(error.statusCode).toBe(status);
+                    // The target was looked up, and that lookup changed nothing.
+                    expect(lookups).toHaveBeenCalledWith(path);
+                    expect(
+                        writes.mock.calls.filter(([sql]) =>
+                            /fsentries/i.test(String(sql)),
+                        ),
+                    ).toEqual([]);
+                    expect(
+                        emits.mock.calls.filter(([key]) =>
+                            String(key).startsWith('fs.'),
+                        ),
+                    ).toEqual([]);
+                } finally {
+                    lookups.mockRestore();
+                    writes.mockRestore();
+                    emits.mockRestore();
+                }
+                await expect(store().getEntryByPath(path)).resolves.toBeNull();
+            }
+        });
+
+        it('refuses a root path before looking anything up', async () => {
+            const spy = vi.spyOn(store(), 'getEntryByPath');
+            try {
+                const error = await caught(() =>
+                    fs.mkdir(user.userId, { path: '/toplevel' }),
+                );
+                expect(error.statusCode).toBe(400);
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('creates missing parents and then the target', async () => {
+            const path = `${user.home}/Documents/fresh-parent/fresh-child`;
+            const created = await fs.mkdir(user.userId, {
+                path,
+                createMissingParents: true,
+            });
+            expect(created.path).toBe(path);
+            const parent = await store().getEntryByPath(
+                `${user.home}/Documents/fresh-parent`,
+            );
+            expect(created.parentUid).toBe(parent!.uuid);
+        });
+    });
+
     /**
      * Reproduce losing the mkdir race against a concurrent writer: the
      * existence probe finds nothing (it ran before the other writer's commit)
@@ -3886,10 +4016,23 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
     });
 
     it('rejects a thumbnail update without an entry identifier', async () => {
-        const error = await caught(() =>
-            fs.updateEntryThumbnail(user.userId, '', 'data:image/png;base64,A'),
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/thumb-blank.txt`,
+            'x',
         );
-        expect(error.statusCode).toBe(400);
+        const [blank, valid] = await fs.updateEntryThumbnails(user.userId, [
+            { uuid: '', thumbnail: 'data:image/png;base64,A' },
+            { uuid: entry.uuid, thumbnail: 'data:image/png;base64,B' },
+        ]);
+        expect(blank).toMatchObject({
+            status: 'rejected',
+            reason: { statusCode: 400 },
+        });
+        expect(valid).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'data:image/png;base64,B' },
+        });
     });
 
     it('updates a thumbnail on an owned entry', async () => {
@@ -3898,12 +4041,13 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             `${user.home}/Documents/thumb.txt`,
             'x',
         );
-        const updated = await fs.updateEntryThumbnail(
-            user.userId,
-            entry.uuid,
-            'data:image/png;base64,AAA',
-        );
-        expect(updated.thumbnail).toBe('data:image/png;base64,AAA');
+        const [updated] = await fs.updateEntryThumbnails(user.userId, [
+            { uuid: entry.uuid, thumbnail: 'data:image/png;base64,AAA' },
+        ]);
+        expect(updated).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'data:image/png;base64,AAA' },
+        });
     });
 });
 
@@ -4533,6 +4677,14 @@ describe('FSService move', () => {
             }),
         );
         expect(intoItself.legacyCode).toBe('cannot_move_directory_into_itself');
+
+        const ontoItself = await caught(() =>
+            fs.move(user.userId, {
+                source: dir,
+                destinationParent: dir,
+            }),
+        );
+        expect(ontoItself.legacyCode).toBe('cannot_move_directory_into_itself');
     });
 
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {

@@ -535,6 +535,15 @@ const postAuthActions = async (action) => {
         };
         window.deliverPopupTokenToOpener = deliver_token_with_answer;
 
+        // The Cancel button closes the popup before on_close runs, so pickers
+        // report through onDialogCancel too. Escape only reaches on_close.
+        const tell_opener_cancelled = (msg) => {
+            window.opener?.postMessage({
+                msg,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
         if ( action === 'show-open-file-picker' ) {
             let options = window.url_query_params.get('options');
             options = JSON.parse(options ?? '{}');
@@ -558,12 +567,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'fileOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('fileOpenCancelled'),
+                on_close: () => tell_opener_cancelled('fileOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -588,12 +593,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'directoryOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('directoryOpenCancelled'),
+                on_close: () => tell_opener_cancelled('directoryOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -632,12 +633,8 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                        on_close: function () {
-                        window.opener.postMessage({
-                            msg: 'fileSaveCanceled',
-                            original_msg_id: msg_id,
-                        }, '*');
-                    },
+                    onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
+                    on_close: () => tell_opener_cancelled('fileSaveCancelled'),
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                         let busy_init_ts = Date.now();

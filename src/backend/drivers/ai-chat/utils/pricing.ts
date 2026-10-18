@@ -17,7 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { IChatModel, ModelCost, UsageDetails } from '../types.js';
+import type {
+    IChatModel,
+    ModelCost,
+    ModelPricingOverride,
+    UsageDetails,
+} from '../types.js';
 
 /**
  * Absent, negative and placeholder prices remain unpriced, including empty
@@ -101,6 +106,11 @@ export const costsForRequest = (
             continue;
         if (override.utcDays && !override.utcDays.includes(now.getUTCDay()))
             continue;
+        if (
+            override.startsAt !== undefined &&
+            !(now.getTime() >= Date.parse(override.startsAt))
+        )
+            continue;
         if (override.utcStart !== undefined && override.utcEnd !== undefined) {
             const inWindow =
                 override.utcStart < override.utcEnd
@@ -111,6 +121,25 @@ export const costsForRequest = (
         Object.assign(costs, override.costs);
     }
     return costs;
+};
+
+const isScheduledOnly = (override: ModelPricingOverride): boolean =>
+    override.startsAt !== undefined &&
+    override.minPromptTokens === undefined &&
+    override.utcDays === undefined &&
+    override.utcStart === undefined &&
+    override.utcEnd === undefined;
+
+/**
+ * The rates a model lists at `now`: scheduled price changes applied, rates that
+ * depend on the request (prompt size, time of day) not. `model.costs` itself
+ * when the model has no scheduled change.
+ */
+export const listedCosts = (model: IChatModel, now = new Date()): ModelCost => {
+    const scheduled = (model.pricingOverrides ?? []).filter(isScheduledOnly);
+    return scheduled.length
+        ? costsForRequest({ ...model, pricingOverrides: scheduled }, 0, now)
+        : model.costs;
 };
 
 /**
@@ -331,15 +360,16 @@ export const buildCostsOverride = (
  * What a usage object costs in µ¢, split into its input and output sides.
  * `recordedCosts` are the per-key costs a provider already metered with and win
  * over the model's rates, so the figure matches the ledger. Null when nothing
- * in the usage could be priced.
+ * in the usage could be priced. `now` is the instant the request was priced at.
  */
 export const usageCost = (
     usage: Record<string, unknown>,
     model: IChatModel,
     recordedCosts?: Record<string, number>,
+    now?: Date,
 ): { inputMicroCents: number; outputMicroCents: number } | null => {
     const { outputKey } = costKeys(model);
-    const priced = priceUsage(usage, model);
+    const priced = priceUsage(usage, model, now);
     let input = 0;
     let output = 0;
     let sawAnyCost = false;

@@ -138,6 +138,21 @@ describe('ProfileService', () => {
         });
     });
 
+    it('looks up a missing profile by path alone, without the legacy lineage walk', async () => {
+        const user = await makeUser();
+        const read = vi.spyOn(server.clients.db, 'read');
+        try {
+            await service.getProfile(user);
+            expect(
+                read.mock.calls.filter(([sql]) =>
+                    String(sql).includes('WITH RECURSIVE'),
+                ),
+            ).toEqual([]);
+        } finally {
+            read.mockRestore();
+        }
+    });
+
     it('stores a patch as <uuid>.profile in the system directory and merges later patches', async () => {
         const user = await makeUser();
         expect(

@@ -69,7 +69,7 @@ declare global {
 
             rawBody?: Buffer;
 
-            /** Parsed user-agent, populated by the global UA-parsing middleware. */
+            /** User-agent, parsed from the header on first read. */
             ua?: {
                 browser: { name?: string; version?: string; major?: string };
                 os: { name?: string; version?: string };

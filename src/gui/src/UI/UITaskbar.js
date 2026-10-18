@@ -24,6 +24,8 @@ import launch_app from '../helpers/launchApp.js';
 import UIContextMenu from './UIContextMenu.js';
 import { appIconAttrs, appIconSrc } from '../helpers/appIcon.js';
 
+const TASKBAR_POSITIONS = ['left', 'bottom', 'right'];
+
 async function UITaskbar (options) {
     window.global_element_id++;
 
@@ -40,7 +42,8 @@ async function UITaskbar (options) {
         taskbar_position = await puter.kv.get('taskbar_position').catch(() => null);
         // if this is not first visit, set taskbar position to bottom since it's from a user that
         // used puter before customizing taskbar position was added and the taskbar position was set to bottom
-        if ( ! taskbar_position ) {
+        // Unknown values are discarded too: this ends up in markup and stored values may be poisoned.
+        if ( ! TASKBAR_POSITIONS.includes(taskbar_position) ) {
             taskbar_position = 'bottom'; // default position
             puter.kv.set('taskbar_position', taskbar_position).catch(err => console.warn('Could not save taskbar_position:', err));
         }
@@ -501,10 +504,7 @@ window.update_taskbar_position = async function (new_position) {
         return;
     }
 
-    // Valid positions
-    const valid_positions = ['left', 'bottom', 'right'];
-
-    if ( ! valid_positions.includes(new_position) ) {
+    if ( ! TASKBAR_POSITIONS.includes(new_position) ) {
         return;
     }
 

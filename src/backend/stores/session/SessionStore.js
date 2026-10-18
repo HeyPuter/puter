@@ -20,6 +20,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     isMissingParentViolation,
     isUniqueViolation,
@@ -215,7 +216,10 @@ export class SessionStore extends PuterStore {
      * @returns The created session row.
      */
     async create(userId, opts = {}) {
-        return this.#insertSession(userId, opts, { ignoreConflict: false });
+        const { row } = await this.#insertSession(userId, opts, {
+            ignoreConflict: false,
+        });
+        return row;
     }
 
     /**
@@ -223,7 +227,8 @@ export class SessionStore extends PuterStore {
      * `getOrCreate*` paths. With `ignoreConflict: true`, only a duplicate- key
      * error from the partial unique indexes is swallowed (concurrent caller won
      * the race); every other failure — CHECK, NOT NULL, FK, type — throws. The
-     * caller then re-SELECTs to find the winning row.
+     * caller then re-SELECTs to find the winning row. `inserted` is false only
+     * for that swallowed duplicate.
      */
     async #insertSession(
         userId,
@@ -245,6 +250,7 @@ export class SessionStore extends PuterStore {
     ) {
         const uuid = uuidv4();
         const now = nowSeconds();
+        let inserted = true;
 
         meta.created = new Date().toISOString();
         meta.created_unix = now;
@@ -294,6 +300,7 @@ export class SessionStore extends PuterStore {
             // `row` object below is a placeholder for the caller's
             // `winner ?? created` fallback shape and is never cached on
             // the ignoreConflict path.
+            inserted = false;
         }
 
         const row = {
@@ -325,7 +332,7 @@ export class SessionStore extends PuterStore {
             this.#writeCache(row).catch(() => {});
         }
 
-        return row;
+        return { row, inserted };
     }
 
     /**
@@ -701,7 +708,7 @@ export class SessionStore extends PuterStore {
             }
         }
 
-        const row = await this.#insertSession(userId, {
+        const { row } = await this.#insertSession(userId, {
             kind: 'access_token',
             label,
             parent_session_id: parentSessionUid,
@@ -751,9 +758,16 @@ export class SessionStore extends PuterStore {
         }
 
         const selectRow = (opts) => this.#selectAppRow(userId, appUid, opts);
-        const existing = await this.#selectUnlessEnded(selectRow);
+        const { row: existing, primary: onlyOnPrimary } =
+            await this.#selectUnlessEnded(selectRow);
         if (existing && !predates(existing, notBefore)) {
-            await this.#cacheComposite(cacheKey, existing);
+            // Auth that misses the cache reads the replica, which already has
+            // a row it returned here; a row only the primary had is cached
+            // before the token goes out.
+            const caching = awaitLater(
+                this.#cacheComposite(cacheKey, existing),
+            );
+            if (onlyOnPrimary) await caching;
             return existing;
         }
         const stale = existing ?? (cachedLive ? cached : null);
@@ -762,7 +776,7 @@ export class SessionStore extends PuterStore {
         // INSERT-or-IGNORE so concurrent racers don't throw on the
         // partial unique index; we re-SELECT below to find the row
         // that actually won.
-        const created = await this.#insertSession(
+        const { row: created, inserted } = await this.#insertSession(
             userId,
             {
                 kind: 'app',
@@ -778,10 +792,10 @@ export class SessionStore extends PuterStore {
             { ignoreConflict: true },
         );
 
-        // After a revoke the replica may still show the old row as live.
-        const winner = await this.#selectUnlessEnded(selectRow, {
-            primary: stale !== null,
-        });
+        // Only a lost race needs the winner read back, and from the primary: a
+        // replica that hasn't seen it would leave `created`, which was never
+        // written.
+        const winner = inserted ? null : await selectRow({ primary: true });
         const row = winner ?? created;
         await this.#cacheComposite(cacheKey, row);
         return row;
@@ -822,7 +836,7 @@ export class SessionStore extends PuterStore {
         const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
         const now = nowSeconds();
 
-        const created = await this.#insertSession(
+        const { row: created } = await this.#insertSession(
             userId,
             {
                 kind: 'worker',
@@ -845,7 +859,7 @@ export class SessionStore extends PuterStore {
         // re-SELECT under the partial unique index to find whichever
         // row actually won.
         // After a revoke the replica may still show the old row as live.
-        const winner = await this.#selectUnlessEnded(
+        const { row: winner } = await this.#selectUnlessEnded(
             (o) => this.#selectWorkerRow(userId, appUid, workerName, o),
             { primary: existing !== null },
         );
@@ -872,7 +886,7 @@ export class SessionStore extends PuterStore {
             return cached;
         }
 
-        const existing = await this.#selectUnlessEnded((o) =>
+        const { row: existing } = await this.#selectUnlessEnded((o) =>
             this.#selectWorkerRow(userId, appUid, workerName, o),
         );
         if (existing) await this.#cacheComposite(cacheKey, existing);
@@ -1233,16 +1247,19 @@ export class SessionStore extends PuterStore {
     /**
      * Run a row select on the replica, or on the primary when asked or when the
      * replica's row ended moments ago (its uuid key is tombstoned) and the
-     * replica may not have the revoke or delete yet.
+     * replica may not have the revoke or delete yet. `primary` says which
+     * answered.
      */
     async #selectUnlessEnded(select, { primary = false } = {}) {
-        if (primary) return select({ primary: true });
+        if (primary) return { row: await select({ primary: true }), primary };
         const row = await select({ primary: false });
-        if (!row) return row;
-        if (!(await this.isCacheKeyTombstoned([this.#cacheKey(row.uuid)]))) {
-            return row;
+        if (
+            !row ||
+            !(await this.isCacheKeyTombstoned([this.#cacheKey(row.uuid)]))
+        ) {
+            return { row, primary: false };
         }
-        return select({ primary: true });
+        return { row: await select({ primary: true }), primary: true };
     }
 
     /** Cache a row under its composite key and its uuid key, unless it ended. */

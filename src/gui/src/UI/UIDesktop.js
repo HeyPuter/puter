@@ -722,7 +722,15 @@ async function UIDesktop (options) {
 
     // load window sidebar items from KV
     puter.kv.get('sidebar_items').then(async (val) => {
-        window.sidebar_items = val;
+        // UIWindow parses this and reads `item.path` while building every
+        // explorer window, so a malformed value is dropped for the defaults.
+        let items = null;
+        try {
+            items = JSON.parse(val);
+        } catch { /* keep the defaults */ }
+        if ( Array.isArray(items) && items.every(item => typeof item?.path === 'string') ) {
+            window.sidebar_items = val;
+        }
     // Catch on the chain rather than the read, so a failure leaves whatever is
     // already there instead of overwriting it with a fallback.
     }).catch(err => console.warn('Could not load sidebar_items:', err));

@@ -46,7 +46,8 @@ The main costs:
 For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
-- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers.
+- AI model rates can change. Check the [AI model directory](https://developer.puter.com/ai/models/) for current pricing.
+- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers. Gemini Omni video is the exception. Its reservation is an estimate, because Google can return more output tokens than requested, and it settles at the tokens actually used even when they cost more (see [Video generation](#video-generation)).
 
 ## Rate limits
 
@@ -64,14 +65,26 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
+| Gemini `instructions` for `txt2speech()`       | 3,000 characters |
 | Audio for `speech2speech()`                    | 25 MiB           |
+| Audio for `speech2txt()`, Gemini               | 10 MiB           |
 | Image inlined in a chat message                | 5 MB             |
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
 
-Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
+The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streaming is bounded by the caller's cancellation signal. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
+
+A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
+
+Text-to-speech calls to ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+
+A Gemini text-to-speech reply is capped at 64 MiB, enough for the full audio budget. A readable Gemini text-to-speech reply is charged for the token usage it reports, even when it fails or returns no audio. A reply that times out or exceeds the cap reports no usage, so it is charged the full reservation and fails with `504 upstream_timeout` or `400 input_too_large`; split long text into shorter requests. Requests with an unreadable reply are not charged.
+
+Every Gemini text-to-speech request reserves credit for the models' full published budget of 8,192 input tokens and 16,384 audio tokens, at the model's current rate. Each request also limits Gemini's output to 16,384 tokens. An incomplete reply fails with `502 upstream_failed`. If the reply is readable within the size and time limits, it is charged for the usage it reports. The reservation is the same for any `text` and `instructions`, in any language. A request fails with `402 insufficient_funds` unless your available credit covers the whole reservation, even when the text is short. When the request ends, the unused part is released and you're charged only for the usage Gemini reports. The reservation isn't a cap on the charge. If Gemini reports more tokens than its published limits, the charge follows the report.
+
+Gemini speech-to-text first counts the audio's tokens, which times out after 30 seconds and reads at most 64 KiB of reply. The transcription itself times out after 10 minutes, upload and reply included. A transcript is limited to 8,192 output tokens and its reply to 2 MiB. A longer transcript or larger reply fails with `502 upstream_failed`. Gemini itself limits audio to 1 hour, or 30 minutes with word timestamps or speaker labels. Each request reserves the counted audio tokens plus 8,192 output tokens for up to 11 minutes.
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
@@ -102,6 +115,24 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
+
+### Video generation
+
+[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 10 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
+
+| Limit | Value |
+|-------|-------|
+| Prompt | 4,000 characters |
+| Starting image | One PNG, JPEG or WebP image, 5 MiB. A URL is fetched with a 30-second timeout |
+| Input tokens, prompt and image together | 131,072 |
+| Requested output tokens | 65,536 |
+| Input token count | 30-second timeout, 64 KiB reply |
+| Generation | 10-minute timeout, reply and clip included. 64 MiB reply |
+| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. Held for up to 11 minutes |
+
+A longer prompt, a larger image, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image file or `data:` URI over 5 MiB) before generation starts. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
+
+The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
 ### Remote chat image inlining
 

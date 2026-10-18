@@ -53,8 +53,8 @@ export type UsageByType = {
      */
     allowanceUsedBaselined?: number;
     /**
-     * Claim counter for the month's recurring charges (`MONTHLY_CHARGE_CLAIM`);
-     * same semantics.
+     * Claim for the month's recurring charges (`MONTHLY_CHARGE_CLAIM`): the
+     * token of the attempt that took it, or a claim count on older records.
      */
     monthlyChargesApplied?: number;
     /**

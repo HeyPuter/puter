@@ -918,6 +918,21 @@ export class EventSubscriptionStore extends PuterStore {
     }
 
     /**
+     * {@link userHasAny} and {@link isRegionWarm} in one round trip, for the
+     * common case of a warm region. `null` when the region is cold, since the
+     * answer means nothing until its durable rows are rebuilt.
+     */
+    async userHasAnyIfWarm(ownerUserId: number): Promise<boolean | null> {
+        const pipeline = this.clients.redis.pipeline();
+        pipeline.exists(durableWarmKey(ownerUserId));
+        pipeline.exists(watchedKey(ownerUserId));
+        pipeline.exists(remoteWatchKey(ownerUserId));
+        const results = (await pipeline.exec()) ?? [];
+        if (Number(results[0]?.[1]) !== 1) return null;
+        return Number(results[1]?.[1]) === 1 || Number(results[2]?.[1]) === 1;
+    }
+
+    /**
      * Which of an event's tokens anyone is watching locally — the dispatch hot
      * path, and one command whatever the depth of the tree. Delegates to
      * {@link watchedFor} so no existing caller has to change.

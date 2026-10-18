@@ -21,7 +21,7 @@ import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { makeActor, type Actor } from '../../core/actor.js';
+import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     assertNotSuspended,
@@ -44,12 +44,13 @@ import {
     Put,
     Unlock,
 } from '../../core/http/decorators.js';
-import type { RouteOptions } from '../../core/http/types.js';
+import { PREFLIGHT_MAX_AGE, type RouteOptions } from '../../core/http/types.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { rootShowsHome } from '../../services/fs/rootListing.js';
 import {
     maskEntryPath,
+    maskPathForRequest,
     parseMaskedSharePath,
     resolveSharePath,
 } from '../../services/fs/sharePathMask.js';
@@ -81,6 +82,7 @@ import {
     peekRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
+import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import type { ResolvedShare } from '../../services/share/ShareService.js';
 
 const DAV_HEADERS = {
@@ -115,9 +117,6 @@ const DAV_ROUTE_OPTIONS: RouteOptions = {
     rateLimit: DAV_LIMIT,
     concurrent: DAV_CONCURRENT,
 };
-
-/** How long a browser may cache a DAV preflight. */
-const PREFLIGHT_MAX_AGE = '86400';
 
 /** How many shared items the virtual share collections list. */
 const SHARE_LISTING_CAP = 200;
@@ -475,28 +474,19 @@ export class WebDAVController extends PuterController {
             return null;
         }
 
-        // Build a session-less actor for the user
-        return makeActor({
-            user: {
-                id: user.id,
-                uuid: user.uuid,
-                username: user.username,
-                email: user.email ?? null,
-                suspended: user.suspended ?? false,
-                email_confirmed: user.email_confirmed ?? false,
-                requires_email_confirmation:
-                    user.requires_email_confirmation ?? false,
-                // Carry the signup-time verification flags so the
-                // assertVerifiedAccount() gate in #dispatch can see them on
-                // the Basic-auth path too (the cookie / `-token` paths get
-                // them from AuthService#actorUserFromRow). Omitting these is
-                // what let phone/card-gated accounts through WebDAV.
-                requires_phone_verification:
-                    user.requires_phone_verification ?? false,
-                requires_card_verification:
-                    user.requires_card_verification ?? false,
-            },
-        });
+        // An administrator-issued temporary password that was never replaced
+        // dies here as it does at /login, rather than living on over DAV.
+        if (isTemporaryPasswordExpired(user)) {
+            res.status(401)
+                .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                .send('Temporary password expired');
+            return null;
+        }
+
+        // The same row→actor mapping the cookie / `-token` paths use, so the
+        // gates in #context see every flag (requires_password_change,
+        // otp_enabled, the verification flags) rather than a hand-picked few.
+        return this.services.auth.buildPasswordActor(user);
     }
 
     // -- OPTIONS ------------------------------------------------------
@@ -756,17 +746,18 @@ export class WebDAVController extends PuterController {
 
     async #proppatch(
         res: Response,
-        { davPath, lockToken }: DavContext,
+        { actor, davPath, lockToken }: DavContext,
     ): Promise<void> {
         if (
             !(await hasWritePermission(this.clients.redis, davPath, lockToken))
         ) {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
+        await this.#assertWrite(actor, davPath);
         res.status(207)
             .set({ 'Content-Type': 'application/xml; charset=utf-8' })
             .send(
-                `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:"><D:response><D:href>${escapeXml(encodeURI(davPath))}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`,
+                `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:"><D:response><D:href>${escapeXml(encodeURI(maskPathForRequest(davPath)))}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`,
             );
     }
 

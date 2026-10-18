@@ -27,7 +27,10 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import {
+    awaitLater,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     abuseKey,
@@ -1864,9 +1867,14 @@ export class ShareService extends PuterService {
      * issuer's recipients access under an owner who never agreed to them.
      */
     async onEntryOwnerChanged(entry: FSEntry): Promise<void> {
-        const rows = entry.isDir
-            ? await this.stores.share.listAllByFsentrySubtree(entry.id)
-            : await this.stores.share.listByFsentry(entry.id);
+        // A file's share rows can only name the file itself, so there is
+        // nothing to list or hydrate.
+        if (!entry.isDir) {
+            await this.onEntryDeleted([entry.uuid]);
+            await this.stores.share.deleteByFsentryIds([entry.id]);
+            return;
+        }
+        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
         const fsentryIds = [
             ...new Set([
                 entry.id,
@@ -1916,6 +1924,13 @@ export class ShareService extends PuterService {
         const holderId = this.#requireUserId(actor);
         // Resolved once; team shares ride the caller's own page.
         const groupIds = await this.stores.team.listGroupIdsForUser(holderId);
+        // Account-wide, so only for a caller acting as the account.
+        const totalLookup =
+            opts.includeTotal && isAccountContext(actor)
+                ? awaitLater(
+                      this.stores.share.countByHolder(holderId, { groupIds }),
+                  )
+                : null;
         const page = await this.stores.share.listByHolder(holderId, {
             limit: opts.limit,
             cursor: opts.cursor,
@@ -1965,14 +1980,7 @@ export class ShareService extends PuterService {
         return {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
-            // Account-wide, so only for a caller acting as the account.
-            ...(opts.includeTotal && isAccountContext(actor)
-                ? {
-                      total: await this.stores.share.countByHolder(holderId, {
-                          groupIds,
-                      }),
-                  }
-                : {}),
+            ...(totalLookup ? { total: await totalLookup } : {}),
         };
     }
 
@@ -2010,6 +2018,13 @@ export class ShareService extends PuterService {
                 ...(opts.includeTotal ? { total: 0 } : {}),
             };
         }
+        const totalLookup = opts.includeTotal
+            ? awaitLater(
+                  this.stores.share.countOutbound(userId, {
+                      appUid: scope.appUid,
+                  }),
+              )
+            : null;
         const page = await this.stores.share.listOutbound(userId, {
             limit: opts.limit,
             cursor: opts.cursor,
@@ -2017,6 +2032,14 @@ export class ShareService extends PuterService {
         });
         const rows: OutboundShareRow[] = page.items;
 
+        // Named so the listing can say which team, not just that it is one.
+        const teamsLookup = awaitLater(
+            this.stores.team.getByIdsIncludingDeleted(
+                rows
+                    .filter((row) => row.holder_group_id)
+                    .map((row) => Number(row.holder_group_id)),
+            ),
+        );
         const entries = await this.stores.fsEntry.getEntriesByIds(
             rows.map((row) => Number(row.fsentry_id)),
         );
@@ -2031,12 +2054,12 @@ export class ShareService extends PuterService {
         const nodeById = new Map<number, FSEntry>(
             [...entries.values()].map((entry) => [entry.id, entry]),
         );
-        // Named so the listing can say which team, not just that it is one.
-        const teamsById = await this.stores.team.getByIdsIncludingDeleted(
-            rows
-                .filter((row) => row.holder_group_id)
-                .map((row) => Number(row.holder_group_id)),
-        );
+        const teamsById = await teamsLookup;
+        // Link rows are the caller's own (owner-only by construction), so one
+        // answer covers them all; only asked when there is one to show.
+        const linkCoveredLookup = rows.some((row) => row.anyone)
+            ? awaitLater(this.#linkSharingCovered(actor))
+            : null;
         // Three bounds. A claimed row needs the grant *this issuer* made to
         // still be there — on the pair alone, a grant withdrawn outside
         // `unshare` stays listed while anyone else grants the same holder the
@@ -2062,12 +2085,7 @@ export class ShareService extends PuterService {
                 this.#reachableBy(actor, [...entries.values()]),
                 this.#liveGroupGrants(rows, nodeById),
             ]);
-
-        // Link rows are the caller's own (owner-only by construction), so one
-        // answer covers them all; only asked when there is one to show.
-        const linkCovered = rows.some((row) => row.anyone)
-            ? await this.#linkSharingCovered(actor)
-            : true;
+        const linkCovered = linkCoveredLookup ? await linkCoveredLookup : true;
 
         const items: ResolvedShare[] = [];
         for (const row of rows) {
@@ -2123,13 +2141,7 @@ export class ShareService extends PuterService {
         return {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(opts.includeTotal
-                ? {
-                      total: await this.stores.share.countOutbound(userId, {
-                          appUid: scope.appUid,
-                      }),
-                  }
-                : {}),
+            ...(totalLookup ? { total: await totalLookup } : {}),
         };
     }
 
@@ -2569,13 +2581,22 @@ export class ShareService extends PuterService {
         );
         if (own.length === 0) return new Map();
 
-        // A link share nobody can use must not badge the item as shared.
-        const sharedIds = await this.stores.share.getSharedFsentryIds(
+        const shared = await this.stores.share.getSharedFsentryIds(
             own.map((entry) => entry.id),
-            { includeAnyone: await this.#linkSharingCovered(actor) },
         );
+        // A link share nobody can use must not badge the item as shared, so
+        // the plan is asked only when some item's only share is a link.
+        const linkCovered = [...shared.values()].some((direct) => !direct)
+            ? await this.#linkSharingCovered(actor)
+            : false;
         return new Map(
-            own.map((entry) => [entry.uuid, sharedIds.has(entry.id)]),
+            own.map((entry) => {
+                const direct = shared.get(entry.id);
+                return [
+                    entry.uuid,
+                    direct === true || (direct === false && linkCovered),
+                ];
+            }),
         );
     }
 
