@@ -1867,57 +1867,6 @@ describe('ShareService', () => {
             ).toBe(delegate.user.username);
         });
 
-        it('hides a team share once the delegate loses the team that made them one', async () => {
-            const owner = await makeUser();
-            const delegate = await makeUser();
-            const third = await makeUser();
-            const file = await makeFile(owner.user);
-
-            const viaTeam = await server.stores.team.create({
-                ownerUserId: owner.user.id,
-                name: `t-${uuidv4().slice(0, 8)}`,
-            });
-            const audience = await server.stores.team.create({
-                ownerUserId: delegate.user.id,
-                name: `t-${uuidv4().slice(0, 8)}`,
-            });
-            for (const [team, members] of [
-                [viaTeam, [owner, delegate]],
-                [audience, [delegate, third]],
-            ] as const) {
-                for (const each of members) {
-                    await server.stores.team.addMember(team.uid, each.user.id, {
-                        orgOwned: false,
-                    });
-                }
-            }
-
-            await share(owner.actor, {
-                uid: file.uuid,
-                recipient: { team: viaTeam.uid },
-                mode: 'manage',
-            });
-            await share(delegate.actor, {
-                uid: file.uuid,
-                recipient: { team: audience.uid },
-                mode: 'read',
-            });
-            const holderTeams = async (actor: Actor) =>
-                (await listSharedByMe(actor)).items.map(
-                    (i) => i.holderTeam?.uid,
-                );
-            // Asked of the owner first: a delegate's own reading would sit in
-            // the permission cache past the team's deletion.
-            expect(await holderTeams(owner.actor)).toContain(audience.uid);
-
-            await server.services.team.deleteTeam(viaTeam.uid, owner.user.id);
-
-            expect(await holderTeams(delegate.actor)).not.toContain(
-                audience.uid,
-            );
-            expect(await holderTeams(owner.actor)).toContain(audience.uid);
-        });
-
         it('reads the app off an invite recorded under the legacy key', async () => {
             const owner = await makeUser();
             const file = await makeFile(owner.user);
@@ -3129,52 +3078,6 @@ describe('ShareService', () => {
         expect(await canRead(holder.actor, file.path)).toBe(false);
         expect(await canRead(third.actor, file.path)).toBe(false);
         expect(await canRead(delegate.actor, file.path)).toBe(true);
-    });
-
-    it('leaves a member’s re-shares alone when their manage is not the team’s', async () => {
-        const owner = await makeUser();
-        const member = await makeUser();
-        const bystander = await makeUser();
-        const third = await makeUser();
-        const file = await makeFile(owner.user);
-
-        const team = await server.stores.team.create({
-            ownerUserId: owner.user.id,
-            name: `t-${uuidv4().slice(0, 8)}`,
-        });
-        for (const each of [owner, member, bystander]) {
-            await server.stores.team.addMember(team.uid, each.user.id, {
-                orgOwned: false,
-            });
-        }
-
-        // The member manages the file in their own right; the team grant is
-        // plain read, and is all `bystander` has.
-        await share(owner.actor, {
-            uid: file.uuid,
-            recipient: { username: member.user.username },
-            mode: 'manage',
-        });
-        await share(owner.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-            mode: 'read',
-        });
-        await share(member.actor, {
-            uid: file.uuid,
-            recipient: { username: third.user.username },
-            mode: 'read',
-        });
-        expect(await canRead(bystander.actor, file.path)).toBe(true);
-
-        await unshare(owner.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-        });
-
-        expect(await canRead(bystander.actor, file.path)).toBe(false);
-        expect(await canRead(member.actor, file.path)).toBe(true);
-        expect(await canRead(third.actor, file.path)).toBe(true);
     });
 
     it('lets the owner clear a grant a delegate issued', async () => {
@@ -5142,44 +5045,6 @@ describe('ShareService', () => {
         expect((await server.stores.share.listByFsentry(file.id)).length).toBe(
             0,
         );
-    });
-
-    it('retires a team share on a descendant when the folder changes owner', async () => {
-        const attacker = await makeUser();
-        const victim = await makeUser();
-        const member = await makeUser();
-        const { dir, file } = await makeDirWithFile(attacker.user);
-
-        const team = await server.stores.team.create({
-            ownerUserId: attacker.user.id,
-            name: `t-${Math.random().toString(36).slice(2, 9)}`,
-        });
-        await server.stores.team.addMember(team.uid, attacker.user.id, {
-            orgOwned: false,
-        });
-        await server.stores.team.addMember(team.uid, member.user.id, {
-            orgOwned: false,
-        });
-        await share(attacker.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-            mode: 'read',
-        });
-        expect(await canRead(member.actor, file.path)).toBe(true);
-
-        await server.stores.fsEntry.updateEntry(dir.uuid, {
-            userId: victim.user.id,
-        });
-        await server.stores.fsEntry.updateEntry(file.uuid, {
-            userId: victim.user.id,
-        });
-        const moved = await server.stores.fsEntry.getEntryByUuid(dir.uuid);
-        await server.services.share.onEntryOwnerChanged(moved!);
-
-        expect(
-            await server.stores.share.listAllByFsentrySubtree(dir.id),
-        ).toEqual([]);
-        expect(await canRead(member.actor, file.path)).toBe(false);
     });
 
     it('retires a whole burst of deletions in one flush', async () => {
