@@ -17,7 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { type Attributes, SpanStatusCode, trace } from '@opentelemetry/api';
+import {
+    type Attributes,
+    SpanStatusCode,
+    trace,
+    type Span,
+} from '@opentelemetry/api';
 
 type AttrsOrFactory = Attributes | (() => Attributes);
 
@@ -64,7 +69,7 @@ export function withSpan<T>(
     });
 }
 
-function recordError(span: ReturnType<typeof trace.getTracer>, err: unknown) {
+function recordError(span: Span, err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     span.recordException(e);
     span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
