@@ -42,7 +42,7 @@ import {
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
-import { type TeamRow } from '../../stores/team/TeamStore';
+import { type TeamRow } from '../../core/teams.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
