@@ -92,7 +92,7 @@ export class TeamController extends PuterController {
         await this.#requireTeamsAvailable(req, userId);
         const body = this.#body(req);
 
-        const team = await this.services.team.createTeam(userId, {
+        const team = await this.#teamService.createTeam(userId, {
             name: this.#requireString(body.name, 'name'),
             handle:
                 body.handle === undefined || body.handle === null
@@ -112,7 +112,7 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         await this.#requireTeamsAvailable(req, userId);
         // In SQL, or cursor and total describe teams the app cannot see.
-        const page = await this.stores.team.listTeamsForUser(userId, {
+        const page = await this.#teams.listTeamsForUser(userId, {
             limit: req.query.limit,
             cursor:
                 typeof req.query.cursor === 'string'
@@ -138,7 +138,7 @@ export class TeamController extends PuterController {
     })
     async getTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        const team = await this.services.team.requireMembership(
+        const team = await this.#teamService.requireMembership(
             this.#param(req, 'uid'),
             userId,
         );
@@ -153,7 +153,7 @@ export class TeamController extends PuterController {
     })
     async updateTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.requireOwner(this.#param(req, 'uid'), userId);
+        await this.#teamService.requireOwner(this.#param(req, 'uid'), userId);
         const body = this.#body(req);
 
         const changes: {
@@ -172,7 +172,7 @@ export class TeamController extends PuterController {
             changes.require2fa = body.require_2fa === true;
 
         // Through the service: turning the directory on writes an audit row.
-        const team = await this.services.team.updateTeam(
+        const team = await this.#teamService.updateTeam(
             this.#param(req, 'uid'),
             userId,
             changes,
@@ -188,7 +188,7 @@ export class TeamController extends PuterController {
     })
     async deleteTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.deleteTeam(this.#param(req, 'uid'), userId);
+        await this.#teamService.deleteTeam(this.#param(req, 'uid'), userId);
         res.json({ success: true });
     }
 
@@ -202,30 +202,27 @@ export class TeamController extends PuterController {
     })
     async listMembers(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        const team = await this.services.team.requireMembership(
+        const team = await this.#teamService.requireMembership(
             this.#param(req, 'uid'),
             userId,
         );
         const accountContext = isAccountContext(req.actor);
         // Same consent as the directory: an app only reads a team that opted in.
-        if (!accountContext) this.services.team.assertDirectoryOpen(team);
+        if (!accountContext) this.#teamService.assertDirectoryOpen(team);
 
         // uuid only when the team owner calls with their own session or API
         // token; an app needing a stable id uses `listDirectory()` instead.
         const showUuid = accountContext && team.owner_user_id === userId;
 
-        const page = await this.stores.team.listMembers(
-            this.#param(req, 'uid'),
-            {
-                limit: req.query.limit,
-                cursor:
-                    typeof req.query.cursor === 'string'
-                        ? req.query.cursor
-                        : undefined,
-                // An app's view matches the directory's: active seats only.
-                activeOnly: !accountContext,
-            },
-        );
+        const page = await this.#teams.listMembers(this.#param(req, 'uid'), {
+            limit: req.query.limit,
+            cursor:
+                typeof req.query.cursor === 'string'
+                    ? req.query.cursor
+                    : undefined,
+            // An app's view matches the directory's: active seats only.
+            activeOnly: !accountContext,
+        });
         // An app only ever gets a username; org_owned/created_at are account-only.
         res.json({
             items: page.items.map((m) =>
@@ -260,7 +257,7 @@ export class TeamController extends PuterController {
                 { legacyCode: 'forbidden' },
             );
         }
-        const page = await this.services.team.listDirectory(
+        const page = await this.#teamService.listDirectory(
             this.#param(req, 'uid'),
             userId,
             {
@@ -284,10 +281,10 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority before shape, or a stranger learns if their body parsed.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
 
         const body = this.#body(req);
-        const result = await this.services.team.provisionAccount(
+        const result = await this.#teamService.provisionAccount(
             uid,
             userId,
             {
@@ -316,11 +313,14 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
-        const { temporaryPassword } =
-            await this.services.team.reissueCredential(uid, userId, target);
+        const { temporaryPassword } = await this.#teamService.reissueCredential(
+            uid,
+            userId,
+            target,
+        );
         // Shown once for the admin to deliver out of band.
         res.json({ temporary_password: temporaryPassword });
     }
@@ -335,11 +335,11 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
         const { temporaryPassword } =
-            await this.services.team.resetMemberPassword(uid, userId, target);
+            await this.#teamService.resetMemberPassword(uid, userId, target);
         // Shown once; it is not retrievable afterwards.
         res.json({ temporary_password: temporaryPassword });
     }
@@ -355,10 +355,10 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
-        await this.services.team.updateSeatEmail(
+        await this.#teamService.updateSeatEmail(
             uid,
             userId,
             target,
@@ -378,10 +378,10 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
-        await this.services.team.resetMemberTwoFactor(uid, userId, target);
+        await this.#teamService.resetMemberTwoFactor(uid, userId, target);
         res.json({ success: true });
     }
 
@@ -395,10 +395,10 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
-        await this.services.team.disableMember(
+        await this.#teamService.disableMember(
             this.#param(req, 'uid'),
             userId,
             target,
@@ -416,10 +416,10 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        await this.#teamService.requireOwner(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
-        await this.services.team.enableMember(
+        await this.#teamService.enableMember(
             this.#param(req, 'uid'),
             userId,
             target,
@@ -437,10 +437,10 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
         // Authority first (anti-oracle); deleted team included, see the service.
-        await this.services.team.requireOwnedTeam(uid, userId);
+        await this.#teamService.requireOwnedTeam(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
-        await this.services.team.deleteMember(uid, userId, target);
+        await this.#teamService.deleteMember(uid, userId, target);
         res.json({ success: true });
     }
 
@@ -455,7 +455,7 @@ export class TeamController extends PuterController {
     async listAudit(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
         res.json(
-            await this.services.team.listAudit(
+            await this.#teamService.listAudit(
                 this.#param(req, 'uid'),
                 userId,
                 this.#pageOpts(req),
@@ -472,7 +472,7 @@ export class TeamController extends PuterController {
     async listOwnAudit(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
         res.json(
-            await this.services.team.listOwnAudit(
+            await this.#teamService.listOwnAudit(
                 this.#param(req, 'uid'),
                 userId,
                 this.#pageOpts(req),
@@ -501,8 +501,16 @@ export class TeamController extends PuterController {
         const email = (
             req.actor as { user?: { email?: string | null } } | undefined
         )?.user?.email;
-        if (await this.services.team.teamsAvailableTo(userId, email)) return;
+        if (await this.#teamService.teamsAvailableTo(userId, email)) return;
         throw new HttpError(404, 'Not found', { legacyCode: 'not_found' });
+    }
+
+    /** Routes exist only where the feature does, so neither is absent. */
+    get #teams() {
+        return this.stores.team!;
+    }
+    get #teamService() {
+        return this.services.team!;
     }
 
     #requireUserId(req: Request): number {

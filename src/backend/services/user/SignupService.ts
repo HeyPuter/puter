@@ -698,10 +698,10 @@ export class SignupService extends PuterService {
                 force,
             });
             if (!holder || holder.email_confirmed) return holder;
-            if (!(await this.stores.team.getOrgSeat(holder.id))) return holder;
+            if (!(await this.stores.team?.getOrgSeat(holder.id))) return holder;
             if (!opts.releaseSeat) return null;
             if (
-                !(await this.services.team.releaseUnconfirmedSeatEmail(
+                !(await this.services.team?.releaseUnconfirmedSeatEmail(
                     holder.id,
                 ))
             )
@@ -723,7 +723,8 @@ export class SignupService extends PuterService {
         if (!existing) return null;
         // A provisioned account looks exactly like a claimable placeholder,
         // but claiming it hands a stranger that team's membership.
-        const orgSeat = await this.stores.team.getOrgSeat(existing.id);
+        const orgSeat =
+            (await this.stores.team?.getOrgSeat(existing.id)) ?? null;
         if (
             existing.email_confirmed ||
             existing.password !== null ||

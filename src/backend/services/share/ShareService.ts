@@ -998,7 +998,7 @@ export class ShareService extends PuterService {
             // Handles are public, so without this anyone could push files into
             // every member's inbox by naming one.
             if (
-                !(await this.stores.team.isMember(resolved.team.uid, issuerId))
+                !(await this.stores.team?.isMember(resolved.team.uid, issuerId))
             ) {
                 throw new HttpError(404, 'Team does not exist', {
                     legacyCode: 'team_not_found',
@@ -1718,7 +1718,7 @@ export class ShareService extends PuterService {
                 ),
             ),
             // Deleted teams included: their grants are still revocable.
-            this.stores.team.getByIdsIncludingDeleted(
+            this.#teamsByIds(
                 rows.map((row: { holder_group_id: number }) =>
                     Number(row.holder_group_id),
                 ),
@@ -1923,7 +1923,8 @@ export class ShareService extends PuterService {
     }> {
         const holderId = this.#requireUserId(actor);
         // Resolved once; team shares ride the caller's own page.
-        const groupIds = await this.stores.team.listGroupIdsForUser(holderId);
+        const groupIds =
+            (await this.stores.team?.listGroupIdsForUser(holderId)) ?? [];
         // Account-wide, so only for a caller acting as the account.
         const totalLookup =
             opts.includeTotal && isAccountContext(actor)
@@ -2034,7 +2035,7 @@ export class ShareService extends PuterService {
 
         // Named so the listing can say which team, not just that it is one.
         const teamsLookup = awaitLater(
-            this.stores.team.getByIdsIncludingDeleted(
+            this.#teamsByIds(
                 rows
                     .filter((row) => row.holder_group_id)
                     .map((row) => Number(row.holder_group_id)),
@@ -2255,9 +2256,10 @@ export class ShareService extends PuterService {
 
         // Not an invite: deleting the row alone leaves every member's access.
         if (row.holder_group_id) {
-            const team = await this.stores.team.getByIdIncludingDeleted(
-                Number(row.holder_group_id),
-            );
+            const team =
+                (await this.stores.team?.getByIdIncludingDeleted(
+                    Number(row.holder_group_id),
+                )) ?? null;
             if (!team) throw notFound();
             await this.#assertCanManage(actor, entry);
             return this.#unshareTeam(
@@ -2531,7 +2533,7 @@ export class ShareService extends PuterService {
         // The team itself, so whoever manages the node can see it is shared
         // with one and take it back from here.
         const liveGroup = await this.#liveGroupGrants(groupRows, nodeById);
-        const teamsById = await this.stores.team.getByIdsIncludingDeleted(
+        const teamsById = await this.#teamsByIds(
             groupRows.map((row) => Number(row.holder_group_id)),
         );
         const groups: ResolvedShare[] = groupRows
@@ -3158,10 +3160,10 @@ export class ShareService extends PuterService {
             );
             // One walk: two members can have re-shared to each other.
             const seen = new Set<number>();
-            for (const memberId of await this.stores.team.memberIdsAmong(
+            for (const memberId of (await this.stores.team?.memberIdsAmong(
                 team.uid,
                 candidates,
-            )) {
+            )) ?? []) {
                 // Nor does what a member re-shared on `manage` held elsewhere —
                 // another person's grant, another team's, or a folder above.
                 if (
@@ -3385,6 +3387,13 @@ export class ShareService extends PuterService {
      * Group rows on this page whose grant is still there. The index row and the
      * grant are separate writes, so a row can outlive what it records.
      */
+    /** Empty where the deployment has no teams, so a group grant finds none. */
+    async #teamsByIds(ids: number[]): Promise<Map<number, TeamRow>> {
+        return (
+            (await this.stores.team?.getByIdsIncludingDeleted(ids)) ?? new Map()
+        );
+    }
+
     async #liveGroupGrants(
         rows: OutboundShareRow[],
         nodeById: Map<number, FSEntry>,
@@ -3563,9 +3572,9 @@ export class ShareService extends PuterService {
         }
 
         const team = uid
-            ? await this.stores.team.getByUid(uid)
+            ? await this.stores.team?.getByUid(uid)
             : // Filters soft-deleted, so a released handle 404s until reclaimed.
-              await this.stores.team.getByHandle(handle!);
+              await this.stores.team?.getByHandle(handle!);
         if (!team) {
             throw new HttpError(404, 'Team does not exist', {
                 legacyCode: 'team_not_found',
