@@ -19,8 +19,6 @@
 
 import { type Attributes, SpanStatusCode, trace } from '@opentelemetry/api';
 
-const tracer = trace.getTracer('puter-backend');
-
 type AttrsOrFactory = Attributes | (() => Attributes);
 
 /**
@@ -32,6 +30,7 @@ export function withSpan<T>(
     attrs: AttrsOrFactory,
     fn: () => T,
 ): T {
+    const tracer = trace.getTracer('puter-backend');
     return tracer.startActiveSpan(name, (span) => {
         try {
             // Mirror the name into an attribute: X-Ray can only filter by
@@ -65,7 +64,7 @@ export function withSpan<T>(
     });
 }
 
-function recordError(span: ReturnType<typeof tracer.startSpan>, err: unknown) {
+function recordError(span: ReturnType<typeof trace.getTracer>, err: unknown) {
     const e = err instanceof Error ? err : new Error(String(err));
     span.recordException(e);
     span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
