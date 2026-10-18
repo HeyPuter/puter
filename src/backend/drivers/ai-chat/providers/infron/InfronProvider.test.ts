@@ -409,11 +409,13 @@ describe('InfronProvider model catalog', () => {
         expect(flex?.context).toBe(400000);
     });
 
-    it('accepts the explicit :standard spelling as an alias of the plain id', async () => {
+    it('provides standard-format aliases for the default tier', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
         const base = models.find((m) => m.id === 'infron:openai/gpt-6-astra');
-        expect(base?.aliases).toContain('openai/gpt-6-astra:standard');
+        // Standard format aliases: infron:<model.id> and infron/<model.id>
+        expect(base?.aliases).toContain('infron:openai/gpt-6-astra');
+        expect(base?.aliases).toContain('infron/openai/gpt-6-astra');
     });
 
     it('still offers an explicit tier id when no default tier is sold', async () => {

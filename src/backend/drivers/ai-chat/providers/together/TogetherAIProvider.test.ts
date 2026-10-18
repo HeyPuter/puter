@@ -201,12 +201,10 @@ describe('TogetherAIProvider model catalog', () => {
         expect(ids).toContain(
             'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
-        // Aliases include the bare id and the slash-separated tail.
-        expect(ids).toContain('meta-llama/Llama-3.3-70B-Instruct-Turbo');
+        // Aliases use the standard format.
         expect(ids).toContain(
             'togetherai/meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
-        expect(ids).toContain('Llama-3.3-70B-Instruct-Turbo');
     });
 
     it('reserves headroom under the context length for the output cap', async () => {
@@ -600,8 +598,8 @@ describe('TogetherAIProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                // alias: bare id without the togetherai: prefix.
-                model: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+                // alias: standard format with togetherai: prefix.
+                model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );

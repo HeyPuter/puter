@@ -121,17 +121,14 @@ export const mapNeuralwattApiModel = (
     if (caps?.vision) inputModalities.push('image');
 
     const displayName = model.metadata?.display_name || model.id;
-    const pathTail = model.id.includes('/')
-        ? model.id.split('/').slice(1).join('/')
-        : undefined;
 
     return {
         id: `${NEURALWATT_ID_PREFIX}${model.id}`,
         name: `${displayName} (Neuralwatt)`,
         aliases: [
-            model.id,
+            `${NEURALWATT_ID_PREFIX}${model.id}`,
             `neuralwatt/${model.id}`,
-            ...(pathTail && pathTail !== model.id ? [pathTail] : []),
+            model.id,
         ],
         context,
         max_tokens: maxTokens,

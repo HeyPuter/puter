@@ -312,10 +312,9 @@ export class OpenRouterProvider implements IChatProvider {
                 id: `openrouter:${model.id}`,
                 name: `${model.name} (OpenRouter)`,
                 aliases: [
-                    model.id,
-                    model.name,
+                    `openrouter:${model.id}`,
                     `openrouter/${model.id}`,
-                    model.id.split('/').slice(1).join('/'),
+                    model.id,
                 ],
                 context: model.context_length,
                 // OpenRouter leaves max_completion_tokens null when a model

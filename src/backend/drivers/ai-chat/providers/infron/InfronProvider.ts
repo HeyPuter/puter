@@ -136,7 +136,6 @@ const coerceModel = (
     tier?: string,
 ): IChatModel => {
     const suffix = tier ? `:${tier}` : '';
-    const shortId = model.id.split('/').slice(1).join('/');
     // Catalog prices are USD per million tokens; costs are microcents per
     // token, so the conversion is ×100.
     const promptCost = Math.round(prices.prompt * 100);
@@ -144,13 +143,9 @@ const coerceModel = (
         id: `infron:${model.id}${suffix}`,
         name: `${model.display_name || model.id} (Infron${tier ? `, ${tier}` : ''})`,
         aliases: [
-            `${model.id}${suffix}`,
-            ...(model.display_name && !tier ? [model.display_name] : []),
+            `infron:${model.id}${suffix}`,
             `infron/${model.id}${suffix}`,
-            `${shortId}${suffix}`,
-            // The plain id already means the default tier; accept the
-            // explicit spelling of it too.
-            ...(tier ? [] : [`${model.id}:${DEFAULT_SERVICE_TIER}`]),
+            `${model.id}${suffix}`,
         ],
         context: tier
             ? (prices.context ?? model.context_length)

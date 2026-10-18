@@ -343,7 +343,8 @@ describe('NeuralwattProvider model catalog', () => {
         const ids = await provider.list();
         expect(ids).toContain('neuralwatt:deepseek-v4-flash');
         expect(ids).toContain('neuralwatt:zai-org/GLM-5.1-FP8');
-        expect(ids).toContain('GLM-5.1-FP8');
+        // Standard format aliases
+        expect(ids).toContain('neuralwatt/zai-org/GLM-5.1-FP8');
         expect(ids).not.toContain('neuralwatt:coming-soon-model');
         expect(ids).not.toContain('neuralwatt:deprecated-model');
     });
