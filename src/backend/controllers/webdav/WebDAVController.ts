@@ -50,6 +50,7 @@ import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { rootShowsHome } from '../../services/fs/rootListing.js';
 import {
     maskEntryPath,
+    maskPathForRequest,
     parseMaskedSharePath,
     resolveSharePath,
 } from '../../services/fs/sharePathMask.js';
@@ -745,17 +746,18 @@ export class WebDAVController extends PuterController {
 
     async #proppatch(
         res: Response,
-        { davPath, lockToken }: DavContext,
+        { actor, davPath, lockToken }: DavContext,
     ): Promise<void> {
         if (
             !(await hasWritePermission(this.clients.redis, davPath, lockToken))
         ) {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
+        await this.#assertWrite(actor, davPath);
         res.status(207)
             .set({ 'Content-Type': 'application/xml; charset=utf-8' })
             .send(
-                `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:"><D:response><D:href>${escapeXml(encodeURI(davPath))}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`,
+                `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:"><D:response><D:href>${escapeXml(encodeURI(maskPathForRequest(davPath)))}</D:href><D:propstat><D:prop/><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>`,
             );
     }
 

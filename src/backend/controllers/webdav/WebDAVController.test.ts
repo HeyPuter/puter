@@ -1893,6 +1893,17 @@ describe('WebDAVController verbs', () => {
             expect(captured.statusCode).toBe(207);
             expect(captured.body as string).toContain('HTTP/1.1 200 OK');
         });
+
+        it("refuses a property update on another user's path", async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const captured = await dispatch({
+                method: 'PROPPATCH',
+                path: `/${owner.username}/Documents`,
+                actor: other.actor,
+            });
+            expect(captured.statusCode).toBe(403);
+        });
     });
 
     describe('MKCOL', () => {
@@ -2451,6 +2462,7 @@ describe('WebDAVController verbs', () => {
         const shareFolder = async (
             owner: Awaited<ReturnType<typeof makeUser>>,
             to: Awaited<ReturnType<typeof makeUser>>,
+            mode: 'read' | 'write' = 'read',
         ) => {
             const dirUuid = uuidv4();
             const dirPath = `/${owner.username}/Documents/Secrets`;
@@ -2488,32 +2500,34 @@ describe('WebDAVController verbs', () => {
                 server.services.share.share(owner.actor as never, {
                     uid: dirUuid,
                     recipient: { username: to.username! },
-                    mode: 'read',
+                    mode,
                 }),
             );
             return { dirUuid, dirPath };
         };
 
         /**
-         * PROPFIND under the ALS wrap a real request gets, pre-auth actor
+         * A request under the ALS wrap a real request gets, pre-auth actor
          * empty.
          */
-        const propfind = async (path: string, actor: unknown, depth = '1') => {
+        const davRequest = async (
+            method: string,
+            path: string,
+            actor: unknown,
+            headers: Record<string, string> = {},
+        ) => {
             const { res, captured } = makeRes();
             await runWithContext({ actor: undefined }, () =>
                 dispatchMiddleware(
-                    makeReq({
-                        method: 'PROPFIND',
-                        path,
-                        headers: { depth },
-                        actor,
-                    }),
+                    makeReq({ method, path, headers, actor }),
                     res,
                     noop,
                 ),
             );
             return captured;
         };
+        const propfind = (path: string, actor: unknown, depth = '1') =>
+            davRequest('PROPFIND', path, actor, { depth });
 
         // The DAV controller authenticates in-controller, after the request
         // context snapshotted an empty `req.actor` — so it has to place the
@@ -2530,6 +2544,40 @@ describe('WebDAVController verbs', () => {
             expect(captured.statusCode).toBe(207);
             const xml = String(captured.body);
             expect(xml).toContain(`${masked}/plan.txt`);
+            expect(xml).not.toContain('/Documents/Secrets');
+        });
+
+        it('refuses PROPPATCH on a share the recipient can only read', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dirUuid } = await shareFolder(owner, recipient);
+
+            const masked = `/${owner.username}/${dirUuid}/Secrets`;
+            const captured = await davRequest(
+                'PROPPATCH',
+                masked,
+                recipient.actor,
+            );
+
+            expect(captured.statusCode).toBe(403);
+            expect(String(captured.body)).not.toContain('/Documents/Secrets');
+        });
+
+        it('answers PROPPATCH on a writable share under its masked path', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dirUuid } = await shareFolder(owner, recipient, 'write');
+
+            const masked = `/${owner.username}/${dirUuid}/Secrets`;
+            const captured = await davRequest(
+                'PROPPATCH',
+                masked,
+                recipient.actor,
+            );
+
+            expect(captured.statusCode).toBe(207);
+            const xml = String(captured.body);
+            expect(xml).toContain(`<D:href>${masked}</D:href>`);
             expect(xml).not.toContain('/Documents/Secrets');
         });
 
