@@ -19,6 +19,8 @@
 
 import { actorOwnsRow, requireContextActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { subdomainLabelOf } from '../../core/http/middleware/hostRedirects.js';
+import { extensionStore } from '../../extensions.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -718,9 +720,10 @@ export class AppDriver extends PuterDriver {
      * loading from the GUI host would execute third-party code same-origin with
      * the desktop — a full sandbox escape. The API host is reserved for the
      * same reason, and the builtin sentinel host is rewritten by the GUI to
-     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). Host comparison
-     * (rather than full origin) deliberately also catches scheme/port variants
-     * of these hosts.
+     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). A subdomain an
+     * extension has claimed is a system host too. Host comparison (rather than
+     * full origin) deliberately also catches scheme/port variants of these
+     * hosts.
      */
     #assertIndexUrlHostAllowed(indexUrl) {
         let hostname;
@@ -752,7 +755,13 @@ export class AppDriver extends PuterDriver {
             }
         }
 
-        if (reserved.has(hostname)) {
+        const label = config.domain
+            ? subdomainLabelOf(hostname, config.domain)
+            : undefined;
+        if (
+            reserved.has(hostname) ||
+            (label !== undefined && extensionStore.claimedSubdomains.has(label))
+        ) {
             throw new HttpError(
                 400,
                 '`index_url` cannot point at a Puter system host',

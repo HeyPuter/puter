@@ -88,6 +88,18 @@ export type ClaimLookup = (name: string) => ResolvedClaim | undefined;
 
 const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
+/** The label `x` when `host` is exactly `x.<domain>`, ignoring case and port. */
+export const subdomainLabelOf = (
+    host: string,
+    domain: string,
+): string | undefined => {
+    const hostName = host.toLowerCase().split(':')[0];
+    const base = domain.toLowerCase().split(':')[0];
+    if (!base || !hostName.endsWith(`.${base}`)) return undefined;
+    const label = hostName.slice(0, -(base.length + 1));
+    return label && !label.includes('.') ? label : undefined;
+};
+
 /**
  * Record a claim on `<name>.<domain>`. Throws on a malformed or uppercase
  * label, a subdomain core already handles, or a name that is already claimed.
@@ -239,7 +251,8 @@ export const createUserSubdomainNotFound = (
         // responder, body parsing, auth and every route, `subdomain: '*'` ones
         // included. One label deep only: `<name>.x.<domain>` is not the claim.
         const claimed =
-            req.subdomains?.length === 1 && hostName === `${active}.${domain}`
+            req.subdomains?.length === 1 &&
+            subdomainLabelOf(hostName, domain) === active
                 ? lookupClaim(active)
                 : undefined;
         if (claimed) {

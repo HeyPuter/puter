@@ -512,14 +512,14 @@ export class WebDAVController extends PuterController {
         headOnly: boolean,
     ): Promise<void> {
         const entry = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!entry)
-            throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
+        if (!entry) throw davNotFound();
+        // Authorized before the directory check, so a caller who can't see
+        // the entry can't learn that it is one.
+        await this.#assertAccess(actor, entry.path, 'read');
         if (entry.isDir)
             throw new HttpError(400, 'Cannot GET a directory', {
                 legacyCode: 'bad_request',
             });
-
-        await this.#assertRead(actor, davPath);
 
         const modified = entry.modified ?? entry.created ?? 0;
         const etag = entryEtag(entry.uuid, modified);
@@ -566,7 +566,7 @@ export class WebDAVController extends PuterController {
         const depth = req.headers.depth ?? '1';
 
         if (davPath === '/') {
-            await this.#assertRead(actor, davPath);
+            await this.#assertAccess(actor, davPath, 'read');
             this.#sendMultistatus(res, await this.#rootPropfind(actor, depth));
             return;
         }
@@ -588,11 +588,9 @@ export class WebDAVController extends PuterController {
             return;
         }
 
-        if (!entry) {
-            throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
-        }
+        if (!entry) throw davNotFound();
 
-        await this.#assertRead(actor, davPath);
+        await this.#assertAccess(actor, entry.path, 'read');
 
         // `davPath` is the resolved real path; the href has to be the masked
         // one, like every child below it, or the self-entry names the owner's
@@ -694,7 +692,7 @@ export class WebDAVController extends PuterController {
         if (!entry?.isDir) return null;
         // An owner who shared their whole home directory has a real listing
         // here, and it beats the virtual one.
-        if (await this.#canRead(actor, davPath)) return null;
+        if (await this.#canAccess(actor, entry.path, 'read')) return null;
 
         const shares = (await this.#sharedWithMe(actor)).filter(
             (share) => share.owner?.username === owner,
@@ -753,7 +751,9 @@ export class WebDAVController extends PuterController {
         ) {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
-        await this.#assertWrite(actor, davPath);
+        const target = await this.stores.fsEntry.getEntryByPath(davPath);
+        if (target) await this.#assertAccess(actor, target.path, 'write');
+        else await this.#assertCreate(actor, davPath);
         res.status(207)
             .set({ 'Content-Type': 'application/xml; charset=utf-8' })
             .send(
@@ -786,8 +786,7 @@ export class WebDAVController extends PuterController {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
         const userId = actor.user!.id as number;
-        const parentPath = pathPosix.dirname(davPath);
-        await this.#assertWrite(actor, parentPath);
+        await this.#assertCreate(actor, davPath);
 
         const existing = await this.stores.fsEntry.getEntryByPath(davPath);
         if (existing)
@@ -823,8 +822,11 @@ export class WebDAVController extends PuterController {
         }
 
         const userId = actor.user!.id as number;
-        const parentPath = pathPosix.dirname(davPath);
-        await this.#assertWrite(actor, parentPath);
+        // Overwriting takes write on what is there, as `/fs/write` does;
+        // creating takes write on the parent.
+        const existing = await this.stores.fsEntry.getEntryByPath(davPath);
+        if (existing) await this.#assertAccess(actor, existing.path, 'write');
+        else await this.#assertCreate(actor, davPath);
 
         const contentLength = Number(
             req.headers['content-length'] ??
@@ -835,9 +837,6 @@ export class WebDAVController extends PuterController {
             throw new HttpError(400, 'Missing Content-Length', {
                 legacyCode: 'bad_request',
             });
-
-        // Check if overwrite
-        const existing = await this.stores.fsEntry.getEntryByPath(davPath);
 
         // Expect: 100-continue
         if (req.headers.expect === '100-continue') {
@@ -883,11 +882,9 @@ export class WebDAVController extends PuterController {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
         const userId = actor.user!.id as number;
-        await this.#assertWrite(actor, davPath);
-
         const entry = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!entry)
-            throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
+        if (!entry) throw davNotFound();
+        await this.#assertAccess(actor, entry.path, 'write');
 
         await this.services.fs.remove(userId, { entry, recursive: true });
         this.#emitGuiEvent('outer.gui.item.removed', entry);
@@ -909,14 +906,10 @@ export class WebDAVController extends PuterController {
         }
 
         const userId = actor.user!.id as number;
-        await this.#assertRead(actor, davPath);
-        await this.#assertWrite(actor, pathPosix.dirname(destPath));
-
         const source = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!source)
-            throw new HttpError(404, 'Source not found', {
-                legacyCode: 'not_found',
-            });
+        if (!source) throw davNotFound();
+        await this.#assertAccess(actor, source.path, 'read');
+        await this.#assertCreate(actor, destPath);
 
         const overwrite = req.headers.overwrite !== 'F';
         const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
@@ -961,14 +954,10 @@ export class WebDAVController extends PuterController {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
 
         const userId = actor.user!.id as number;
-        await this.#assertWrite(actor, davPath);
-        await this.#assertWrite(actor, pathPosix.dirname(destPath));
-
         const source = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!source)
-            throw new HttpError(404, 'Source not found', {
-                legacyCode: 'not_found',
-            });
+        if (!source) throw davNotFound();
+        await this.#assertAccess(actor, source.path, 'write');
+        await this.#assertCreate(actor, destPath);
 
         const overwrite = req.headers.overwrite !== 'F';
         const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
@@ -1013,8 +1002,11 @@ export class WebDAVController extends PuterController {
 
         // ACL must succeed before any lock state is touched — otherwise
         // an authenticated user could lock paths they don't own (e.g. `/`)
-        // and block writes for everyone else.
-        await this.#assertWrite(actor, davPath);
+        // and block writes for everyone else. A path with nothing at it yet
+        // is a lock-null resource, locked ahead of its create.
+        const target = await this.stores.fsEntry.getEntryByPath(davPath);
+        if (target) await this.#assertAccess(actor, target.path, 'write');
+        else await this.#assertCreate(actor, davPath);
 
         const timeoutSeconds = parseLockTimeout(
             req.headers.timeout as string | undefined,
@@ -1147,25 +1139,46 @@ export class WebDAVController extends PuterController {
 
     // -- ACL helpers -------------------------------------------------
 
-    async #canRead(actor: Actor, path: string): Promise<boolean> {
+    // Checks take the path an entry is stored under, never the request's
+    // spelling of it: the path lookup can match a differently-cased row (MySQL
+    // collates `fsentries.path` case-insensitively), while the ACL's path rules
+    // — home, Public — compare exactly. Only a create, whose target has no row
+    // yet, falls back to a requested path.
+
+    async #canAccess(
+        actor: Actor,
+        path: string,
+        mode: 'read' | 'write',
+    ): Promise<boolean> {
         const acl = this.services.acl;
-        return await acl.check(actor, acl.fsDescriptor(path), 'read');
+        return await acl.check(actor, acl.fsDescriptor(path), mode);
     }
 
-    async #assertRead(actor: Actor, path: string): Promise<void> {
-        if (!(await this.#canRead(actor, path)))
-            throw new HttpError(403, 'Permission denied', {
-                legacyCode: 'permission_denied',
-            });
+    /**
+     * Refused the way `/fs` refuses: a caller who can't even see the target
+     * gets the same 404 as for a path with nothing at it, so a refusal never
+     * confirms that something exists.
+     */
+    async #assertAccess(
+        actor: Actor,
+        path: string,
+        mode: 'read' | 'write',
+    ): Promise<void> {
+        const acl = this.services.acl;
+        const descriptor = acl.fsDescriptor(path);
+        if (await acl.check(actor, descriptor, mode)) return;
+        const safe = await acl.getSafeAclError(actor, descriptor, mode);
+        if (safe.status === 404) throw davNotFound();
+        throw new HttpError(403, 'Permission denied', {
+            legacyCode: 'permission_denied',
+        });
     }
 
-    async #assertWrite(actor: Actor, path: string): Promise<void> {
-        const acl = this.services.acl;
-        const ok = await acl.check(actor, acl.fsDescriptor(path), 'write');
-        if (!ok)
-            throw new HttpError(403, 'Permission denied', {
-                legacyCode: 'permission_denied',
-            });
+    /** Write on the parent of a path about to be created at `targetPath`. */
+    async #assertCreate(actor: Actor, targetPath: string): Promise<void> {
+        const parentPath = pathPosix.dirname(targetPath);
+        const parent = await this.stores.fsEntry.getEntryByPath(parentPath);
+        await this.#assertAccess(actor, parent?.path ?? parentPath, 'write');
     }
 
     // -- Event emission ----------------------------------------------
@@ -1257,6 +1270,11 @@ function sendDavError(res: Response, err: unknown): void {
     }
     console.error('[webdav] unhandled error', err);
     res.status(500).send('Internal Server Error');
+}
+
+/** Nothing there — or nothing the caller may know is there; they read alike. */
+function davNotFound(): HttpError {
+    return new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
 }
 
 // -- XML helpers ------------------------------------------------------
