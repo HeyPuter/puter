@@ -37,6 +37,7 @@ import {
     postGeminiJson,
     geminiTokenCount as tokenCount,
 } from '../../../util/geminiRest.js';
+import { decodeStrictBase64 } from '../../../../util/mediaSniff.js';
 import { isUpstreamTimeoutError } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
 import type {
@@ -154,17 +155,6 @@ interface Interaction {
 
 const WAV_MIME_TYPES = new Set(['audio/wav', 'audio/x-wav', 'audio/wave']);
 const PCM_MIME_TYPES = new Set(['audio/l16', 'audio/pcm']);
-// Find a bad character instead of matching `^[...]+$`: when V8 compiles a
-// regexp unoptimized, the anchored loop backtracks per character and overflows
-// its stack on audio over ~4 MB.
-const NON_BASE64_CHAR = /[^A-Za-z0-9+/_-]/;
-
-const isBase64 = (data: string): boolean => {
-    let end = data.length;
-    if (data.endsWith('==')) end -= 2;
-    else if (data.endsWith('=')) end -= 1;
-    return end > 0 && !NON_BASE64_CHAR.test(data.slice(0, end));
-};
 
 const SPLIT_TEXT_HINT = 'Split the text into shorter requests.';
 
@@ -534,14 +524,11 @@ export class GeminiTTSProvider implements ITTSProvider {
         contentType: string;
     } {
         const { data, mime_type: mimeType } = audio;
-        if (
-            typeof data !== 'string' ||
-            !isBase64(data) ||
-            typeof mimeType !== 'string'
-        ) {
+        const bytes =
+            typeof data === 'string' ? decodeStrictBase64(data) : null;
+        if (!bytes || typeof mimeType !== 'string') {
             throw upstreamFailure('Gemini TTS returned invalid audio data');
         }
-        const bytes = Buffer.from(data, 'base64');
         const [essence, ...params] = mimeType
             .split(';')
             .map((part) => part.trim().toLowerCase());
