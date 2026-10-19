@@ -59,6 +59,9 @@ const MP4_BRANDS = new Set([
  */
 export function decodeStrictBase64(value: string): Buffer | null {
     if (value.length === 0 || value.length % 4 !== 0) return null;
+    // Node decodes a code unit above 0xFF by its low byte (`ī` as `+`), so
+    // only ASCII is decoded.
+    if (Buffer.byteLength(value, 'utf8') !== value.length) return null;
     // Node also decodes the URL-safe alphabet.
     if (value.includes('-') || value.includes('_')) return null;
     const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;

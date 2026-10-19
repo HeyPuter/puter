@@ -35,6 +35,7 @@ describe('decodeStrictBase64', () => {
         ['the URL-safe alphabet', 'a-b_'],
         ['whitespace', 'YW Jj'],
         ['a character outside the alphabet', 'YW*j'],
+        ['a non-ASCII character whose low byte is in the alphabet', 'YWJī'],
         ['padding mid-string', 'YQ==YWJj'],
         ['three pad characters', 'Y==='],
     ])('rejects %s', (_label, value) => {
