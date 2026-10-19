@@ -30,6 +30,7 @@ import {
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
+import { pipeToResponse } from '../../core/http/pipeToResponse.js';
 import {
     assertNotSuspended,
     assertTeam2fa,
@@ -51,6 +52,7 @@ import {
 } from '../../util/fileSigning.js';
 import { APP_ICON_SIZES } from '../../util/appIcon.js';
 import { toAppSummary } from '../../util/appView.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     joinChildPath,
     normalizeAbsolutePath,
@@ -209,12 +211,19 @@ export class LegacyFSController extends PuterController {
         // Limits come from `./limits` and carry an explicit `scope`, so these
         // draw from the same per-user budget as their v2 counterparts rather
         // than handing a caller a second allowance for the same operation.
-        const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
-        // Read-side routes admit scoped access tokens: the ACL check each
-        // handler runs already intersects a token's grant with its issuer's,
-        // so the token reaches exactly what it was minted for. That is what a
-        // background events handler acts through — its `user` is a token
-        // scoped to the subscription's grant.
+        //
+        // The entry routes — reads and writes alike — admit scoped access
+        // tokens: the ACL check each handler runs already intersects a token's
+        // grant with its issuer's, so the token reaches exactly what it was
+        // minted for. That is what a background events handler acts through —
+        // its `user` is a token scoped to the subscription's grant — and it
+        // matches what WebDAV admits. Routes reaching past a single entry
+        // (search, df, sign, the app helpers) stay closed to them.
+        const mutate = {
+            ...apiOptions,
+            allowAccessToken: true,
+            rateLimit: FS_MUTATE_LIMIT,
+        } as RouteOptions;
         const reads = { ...apiOptions, allowAccessToken: true } as RouteOptions;
         router.post('/stat', { ...reads, rateLimit: FS_STAT_LIMIT }, this.stat);
         router.post(
@@ -264,6 +273,8 @@ export class LegacyFSController extends PuterController {
             '/batch',
             {
                 ...spends,
+                // Every op authorizes its own target.
+                allowAccessToken: true,
                 rateLimit: FS_BATCH_LIMIT,
                 concurrent: FS_BATCH_CONCURRENT,
             },
@@ -494,6 +505,16 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
+        // Started early but awaited where it used to run, so its error still
+        // surfaces after the ones below. awaitLater covers the early exits
+        // that never reach that await.
+        const subtreeSize =
+            entry.isDir && getBoolean(body, 'return_size')
+                ? awaitLater(
+                      this.services.fs.getSubtreeSize(userId, entry.path),
+                  )
+                : null;
+
         const [suggestedApps, appsById, shareFlags, parentUid] =
             await Promise.all([
                 this.services.suggestedApps.getSuggestedApps(entry),
@@ -521,12 +542,7 @@ export class LegacyFSController extends PuterController {
         });
 
         // Optional hydrations:
-        if (entry.isDir && getBoolean(body, 'return_size')) {
-            shaped.size = await this.services.fs.getSubtreeSize(
-                userId,
-                entry.path,
-            );
-        }
+        if (subtreeSize) shaped.size = await subtreeSize;
         // `return_versions` has no parity yet; the empty array keeps `forEach`
         // callers working. `return_owner` is a no-op — `owner` is always set.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
@@ -914,7 +930,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
@@ -1305,10 +1323,7 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 
     tokenRead = async (req: Request, res: Response): Promise<void> => {
@@ -1391,7 +1406,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1439,11 +1455,13 @@ export class LegacyFSController extends PuterController {
                 }
 
                 // ACL: always require read; downgrade write→read silently.
+                // One descriptor for both modes reads the chain at most once.
+                const descriptor = this.services.acl.fsDescriptor(entry.path);
                 await assertAccess(
                     this.services.acl,
                     this.services.fs,
                     actor,
-                    entry.path,
+                    descriptor,
                     'read',
                 );
                 let finalAction: 'read' | 'write' = 'read';
@@ -1455,7 +1473,7 @@ export class LegacyFSController extends PuterController {
                     // publishes the descriptor, so there is nothing to hide.
                     const writeOk = await this.services.acl.check(
                         actor,
-                        this.services.acl.fsDescriptor(entry.path),
+                        descriptor,
                         'write',
                     );
                     finalAction = writeOk ? 'write' : 'read';
@@ -1819,10 +1837,7 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 
     /** GET|POST /df — user storage allowance. */
@@ -1986,7 +2001,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -2092,10 +2110,7 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 
     async #emitGuiEvent(

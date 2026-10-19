@@ -27,6 +27,7 @@ import {
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     ASSET_WINDOW_SECONDS,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
@@ -759,9 +760,22 @@ export class AuthService extends PuterService {
                     ),
             ),
         ];
+        // One batched read; a uid it doesn't answer exactly (gone, differently
+        // cased, or the batch failed) gets its own lookup, as before.
+        let batched = new Map<string, Record<string, unknown>>();
+        try {
+            batched = await this.stores.app.getByUids(appUids);
+        } catch {
+            // Every uid falls back to its own lookup.
+        }
         const apps = new Map<string, Record<string, unknown>>();
         await Promise.all(
             appUids.map(async (uid) => {
+                const hit = batched.get(uid);
+                if (hit) {
+                    apps.set(uid, hit);
+                    return;
+                }
                 try {
                     const app = await this.stores.app.getByUid(uid);
                     if (app) apps.set(uid, app);
@@ -1684,7 +1698,12 @@ export class AuthService extends PuterService {
         return result;
     }
 
-    async getUserAppToken(actor: Actor, appUid: string): Promise<string> {
+    /** `app` is `appUid`'s row when the caller already read it. */
+    async getUserAppToken(
+        actor: Actor,
+        appUid: string,
+        app?: { created_epoch?: unknown },
+    ): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
                 legacyCode: 'forbidden',
@@ -1695,7 +1714,7 @@ export class AuthService extends PuterService {
         // the app row's `last_ip` / `last_user_agent` start NULL and get
         // populated later via `SessionStore.touch` on the first verified
         // request that carries those headers.
-        const app = await this.stores.app.getByUid(appUid);
+        app ??= await this.stores.app.getByUid(appUid);
         const appSession = await this.stores.session.getOrCreateApp(
             actor.user.id,
             appUid,
@@ -1867,12 +1886,16 @@ export class AuthService extends PuterService {
 
     /**
      * Materialize the `kind='asset'` session row that the cookie's
-     * `session_uuid` claim points at. Parented to the web session so a logout
-     * cascade kills every asset cookie minted under it. Both fields are `null`
-     * only when the caller didn't supply a web session at all — the cookie
-     * still mints unparented and without an `auth_id` claim (matches v1
-     * behavior for access-token-minted cookies that aren't tied to an
-     * interactive session).
+     * `session_uuid` claim points at. Parented to the minting session so
+     * revoking it kills the cookie. The cascade is one level deep, so a cookie
+     * minted from a godmode token (itself under a web session) outlives logout
+     * of that web session; accepted, as app tokens outlive it too and the
+     * cookie only serves one app's files after an entitlement check.
+     *
+     * Both fields are `null` only when the caller didn't supply a session at
+     * all — the cookie still mints unparented and without an `auth_id` claim
+     * (matches v1 behavior for access-token-minted cookies that aren't tied to
+     * an interactive session).
      *
      * If the caller DID supply a `webSessionUuid` but the lookup misses (row
      * revoked / expired between mint request and this lookup), throw —
@@ -1907,9 +1930,10 @@ export class AuthService extends PuterService {
     /**
      * Verify a hosted-asset cookie of `kind` against what the request expects,
      * and that the session it was minted under still exists and isn't revoked:
-     * `getByUuid` filters on `revoked_at IS NULL`, so a logout cascade
-     * invalidates every cookie minted under that web session. A cookie minted
-     * without a session (from an access-token actor) has nothing to bind.
+     * `getByUuid` filters on `revoked_at IS NULL`, so revoking the minting
+     * session invalidates the cookie. Only the leaf row is checked; see
+     * `#mintAssetSessionContext` for the godmode case. A cookie minted without
+     * a session (from an access-token actor) has nothing to bind.
      */
     async verifyHostedAssetToken(
         kind: HostedAssetKind,
@@ -2487,18 +2511,27 @@ export class AuthService extends PuterService {
         decoded: SessionTokenPayload,
         ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return { invalid: true };
-
         // v2 tokens prefer `session_uid`; v1 only carries `uuid`. Both
         // store the web-session uuid.
         const sessionUuid = decoded.session_uid ?? decoded.uuid;
 
-        const rawRow = sessionUuid
-            ? ((await this.stores.session.getByUuidAny(
-                  sessionUuid,
-              )) as SessionRow | null)
+        // Read together, awaited in the order the checks below need them.
+        const userLookup = this.stores.user.getByUuid(decoded.user_uid);
+        const sessionLookup = sessionUuid
+            ? awaitLater(
+                  this.stores.session.getByUuidAny(
+                      sessionUuid,
+                  ) as Promise<SessionRow | null>,
+              )
             : null;
+
+        const user = await userLookup;
+        if (!user) return { invalid: true };
+        const deployed = awaitLater(
+            this.#workerStillDeployed(decoded, user.id as number),
+        );
+
+        const rawRow = sessionLookup ? await sessionLookup : null;
 
         // Only a browser session gets a reauth token back. A worker credential
         // rides the same token type, so check both the claim and the row.
@@ -2513,9 +2546,7 @@ export class AuthService extends PuterService {
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
-        if (!(await this.#workerStillDeployed(decoded, user.id as number))) {
-            return { invalid: true };
-        }
+        if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
 
@@ -2526,21 +2557,30 @@ export class AuthService extends PuterService {
         decoded: AppUnderUserTokenPayload,
         ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return { invalid: true };
+        // Read together, awaited in the order the checks below need them.
+        const userLookup = this.stores.user.getByUuid(decoded.user_uid);
+        const appLookup = awaitLater(this.stores.app.getByUid(decoded.app_uid));
+        const sessionLookup = decoded.session_uid
+            ? awaitLater(
+                  this.stores.session.getByUuidAny(
+                      decoded.session_uid,
+                  ) as Promise<SessionRow | null>,
+              )
+            : null;
 
-        const app = await this.stores.app.getByUid(decoded.app_uid);
+        const user = await userLookup;
+        if (!user) return { invalid: true };
+        const deployed = awaitLater(
+            this.#workerStillDeployed(decoded, user.id as number),
+        );
+
+        const app = await appLookup;
         if (!app) return { invalid: true };
 
         const blocked = await this.#appOriginBlock(app);
         if (blocked) return { blocked };
 
-        let rawRow: SessionRow | null = null;
-        if (decoded.session_uid) {
-            rawRow = (await this.stores.session.getByUuidAny(
-                decoded.session_uid,
-            )) as SessionRow | null;
-        }
+        const rawRow = sessionLookup ? await sessionLookup : null;
 
         // An app token never carries `auth_id` on its reauth result: only a
         // user's own session/GUI token can be reattached via a reauth token.
@@ -2560,9 +2600,7 @@ export class AuthService extends PuterService {
         if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
             return { reauth: { reason: 'session_revoked' } };
         }
-        if (!(await this.#workerStillDeployed(decoded, user.id as number))) {
-            return { invalid: true };
-        }
+        if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
 
@@ -2611,15 +2649,44 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         if (!decoded.token_uid || !decoded.user_uid) return { invalid: true };
 
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
+        // Read together, awaited in the order the checks below need them. The
+        // parent is read once its child row names it.
+        const userLookup = this.stores.user.getByUuid(decoded.user_uid);
+        const sessionLookup = decoded.session_uid
+            ? awaitLater(
+                  this.stores.session.getByUuidAny(
+                      decoded.session_uid,
+                  ) as Promise<SessionRow | null>,
+              )
+            : null;
+        const parentLookup = sessionLookup
+            ? awaitLater(
+                  (async () => {
+                      const row = await sessionLookup;
+                      if (!row?.parent_session_id) return null;
+                      return (await this.stores.session.getByUuidAny(
+                          row.parent_session_id,
+                      )) as SessionRow | null;
+                  })(),
+              )
+            : null;
+        const appLookup = decoded.app_uid
+            ? awaitLater(this.stores.app.getByUid(decoded.app_uid))
+            : null;
+        const godmodeAppLookup =
+            decoded.godmode_app_uid !== undefined &&
+            !decoded.app_uid &&
+            decoded.full_access === true
+                ? awaitLater(this.stores.app.getByUid(decoded.godmode_app_uid))
+                : null;
+
+        const user = await userLookup;
         if (!user) return { invalid: true };
 
         let session: SessionRow | null = null;
         let parentSession: SessionRow | null = null;
-        if (decoded.session_uid) {
-            const rawRow = (await this.stores.session.getByUuidAny(
-                decoded.session_uid,
-            )) as SessionRow | null;
+        if (sessionLookup && parentLookup) {
+            const rawRow = await sessionLookup;
             // No `auth_id` on an access token's reauth result: a reauth token
             // is only ever minted for the user's own session/GUI token.
             const ended = this.#endedSession(rawRow);
@@ -2628,9 +2695,7 @@ export class AuthService extends PuterService {
             // A token minted under another session (an app's, a godmode
             // token's, the desktop's) lives no longer than that session does.
             if (rawRow.parent_session_id) {
-                const parent = (await this.stores.session.getByUuidAny(
-                    rawRow.parent_session_id,
-                )) as SessionRow | null;
+                const parent = await parentLookup;
                 if (!parent) return { reauth: { reason: 'session_revoked' } };
                 const parentEnded = this.#endedSession(parent);
                 if (parentEnded) return parentEnded;
@@ -2640,8 +2705,8 @@ export class AuthService extends PuterService {
         }
 
         let authorizer: Actor;
-        if (decoded.app_uid) {
-            const app = await this.stores.app.getByUid(decoded.app_uid);
+        if (appLookup) {
+            const app = await appLookup;
             if (!app) return { invalid: true };
             const blocked = await this.#appOriginBlock(app);
             if (blocked) return { blocked };
@@ -2662,10 +2727,8 @@ export class AuthService extends PuterService {
         // A godmode token stops working once its app is gone or demoted.
         let godmodeApp: { uid: string; id: number } | null = null;
         if (decoded.godmode_app_uid !== undefined) {
-            if (decoded.app_uid || decoded.full_access !== true) {
-                return { invalid: true };
-            }
-            const app = await this.stores.app.getByUid(decoded.godmode_app_uid);
+            if (!godmodeAppLookup) return { invalid: true };
+            const app = await godmodeAppLookup;
             if (!app || !isGodmodeApp(app)) return { invalid: true };
             godmodeApp = { uid: app.uid, id: app.id };
         }
@@ -2756,6 +2819,15 @@ export class AuthService extends PuterService {
             requires_card_verification:
                 user.requires_card_verification ?? false,
         };
+    }
+
+    /**
+     * A session-less actor for a user whose password was verified outside a
+     * token (WebDAV Basic auth). Same row→actor mapping as the token paths, so
+     * the account gates see every flag they read.
+     */
+    buildPasswordActor(user: UserRow): Actor {
+        return this.#buildUserActor(user, null);
     }
 
     #buildUserActor(user: UserRow, session: SessionRow | null): Actor {

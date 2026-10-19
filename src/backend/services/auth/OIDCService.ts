@@ -91,6 +91,14 @@ export class OIDCService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
     #discoveryCache: Map<string, Record<string, string>> = new Map();
+    #discoveryInFlight: Map<string, Promise<Record<string, string> | null>> =
+        new Map();
+    #discoveryMisses = 0;
+    #enabledProviderIds: string[] | null = null;
+    #applePrivateKey:
+        | { pem: string; key: crypto.KeyObject }
+        | { pem: string; error: unknown }
+        | null = null;
     #jwksCache: Map<string, JwksCacheEntry> = new Map();
     #providers: Record<string, Record<string, string>> = {};
 
@@ -199,12 +207,23 @@ export class OIDCService extends PuterService {
     }
 
     async getEnabledProviderIds(): Promise<string[]> {
-        const ids: string[] = [];
-        for (const id of Object.keys(this.#providers)) {
-            const cfg = await this.getProviderConfig(id);
-            if (cfg) ids.push(id);
+        if (this.#enabledProviderIds) return [...this.#enabledProviderIds];
+        const ids = Object.keys(this.#providers);
+        const missesBefore = this.#discoveryMisses;
+        const configs = await Promise.allSettled(
+            ids.map((id) => this.getProviderConfig(id)),
+        );
+        const enabled: string[] = [];
+        for (const [i, result] of configs.entries()) {
+            if (result.status === 'rejected') throw result.reason;
+            if (result.value) enabled.push(ids[i]);
         }
-        return ids;
+        // Provider config is fixed after start, so only a failed discovery
+        // fetch (retried next time) can change the answer.
+        if (this.#discoveryMisses === missesBefore) {
+            this.#enabledProviderIds = enabled;
+        }
+        return [...enabled];
     }
 
     // -- Auth URL ----------------------------------------------------
@@ -674,12 +693,33 @@ export class OIDCService extends PuterService {
 
     // -- Internals ---------------------------------------------------
 
+    /** Cached once fetched; concurrent callers share one fetch. */
     async #fetchDiscovery(
         url: string,
         label: string,
     ): Promise<Record<string, string> | null> {
         const cached = this.#discoveryCache.get(url);
         if (cached) return cached;
+        const pending = this.#discoveryInFlight.get(url);
+        if (pending) return pending;
+        const load = this.#loadDiscovery(url, label);
+        this.#discoveryInFlight.set(url, load);
+        let data: Record<string, string> | null = null;
+        try {
+            data = await load;
+            return data;
+        } finally {
+            // In one step: a caller that can no longer join this fetch has to
+            // see its miss.
+            this.#discoveryInFlight.delete(url);
+            if (!data) this.#discoveryMisses++;
+        }
+    }
+
+    async #loadDiscovery(
+        url: string,
+        label: string,
+    ): Promise<Record<string, string> | null> {
         try {
             const res = await fetch(url);
             if (!res.ok) return null;
@@ -690,6 +730,24 @@ export class OIDCService extends PuterService {
             console.warn(`[oidc] ${label} discovery fetch failed`, e);
             return null;
         }
+    }
+
+    /** The configured key, parsed once; a key that fails to parse keeps failing. */
+    #appleKey(privateKey: string): crypto.KeyObject {
+        if (this.#applePrivateKey?.pem !== privateKey) {
+            try {
+                this.#applePrivateKey = {
+                    pem: privateKey,
+                    key: crypto.createPrivateKey(privateKey),
+                };
+            } catch (error) {
+                this.#applePrivateKey = { pem: privateKey, error };
+            }
+        }
+        if ('error' in this.#applePrivateKey) {
+            throw this.#applePrivateKey.error;
+        }
+        return this.#applePrivateKey.key;
     }
 
     #generateAppleClientSecret(
@@ -716,7 +774,7 @@ export class OIDCService extends PuterService {
         );
         const signingInput = `${headerB64}.${payloadB64}`;
 
-        const key = crypto.createPrivateKey(privateKey);
+        const key = this.#appleKey(privateKey);
         const signature = crypto.sign('sha256', Buffer.from(signingInput), {
             key,
             dsaEncoding: 'ieee-p1363',

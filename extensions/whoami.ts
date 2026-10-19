@@ -36,6 +36,18 @@ export const handleWhoami = async (
     }
 
     const isUser = !actor.effectiveApp;
+    const canReadEmail = async (uuid: unknown) => {
+        try {
+            return await services.permission.check(
+                actor,
+                `user:${uuid}:email:read`,
+            );
+        } catch {
+            return false;
+        }
+    };
+    // Started beside the row read: the actor carries the row's uuid.
+    const emailCheck = isUser ? null : canReadEmail(actor.user.uuid);
     const user = await stores.user.getById(actor.user.id);
     if (!user) {
         res.status(404).json({ error: 'User not found' });
@@ -62,10 +74,10 @@ export const handleWhoami = async (
 
     // Strip sensitive fields for app actors
     if (!isUser) {
-        const canReadEmail = await services.permission
-            .check(actor, `user:${user.uuid}:email:read`)
-            .catch(() => false);
-        if (!canReadEmail) {
+        const emailReadable = await (user.uuid === actor.user.uuid
+            ? emailCheck
+            : canReadEmail(user.uuid));
+        if (!emailReadable) {
             delete details.email;
             delete details.unconfirmed_email;
         }
@@ -109,7 +121,8 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        { offering?: Record<string, unknown> } | undefined;
+        | { offering?: Record<string, unknown> }
+        | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

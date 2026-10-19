@@ -94,6 +94,7 @@ export class EventClient extends PuterClient {
         data: EventMap[T],
         meta: EventMetadata,
     ) {
+        if (!this.hasListeners(key)) return;
         // Spanned because callers block on listeners — this is where time
         // spent in extension hooks (e.g. `ip.validate`) gets attributed.
         return withSpan('event.emitAndWait', { 'event.key': key }, async () => {
@@ -115,6 +116,43 @@ export class EventClient extends PuterClient {
                     }
                 }
             }
+        });
+    }
+
+    /**
+     * Like `emitAndWait`, but every matched listener runs at once, so none sees
+     * another's mutation of `data` before all have finished. Only for events
+     * whose listeners each add an independent share, written after their own
+     * awaits (`const v = await x; data.n += v`).
+     */
+    async emitAndWaitConcurrently<T extends keyof EventMap>(
+        key: T,
+        data: EventMap[T],
+        meta: EventMetadata,
+    ) {
+        const matched = this.#matchKeys(key).flatMap((matchKey) =>
+            this.#listenersFor(matchKey).map((listener) => ({
+                listener,
+                // A wildcard listener observes the event; it does not implement it.
+                isExact: matchKey === key,
+            })),
+        );
+        if (matched.length === 0) return;
+        return withSpan('event.emitAndWait', { 'event.key': key }, async () => {
+            await Promise.all(
+                matched.map(async ({ listener, isExact }) => {
+                    try {
+                        await listener(key, data, meta);
+                    } catch (e) {
+                        if (isExact) meta.listener_failed = true;
+                        console.error(
+                            'Error in event listener for event',
+                            key,
+                            e,
+                        );
+                    }
+                }),
+            );
         });
     }
 

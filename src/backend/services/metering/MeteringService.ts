@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { randomInt } from 'node:crypto';
 import murmurhash from 'murmurhash';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
@@ -74,6 +75,8 @@ export type SubscriptionResolver = (
     actor: Actor,
 ) => Promise<string | null | undefined> | string | null | undefined;
 
+type ResolverOutcome = { id: string | null | undefined } | { error: unknown };
+
 /** One usage type's amount, pre-aggregated across one call. */
 type TypeAmounts = { units: number; cost: number; count: number };
 
@@ -89,6 +92,15 @@ type UsageWriteResult = {
 };
 
 // -- Helpers ----------------------------------------------------------
+
+/**
+ * Purchases and consumption live on separate items: replicas resolve concurrent
+ * writes per item, so a purchase landing in one region while another settles
+ * consumption could otherwise drop the purchase.
+ */
+const addonsKey = (userId: string) => `${POLICY_PREFIX}:actor:${userId}:addons`;
+const addonsConsumedKey = (userId: string) =>
+    `${POLICY_PREFIX}:actor:${userId}:addonsConsumed`;
 
 /**
  * How an actor is named in metering alarms. Email is what someone reading the
@@ -334,6 +346,12 @@ export class MeteringService extends PuterService {
      * arrives here again for the same actor and month.
      */
     private claimsInFlight = new Set<string>();
+    /**
+     * Claim id → the token of a claim write that failed, which may still have
+     * landed. The retry sends the same token, so it can tell. Bounded by
+     * MONTHLY_CHARGE_MEMO_LIMIT.
+     */
+    private pendingClaimTokens = new Map<string, number>();
 
     /**
      * Usage waiting to be written, keyed by actor and app so each bucket
@@ -483,7 +501,8 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a subscription id. The first
-     * resolver that returns a non-empty id wins; later resolvers are skipped. A
+     * resolver that returns a non-empty id wins; later answers are ignored. All
+     * resolvers are called concurrently, so each must be a pure read. A
      * resolver whose lookup fails should throw rather than return null, so the
      * fallback it causes isn't cached as the actor's plan.
      */
@@ -493,7 +512,8 @@ export class MeteringService extends PuterService {
 
     /**
      * Register a resolver that maps an actor to a _default_ subscription id,
-     * used when none is set. Lowest `priority` is asked first.
+     * used when none is set. Lowest `priority` is consulted first. Called
+     * concurrently with the others, so it must be a pure read.
      */
     registerDefaultSubscriptionResolver(
         fn: SubscriptionResolver,
@@ -2054,15 +2074,18 @@ export class MeteringService extends PuterService {
               ? DEFAULT_FREE_SUBSCRIPTION
               : DEFAULT_TEMP_SUBSCRIPTION;
 
-        const defaults = await this.firstResolver(
+        // Both lists start together; each is still read in its own order.
+        const pendingDefaults = this.#startResolvers(
             this.defaultSubscriptionResolvers.map((entry) => entry.fn),
             actor,
         );
-        const resolvedDefault = defaults.id || fallbackDefault;
-        const user = await this.firstResolver(
+        const pendingUser = this.#startResolvers(
             this.subscriptionResolvers,
             actor,
         );
+        const defaults = await this.firstResolver(pendingDefaults);
+        const resolvedDefault = defaults.id || fallbackDefault;
+        const user = await this.firstResolver(pendingUser);
         const resolvedUser = user.id || resolvedDefault;
         const resolverFailed = defaults.failed || user.failed;
 
@@ -2206,7 +2229,11 @@ export class MeteringService extends PuterService {
         return addons;
     }
 
-    async getActorAddons(actor: Actor): Promise<UsageAddons> {
+    /** `consistentRead` is for checks made right around a credits change. */
+    async getActorAddons(
+        actor: Actor,
+        { consistentRead }: { consistentRead?: boolean } = {},
+    ): Promise<UsageAddons> {
         if (!actor.user?.uuid)
             throw new HttpError(
                 403,
@@ -2215,9 +2242,25 @@ export class MeteringService extends PuterService {
                     legacyCode: 'forbidden',
                 },
             );
-        const key = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
-        const { res } = await this.stores.kv.get({ key });
-        return (res ?? {}) as UsageAddons;
+        const { res: purchased } = await this.stores.kv.get({
+            key: addonsKey(actor.user.uuid),
+            consistentRead,
+        });
+        const addons = { ...((purchased ?? {}) as UsageAddons) };
+        // Consumption is only ever written against purchased credit.
+        if (!(addons.purchasedCredits > 0)) return addons;
+        const { res: consumed } = await this.stores.kv.get({
+            key: addonsConsumedKey(actor.user.uuid),
+            consistentRead,
+        });
+        // Older consumption sits on the addons record itself.
+        const spent = (consumed as Partial<UsageAddons> | null)
+            ?.consumedPurchaseCredits;
+        if (spent !== undefined) {
+            addons.consumedPurchaseCredits =
+                (addons.consumedPurchaseCredits || 0) + spent;
+        }
+        return addons;
     }
 
     async getActorAppUsage(actor: Actor, appId: string): Promise<UsageByType> {
@@ -2286,7 +2329,7 @@ export class MeteringService extends PuterService {
     ): Promise<void> {
         if (!userId) throw new Error('User needed to update extra credits');
         await this.stores.kv.incr({
-            key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+            key: addonsKey(userId),
             pathAndAmountMap: { purchasedCredits: tokenAmount },
         });
         // Credit that lands while the account is being turned away has to take
@@ -2444,20 +2487,38 @@ export class MeteringService extends PuterService {
         tracked.finally(() => this.pendingAuxPromises.delete(tracked));
     }
 
-    /** The first non-empty answer, and whether any resolver threw on the way. */
-    private async firstResolver(
+    /** Calls every resolver at once; each outcome settles, never rejects. */
+    #startResolvers(
         resolvers: SubscriptionResolver[],
         actor: Actor,
+    ): Promise<ResolverOutcome>[] {
+        return resolvers.map(async (resolver): Promise<ResolverOutcome> => {
+            try {
+                return { id: await resolver(actor) };
+            } catch (error) {
+                return { error };
+            }
+        });
+    }
+
+    /**
+     * The first non-empty answer in registration order, and whether a resolver
+     * ahead of it threw. Outcomes after the winner are ignored, as if never
+     * asked.
+     */
+    private async firstResolver(
+        pending: Promise<ResolverOutcome>[],
     ): Promise<{ id: string | null; failed: boolean }> {
         let failed = false;
-        for (const resolver of resolvers) {
-            try {
-                const result = await resolver(actor);
-                if (result) return { id: result, failed };
-            } catch (e) {
+        for (const next of pending) {
+            const outcome = await next;
+            if ('error' in outcome) {
                 failed = true;
-                console.warn('[metering] subscription resolver failed', e);
-            }
+                console.warn(
+                    '[metering] subscription resolver failed',
+                    outcome.error,
+                );
+            } else if (outcome.id) return { id: outcome.id, failed };
         }
         return { id: null, failed };
     }
@@ -2494,7 +2555,10 @@ export class MeteringService extends PuterService {
         // be the claim itself, one frame down.
         if (this.claimsInFlight.has(claimId)) return null;
 
-        if (usage?.[MONTHLY_CHARGE_CLAIM]) {
+        // A claim stamped with this node's failed attempt is still ours to
+        // finish.
+        const claim = usage?.[MONTHLY_CHARGE_CLAIM];
+        if (claim && claim !== this.pendingClaimTokens.get(claimId)) {
             this.rememberSettled(claimId, currentMonth);
             return null;
         }
@@ -2516,8 +2580,11 @@ export class MeteringService extends PuterService {
      *
      * The claim goes straight to the KV store rather than through the metering
      * buffer: the buffer answers from this deployment's own view, and the point
-     * of this counter is to be the one value every deployment agrees on.
-     * Exactly one caller anywhere sees it come back as 1.
+     * of this field is to be the one value every deployment agrees on. Each
+     * attempt writes a random token only if the field is empty, so exactly one
+     * attempt reads its own token back (per replica: two regions claiming in
+     * the same second can both win). A failed write keeps its token for the
+     * retry, so a write that landed anyway still counts.
      *
      * Through `V1_CLAIM_THROUGH_MONTH`, the claim is taken on the v1 key —
      * every earlier September claim, from any node, landed there, and a fresh
@@ -2529,33 +2596,44 @@ export class MeteringService extends PuterService {
         userId: string,
         currentMonth: string,
     ): Promise<UsageByType | null> {
-        let claim: number;
+        const claimId = `${userId}:${currentMonth}`;
         const claimKey =
             currentMonth <= V1_CLAIM_THROUGH_MONTH
                 ? `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`
                 : `${METRICS_V2_PREFIX}:actor:${userId}:${currentMonth}`;
+        // Above any count an older claim left behind.
+        const token =
+            this.pendingClaimTokens.get(claimId) ?? randomInt(2 ** 32, 2 ** 47);
+        const expireAt = this.stores.meteringBuffer.expiryFor(claimKey);
+        let claim: unknown;
         try {
-            const { res } = await this.stores.kv.incr({
+            const { res } = await this.stores.kv.update({
                 key: claimKey,
-                pathAndAmountMap: { [MONTHLY_CHARGE_CLAIM]: 1 },
-                expireAt: this.stores.meteringBuffer.expiryFor(claimKey),
+                pathAndValueMap: { [MONTHLY_CHARGE_CLAIM]: token },
+                onlyIfAbsent: true,
+                ...(expireAt === undefined
+                    ? {}
+                    : {
+                          ttl: Math.max(
+                              1,
+                              Math.ceil(expireAt - Date.now() / 1000),
+                          ),
+                      }),
             });
-            claim = Number(
-                (res as Record<string, unknown>)?.[MONTHLY_CHARGE_CLAIM] ?? 0,
-            );
+            claim = (res as Record<string, unknown>)?.[MONTHLY_CHARGE_CLAIM];
         } catch (e) {
-            // Unclaimed, so the next request retries. Charging late beats
+            // The next request retries with this token. Charging late beats
             // charging never, and beats failing the request outright.
+            this.#rememberClaimToken(claimId, token);
             console.warn(
                 `[metering] monthly charge claim failed for ${userId}: ${(e as Error).message}`,
             );
             return null;
         }
 
-        this.rememberSettled(`${userId}:${currentMonth}`, currentMonth);
-        // Every attempt bumps the counter, so exactly one caller anywhere ever
-        // reads 1 back. Everyone else lost the race and must not charge.
-        if (claim !== 1) return null;
+        this.pendingClaimTokens.delete(claimId);
+        this.rememberSettled(claimId, currentMonth);
+        if (claim !== token) return null;
 
         // The account owes this, not whichever app happened to make the first
         // call of the month. Dropping the app bills it to the user's own
@@ -2613,6 +2691,18 @@ export class MeteringService extends PuterService {
 
     private isSettled(claimId: string, month: string): boolean {
         return this.settledMonth === month && this.settledActors.has(claimId);
+    }
+
+    #rememberClaimToken(claimId: string, token: number): void {
+        if (
+            this.pendingClaimTokens.size >=
+                MeteringService.MONTHLY_CHARGE_MEMO_LIMIT &&
+            !this.pendingClaimTokens.has(claimId)
+        ) {
+            const oldest = this.pendingClaimTokens.keys().next().value;
+            if (oldest !== undefined) this.pendingClaimTokens.delete(oldest);
+        }
+        this.pendingClaimTokens.set(claimId, token);
     }
 
     /**
@@ -2690,7 +2780,7 @@ export class MeteringService extends PuterService {
         if (overage > 0 && remainingCredits > 0) {
             writes.push(
                 this.stores.kv.incr({
-                    key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+                    key: addonsConsumedKey(userId),
                     pathAndAmountMap: {
                         consumedPurchaseCredits: Math.min(
                             overage,

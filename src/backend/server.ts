@@ -21,7 +21,7 @@
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import type { IRouter, RequestHandler, Router } from 'express';
+import type { IRouter, Request, RequestHandler, Router } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -93,6 +93,7 @@ import {
 } from './core/http/routeLifecycle';
 import {
     PREFIX_METADATA_KEY,
+    PREFLIGHT_MAX_AGE,
     type RouteDescriptor,
     type RouteOptions,
 } from './core/http/types';
@@ -417,12 +418,26 @@ export class PuterServer {
         });
 
         // -- UA parsing ----------------------------------------------
-        this.#app.use((req, _res, next) => {
-            const header = req.headers['user-agent'];
-            if (header) {
-                req.ua = uaParser(header);
-            }
-            next();
+        // Parsed on first read and kept on the request: most requests never
+        // look at it.
+        const ownUa = (req: Request, value: Request['ua']) =>
+            Object.defineProperty(req, 'ua', {
+                value,
+                writable: true,
+                enumerable: true,
+                configurable: true,
+            });
+        Object.defineProperty(this.#app.request, 'ua', {
+            configurable: true,
+            get(this: Request) {
+                const header = this.headers['user-agent'];
+                const ua = header ? uaParser(header) : undefined;
+                ownUa(this, ua);
+                return ua;
+            },
+            set(this: Request, value: Request['ua']) {
+                ownUa(this, value);
+            },
         });
 
         // -- Host header validation ----------------------------------
@@ -467,6 +482,9 @@ export class PuterServer {
                 next();
                 return;
             }
+            // The reply depends only on Origin and host, both part of the
+            // browser's preflight cache key.
+            res.setHeader('Access-Control-Max-Age', PREFLIGHT_MAX_AGE);
             res.sendStatus(200);
         });
 
@@ -486,7 +504,8 @@ export class PuterServer {
         const captureRawBody: NonNullable<
             Parameters<typeof express.json>[0]
         >['verify'] = (req, _res, buf) => {
-            (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+            // body-parser hands over a fresh buffer and never writes to it.
+            (req as { rawBody?: Buffer }).rawBody = buf;
         };
         this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
         this.#app.use(
@@ -793,7 +812,9 @@ export class PuterServer {
                     if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
-                    const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
+                    const forcedSeverity =
+                        (isHttp ? err.alarmSeverity : undefined) ??
+                        FORCED_ALERT_CODES.get(legacyCode);
                     if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
@@ -802,7 +823,7 @@ export class PuterServer {
                         ? err instanceof Error
                             ? err.message
                             : String(err)
-                        : status >= 500
+                        : status >= 500 || err.alarmSeverity
                           ? `${err.legacyCode || err.code || 'http'}:${err.message}`
                           : err.legacyCode || err.code || err.message;
                     const routePath =

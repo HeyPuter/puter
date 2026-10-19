@@ -33,7 +33,9 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { closedAppDataOwners } from '../permission/appDataScopes';
 import { HttpError } from '../../core/http/HttpError.js';
 import { actorHasSubscription } from '../metering/enforcement';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { withRedisLock } from '../../util/redisLock.js';
+import { normalizeAbsolutePath } from '../fs/resolveNode.js';
 
 // -- Types ------------------------------------------------------------
 
@@ -47,6 +49,11 @@ export interface ResourceDescriptor {
     resolveAncestors: () => Promise<
         ReadonlyArray<{ uid: string; path: string }>
     >;
+    /**
+     * Throws what `resolveAncestors` would throw for a path it refuses, without
+     * reading the chain. `check` runs it before deciding from the path alone.
+     */
+    validatePath?: () => void;
 }
 
 export type AclMode =
@@ -136,6 +143,9 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
     'see',
 ]);
 
+/** Ancestor scans one check runs at once. */
+const ANCESTOR_SCAN_CONCURRENCY = 8;
+
 /** Lock bounds for `setUserUser`; past the retry budget a 409 beats waiting. */
 const SET_USER_LOCK_TTL_SECONDS = 5;
 const SET_USER_LOCK_RETRY_MS = 40;
@@ -177,7 +187,12 @@ export class ACLService extends PuterService {
         if (resource.path === '/') {
             return (PUBLIC_READ_MODES as AclMode[]).includes(mode);
         }
-        const ancestors = await resource.resolveAncestors();
+        // The chain is read on first use: the owner's own paths, the bulk of
+        // checks, are answered from the path alone.
+        resource.validatePath?.();
+        let chain: ReturnType<ResourceDescriptor['resolveAncestors']> | null =
+            null;
+        const ancestors = () => (chain ??= resource.resolveAncestors());
 
         const components = resource.path.slice(1).split('/');
 
@@ -213,19 +228,26 @@ export class ACLService extends PuterService {
             // asked path still names the folder.
             const closed = await closedAppDataOwners(
                 this.stores.app,
-                [resource.path, ...ancestors.map((a) => a.path)],
+                [resource.path, ...(await ancestors()).map((a) => a.path)],
                 appUid,
             );
             if (closed.size > 0) return false;
         }
 
         // Public folders: /<user>/Public with read-ish mode, owner must have
-        // confirmed email (or be admin).
+        // confirmed email (or be admin). The folder has to be stored under
+        // exactly that name: a path lookup collates case-insensitively, so
+        // `/<user>/Public/...` can resolve a private `/<user>/public`, and the
+        // asked path alone would pass it as public.
         if (
             this.config.enable_public_folders &&
             (PUBLIC_READ_MODES as AclMode[]).includes(mode) &&
             components.length > 1 &&
-            components[1] === 'Public'
+            components[1] === 'Public' &&
+            // Read ahead of the owner, so a failing chain read still fails first.
+            (await ancestors()).some(
+                (ancestor) => ancestor.path === `/${components[0]}/Public`,
+            )
         ) {
             const ownerUsername = components[0];
             const owner = await this.stores.user.getByUsername(ownerUsername);
@@ -253,7 +275,7 @@ export class ACLService extends PuterService {
 
             return this.stores.permission.hasAnyAccessTokenPerm(
                 actor.accessToken.uid,
-                ancestors.flatMap((ancestor) =>
+                (await ancestors()).flatMap((ancestor) =>
                     this.permissionsFor(ancestor.uid, mode),
                 ),
             );
@@ -279,18 +301,32 @@ export class ACLService extends PuterService {
         // Fall back to the permission scan: walk ancestors, any hit wins.
         // Widen the scan to all "higher" modes (`write` covers `read`/`list`/
         // `see`, etc.) so granting a stronger mode implies the weaker ones.
-        for (const ancestor of ancestors) {
+        // The node, where grants usually sit, is scanned alone first. On a
+        // miss the rest are scanned together and decided deepest first, so a
+        // failed scan above the first hit doesn't count, as when they ran one
+        // at a time.
+        const ancestry = await ancestors();
+        const holds = async (ancestor: { uid: string }) => {
             const reading = await this.services.permission.scan(
                 actor,
                 this.permissionsFor(ancestor.uid, mode),
             );
-            const options = PermissionUtil.readingToOptions(reading);
-            if (options.length > 0) return true;
+            return PermissionUtil.readingToOptions(reading).length > 0;
+        };
+        if (ancestry.length > 0 && (await holds(ancestry[0]))) return true;
+        const scans = await runWithConcurrencyLimitSettled(
+            ancestry.slice(1),
+            ANCESTOR_SCAN_CONCURRENCY,
+            holds,
+        );
+        for (const scan of scans) {
+            if (scan.status === 'rejected') throw scan.reason;
+            if (scan.value) return true;
         }
 
         // Last: a link share on the node or a folder above it. Nothing in the
         // permission tables stands behind one, so it is read on its own.
-        return this.#anyoneWithLinkAllows(actor, ancestors, mode);
+        return this.#anyoneWithLinkAllows(actor, ancestry, mode);
     }
 
     /**
@@ -381,7 +417,14 @@ export class ACLService extends PuterService {
     /** Descriptor for a filesystem path, its chain read from the store. */
     fsDescriptor(path: string): ResourceDescriptor {
         const fsEntry = this.stores.fsEntry;
-        return memoizedDescriptor(path, () => fsEntry.getAncestorChain(path));
+        return {
+            ...memoizedDescriptor(path, () => fsEntry.getAncestorChain(path)),
+            // The store reads the chain only for a normalized path. `trim`
+            // first, so a missing path fails here as it does in the store.
+            validatePath: () => {
+                normalizeAbsolutePath(path.trim());
+            },
+        };
     }
 
     /** `check`, throwing the safe refusal (see `refusal`) when it fails. */

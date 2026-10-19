@@ -20,6 +20,7 @@
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
 import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     APP_ICONS_SUBDOMAIN,
     ensureSystemSite,
@@ -106,7 +107,8 @@ export class AppIconService extends PuterService {
                 if (d.action === 'icon-migrated') return;
                 const app = await this.stores.app.getByUid(String(d.app_uid));
                 const icon = (app as Record<string, unknown> | null)?.icon as
-                    string | undefined;
+                    | string
+                    | undefined;
                 if (icon?.startsWith('data:')) {
                     await this.#scheduleIcon(
                         { app_uid: d.app_uid, data_url: icon },
@@ -176,13 +178,19 @@ export class AppIconService extends PuterService {
         if (!base) return null;
         const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
         const sizedPath = `${APP_ICONS_PATH_PREFIX}/${SIZED_ICON_FILENAME(normalized, size)}`;
-        const sizedExists = await this.stores.fsEntry.getEntryByPath(sizedPath);
-        if (sizedExists)
-            return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
         const originalPath = `${APP_ICONS_PATH_PREFIX}/${ORIGINAL_ICON_FILENAME(normalized)}`;
-        const originalExists =
-            await this.stores.fsEntry.getEntryByPath(originalPath);
-        if (originalExists)
+        // Both probed at once; the sized one still decides first. Icons are
+        // only ever written with a path, so a missing original skips the
+        // legacy lineage walk.
+        const sizedLookup = this.stores.fsEntry.getEntryByPath(sizedPath);
+        const originalLookup = awaitLater(
+            this.stores.fsEntry.getEntryByPath(originalPath, {
+                lineage: false,
+            }),
+        );
+        if (await sizedLookup)
+            return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
+        if (await originalLookup)
             return `${base}/${ORIGINAL_ICON_FILENAME(normalized)}`;
         return null;
     }

@@ -26,6 +26,7 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { usesGoogleGeminiEndpoint } from '../util/geminiRest.js';
 import { ProviderRegistry, readProviderKey } from '../util/providerRegistry.js';
 import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
@@ -254,11 +255,14 @@ export class TTSDriver extends PuterDriver {
             );
         }
 
+        // Gemini TTS only calls Google, so it skips a block whose key belongs
+        // to a custom `apiBaseUrl`.
         register('gemini', () =>
             keyed(
                 (apiKey) => new GeminiTTSProvider(m, { apiKey }),
-                providers['gemini'],
-                providers['gemini-tts'],
+                ...[providers['gemini'], providers['gemini-tts']].filter(
+                    (cfg) => usesGoogleGeminiEndpoint(cfg?.apiBaseUrl),
+                ),
             ),
         );
         register('xai', () =>

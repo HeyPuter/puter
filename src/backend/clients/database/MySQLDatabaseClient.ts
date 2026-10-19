@@ -78,8 +78,13 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         });
         console.log('[mysql] connected to primary');
 
+        // Read batchers on one pool share the cap on immediate flushes.
+        const primaryReadFlushes = { count: 0 };
         this.db = this.createPrimaryBatcher(this.primaryPool);
-        this.dbPrimaryRead = this.createPrimaryReadBatcher(this.primaryPool);
+        this.dbPrimaryRead = this.createPrimaryReadBatcher(
+            this.primaryPool,
+            primaryReadFlushes,
+        );
 
         if (dbConf.replica) {
             this.replicaPool = this.createPool(dbConf.replica);
@@ -90,7 +95,12 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             this.configuration = Configuration.SINGLE;
         }
 
-        this.dbReplica = this.createReplicaBatcher(this.replicaPool);
+        this.dbReplica = this.createReplicaBatcher(
+            this.replicaPool,
+            this.configuration === Configuration.SINGLE
+                ? primaryReadFlushes
+                : { count: 0 },
+        );
 
         await this.applyMigrationPaths(
             () => this.primaryPool.promise().getConnection(),
@@ -164,12 +174,14 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         const header = result[0] as {
             insertId?: number;
             affectedRows?: number;
+            warningStatus?: number;
         };
         const affectedRows = header.affectedRows ?? 0;
         return {
             insertId: header.insertId ?? 0,
             affectedRows,
             anyRowsAffected: affectedRows > 0,
+            warningStatus: header.warningStatus,
         };
     }
 
@@ -274,9 +286,14 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     }
 
     /** Reads that must see the primary, still coalesced. */
-    private createPrimaryReadBatcher(pool: Pool): SQLBatcher {
+    private createPrimaryReadBatcher(
+        pool: Pool,
+        inFlight: { count: number },
+    ): SQLBatcher {
         return new SQLBatcher(pool, {
             maxTimeInQueue: 30,
+            maxInFlightImmediate: 8,
+            inFlight,
             maxBatchSize: 5,
             poolLabel: 'primary',
             readOnly: true,
@@ -284,9 +301,14 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         });
     }
 
-    private createReplicaBatcher(pool: Pool): SQLBatcher {
+    private createReplicaBatcher(
+        pool: Pool,
+        inFlight: { count: number },
+    ): SQLBatcher {
         return new SQLBatcher(pool, {
             maxTimeInQueue: 10,
+            maxInFlightImmediate: 8,
+            inFlight,
             maxBatchSize: 5,
             poolLabel: 'replica',
             readOnly: true,

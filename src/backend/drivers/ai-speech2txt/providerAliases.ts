@@ -25,7 +25,7 @@ import type { ProviderCatalog } from '../util/providerRegistry.js';
  * reaches every caller at once, including clients on an older bundle.
  */
 
-export const SPEECH_TO_TEXT_PROVIDERS = ['openai', 'xai'] as const;
+export const SPEECH_TO_TEXT_PROVIDERS = ['openai', 'xai', 'gemini'] as const;
 
 export type SpeechToTextProviderName =
     (typeof SPEECH_TO_TEXT_PROVIDERS)[number];
@@ -51,6 +51,9 @@ const PROVIDER_BY_ALIAS: Record<string, SpeechToTextProviderName> = {
     'x-ai': 'xai',
     xai: 'xai',
     'xai-speech2txt': 'xai',
+    gemini: 'gemini',
+    google: 'gemini',
+    'gemini-speech2txt': 'gemini',
 };
 
 export const SPEECH_TO_TEXT_CATALOG: ProviderCatalog = {

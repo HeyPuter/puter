@@ -237,6 +237,23 @@ describe('normalize_single_message tool_calls', () => {
             { type: 'tool_use', id: 'c1', name: 'lookup', input: '{}' },
         ]);
     });
+
+    it('keeps a tool_call extra_content such as a Gemini thought signature', () => {
+        const extra = { google: { thought_signature: 'c2lnbmF0dXJl' } };
+        const result = normalize_messages([
+            {
+                role: 'assistant',
+                tool_calls: [
+                    {
+                        id: 'c1',
+                        function: { name: 'lookup', arguments: '{}' },
+                        extra_content: extra,
+                    },
+                ],
+            },
+        ] as never);
+        expect(result[0].content[0].extra_content).toEqual(extra);
+    });
 });
 
 // ── normalize_messages ──────────────────────────────────────────────

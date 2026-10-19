@@ -435,6 +435,105 @@ describe('MySQLDatabaseClient — query interface', () => {
         ]);
     });
 
+    it.each([
+        { method: 'pread', poolIndex: 0, maxTimeInQueue: 30 },
+        { method: 'read', poolIndex: 1, maxTimeInQueue: 10 },
+    ] as const)(
+        '$method: flushes lone reads at once until 8 are in flight, then waits $maxTimeInQueue ms and coalesces',
+        async ({ method, poolIndex, maxTimeInQueue }) => {
+            const client = await startClient({ replica: { host: 'replica' } });
+            const pool = createdPools[poolIndex];
+            const held: Array<() => void> = [];
+            pool.respond = (sql) =>
+                new Promise((resolve) => {
+                    const sets = sql
+                        .split(';')
+                        .slice(0, -1)
+                        .map((stmt) => [{ stmt }]);
+                    held.push(() => resolve(rowSets(...sets)));
+                });
+            vi.useFakeTimers({
+                toFake: [
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                ],
+            });
+            try {
+                const reads: Promise<unknown>[] = [];
+                for (let i = 0; i < 8; i++) {
+                    reads.push(client[method](`SELECT ${i}`));
+                    await vi.advanceTimersByTimeAsync(0);
+                }
+                expect(pool.calls).toHaveLength(8);
+
+                reads.push(client[method]('SELECT 8'));
+                await vi.advanceTimersByTimeAsync(maxTimeInQueue - 1);
+                reads.push(client[method]('SELECT 9'));
+                expect(pool.calls).toHaveLength(8);
+                await vi.advanceTimersByTimeAsync(1);
+                expect(pool.calls.map((c) => c.sql).at(-1)).toBe(
+                    'SELECT 8;SELECT 9; SELECT 1',
+                );
+
+                for (const release of held.splice(0)) release();
+                const rows = await Promise.all(reads);
+                expect(rows.at(-2)).toEqual([{ stmt: 'SELECT 8' }]);
+                expect(rows.at(-1)).toEqual([{ stmt: 'SELECT 9' }]);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
+    it.each([
+        { setup: 'single node', replica: undefined, waits: true },
+        { setup: 'replica', replica: { host: 'replica' }, waits: false },
+    ])(
+        '$setup: 8 primary reads in flight hold back a lone read: $waits',
+        async ({ replica, waits }) => {
+            const client = await startClient(replica ? { replica } : {});
+            const held: Array<() => void> = [];
+            for (const pool of createdPools) {
+                pool.respond = (sql) =>
+                    new Promise((resolve) => {
+                        const sets = sql
+                            .split(';')
+                            .slice(0, -1)
+                            .map((stmt) => [{ stmt }]);
+                        held.push(() => resolve(rowSets(...sets)));
+                    });
+            }
+            const sent = () => createdPools.flatMap((pool) => pool.calls);
+            vi.useFakeTimers({
+                toFake: [
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                ],
+            });
+            try {
+                const reads: Promise<unknown>[] = [];
+                for (let i = 0; i < 8; i++) {
+                    reads.push(client.pread(`SELECT ${i}`));
+                    await vi.advanceTimersByTimeAsync(0);
+                }
+                reads.push(client.read('SELECT 8'));
+                await vi.advanceTimersByTimeAsync(0);
+                expect(sent()).toHaveLength(waits ? 8 : 9);
+                await vi.advanceTimersByTimeAsync(10);
+                expect(sent()).toHaveLength(9);
+
+                for (const release of held.splice(0)) release();
+                await Promise.all(reads);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
     it('sends a write on its own, outside a transaction', async () => {
         const client = await startClient();
         const pool = createdPools[0];
@@ -469,6 +568,23 @@ describe('MySQLDatabaseClient — query interface', () => {
             insertId: 42,
             affectedRows: 2,
             anyRowsAffected: true,
+        });
+    });
+
+    it('passes the warning count through, so callers can tell a clean write', async () => {
+        const client = await startClient();
+        createdPools[0].respond = () =>
+            writeHeader({ insertId: 9, affectedRows: 1, warningStatus: 1 });
+
+        await expect(
+            client.write('INSERT IGNORE INTO `user` (`username`) VALUES (?)', [
+                'ada',
+            ]),
+        ).resolves.toEqual({
+            insertId: 9,
+            affectedRows: 1,
+            anyRowsAffected: true,
+            warningStatus: 1,
         });
     });
 

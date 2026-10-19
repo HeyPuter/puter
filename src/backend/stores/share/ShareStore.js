@@ -427,31 +427,33 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Which of `fsentryIds` carry a share, pending invites included. Link
-     * shares count unless `includeAnyone` is false — what the caller passes
-     * while the owner's plan has them switched off.
+     * Which of `fsentryIds` carry a share, pending invites included, each
+     * mapped to whether it has a row other than a link share — a link alone
+     * counts only while the owner's plan covers link sharing.
      *
      * @param {number[]} fsentryIds
-     * @param {{ includeAnyone?: boolean }} [opts]
-     * @returns {Promise<Set<number>>}
+     * @returns {Promise<Map<number, boolean>>}
      */
-    async getSharedFsentryIds(fsentryIds, { includeAnyone = true } = {}) {
+    async getSharedFsentryIds(fsentryIds) {
         const ids = [
             ...new Set(
                 fsentryIds.map(Number).filter((id) => Number.isFinite(id)),
             ),
         ];
-        const shared = new Set();
+        const shared = new Map();
         for (let i = 0; i < ids.length; i += SHARED_IDS_CHUNK_SIZE) {
             const chunk = ids.slice(i, i + SHARED_IDS_CHUNK_SIZE);
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
-                'SELECT DISTINCT `fsentry_id` FROM `share` ' +
-                    `WHERE \`fsentry_id\` IN (${placeholders})` +
-                    (includeAnyone ? '' : ' AND `anyone` IS NULL'),
+                'SELECT `fsentry_id`, ' +
+                    'MAX(CASE WHEN `anyone` IS NULL THEN 1 ELSE 0 END) AS `direct` ' +
+                    `FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
+                    'GROUP BY `fsentry_id`',
                 chunk,
             );
-            for (const row of rows) shared.add(Number(row.fsentry_id));
+            for (const row of rows) {
+                shared.set(Number(row.fsentry_id), Number(row.direct) === 1);
+            }
         }
         return shared;
     }

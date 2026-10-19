@@ -575,6 +575,26 @@ describe('ai.speech2txt driver payloads', () => {
         });
     });
 
+    it('speech2txt forwards gemini word timestamp and diarization options', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'hi' } });
+        await ai.speech2txt('data:audio/wav;base64,QUJD', {
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+        });
+        const body = lastBody();
+        expect(body.driver).toBe('ai-speech2txt');
+        expect(body.method).toBe('transcribe');
+        expect(body.args).toEqual({
+            file: 'data:audio/wav;base64,QUJD',
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+        });
+    });
+
     it('speech2txt returns bare text for response_format text', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: { text: 'transcribed' } });
         const out = await ai.speech2txt({

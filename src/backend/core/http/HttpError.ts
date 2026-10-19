@@ -81,6 +81,8 @@ export type LegacyErrorCodes =
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
+import type { PagerSeverity } from '../../types';
+
 /** Options accepted by `HttpError`. All optional. */
 export interface HttpErrorOptions {
     /** Underlying error. Set as the standard `Error.cause`. */
@@ -111,6 +113,11 @@ export interface HttpErrorOptions {
      * serialized to the client.
      */
     noAlarm?: boolean;
+    /**
+     * Alarm at this severity even where the 4xx / `upstream_` rules would skip
+     * it. `noAlarm` still wins. Never serialized to the client.
+     */
+    alarmSeverity?: PagerSeverity;
 }
 
 /**
@@ -140,6 +147,7 @@ export class HttpError extends Error {
     readonly code?: string;
     readonly fields?: Record<string, unknown>;
     readonly noAlarm?: boolean;
+    readonly alarmSeverity?: PagerSeverity;
 
     constructor(
         statusCode: number,
@@ -156,6 +164,7 @@ export class HttpError extends Error {
         this.code = options.code;
         this.fields = options.fields;
         this.noAlarm = options.noAlarm;
+        this.alarmSeverity = options.alarmSeverity;
     }
 }
 

@@ -8,12 +8,14 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { Actor, makeActor as resolveActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { decodeCursor } from '../../util/pagination.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { INTERNAL_ADMISSION_BYPASS } from './WorkerDriver.js';
 import type { WorkerDriver } from './WorkerDriver.js';
 
@@ -528,6 +530,125 @@ describe('WorkerDriver', () => {
             expect(bound?.app_uid).toBe(app.uid);
             expect(plain).toBeDefined();
             expect(plain?.app_uid).toBeNull();
+        });
+    });
+
+    describe('getFilePaths lookups', () => {
+        const seedWorker = async (tag: string) => {
+            const owner = await makeUser(tag);
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                owner,
+            );
+            const dir = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Public`,
+            ))!;
+            const app = await server.stores.app.create(
+                {
+                    name: `app-${tag}`,
+                    title: `app-${tag}`,
+                    index_url: `https://app-${tag}.example.com/`,
+                },
+                { ownerUserId: owner.id },
+            );
+            await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: `workers.puter.${tag}`,
+                rootDirId: dir.id,
+                associatedAppId: null,
+                appOwner: app.id,
+            });
+            return { owner, dir, app };
+        };
+        const newTag = (label: string) =>
+            `${label}${Math.random().toString(36).slice(2, 8)}`;
+
+        it('loads root dirs and apps together and shapes each row from them', async () => {
+            const tag = newTag('wkboth');
+            const { owner, dir, app } = await seedWorker(tag);
+            const realEntries = server.stores.fsEntry.getEntriesByIds.bind(
+                server.stores.fsEntry,
+            );
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const entries = vi
+                .spyOn(server.stores.fsEntry, 'getEntriesByIds')
+                .mockImplementation(async (ids) => {
+                    await gate;
+                    return realEntries(ids);
+                });
+            const apps = vi.spyOn(server.stores.app, 'getByIds');
+            try {
+                const pending = inCtx(
+                    () => target.getFilePaths({}),
+                    actorFor(owner),
+                );
+                await vi.waitFor(() => expect(entries).toHaveBeenCalled());
+                expect(apps).toHaveBeenCalledWith([app.id]);
+                release();
+                expect(await pending).toEqual([
+                    {
+                        name: tag,
+                        url: `https://${tag}.puter.work`,
+                        file_path: dir.path,
+                        file_uid: dir.uuid,
+                        app_uid: app.uid,
+                        created_at: expect.any(String),
+                    },
+                ]);
+            } finally {
+                release();
+                entries.mockRestore();
+                apps.mockRestore();
+            }
+        });
+
+        it("doesn't look up the root dir of another user's worker", async () => {
+            const tag = newTag('wkforeign');
+            const { dir } = await seedWorker(tag);
+            const intruder = await makeUser(newTag('wkintruder'));
+            const entries = vi.spyOn(server.stores.fsEntry, 'getEntriesByIds');
+            try {
+                const res = await inCtx(
+                    () => target.getFilePaths({ workerName: tag }),
+                    actorFor(intruder),
+                );
+                expect(res).toEqual([]);
+                for (const [ids] of entries.mock.calls)
+                    expect(ids).not.toContain(dir.id);
+            } finally {
+                entries.mockRestore();
+            }
+        });
+
+        it('surfaces a root dir lookup failure over an app lookup failure', async () => {
+            const tag = newTag('wkfail');
+            const { owner } = await seedWorker(tag);
+            const unhandled = vi.fn();
+            process.on('unhandledRejection', unhandled);
+            const entries = vi
+                .spyOn(server.stores.fsEntry, 'getEntriesByIds')
+                .mockImplementation(async () => {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                    throw new Error('entries failed');
+                });
+            const apps = vi
+                .spyOn(server.stores.app, 'getByIds')
+                .mockRejectedValue(new Error('apps failed'));
+            try {
+                await expect(
+                    inCtx(() => target.getFilePaths({}), actorFor(owner)),
+                ).rejects.toThrow('entries failed');
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(unhandled).not.toHaveBeenCalled();
+            } finally {
+                process.off('unhandledRejection', unhandled);
+                entries.mockRestore();
+                apps.mockRestore();
+            }
         });
     });
 
