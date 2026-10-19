@@ -359,9 +359,9 @@
  * base64, on every provider. Gemini Omni also takes a Puter file path, and accepts one PNG, JPEG or
  * WebP image up to 5 MiB.
  * @property {string} [last_frame] Last-frame image, same formats as `input_reference`.
- * @property {string} [inputVideo] Source video to edit or extend, described by the prompt: a URL, data
- * URI or Puter file path. Only `'gemini-omni-1.1-flash'` accepts it, and takes one MP4, QuickTime or
- * WebM video of at most 10 seconds and 32 MiB. Can't be combined with `input_reference`.
+ * @property {string} [inputVideo] Source video to edit, described by the prompt: a URL, data URI or
+ * Puter file path of at most 32 MiB. Only `'gemini-omni-1.1-flash'` (MP4, QuickTime or WebM, up to
+ * 10 seconds) and `'togetherai:black-forest-labs/flux-3'` accept it. Can't be combined with image inputs.
  * @property {string[]} [reference_images] Subject/style reference images (URL, data URI or base64).
  * Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
  * @property {string} [negative_prompt] What to keep out of the video (Together).

@@ -335,7 +335,10 @@ export class VideoGenerationDriver extends PuterDriver {
         );
         if (togetherKey) {
             this.#providers['together-video-generation'] =
-                new TogetherVideoProvider({ apiKey: togetherKey }, m);
+                new TogetherVideoProvider({ apiKey: togetherKey }, m, {
+                    stores: this.stores,
+                    fs: this.services.fs,
+                });
         }
 
         // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`

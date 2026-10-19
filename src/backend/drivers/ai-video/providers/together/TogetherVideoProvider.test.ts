@@ -39,12 +39,14 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 
 import { type Actor, makeActor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
+import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
@@ -1093,5 +1095,206 @@ describe('TogetherVideoProvider.generate input_reference / last_frame', () => {
         expect(videosCreateMock.mock.calls[0]![0].frame_images).toEqual([
             { input_image: 'https://example.com/keyframe.png', frame: 0 },
         ]);
+    });
+});
+
+describe('TogetherVideoProvider.generate input_video', () => {
+    const FLUX = 'togetherai:black-forest-labs/flux-3';
+    // The head of an MP4: an `ftyp` box with an `isom` brand.
+    const MP4 = Buffer.concat([
+        Buffer.from([0, 0, 0, 0x18]),
+        Buffer.from('ftypisom', 'latin1'),
+        Buffer.from([0, 0, 2, 0]),
+        Buffer.from('isomiso2', 'latin1'),
+        Buffer.from('mdat-frames', 'latin1'),
+    ]);
+    const mp4DataUri = `data:video/mp4;base64,${MP4.toString('base64')}`;
+
+    const makeFileProvider = () =>
+        new TogetherVideoProvider({ apiKey: 'test-key' }, aiMetering(), {
+            stores: server.stores,
+            fs: server.services.fs,
+        });
+
+    const completeJob = () => {
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-v2v' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-v2v',
+            status: 'completed',
+            outputs: { video_url: 'https://together/v2v.mp4' },
+        });
+    };
+
+    const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
+        const username = `together-v2v-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            created,
+        );
+        const user = (await server.stores.user.getById(created.id))!;
+        return {
+            userId: user.id,
+            actor: {
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    };
+
+    it('passes a URL through as the source video and bills the editing rate', async () => {
+        const provider = makeFileProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'Make this dog a dinosaur.',
+                model: FLUX,
+                seconds: 6,
+                input_video: 'https://example.com/dog.mp4',
+            }),
+        );
+
+        const sent = videosCreateMock.mock.calls[0]![0];
+        expect(sent.model).toBe('black-forest-labs/FLUX-3');
+        expect(sent.media).toEqual({
+            source_video: 'https://example.com/dog.mp4',
+        });
+        const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(count).toBe(6);
+        expect(cost).toBe(54 * 6 * 1_000_000);
+    });
+
+    it("sends a data URI and the caller's own Puter file inline", async () => {
+        const provider = makeFileProvider();
+        const { actor, userId } = await makeUser();
+
+        completeJob();
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: FLUX,
+                    input_video: mp4DataUri,
+                }),
+            actor,
+        );
+        expect(videosCreateMock.mock.calls[0]![0].media).toEqual({
+            source_video: mp4DataUri,
+        });
+
+        const path = `/${actor.user.username}/dog.mp4`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'video/mp4',
+            },
+            fileContent: MP4,
+        });
+        completeJob();
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: FLUX,
+                    input_video: path,
+                }),
+            actor,
+        );
+        expect(videosCreateMock.mock.calls[1]![0].media).toEqual({
+            source_video: mp4DataUri,
+        });
+    });
+
+    it("refuses another user's Puter file before creating a job", async () => {
+        const provider = makeFileProvider();
+        const owner = await makeUser();
+        const intruder = await makeUser();
+        const path = `/${owner.actor.user.username}/private.mp4`;
+        await server.services.fs.write(owner.userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'video/mp4',
+            },
+            fileContent: MP4,
+        });
+
+        const err = await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: FLUX,
+                    input_video: path,
+                }),
+            intruder.actor,
+        ).then(
+            () => null,
+            (e: unknown) => e,
+        );
+        expect([403, 404]).toContain(
+            (err as { statusCode?: number } | null)?.statusCode,
+        );
+        expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a non-string', { input_video: 42 }, 'input_video must be a video URL, data URI or Puter file path'],
+        [
+            'an image input alongside',
+            { input_video: mp4DataUri, input_reference: 'https://example.com/a.png' },
+            'input_video cannot be combined with image inputs',
+        ],
+        [
+            'image bytes',
+            { input_video: `data:image/png;base64,${Buffer.from('not a video').toString('base64')}` },
+            'input_video must be an MP4, QuickTime, WebM or Matroska video',
+        ],
+    ])('refuses %s before creating a job', async (_label, args, message) => {
+        const provider = makeFileProvider();
+        const { actor } = await makeUser();
+        await expect(
+            withTestActor(
+                () =>
+                    provider.generate({
+                        prompt: 'hi',
+                        model: FLUX,
+                        ...args,
+                    } as never),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, message });
+        expect(videosCreateMock).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('takes only a URL when built without file access', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'hi',
+                    model: FLUX,
+                    input_video: '/someone/dog.mp4',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'input_video must be a video URL',
+        });
+        expect(videosCreateMock).not.toHaveBeenCalled();
     });
 });

@@ -41,7 +41,7 @@ Additional settings for the generation request.
 | `input_reference` | `String` | Image the clip starts from (image-to-video): a public URL, a `data:` URI or raw base64, on every provider |
 | `last_frame` | `String` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
 | `reference_images` | `Array<String>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame` |
-| `inputVideo` | `String` | Video to edit or extend, with the prompt describing the change. Only Gemini Omni accepts it. See [Video input](#video-input) |
+| `inputVideo` | `String` | Video to edit, with the prompt describing the change. Only Gemini Omni and FLUX 3 accept it. See [Video input](#video-input) |
 | `negative_prompt` | `String` | Text describing what to avoid in the video (Together AI) |
 | `seed` | `Number` | Random seed for reproducible results (Together AI and Seedance 1.x) |
 | `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio) |
@@ -70,7 +70,7 @@ On Together AI and Seedance, `seconds` and `size` are normalized rather than rej
 
 #### Video input
 
-Gemini Omni (`gemini-omni-1.1-flash`) can change a video you supply. Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The prompt can also ask the model to continue the clip past its end. The result is a new clip, and the model decides its length.
+Two models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash`) and FLUX 3 on Together AI (`black-forest-labs/flux-3`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
 
 ```js
 const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
@@ -79,9 +79,18 @@ const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
 });
 ```
 
-The video can be a public URL, a `data:` URI, or the path of a file in the user's Puter filesystem. It must be an MP4, QuickTime or WebM file of at most 32 MiB and 10 seconds. Puter checks the size and format before generating. Google checks the length, so a longer video fails with `upstream_bad_request` and isn't charged.
+The video can be a public URL, a `data:` URI, or the path of a file in the user's Puter filesystem. Puter checks the size and format of a `data:` URI or Puter file before generating. The two models differ in what they take and return:
 
-Every other model rejects `inputVideo` with `bad_request`. Gemini Omni rejects it together with `input_reference`.
+| | Gemini Omni | FLUX 3 |
+|---|---|---|
+| Formats | MP4, QuickTime or WebM | MP4, QuickTime, WebM or Matroska |
+| Size | Up to 32 MiB | Up to 32 MiB for a `data:` URI or Puter file. A URL is fetched by Together AI |
+| Source length | Up to 10 seconds. A longer video fails with `upstream_bad_request` and isn't charged | Any |
+| Output length | The model decides. The prompt can also ask it to continue the clip past its end | `seconds`, from 5 to 20. Defaults to 6 |
+| Output size | `size`, see [Gemini Omni options](#gemini-omni-options) | 1280x704 |
+| Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.54 per second of output |
+
+Every other model rejects `inputVideo` with `bad_request`. Both models reject it together with image inputs (`input_reference`, and on FLUX 3 also `last_frame`, `reference_images` and `frame_images`).
 
 #### Together AI options
 
@@ -119,7 +128,7 @@ Most models size their output in pixels: pass `size` as `'WIDTHxHEIGHT'` (or `wi
 | `vidu/vidu-q1` | Per clip | 5 | `1920x1080`, `1080x1080`, `1080x1920` | 24 | first, last | |
 | `vidu/vidu-q3` | Per second | provider default | provider default | | | |
 | `vidu/vidu-q3-turbo` | Per second | provider default | provider default | | | |
-| `black-forest-labs/flux-3` | Per second | provider default | provider default | | | |
+| `black-forest-labs/flux-3` | Per second | provider default | provider default | | | Edits a video passed as `inputVideo`, see [Video input](#video-input) |
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -272,7 +281,7 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | --- | --- |
 | `prompt_required` | Raised by the SDK before any request is made: the call had no prompt. |
 | `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, `inputVideo` on a model that can't take it, or an image or video URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
-| `input_too_large` | An `input_reference` or `inputVideo` file is over its size limit on Gemini Omni (5 MiB for an image, 32 MiB for a video). Arrives as HTTP 413, before any credits are spent. |
+| `input_too_large` | An `input_reference` or `inputVideo` file is over its size limit (5 MiB for an image on Gemini Omni, 32 MiB for a video). Arrives as HTTP 413, before any credits are spent. |
 | `access_denied` | `puter_output_path` points somewhere the caller may not write. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
 | `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
 | `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |

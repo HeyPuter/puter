@@ -22,11 +22,12 @@ import { IVideoModel } from '../../types.js';
 /**
  * Together prices its older video models per clip (`per-video`) and its newer
  * ones per second of output (`per-second`, plus `per-second-<tier>` where a
- * cheaper resolution tier exists). Per-second rates are the highest rate
- * Together publishes for the model so the pre-flight estimate never
- * undershoots; the provider then bills the amount Together reports on the
- * finished job. `default-duration-per-video` is the estimated cents for a 5s
- * clip and only feeds cross-provider cost sorting.
+ * cheaper resolution tier exists, and `per-second-video-input` for editing a
+ * source video). Per-second rates are the highest rate Together publishes for
+ * the model so the pre-flight estimate never undershoots; the provider then
+ * bills the amount Together reports on the finished job.
+ * `default-duration-per-video` is the estimated cents for a 5s clip and only
+ * feeds cross-provider cost sorting.
  */
 export interface ITogetherVideoModel extends IVideoModel {
     model: string;
@@ -487,7 +488,9 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptLength: null,
         promptSupported: true,
     },
-    // FLUX 3 text-to-video: $0.17/s at 720p, $0.29/s at 1080p.
+    // FLUX 3 text-to-video: $0.17/s at 720p, $0.29/s at 1080p. Editing a
+    // source video: $0.43/s at 720p, $0.54/s at 1080p. Its jobs report no
+    // cost, so these estimates are what gets billed.
     {
         id: 'togetherai:black-forest-labs/FLUX-3',
         puterId: 'togetherai:black-forest-labs/flux-3',
@@ -495,7 +498,11 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         name: 'FLUX 3',
         model: 'black-forest-labs/FLUX-3',
         costs_currency: 'usd-cents',
-        costs: { 'per-second': 29, 'default-duration-per-video': 145 },
+        costs: {
+            'per-second': 29,
+            'per-second-video-input': 54,
+            'default-duration-per-video': 145,
+        },
         output_cost_key: 'default-duration-per-video',
         durationSeconds: null,
         dimensions: null,
@@ -503,6 +510,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         keyframes: null,
         promptLength: null,
         promptSupported: true,
+        videoInput: true,
     },
     // MiniMax H3: $0.1391/s at 2k, the only rate Together publishes.
     {

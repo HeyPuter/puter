@@ -135,6 +135,8 @@ A longer prompt, a larger image or video, or input over the token limit fails wi
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
+FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a `data:` URI or Puter file. A larger one fails with `413 input_too_large` before the job starts. A URL is passed to Together AI, which fetches it.
+
 ### Remote chat image inlining
 
 For chat providers that require remote image URLs to be inlined (currently Moonshot):
