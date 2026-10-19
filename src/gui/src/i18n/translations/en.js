@@ -168,7 +168,7 @@ const en = {
         directory_depth_limit_exceeded: 'This folder is nested too deeply. Move it somewhere closer to the top before adding more folders inside it.',
         disable_2fa: 'Disable 2FA',
         disable_2fa_confirm: 'Are you sure you want to disable 2FA?',
-        disable_2fa_instructions: 'Enter your password to disable 2FA.',
+        disable_2fa_instructions: 'Confirm your identity and enter the code from your authenticator app to disable 2FA.',
         disassociate_dir: 'Disassociate Directory',
         disk_storage: 'Disk Storage',
         documents: 'Documents',

@@ -28,6 +28,7 @@
  */
 
 import { Readable } from 'node:stream';
+import v8 from 'node:v8';
 import {
     afterAll,
     afterEach,
@@ -658,6 +659,28 @@ describe('GeminiTTSProvider.synthesize audio output', () => {
         expect(wav.subarray(8, 12).toString()).toBe('WAVE');
         expect(wav.readUInt32LE(24)).toBe(16_000);
         expect(wav.subarray(44)).toEqual(pcm);
+    });
+
+    // V8 stops optimizing regexps once a process holds enough compiled code,
+    // as long-running servers do.
+    it('streams audio over 4 MB of base64 with regexp optimization off', async () => {
+        const pcm = Buffer.alloc(4 * 1024 * 1024, 7);
+        replyWith(
+            interaction({ content: [audioBlock(pcm, 'audio/L16;rate=24000')] }),
+        );
+
+        v8.setFlagsFromString('--no-regexp-optimization');
+        let wav: Buffer;
+        try {
+            const result = (await withTestActor(() =>
+                makeProvider().synthesize({ text: 'hi' }),
+            )) as { stream: Readable };
+            wav = await readAll(result.stream);
+        } finally {
+            v8.setFlagsFromString('--regexp-optimization');
+        }
+        expect(wav.length).toBe(44 + pcm.length);
+        expect(wav.subarray(44).equals(pcm)).toBe(true);
     });
 
     it('wraps PCM without a declared rate at 24 kHz', async () => {

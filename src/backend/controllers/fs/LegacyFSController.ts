@@ -211,12 +211,19 @@ export class LegacyFSController extends PuterController {
         // Limits come from `./limits` and carry an explicit `scope`, so these
         // draw from the same per-user budget as their v2 counterparts rather
         // than handing a caller a second allowance for the same operation.
-        const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
-        // Read-side routes admit scoped access tokens: the ACL check each
-        // handler runs already intersects a token's grant with its issuer's,
-        // so the token reaches exactly what it was minted for. That is what a
-        // background events handler acts through — its `user` is a token
-        // scoped to the subscription's grant.
+        //
+        // The entry routes — reads and writes alike — admit scoped access
+        // tokens: the ACL check each handler runs already intersects a token's
+        // grant with its issuer's, so the token reaches exactly what it was
+        // minted for. That is what a background events handler acts through —
+        // its `user` is a token scoped to the subscription's grant — and it
+        // matches what WebDAV admits. Routes reaching past a single entry
+        // (search, df, sign, the app helpers) stay closed to them.
+        const mutate = {
+            ...apiOptions,
+            allowAccessToken: true,
+            rateLimit: FS_MUTATE_LIMIT,
+        } as RouteOptions;
         const reads = { ...apiOptions, allowAccessToken: true } as RouteOptions;
         router.post('/stat', { ...reads, rateLimit: FS_STAT_LIMIT }, this.stat);
         router.post(
@@ -266,6 +273,8 @@ export class LegacyFSController extends PuterController {
             '/batch',
             {
                 ...spends,
+                // Every op authorizes its own target.
+                allowAccessToken: true,
                 rateLimit: FS_BATCH_LIMIT,
                 concurrent: FS_BATCH_CONCURRENT,
             },

@@ -172,10 +172,10 @@ describe('picker replies on a third-party site (env: web)', () => {
     });
 });
 
-// The clickjacking fix this regressed from: an app iframe must only take
-// messages from its host frame, whatever origin that frame is served on.
+// App messages require both the configured GUI origin and host frame.
 describe('host messages inside the desktop (env: app)', () => {
-    it('accepts a reply from the host frame', async () => {
+    it('accepts a reply from the configured host frame', async () => {
+        puter.defaultGUIOrigin = 'https://self-hosted.test';
         const ui = makeUI('app');
         const promise = ui.showOpenFilePicker();
 

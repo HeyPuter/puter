@@ -542,9 +542,10 @@ export class SessionStore extends PuterStore {
      *     workerName?: string;
      *     userId?: number;
      *     appUid?: string;
+     *     appUids?: string[];
      * }} filter
      */
-    async deleteWorkerSessions({ workerName, userId, appUid } = {}) {
+    async deleteWorkerSessions({ workerName, userId, appUid, appUids } = {}) {
         const where = ["`kind` = 'worker'"];
         const params = [];
         if (workerName) {
@@ -561,6 +562,11 @@ export class SessionStore extends PuterStore {
         if (appUid) {
             where.push('`app_uid` = ?');
             params.push(appUid);
+        }
+        if (appUids !== undefined) {
+            if (appUids.length === 0) return [];
+            where.push(`\`app_uid\` IN (${appUids.map(() => '?').join(', ')})`);
+            params.push(...appUids);
         }
         // No filter would mean every worker session on the server.
         if (params.length === 0) return [];

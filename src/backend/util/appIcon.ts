@@ -71,7 +71,6 @@ export interface AppIconHostConfig extends TrustedIconHostConfig {
     pub_port?: number;
 }
 
-const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 // `data:<type>/<subtype>[;param[=value]]…,<payload>`. The parameter list is
 // matched as a group of its own so it can be checked exhaustively — the
 // previous prefix-scan only looked at the bytes before the first `;` or `,`
@@ -185,7 +184,6 @@ function sniffRawBase64Image(
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     if (trimmed.length < 16) return null;
-    if (!RAW_BASE64_REGEX.test(trimmed)) return null;
     const bytes = decodeStrictBase64(trimmed);
     if (!bytes) return null;
     const mime = sniffImageMime(bytes);
