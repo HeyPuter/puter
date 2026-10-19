@@ -52,6 +52,10 @@ async function UIWindowDisable2FA (options) {
     h += '</div>';
     h += '<p class="disable-2fa-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
     h += '</div>';
+    h += '<div class="disable-2fa-code-wrap" style="margin-bottom:30px;">';
+    h += `<label for="disable-2fa-code-${internal_id}">${i18n('confirm_code_2fa_instruction')}</label>`;
+    h += `<input id="disable-2fa-code-${internal_id}" class="disable-2fa-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />`;
+    h += '</div>';
     h += `<button class="disable-2fa-btn button button-primary button-block button-normal">${i18n('disable_2fa')}</button>`;
     h += '</div>';
 
@@ -145,7 +149,7 @@ async function UIWindowDisable2FA (options) {
             const data = await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
             else if ( isSessionAuthError(res, data) ) onReauthRequired(data);
-            else onError(data.message || 'Request failed');
+            else onError(data.message || 'Request failed', data);
             return;
         }
         $(el_window).find('.form-error-msg').hide();
@@ -172,10 +176,10 @@ async function UIWindowDisable2FA (options) {
             }
             const d = await r.json().catch(() => ({}));
             if ( isSessionAuthError(r, d) ) onReauthRequired(d);
-            else onError(d.message || 'Request failed');
+            else onError(d.message || 'Request failed', d);
             return;
         }
-        onError(data.message || 'Request failed');
+        onError(data.message || 'Request failed', data);
     });
 
     function doSubmit ({ password } = {}) {
@@ -187,13 +191,15 @@ async function UIWindowDisable2FA (options) {
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                code: $(el_window).find('.disable-2fa-code').val() || undefined,
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });
         return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
     }
 
-    function onError (message) {
+    function onError (message, data) {
+        if ( data?.factor === 'otp' ) $(el_window).find('.disable-2fa-code').get(0)?.focus();
         $(el_window).find('.form-error-msg').html(html_encode(message));
         $(el_window).find('.form-error-msg').fadeIn();
         $(el_window).find('.disable-2fa-btn').removeClass('disabled');

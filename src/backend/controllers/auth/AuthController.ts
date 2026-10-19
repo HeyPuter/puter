@@ -2133,10 +2133,16 @@ export class AuthController extends PuterController {
         const password_hash = await bcrypt.hash(password, 8);
         let result;
         try {
-            result = await this.clients.db.write(
-                'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL, ' +
-                    '`requires_password_change` = 0, `temp_password_expires_at` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
-                [password_hash, user.id, decoded.token],
+            result = await this.stores.user.update(
+                user.id,
+                {
+                    password: password_hash,
+                    pass_recovery_token: null,
+                    change_email_confirm_token: null,
+                    requires_password_change: false,
+                    temp_password_expires_at: null,
+                },
+                { expectedRecoveryToken: decoded.token },
             );
         } catch (e) {
             if (!isOwnedEmailConflict(e)) throw e;
@@ -2152,17 +2158,11 @@ export class AuthController extends PuterController {
                 { legacyCode: 'email_already_in_use' as never },
             );
         }
-        const affected =
-            (result as { affectedRows?: number; changes?: number })
-                ?.affectedRows ??
-            (result as { affectedRows?: number; changes?: number })?.changes ??
-            0;
-        if (affected === 0) {
+        if (!result) {
             throw new HttpError(400, 'Token has already been used.', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.stores.user.invalidateById(user.id);
         // Best effort: the password is already committed, and an audit write
         // must not skip the eviction below.
         await this.services.team
@@ -2351,6 +2351,34 @@ export class AuthController extends PuterController {
         res.json({ username: new_username });
     }
 
+    #requireAccountTwoFactor(user: UserRow, code: unknown): void {
+        if (user.otp_enabled) {
+            if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+                throw new HttpError(
+                    400,
+                    'Enter the 6-digit code from your authenticator app.',
+                    {
+                        legacyCode: 'bad_request',
+                        fields: { factor: 'otp' },
+                    },
+                );
+            }
+            let verified = false;
+            try {
+                verified =
+                    typeof user.otp_secret === 'string' &&
+                    verifyOtp(user.username, user.otp_secret, code);
+            } catch {
+                // Invalid or unavailable secrets cannot authorize a change.
+            }
+            if (!verified)
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                    fields: { factor: 'otp' },
+                });
+        }
+    }
+
     @Post('/user-protected/change-email', {
         userProtected: true,
         rateLimit: {
@@ -2370,6 +2398,17 @@ export class AuthController extends PuterController {
                 { legacyCode: 'forbidden' },
             );
         }
+
+        const user =
+            req.userProtected?.user ??
+            (await this.stores.user.getById(req.actor!.user.id!, {
+                force: true,
+            }));
+        if (!user)
+            throw new HttpError(404, 'User not found', {
+                legacyCode: 'not_found',
+            });
+        this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
         if (!new_email || typeof new_email !== 'string') {
@@ -2412,6 +2451,7 @@ export class AuthController extends PuterController {
                 token: confirm_token,
                 user_id: req.actor!.user.id,
                 purpose: 'change-email',
+                twoFactorVerified: Boolean(user.otp_enabled),
             },
             { expiresIn: '1h' },
         );
@@ -2429,10 +2469,7 @@ export class AuthController extends PuterController {
                 console.warn('[change-email] new-address email failed:', e);
             }
             // Notify the old address too
-            const user = await this.stores.user.getById(req.actor!.user.id!, {
-                force: true,
-            });
-            if (user?.email) {
+            if (user.email) {
                 try {
                     await (
                         this.clients.email as unknown as {
@@ -2489,19 +2526,21 @@ export class AuthController extends PuterController {
             });
         }
 
-        const rows = (await this.clients.db.read(
-            'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? ORDER BY `id` ASC LIMIT 1',
-            [decoded.token],
-        )) as Array<Record<string, unknown>>;
-        const user = rows[0] as
-            | {
-                  id: number;
-                  email_confirmed?: number | boolean;
-                  password?: string | null;
-                  unconfirmed_change_email?: string;
-              }
-            | undefined;
-        if (!user || !user.unconfirmed_change_email) {
+        const user =
+            typeof decoded.user_id === 'number' &&
+            Number.isInteger(decoded.user_id) &&
+            decoded.user_id > 0
+                ? await this.stores.user.getById(decoded.user_id, {
+                      force: true,
+                  })
+                : null;
+        if (
+            !user ||
+            user.change_email_confirm_token !== decoded.token ||
+            typeof user.unconfirmed_change_email !== 'string' ||
+            !user.unconfirmed_change_email ||
+            (user.otp_enabled && decoded.twoFactorVerified !== true)
+        ) {
             throw new HttpError(400, 'Invalid or expired token.', {
                 legacyCode: 'token_expired' as never,
             });
@@ -4165,6 +4204,8 @@ export class AuthController extends PuterController {
                 { legacyCode: 'conflict' },
             );
         }
+
+        this.#requireAccountTwoFactor(user, req.body?.code);
 
         await this.stores.user.update(user.id, {
             otp_enabled: false,

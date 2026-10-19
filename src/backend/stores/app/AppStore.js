@@ -18,6 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { domainToUnicode } from 'node:url';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
@@ -329,9 +330,8 @@ export class AppStore extends PuterStore {
      */
     async findByIndexUrlCandidates(candidates, { excludeAppId } = {}) {
         if (!Array.isArray(candidates) || candidates.length === 0) return null;
-        const placeholders = candidates.map(() => '?').join(', ');
-        const params = [...candidates];
-        let sql = `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`index_url\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders})`;
+        const { predicate, params } = this.#indexUrlMatch(candidates);
+        let sql = `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`index_url\` FROM \`apps\` WHERE ${predicate}`;
         if (Number.isInteger(excludeAppId) && excludeAppId > 0) {
             sql += ' AND `id` != ?';
             params.push(excludeAppId);
@@ -358,19 +358,19 @@ export class AppStore extends PuterStore {
         if (uniqueCandidates.length === 0) return [];
 
         const rowsById = new Map();
+        const chunkSize = uniqueCandidates.some((url) => url.includes('xn--'))
+            ? INDEX_URL_CHUNK_SIZE / 2
+            : INDEX_URL_CHUNK_SIZE;
         for (
             let offset = 0;
             offset < uniqueCandidates.length;
-            offset += INDEX_URL_CHUNK_SIZE
+            offset += chunkSize
         ) {
-            const chunk = uniqueCandidates.slice(
-                offset,
-                offset + INDEX_URL_CHUNK_SIZE,
-            );
-            const placeholders = chunk.map(() => '?').join(', ');
+            const chunk = uniqueCandidates.slice(offset, offset + chunkSize);
+            const { predicate, params } = this.#indexUrlMatch(chunk);
             const rows = await this.clients.db.read(
-                `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`app_owner\`, \`index_url\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders})`,
-                chunk,
+                `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`app_owner\`, \`index_url\` FROM \`apps\` WHERE ${predicate}`,
+                params,
             );
             for (const row of rows) rowsById.set(row.id, row);
         }
@@ -391,11 +391,11 @@ export class AppStore extends PuterStore {
         ];
         if (uniqueCandidates.length === 0) return null;
 
-        const placeholders = uniqueCandidates.map(() => '?').join(', ');
+        const { predicate, params } = this.#indexUrlMatch(uniqueCandidates);
         const rows = await this.clients.db.read(
-            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ` +
+            `SELECT \`uid\` FROM \`apps\` WHERE ${predicate} ` +
                 `ORDER BY CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\` ASC LIMIT 1`,
-            uniqueCandidates,
+            params,
         );
         const uid = rows[0]?.uid;
         return typeof uid === 'string' && uid ? uid : null;
@@ -428,14 +428,14 @@ export class AppStore extends PuterStore {
     ) {
         if (!Array.isArray(candidates) || candidates.length === 0) return [];
         const isPrivate = `\`is_private\` = ${this.clients.db.booleanLiteral(true)}`;
-        const placeholders = candidates.map(() => '?').join(', ');
+        const { predicate, params } = this.#indexUrlMatch(candidates);
         return this.clients.db.read(
             'SELECT `id`, `uid`, `name`, `title`, `is_private`, `owner_user_id`, `index_url` ' +
                 'FROM `apps` WHERE `owner_user_id` = ? ' +
                 (requirePrivate ? `AND ${isPrivate} ` : '') +
-                `AND \`index_url\` IN (${placeholders}) ` +
+                `AND ${predicate} ` +
                 `ORDER BY CASE WHEN ${isPrivate} THEN 0 ELSE 1 END, \`id\` LIMIT 2`,
-            [ownerUserId, ...candidates],
+            [ownerUserId, ...params],
         );
     }
 
@@ -456,22 +456,22 @@ export class AppStore extends PuterStore {
         if (uniqueCandidates.length === 0) return [];
 
         const winnersByIndexUrl = new Map();
+        const chunkSize = uniqueCandidates.some((url) => url.includes('xn--'))
+            ? INDEX_URL_CHUNK_SIZE / 2
+            : INDEX_URL_CHUNK_SIZE;
         for (
             let offset = 0;
             offset < uniqueCandidates.length;
-            offset += INDEX_URL_CHUNK_SIZE
+            offset += chunkSize
         ) {
-            const chunk = uniqueCandidates.slice(
-                offset,
-                offset + INDEX_URL_CHUNK_SIZE,
-            );
-            const placeholders = chunk.map(() => '?').join(', ');
+            const chunk = uniqueCandidates.slice(offset, offset + chunkSize);
+            const { predicate, params } = this.#indexUrlMatch(chunk);
             const rows = await this.clients.db.read(
-                `SELECT \`index_url\`, ` +
+                `SELECT ${this.#exactIndexUrlColumn()} AS index_url, ` +
                     `MIN(CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN \`id\` END) AS private_id, ` +
                     `MIN(\`id\`) AS min_id ` +
-                    `FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) GROUP BY \`index_url\``,
-                chunk,
+                    `FROM \`apps\` WHERE ${predicate} GROUP BY ${this.#exactIndexUrlColumn()}`,
+                params,
             );
             // Deduped candidates land in one chunk each, so groups never span chunks.
             for (const row of rows) {
@@ -612,6 +612,19 @@ export class AppStore extends PuterStore {
             params,
         );
         return Number(rows[0]?.n ?? 0);
+    }
+
+    /** App bindings owned by this user beneath an app, including the root. */
+    async listOwnedDescendantUids(userId, appUid) {
+        const rows = await this.clients.db.pread(
+            'WITH RECURSIVE appTree AS (' +
+                'SELECT `id`, `uid` FROM `apps` WHERE `uid` = ? ' +
+                'UNION SELECT child.`id`, child.`uid` FROM `apps` child ' +
+                'JOIN appTree parent ON child.`app_owner` = parent.`id` ' +
+                'WHERE child.`owner_user_id` = ?) SELECT `uid` FROM appTree',
+            [appUid, userId],
+        );
+        return rows.map((row) => String(row.uid));
     }
 
     // -- Writes -------------------------------------------------------
@@ -1304,10 +1317,57 @@ export class AppStore extends PuterStore {
         });
     }
 
+    #indexUrlMatch(candidates) {
+        const variants = new Set(candidates);
+        for (const candidate of candidates) {
+            if (!candidate.includes('xn--')) continue;
+            try {
+                const parsed = new URL(candidate);
+                const unicodeHost = domainToUnicode(parsed.hostname);
+                if (unicodeHost && unicodeHost !== parsed.hostname) {
+                    variants.add(
+                        candidate.replace(
+                            `//${parsed.hostname}`,
+                            `//${unicodeHost}`,
+                        ),
+                    );
+                }
+            } catch {
+                // Legacy invalid URLs can still be compared literally.
+            }
+        }
+        const values = [...variants];
+        const placeholders = values.map(() => '?').join(', ');
+        const indexed = `\`index_url\` IN (${placeholders})`;
+        // Keep the indexed predicate; the exact comparison filters its matches.
+        return this.clients.db.case({
+            mysql: {
+                predicate: `${indexed} AND ${this.#exactIndexUrlColumn()} IN (${placeholders})`,
+                params: [...values, ...values],
+            },
+            otherwise: { predicate: indexed, params: values },
+        });
+    }
+
+    #exactIndexUrlColumn() {
+        return this.clients.db.case({
+            mysql: '`index_url` COLLATE utf8mb4_bin',
+            otherwise: '`index_url`',
+        });
+    }
+
     #filterEditable(fields) {
         const out = {};
         for (const [k, v] of Object.entries(fields)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
+            if (k === 'index_url' && typeof v === 'string' && v) {
+                try {
+                    out[k] = new URL(v).href;
+                    continue;
+                } catch {
+                    // Preserve legacy values; public writes validate URLs at the edge.
+                }
+            }
             out[k] =
                 APP_BOOLEAN_COLUMNS.has(k) && v !== null && v !== undefined
                     ? this.clients.db.booleanValue(Boolean(v))
