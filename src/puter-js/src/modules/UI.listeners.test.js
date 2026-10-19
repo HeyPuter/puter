@@ -25,6 +25,7 @@ const quietLogger = () => {
 
 const makePuter = () => ({
     env: 'app',
+    defaultGUIOrigin: 'https://puter.com',
     authToken: 'token-1',
     APIOrigin: 'https://api.test',
     appID: 'app-1',
@@ -73,11 +74,23 @@ describe('AppConnection', () => {
 
     const fromChild = (data) => ({
         source: parentWindow,
+        origin: 'https://puter.com',
         data: {
             appInstanceID: 'child-1',
             targetAppInstanceID: 'instance-1',
             ...data,
         },
+    });
+
+    it('ignores connection messages from the parent at another origin', async () => {
+        const conn = connect();
+        const onMessage = vi.fn();
+        conn.on('message', onMessage);
+        await deliver({
+            ...fromChild({ msg: 'messageToApp', contents: 'forged' }),
+            origin: 'https://other.test',
+        });
+        expect(onMessage).not.toHaveBeenCalled();
     });
 
     it('stops listening once the target app closes', async () => {
@@ -133,6 +146,14 @@ describe('host replies (env: app)', () => {
 
         await deliver({
             source: parentWindow,
+            origin: 'https://other.test',
+            data: { $SCOPE, id: uuid, args: [{ wasOpen: false }] },
+        });
+        expect(callbackManager.callbacks.size).toBe(before + 1);
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
             data: { $SCOPE, id: uuid, args: [{ wasOpen: true }] },
         });
 
@@ -156,10 +177,12 @@ describe('host replies (env: app)', () => {
 
         await deliver({
             source: parentWindow,
+            origin: 'https://puter.com',
             data: { msg, original_msg_id: uuid, ...fields },
         });
         await deliver({
             source: parentWindow,
+            origin: 'https://puter.com',
             data: {
                 msg: 'broadcast',
                 name: 'localeChanged',
@@ -179,6 +202,7 @@ describe('host replies (env: app)', () => {
         await expect(
             deliver({
                 source: parentWindow,
+                origin: 'https://puter.com',
                 data: { msg: 'error', original_msg_id: 1, error: failure },
             }),
         ).resolves.toBeUndefined();
@@ -194,6 +218,7 @@ describe('host replies (env: app)', () => {
         await expect(
             deliver({
                 source: parentWindow,
+                origin: 'https://puter.com',
                 data: { msg: 'itemsOpened', msg_id: 1 },
             }),
         ).resolves.toBeUndefined();
