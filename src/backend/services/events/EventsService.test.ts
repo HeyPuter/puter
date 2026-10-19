@@ -331,11 +331,6 @@ const buildService = (
                     });
                 }),
             },
-            fs: {
-                getAncestorChain: vi.fn(async (path: string) =>
-                    ancestorChain(path),
-                ),
-            },
             acl: aclService(),
             permission: permissionService(),
             metering: {
@@ -375,6 +370,7 @@ const fsEntryStore = {
     getEntryByUuid: async (uid: string) => entries.get(`uid:${uid}`) ?? null,
     getEntryByPath: async (path: string) => entries.get(`path:${path}`) ?? null,
     getEntryById: async () => null,
+    getAncestorChain: async (path: string) => ancestorChain(path),
 };
 
 const register = (node: FSEntry): FSEntry => {
@@ -383,7 +379,7 @@ const register = (node: FSEntry): FSEntry => {
     return node;
 };
 
-/** Existing ancestors of a path, deepest first — what `FSService` returns. */
+/** Existing ancestors of a path, deepest first — what `FSEntryStore` returns. */
 const ancestorChain = (path: string): Array<{ uid: string; path: string }> => {
     const chain: Array<{ uid: string; path: string }> = [];
     let cursor = path;
@@ -1086,6 +1082,76 @@ describe('cold-region rebuild concurrency', () => {
             await dispatch(file);
             await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
+            expect(sent).toHaveLength(1);
+        } finally {
+            warm.mockRestore();
+        }
+    });
+});
+
+describe('a cold process cache', () => {
+    /** A watcher made on another process, so this one's cache stays cold. */
+    const addRemoteWatcher = (documents: FSEntry) =>
+        store.add({
+            subId: `remote-sub-${seq}`,
+            socketId: 'remote-socket',
+            holderUserId: userId,
+            ownerUserId: userId,
+            subject: `fs:${documents.uid}`,
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+            op: null,
+            appUid: null,
+            permission: 'list',
+        });
+
+    it('answers a warm region in one pipeline, without consulting the table', async () => {
+        const { file } = seedTree();
+        await store.markRegionWarm(userId);
+        const warm = vi.spyOn(durableSubscriptionStore, 'warmRegion');
+        commands = [];
+        try {
+            await expect(dispatch(file)).resolves.toBe(false);
+            expect(commands).toEqual(['pipeline']);
+            expect(warm).not.toHaveBeenCalled();
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('sees a watcher in that same pipeline', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        await addRemoteWatcher(documents);
+        await store.markRegionWarm(userId);
+        const warm = vi.spyOn(durableSubscriptionStore, 'warmRegion');
+        try {
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(sent).toHaveLength(1);
+            expect(warm).not.toHaveBeenCalled();
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('rebuilds a cold region, then answers from what the rebuild found', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const warm = vi
+            .spyOn(durableSubscriptionStore, 'warmRegion')
+            .mockImplementation(async (ownerUserId: number) => {
+                // A rebuild that finds rows the first look did not.
+                await addRemoteWatcher(documents);
+                await store.markRegionWarm(ownerUserId);
+                return true;
+            });
+        try {
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(warm).toHaveBeenCalledTimes(1);
             expect(sent).toHaveLength(1);
         } finally {
             warm.mockRestore();

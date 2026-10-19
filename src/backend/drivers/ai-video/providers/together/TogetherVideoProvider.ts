@@ -21,11 +21,16 @@ import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { CreditHold } from '../../../../services/metering/types.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
-import { pollUntilSettled, videoJobFailure } from '../polling.js';
+import {
+    pollUntilSettled,
+    VIDEO_HOLD_TTL_MS,
+    videoJobFailure,
+} from '../polling.js';
 import {
     TOGETHER_VIDEO_GENERATION_MODELS,
     type ITogetherVideoModel,
@@ -52,9 +57,12 @@ type TogetherCreatePayload = Together.VideoCreateParams & {
 
 export class TogetherVideoProvider extends VideoProvider {
     #client: Together;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         super();
         if (!config.apiKey) {
             throw new Error('Together AI video generation requires an API key');
@@ -156,166 +164,183 @@ export class TogetherVideoProvider extends VideoProvider {
             });
         }
 
+        const usageKey = `together-video:${model}`;
         // Per-second models are clamped to what the balance buys, like Veo
-        // and Seedance; per-clip models stay all-or-nothing.
+        // and Seedance; per-clip models stay all-or-nothing. Either way the
+        // cost is held until the job is metered.
         let estimateMicroCents: number;
         let billedUnits: number;
+        let hold: CreditHold;
         if (perSecondCents) {
-            normalizedSeconds = await capSecondsToRemainingCredits({
+            const capped = await capSecondsToRemainingCredits({
                 metering: this.#meteringService,
                 actor,
+                usageType: usageKey,
                 perSecondMicroCents: perSecondCents * 1_000_000,
                 requestedSeconds: normalizedSeconds ?? DEFAULT_DURATION_SECONDS,
                 allowedSeconds: selectedModel?.durationSeconds,
             });
+            normalizedSeconds = capped.seconds;
+            hold = capped.hold;
             estimateMicroCents = Math.round(
                 perSecondCents * 1_000_000 * normalizedSeconds,
             );
             billedUnits = normalizedSeconds;
         } else {
             estimateMicroCents = perVideoCents! * 1_000_000;
-            const usageAllowed = await this.#meteringService.hasEnoughCredits(
+            const perVideoHold = await this.#meteringService.reserveAiCredits(
                 actor,
+                usageKey,
                 estimateMicroCents,
+                { ttlMs: VIDEO_HOLD_TTL_MS },
             );
-            if (!usageAllowed) {
+            if (!perVideoHold) {
                 throw insufficientCreditsError();
             }
+            hold = perVideoHold;
             billedUnits = 1;
         }
 
-        const createPayload: TogetherCreatePayload = {
-            prompt,
-            model,
-        };
+        try {
+            const createPayload: TogetherCreatePayload = {
+                prompt,
+                model,
+            };
 
-        if (normalizedSeconds) {
-            createPayload.seconds = String(normalizedSeconds);
-        }
-        if (resolutionTier !== undefined) {
-            createPayload.resolution = resolutionTier;
-            const ratio = this.#deriveRatio(
-                width,
-                height,
-                selectedModel?.ratios,
+            if (normalizedSeconds) {
+                createPayload.seconds = String(normalizedSeconds);
+            }
+            if (resolutionTier !== undefined) {
+                createPayload.resolution = resolutionTier;
+                const ratio = this.#deriveRatio(
+                    width,
+                    height,
+                    selectedModel?.ratios,
+                );
+                if (ratio) {
+                    createPayload.ratio = ratio;
+                }
+            } else {
+                if (this.#isFiniteNumber(width)) {
+                    createPayload.width = Number(width);
+                }
+                if (this.#isFiniteNumber(height)) {
+                    createPayload.height = Number(height);
+                }
+            }
+            if (this.#isFiniteNumber(fps)) {
+                createPayload.fps = Number(fps);
+            }
+            if (this.#isFiniteNumber(steps)) {
+                createPayload.steps = Number(steps);
+            }
+            if (this.#isFiniteNumber(guidanceScale)) {
+                createPayload.guidance_scale = Number(guidanceScale);
+            }
+            if (this.#isFiniteNumber(seed)) {
+                createPayload.seed = Number(seed);
+            }
+            if (typeof outputFormat === 'string' && outputFormat.trim()) {
+                createPayload.output_format =
+                    outputFormat.trim() as Together.VideoCreateParams['output_format'];
+            }
+            if (this.#isFiniteNumber(outputQuality)) {
+                createPayload.output_quality = Number(outputQuality);
+            }
+            if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
+                createPayload.negative_prompt = negativePrompt;
+            }
+            if (typeof generateAudio === 'boolean') {
+                createPayload.generate_audio = generateAudio;
+            }
+            if (Array.isArray(referenceImages) && referenceImages.length > 0) {
+                createPayload.reference_images = referenceImages.filter(
+                    (item: string) =>
+                        typeof item === 'string' && item.trim().length > 0,
+                );
+            }
+            if (Array.isArray(frameImages) && frameImages.length > 0) {
+                createPayload.frame_images = frameImages.filter(
+                    (frame: any) =>
+                        frame &&
+                        typeof frame === 'object' &&
+                        typeof frame.input_image === 'string',
+                ) as Together.VideoCreateParams['frame_images'];
+            } else {
+                // `input_reference` / `last_frame` are the cross-provider names
+                // for Together's keyframes; an explicit `frame_images` wins.
+                const keyframes = [
+                    [inputReference, 'first'],
+                    [lastFrame, 'last'],
+                ]
+                    .filter(
+                        ([image]) => typeof image === 'string' && image.trim(),
+                    )
+                    .map(([image, frame]) => ({
+                        input_image: (image as string).trim(),
+                        frame,
+                    }));
+                if (keyframes.length > 0) {
+                    createPayload.frame_images =
+                        keyframes as unknown as Together.VideoCreateParams['frame_images'];
+                }
+            }
+            if (metadata && typeof metadata === 'object') {
+                createPayload.metadata = metadata;
+            }
+
+            const job = await this.#client.videos.create(createPayload);
+            const finalJob = await this.#pollUntilComplete(job.id);
+
+            if (finalJob.status === 'failed') {
+                const errorMessage =
+                    finalJob?.error?.message ??
+                    finalJob?.info?.errors?.[0]?.message ??
+                    finalJob?.info?.errors?.message ??
+                    finalJob?.info?.errors ??
+                    'Video generation failed';
+                throw videoJobFailure(
+                    'together',
+                    typeof errorMessage === 'string'
+                        ? errorMessage
+                        : JSON.stringify(errorMessage),
+                    finalJob?.error?.code,
+                );
+            }
+
+            if (finalJob.status === 'cancelled') {
+                throw videoJobFailure(
+                    'together',
+                    'Video generation was cancelled',
+                );
+            }
+
+            // Together reports what it actually charged for the job; the catalog
+            // rate above was only the pre-flight estimate.
+            const reportedCost = finalJob?.outputs?.cost;
+            const costMicroCents =
+                typeof reportedCost === 'number' &&
+                Number.isFinite(reportedCost) &&
+                reportedCost >= 0
+                    ? Math.round(reportedCost * 100 * 1_000_000)
+                    : estimateMicroCents;
+
+            await this.#meteringService.incrementUsage(
+                actor,
+                usageKey,
+                billedUnits,
+                costMicroCents,
             );
-            if (ratio) {
-                createPayload.ratio = ratio;
+
+            const videoUrl = finalJob?.outputs?.video_url;
+            if (typeof videoUrl === 'string' && videoUrl.trim()) {
+                return videoUrl;
             }
-        } else {
-            if (this.#isFiniteNumber(width)) {
-                createPayload.width = Number(width);
-            }
-            if (this.#isFiniteNumber(height)) {
-                createPayload.height = Number(height);
-            }
-        }
-        if (this.#isFiniteNumber(fps)) {
-            createPayload.fps = Number(fps);
-        }
-        if (this.#isFiniteNumber(steps)) {
-            createPayload.steps = Number(steps);
-        }
-        if (this.#isFiniteNumber(guidanceScale)) {
-            createPayload.guidance_scale = Number(guidanceScale);
-        }
-        if (this.#isFiniteNumber(seed)) {
-            createPayload.seed = Number(seed);
-        }
-        if (typeof outputFormat === 'string' && outputFormat.trim()) {
-            createPayload.output_format =
-                outputFormat.trim() as Together.VideoCreateParams['output_format'];
-        }
-        if (this.#isFiniteNumber(outputQuality)) {
-            createPayload.output_quality = Number(outputQuality);
-        }
-        if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
-            createPayload.negative_prompt = negativePrompt;
-        }
-        if (typeof generateAudio === 'boolean') {
-            createPayload.generate_audio = generateAudio;
-        }
-        if (Array.isArray(referenceImages) && referenceImages.length > 0) {
-            createPayload.reference_images = referenceImages.filter(
-                (item: string) =>
-                    typeof item === 'string' && item.trim().length > 0,
-            );
-        }
-        if (Array.isArray(frameImages) && frameImages.length > 0) {
-            createPayload.frame_images = frameImages.filter(
-                (frame: any) =>
-                    frame &&
-                    typeof frame === 'object' &&
-                    typeof frame.input_image === 'string',
-            ) as Together.VideoCreateParams['frame_images'];
-        } else {
-            // `input_reference` / `last_frame` are the cross-provider names
-            // for Together's keyframes; an explicit `frame_images` wins.
-            const keyframes = [
-                [inputReference, 'first'],
-                [lastFrame, 'last'],
-            ]
-                .filter(([image]) => typeof image === 'string' && image.trim())
-                .map(([image, frame]) => ({
-                    input_image: (image as string).trim(),
-                    frame,
-                }));
-            if (keyframes.length > 0) {
-                createPayload.frame_images =
-                    keyframes as unknown as Together.VideoCreateParams['frame_images'];
-            }
-        }
-        if (metadata && typeof metadata === 'object') {
-            createPayload.metadata = metadata;
-        }
 
-        const job = await this.#client.videos.create(createPayload);
-        const finalJob = await this.#pollUntilComplete(job.id);
-
-        if (finalJob.status === 'failed') {
-            const errorMessage =
-                finalJob?.error?.message ??
-                finalJob?.info?.errors?.[0]?.message ??
-                finalJob?.info?.errors?.message ??
-                finalJob?.info?.errors ??
-                'Video generation failed';
-            throw videoJobFailure(
-                'together',
-                typeof errorMessage === 'string'
-                    ? errorMessage
-                    : JSON.stringify(errorMessage),
-                finalJob?.error?.code,
-            );
+            throw new Error('Together AI response did not include a video URL');
+        } finally {
+            await hold.release();
         }
-
-        if (finalJob.status === 'cancelled') {
-            throw videoJobFailure('together', 'Video generation was cancelled');
-        }
-
-        // Together reports what it actually charged for the job; the catalog
-        // rate above was only the pre-flight estimate.
-        const reportedCost = finalJob?.outputs?.cost;
-        const costMicroCents =
-            typeof reportedCost === 'number' &&
-            Number.isFinite(reportedCost) &&
-            reportedCost >= 0
-                ? Math.round(reportedCost * 100 * 1_000_000)
-                : estimateMicroCents;
-
-        const usageKey = `together-video:${model}`;
-        await this.#meteringService.incrementUsage(
-            actor,
-            usageKey,
-            billedUnits,
-            costMicroCents,
-        );
-
-        const videoUrl = finalJob?.outputs?.video_url;
-        if (typeof videoUrl === 'string' && videoUrl.trim()) {
-            return videoUrl;
-        }
-
-        throw new Error('Together AI response did not include a video URL');
     }
 
     async #pollUntilComplete(jobId: string): Promise<any> {

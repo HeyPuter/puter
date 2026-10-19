@@ -21,7 +21,10 @@ import type { Request } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor } from '../../actor';
-import type { AuthService } from '../../../services/auth/AuthService';
+import {
+    HOSTED_ASSET_COOKIES,
+    type AuthService,
+} from '../../../services/auth/AuthService';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
@@ -666,7 +669,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -681,7 +684,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.app.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -697,7 +700,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: a.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -713,7 +716,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -729,7 +732,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
             requirePrivate: true,
         });
@@ -750,18 +753,54 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.app.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
         expect(Boolean(out?.is_private)).toBe(true);
     });
 
+    it('leaves columns the gate never reads, such as an inline icon, out of the match', async () => {
+        const owner = await makeUser();
+        const app = await createPrivateApp(
+            owner.id,
+            'http://beans.site.puter.localhost/',
+        );
+        await server.clients.db.write(
+            'UPDATE `apps` SET `icon` = ?, `description` = ? WHERE `uid` = ?',
+            [`data:image/png;base64,${'A'.repeat(512)}`, 'about', app.uid],
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: owner.id },
+            appStore: server.stores.app,
+            config: baseConfig(),
+        });
+        expect(Object.keys(out!).sort()).toEqual([
+            'id',
+            'index_url',
+            'is_private',
+            'name',
+            'owner_user_id',
+            'title',
+            'uid',
+        ]);
+        expect(out).toMatchObject({
+            id: app.id,
+            uid: app.uid,
+            name: `private-${app.uid}`,
+            title: `private-${app.uid}`,
+            owner_user_id: owner.id,
+            index_url: 'http://beans.site.puter.localhost/',
+        });
+        expect(Boolean(out!.is_private)).toBe(true);
+    });
+
     it('returns null when the site has no owner', async () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: null },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -771,7 +810,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf(''),
             site: { user_id: 1 },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -795,16 +834,16 @@ describe('resolvePrivateIdentity', () => {
     it('returns the sticky private-cookie identity when the token matches the expected app/subdomain/host', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = await authService.createPrivateAssetToken({
+        const token = await authService.createHostedAssetToken('private', {
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
-            privateHost: 'beans.app.puter.localhost',
+            host: 'beans.app.puter.localhost',
         });
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPrivateAssetCookieName()]: token,
+                    [HOSTED_ASSET_COOKIES.private.legacyName]: token,
                 },
             }),
             authService,
@@ -820,16 +859,16 @@ describe('resolvePrivateIdentity', () => {
 
     it('falls through to req.actor when the private cookie is for a different app', async () => {
         const user = await makeUser();
-        const wrongToken = await authService.createPrivateAssetToken({
+        const wrongToken = await authService.createHostedAssetToken('private', {
             appUid: `app-${uuidv4()}`,
             userUid: user.uuid,
             subdomain: 'beans',
-            privateHost: 'beans.app.puter.localhost',
+            host: 'beans.app.puter.localhost',
         });
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPrivateAssetCookieName()]: wrongToken,
+                    [HOSTED_ASSET_COOKIES.private.legacyName]: wrongToken,
                 },
                 actor: {
                     user: { uuid: user.uuid },
@@ -1064,7 +1103,7 @@ describe('resolvePublicHostedIdentity', () => {
     it('returns the cookie identity when present and valid', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = await authService.createPublicHostedActorToken({
+        const token = await authService.createHostedAssetToken('public', {
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
@@ -1073,7 +1112,7 @@ describe('resolvePublicHostedIdentity', () => {
         const out = await resolvePublicHostedIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPublicHostedActorCookieName()]: token,
+                    [HOSTED_ASSET_COOKIES.public.legacyName]: token,
                 },
             }),
             authService,

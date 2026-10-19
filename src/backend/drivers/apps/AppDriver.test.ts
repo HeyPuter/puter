@@ -371,6 +371,39 @@ describe('AppDriver.read', () => {
             withActor(actor, () => driver.read({ uid: 'app-nonexistent' })),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
+
+    it('reads the uid alias only when the direct lookup misses', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('alias-read'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const kvGet = vi.spyOn(server.stores.kv, 'get');
+        const aliasReads = () =>
+            kvGet.mock.calls.filter((call) =>
+                String((call[0] as { key?: string })?.key).startsWith(
+                    'app:canonicalUidAlias:',
+                ),
+            ).length;
+        try {
+            await withActor(actor, () => driver.read({ uid: created.uid }));
+            expect(aliasReads()).toBe(0);
+
+            await expect(
+                withActor(actor, () =>
+                    driver.read({ uid: `app-${uuidv4()}` }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(aliasReads()).toBe(1);
+        } finally {
+            kvGet.mockRestore();
+        }
+    });
 });
 
 // ── select ──────────────────────────────────────────────────────────
@@ -1261,6 +1294,78 @@ describe('AppDriver.update additional branches', () => {
         expect(updated.filetype_associations).toEqual(
             expect.arrayContaining(['md', 'csv']),
         );
+    });
+
+    describe('a private app moving its index_url', () => {
+        const createApp = async (actor: Actor, indexUrl: string) =>
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('pv'),
+                        title: 't',
+                        index_url: indexUrl,
+                    },
+                }),
+            );
+        const makePrivate = async (app: Record<string, unknown>) => {
+            await server.clients.db.write(
+                'UPDATE `apps` SET `is_private` = 1 WHERE `uid` = ?',
+                [app.uid],
+            );
+            await server.stores.app.invalidateByUid(app.uid as string);
+        };
+
+        it('refuses an origin another user’s app already resolves to', async () => {
+            const other = await makeUser();
+            const target = uniqueIndexUrl();
+            const theirs = await createApp(other.actor, target);
+            const { actor } = await makeUser();
+            const mine = await createApp(actor, uniqueIndexUrl());
+            await makePrivate(mine);
+
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: mine.uid,
+                        object: { index_url: target },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(
+                await server.services.auth.appUidFromOrigin(
+                    new URL(target).origin,
+                ),
+            ).toBe(theirs.uid);
+        });
+
+        it('allows an unclaimed origin, a path below another user’s origin, and a public app', async () => {
+            const other = await makeUser();
+            const target = uniqueIndexUrl();
+            await createApp(other.actor, target);
+            const { actor } = await makeUser();
+            const mine = await createApp(actor, uniqueIndexUrl());
+            await makePrivate(mine);
+
+            const fresh = uniqueIndexUrl();
+            const moved = await withActor(actor, () =>
+                driver.update({ uid: mine.uid, object: { index_url: fresh } }),
+            );
+            expect(moved.index_url).toBe(fresh);
+            const below = `${target}app/`;
+            const nested = await withActor(actor, () =>
+                driver.update({ uid: mine.uid, object: { index_url: below } }),
+            );
+            expect(nested.index_url).toBe(below);
+
+            const publicApp = await createApp(actor, uniqueIndexUrl());
+            const copied = await withActor(actor, () =>
+                driver.update({
+                    uid: publicApp.uid,
+                    object: { index_url: target },
+                }),
+            );
+            expect(copied.index_url).toBe(target);
+        });
     });
 });
 

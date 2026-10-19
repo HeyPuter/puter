@@ -54,10 +54,12 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { normalize_messages } from '../../utils/Messages.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Anthropic SDK mock ──────────────────────────────────────────────
 
@@ -242,6 +244,8 @@ describe('ClaudeProvider construction', () => {
         expect(opts.apiKey).toBe('test-key');
         // ~10 minutes — long enough for slow Opus 4.7 thinking responses.
         expect(opts.timeout).toBeGreaterThan(60_000);
+        // The driver's fallback chain retries, not the SDK.
+        expect(opts.maxRetries).toBe(0);
     });
 });
 
@@ -279,7 +283,7 @@ describe('ClaudeProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of CLAUDE_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -300,7 +304,7 @@ describe('ClaudeProvider model catalog', () => {
 
     it('drops the deprecated claude-sonnet-4-5 and its aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('claude-sonnet-4-5-20250929');
         expect(ids).not.toContain('claude-sonnet-4-5');
         expect(ids).not.toContain('claude-sonnet-4.5');
@@ -960,6 +964,63 @@ describe('ClaudeProvider.complete request shape', () => {
         ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
     });
 
+    it.each([
+        ['string', '{"city":"Paris"}'],
+        ['object', { city: 'Paris' }],
+    ])(
+        'drops a Gemini thought signature from a replayed tool call with %s arguments',
+        async (_form, args) => {
+            // A Gemini turn replayed against Claude on fallback keeps only
+            // Anthropic-compatible metadata, including cache_control.
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            const messages = normalize_messages([
+                { role: 'user', content: 'Weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    cache_control: { type: 'ephemeral', ttl: '1h' },
+                    tool_calls: [
+                        {
+                            id: 'fc_1',
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: args },
+                            extra_content: {
+                                google: { thought_signature: 'c2lnLTE=' },
+                            },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'fc_1', content: '18C' },
+            ]);
+            const before = JSON.parse(JSON.stringify(messages));
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages,
+                }),
+            );
+
+            const [sent] = messagesCreateMock.mock.calls[0]!;
+            expect(sent.messages[1].content).toEqual([
+                {
+                    type: 'tool_use',
+                    id: 'fc_1',
+                    name: 'get_weather',
+                    input: { city: 'Paris' },
+                    cache_control: { type: 'ephemeral', ttl: '1h' },
+                },
+            ]);
+            // The driver hands these same objects to the next fallback route.
+            expect(messages).toEqual(before);
+            expect(messages[1].content[0].extra_content).toEqual({
+                google: { thought_signature: 'c2lnLTE=' },
+            });
+        },
+    );
+
     it('survives the same messages array being sent twice', async () => {
         // This is the fallback hazard the copy-on-write exists for: the driver
         // reuses one messages array across attempts, so if attempt 1 strips
@@ -1355,7 +1416,7 @@ describe('ClaudeProvider.complete non-stream output', () => {
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
             );
-            expect(await provider.list()).toContain(model);
+            expect(modelLookupNames(await provider.models())).toContain(model);
             const [args] = messagesCreateMock.mock.calls[0]!;
             expect(args.model).toBe(canonicalId);
             expect(args.max_tokens).toBe(128_000);
@@ -1662,6 +1723,98 @@ describe('ClaudeProvider.complete streaming', () => {
         // The driver reuses this object on the fallback route, which has no
         // way to resolve a file we just deleted from our own account.
         expect(part).toEqual({ puter_path: path });
+    });
+
+    it('answers without waiting for the uploaded files to be deleted', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_reply_1' });
+        // A delete that never settles must not hold the reply.
+        filesDeleteMock.mockReturnValue(new Promise(() => {}));
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        const result = await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [
+                        { role: 'user', content: [{ puter_path: path }] },
+                    ],
+                }),
+            actor,
+        );
+
+        expect(result).toMatchObject({ finish_reason: 'stop' });
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_reply_1', {
+            betas: [FILES_API_BETA],
+        });
+    });
+
+    it('hands a refused stream to the fallback without waiting for the deletes', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_stream_2' });
+        filesDeleteMock.mockReturnValue(new Promise(() => {}));
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        const part: Record<string, unknown> = { puter_path: path };
+        await expect(
+            withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [{ role: 'user', content: [part] }],
+                        stream: true,
+                    }),
+                actor,
+            ),
+        ).rejects.toBe(refused);
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_stream_2', {
+            betas: [FILES_API_BETA],
+        });
+        expect(part).toEqual({ puter_path: path });
+    });
+
+    it('leaves nothing unhandled when deleting an uploaded file fails', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_gone_1' });
+        filesDeleteMock.mockRejectedValue(new Error('already gone'));
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [
+                            { role: 'user', content: [{ puter_path: path }] },
+                        ],
+                    }),
+                actor,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_gone_1', {
+            betas: [FILES_API_BETA],
+        });
+        expect(unhandled).toEqual([]);
     });
 
     it('surfaces a failure the event iterator swallowed instead of ending the stream clean', async () => {
@@ -2773,6 +2926,22 @@ describe('ClaudeProvider.countTokens', () => {
         expect('stop_sequences' in payload).toBe(false);
         expect(payload.model).toBe('claude-haiku-4-5-20251001');
         expect(payload.messages).toEqual([{ role: 'user', content: 'hi' }]);
+    });
+
+    it('keeps the SDK retries the completion client turns off', async () => {
+        const { provider } = makeProvider();
+        countTokensMock.mockResolvedValueOnce({ input_tokens: 42 });
+
+        await withTestActor(() =>
+            provider.countTokens({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            } as never),
+        );
+
+        // No other route serves a token count, so a transient failure gets
+        // the SDK's retries instead of reaching the caller.
+        expect(countTokensMock.mock.calls[0]![1]).toEqual({ maxRetries: 2 });
     });
 });
 

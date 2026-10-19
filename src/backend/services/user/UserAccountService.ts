@@ -32,9 +32,10 @@ const PROVISIONED_FSENTRY_COUNT = 8;
  * account and everything hanging off it, and measuring whether an account has
  * ever actually been used.
  *
- * Most `user_id` foreign keys are `ON DELETE SET NULL` rather than `CASCADE`,
- * so "delete the row" is never the whole job — anything reaching for that
- * shortcut leaves orphans behind. Go through `cascadeDelete`.
+ * Most `user_id` foreign keys cascade, but only inside the database: S3
+ * objects, sites, flat permission entries and caches outlive a bare row delete.
+ * Audit and analytics tables are `ON DELETE SET NULL`, so their history stays.
+ * Go through `cascadeDelete`.
  */
 export class UserAccountService extends PuterService {
     /**
@@ -99,6 +100,14 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] subdomain cleanup failed:', e);
         }
 
+        // The user's apps cascade away with the row; record them first so a
+        // hosted origin doesn't hand their uids to the subdomain's next owner.
+        await this.stores.app.recordDeletedForOwner(userId);
+        // Other users' sites and workers tied to those apps cascade too.
+        const appSites = await this.stores.subdomain.listAppCascade({
+            ownerUserId: userId,
+        });
+
         // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
         await this.clients.db.write(
             'DELETE FROM `sessions` WHERE `user_id` = ?',
@@ -109,6 +118,7 @@ export class UserAccountService extends PuterService {
         ]);
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
+        await this.stores.subdomain.forgetCascadeDeleted(appSites);
 
         if (issuedRefs.length > 0) {
             try {
@@ -141,7 +151,16 @@ export class UserAccountService extends PuterService {
         // Tells prod to stop charging the owner for this seat.
         this.services.team.emitSeatDeleted(seat);
         // The membership row cascaded away, so anything keyed on it is stale.
-        if (seat) await this.services.team.forgetSeat(seat);
+        if (seat) {
+            try {
+                await this.services.team.forgetSeat(seat);
+            } catch (e) {
+                console.warn(
+                    '[cascade-delete-user] seat cache cleanup failed:',
+                    e,
+                );
+            }
+        }
     }
 
     /**

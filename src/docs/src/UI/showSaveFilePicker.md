@@ -35,6 +35,15 @@ How `content` should be interpreted. One of `'url'`, `'move'`, or `'copy'`. If o
 
 A `Promise` that resolves to an [`FSItem`](/Objects/fsitem) describing the saved file. If the user cancels, the promise stays pending.
 
+The returned promise also has an `undefinedOnCancel` property. It holds a second promise that resolves to the same result, or to `undefined` if the user cancels:
+
+```js
+const file = await puter.ui.showSaveFilePicker('Hello world!', 'hello.txt').undefinedOnCancel;
+if (file === undefined) {
+    // the user closed the picker without saving
+}
+```
+
 ## Examples
 
 ```html

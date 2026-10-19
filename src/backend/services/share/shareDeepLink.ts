@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { maskedRoot } from '../fs/sharePathMask';
+
 /**
  * Links that open a shared item: the dashboard's Files tab, on Shared, with the
  * item highlighted. Not derived from `ResolvedShare.path`: that is masked for
@@ -59,7 +61,7 @@ export const ownerFromSharePath = (path: string): string | null => {
 export const maskedSharePath = (target: ShareTarget): string | null => {
     const { name, uid, ownerUsername } = target;
     if (!name || !uid || !ownerUsername) return null;
-    return `/${ownerUsername}/${uid}/${name}`;
+    return maskedRoot(ownerUsername, uid, name);
 };
 
 /**

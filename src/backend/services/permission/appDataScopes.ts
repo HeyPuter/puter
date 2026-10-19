@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { validate as validateUuid } from 'uuid';
+import type { FSEntry } from '../../stores/fs/FSEntry';
+import type { FSEntryStore } from '../../stores/fs/FSEntryStore';
 import { PermissionUtil } from './permissionUtil';
 
 /** Root of the cross-app application-data permission namespace. */
@@ -146,6 +149,21 @@ export const parseAppDataPermission = (
 };
 
 /**
+ * The app whose `/<username>/AppData/<appUid>` subtree `path` sits in, under
+ * any user, or null. `AppData` matches case-insensitively, like the column.
+ * Only an `app-<uuid>` name counts: any other folder there belongs to no app,
+ * and looking it up would only miss (or, outside latin1, fail the query).
+ */
+export const appDataOwnerOf = (path: string): string | null => {
+    const segments = path.split('/');
+    if (segments[2]?.toLowerCase() !== 'appdata') return null;
+    const appUid = segments[3] ?? '';
+    return /^app-/i.test(appUid) && validateUuid(appUid.slice(4))
+        ? appUid
+        : null;
+};
+
+/**
  * Whether `app` lets other apps reach its per-user data.
  *
  * Opt-**out**: only an explicit `share_app_data: false` closes it, so an app
@@ -163,4 +181,79 @@ export const appDataSharingAllowed = (app: { metadata?: unknown }): boolean => {
     const metadata = app.metadata;
     if (!metadata || typeof metadata !== 'object') return true;
     return (metadata as { share_app_data?: unknown }).share_app_data !== false;
+};
+
+type AppLookup = {
+    getByUids(
+        uids: string[],
+    ): Promise<Map<string, { uid: string; metadata?: unknown }>>;
+};
+
+/**
+ * Lowercased uids of the apps, other than `ownAppUid`, whose AppData holds one
+ * of `paths` and that keep it closed. Reads nothing unless a path is in another
+ * app's AppData.
+ */
+export const closedAppDataOwners = async (
+    apps: AppLookup,
+    paths: Iterable<string>,
+    ownAppUid: string,
+): Promise<Set<string>> => {
+    const own = ownAppUid.toLowerCase();
+    const owners = new Set<string>();
+    for (const path of paths) {
+        const uid = appDataOwnerOf(path)?.toLowerCase();
+        if (uid && uid !== own) owners.add(uid);
+    }
+    if (owners.size === 0) return owners;
+    const rows = await apps.getByUids([...owners]);
+    return new Set(
+        [...rows.values()]
+            .filter((app) => !appDataSharingAllowed(app))
+            .map((app) => app.uid.toLowerCase()),
+    );
+};
+
+const APP_DATA_PAGE_SIZE = 1000;
+
+/**
+ * Whether `folder` is a home or `AppData` folder holding the AppData of an app
+ * other than `ownAppUid` that keeps it closed. Copying, moving or sharing such
+ * a folder hands that data on past the opt-out. Anything else answers false
+ * without a read.
+ */
+export const carriesClosedAppData = async (
+    stores: {
+        fsEntry: Pick<FSEntryStore, 'getEntryByPath' | 'listChildrenOfParents'>;
+        app: AppLookup;
+    },
+    folder: FSEntry,
+    ownAppUid: string,
+): Promise<boolean> => {
+    if (!folder.isDir) return false;
+    const segments = folder.path.split('/');
+    const isHome = segments.length === 2 && segments[1] !== '';
+    const isAppData =
+        segments.length === 3 && segments[2]!.toLowerCase() === 'appdata';
+    if (!isHome && !isAppData) return false;
+
+    const appData = isAppData
+        ? folder
+        : await stores.fsEntry.getEntryByPath(`${folder.path}/AppData`);
+    if (!appData) return false;
+    let after: FSEntry | undefined;
+    for (;;) {
+        const page = await stores.fsEntry.listChildrenOfParents([appData], {
+            limit: APP_DATA_PAGE_SIZE,
+            after,
+        });
+        const closed = await closedAppDataOwners(
+            stores.app,
+            page.map((entry) => entry.path),
+            ownAppUid,
+        );
+        if (closed.size > 0) return true;
+        if (page.length < APP_DATA_PAGE_SIZE) return false;
+        after = page[page.length - 1];
+    }
 };

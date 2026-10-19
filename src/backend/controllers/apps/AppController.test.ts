@@ -338,6 +338,42 @@ describe('AppController POST /rao', () => {
         expect(rows).toHaveLength(1);
     });
 
+    it('keeps every open as a row, and counts one per account per hour', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const app = await createApp(owner.actor);
+
+        const open = async (user: { actor: Actor; userId: number }) => {
+            const { res } = makeRes();
+            await withActor(user.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: user.actor }),
+                    res,
+                ),
+            );
+        };
+
+        for (let i = 0; i < 5; i++) await open(owner);
+        await open(other);
+        await server.controllers.apps.drainPendingAppOpens();
+
+        // Every open is still a row: the recent-apps list orders on them.
+        const rows = (await server.clients.db.read(
+            'SELECT `user_id` FROM `app_opens` WHERE `app_uid` = ?',
+            [app.uid],
+        )) as Array<{ user_id: number }>;
+        expect(rows).toHaveLength(6);
+
+        // The count is accounts-per-hour, so repeats do not move it.
+        const stats = await server.stores.app.getAppsStats([app.uid]);
+        expect(stats.get(app.uid)).toMatchObject({
+            open_count: 2,
+            user_count: 2,
+        });
+    });
+
     // `app_opens` is analytics: the response carries nothing derived from it
     // and the client never awaits the post. Holding the response open for a
     // primary write put that write's latency inside the app launch it was
@@ -618,6 +654,48 @@ describe('AppController GET /apps/:name', () => {
         expect(body.index_url).toBeUndefined();
         expect(body.privateAccess).toMatchObject({ hasAccess: false });
     });
+
+    it('asks the private-access hook once per private app and withholds its index_url', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const app = await createApp(owner.actor, { name: uniqueName('priv') });
+        const other = await createApp(owner.actor, { name: uniqueName('pub') });
+        await server.clients.db.write(
+            'UPDATE `apps` SET `is_private` = 1 WHERE `uid` = ?',
+            [app.uid],
+        );
+        await server.stores.app.invalidateByUid(app.uid as string);
+        const emit = vi.spyOn(server.clients.event, 'emitAndWait');
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(stranger.actor, () =>
+                callRoute(
+                    'get',
+                    '/apps/:name',
+                    makeReq({
+                        params: { name: `${app.name}|${other.name}` },
+                        actor: stranger.actor,
+                    }),
+                    res,
+                ),
+            );
+            const [priv, pub] = captured.body as Array<Record<string, unknown>>;
+            expect(priv!.index_url).toBeUndefined();
+            expect(priv!.privateAccess).toMatchObject({ hasAccess: false });
+            expect(pub!.privateAccess).toEqual({
+                hasAccess: true,
+                checkedBy: 'core/public-app',
+            });
+            expect(
+                emit.mock.calls.filter(
+                    (call) => call[0] === 'app.privateAccess.resolveLaunch',
+                ),
+            ).toHaveLength(1);
+        } finally {
+            emit.mockRestore();
+        }
+    });
 });
 
 // ── POST /query/app ─────────────────────────────────────────────────
@@ -791,6 +869,61 @@ describe('AppController POST /query/app', () => {
         const body = captured.body as Array<Record<string, unknown>>;
         expect(body).toHaveLength(1);
         expect(body[0]?.name).toBe(app.name);
+    });
+
+    it('resolves every selector with batched lookups, not one per selector', async () => {
+        const owner = await makeUser();
+        const apps = await Promise.all(
+            [0, 1, 2].map(() =>
+                createApp(owner.actor, {
+                    name: uniqueName('batch'),
+                    filetype_associations: ['.batchq'],
+                }),
+            ),
+        );
+        const appStore = server.stores.app;
+        const spies = {
+            getByName: vi.spyOn(appStore, 'getByName'),
+            getByUid: vi.spyOn(appStore, 'getByUid'),
+            getFiletypeAssociations: vi.spyOn(
+                appStore,
+                'getFiletypeAssociations',
+            ),
+            getByNames: vi.spyOn(appStore, 'getByNames'),
+            getByUids: vi.spyOn(appStore, 'getByUids'),
+            getFiletypeAssociationsByIds: vi.spyOn(
+                appStore,
+                'getFiletypeAssociationsByIds',
+            ),
+        };
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(owner.actor, () =>
+                callRoute(
+                    'post',
+                    '/query/app',
+                    makeReq({
+                        body: [apps[0]!.name, apps[1]!.name, apps[2]!.uid],
+                        actor: owner.actor,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Array<Record<string, unknown>>;
+            expect(body.map((item) => item.uuid)).toEqual(
+                apps.map((app) => app.uid),
+            );
+            expect(body[2]!.associations).toEqual(['batchq']);
+            expect(spies.getByName).not.toHaveBeenCalled();
+            expect(spies.getByUid).not.toHaveBeenCalled();
+            expect(spies.getFiletypeAssociations).not.toHaveBeenCalled();
+            expect(spies.getByNames).toHaveBeenCalledTimes(1);
+            expect(spies.getByUids).toHaveBeenCalledTimes(1);
+            expect(spies.getFiletypeAssociationsByIds).toHaveBeenCalledTimes(1);
+        } finally {
+            for (const spy of Object.values(spies)) spy.mockRestore();
+        }
     });
 });
 

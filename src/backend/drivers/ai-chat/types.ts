@@ -31,6 +31,18 @@ export interface ModelModalities {
     output: string[];
 }
 
+export interface ModelPricingOverride {
+    /** Applies above this many input tokens, or at it too when inclusive. */
+    minPromptTokens?: number;
+    minPromptTokensInclusive?: boolean;
+    utcStart?: number;
+    utcEnd?: number;
+    utcDays?: number[];
+    /** ISO instant from which this override applies, e.g. a list-price change. */
+    startsAt?: string;
+    costs: ModelCost;
+}
+
 export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     string,
     unknown
@@ -54,6 +66,7 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
         input_multiplier: number;
         output_multiplier: number;
     };
+    pricingOverrides?: ModelPricingOverride[];
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;
@@ -291,9 +304,18 @@ export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
-    list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
-    complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
+    /**
+     * `model` is this provider's own catalog entry for `arg.model`, as the
+     * driver resolved it; a provider resolves `arg.model` itself without it.
+     * `pricingTime` is the instant the driver's credit gate priced this attempt
+     * at; usage metered for the attempt is priced at the same instant.
+     */
+    complete(
+        arg: ICompleteArguments,
+        model?: IChatModel,
+        pricingTime?: Date,
+    ): Promise<IChatCompleteResult>;
     checkModeration(
         text: string,
     ): Promise<{ flagged: boolean; categories?: string[] }> | void;
@@ -312,12 +334,19 @@ export interface IChatProvider {
     /**
      * Request-specific pricing the credit gate must reserve for (web search,
      * fast mode, the advisor tool), in µ¢, before the AI cost factor.
+     * `maxTokens` is an output cap the provider holds this request to; the gate
+     * caps `max_tokens` and sizes the hold to it as well.
      */
     requestPricing?(
         args: ICompleteArguments,
         model: IChatModel,
         est: { promptTokenEstimate: number },
-    ): { inputKey?: string; outputKey?: string; extraCost?: number };
+    ): {
+        inputKey?: string;
+        outputKey?: string;
+        extraCost?: number;
+        maxTokens?: number;
+    };
     /**
      * Exact prompt token count, when the vendor offers one (e.g. Claude's
      * `count_tokens`).

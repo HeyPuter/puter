@@ -17,11 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Writable } from 'node:stream';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable, Writable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../../server';
+import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
 import type { Actor } from '../../actor';
@@ -653,6 +655,66 @@ describe('createPuterSiteMiddleware — file serving', () => {
         expect(out.headers['Accept-Ranges']).toBe('bytes');
     });
 
+    it('cuts the response off when storage fails mid-download', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `cut-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const entry = await writeFile(
+            owner.id,
+            `${homePath}/movie.bin`,
+            Buffer.alloc(64, 0x42),
+        );
+
+        // One chunk, then the storage connection drops.
+        let reads = 0;
+        const body = new Readable({
+            read() {
+                reads += 1;
+                if (reads === 1) this.push('partial');
+                else this.destroy(new Error('aborted'));
+            },
+        });
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(entry!.bucketRegion),
+        );
+        const send = client.send.bind(client);
+        const spy = vi
+            .spyOn(client, 'send')
+            .mockImplementation(((command: unknown) =>
+                command instanceof GetObjectCommand
+                    ? Promise.resolve({ Body: body, ContentLength: 64 })
+                    : send(command as never)) as never);
+
+        const mw = buildMiddleware();
+        const { res } = makeRes();
+        // A real response is torn down through its socket and never emits
+        // 'error' itself; the stand-in Writable does, so absorb it.
+        res.on('error', () => undefined);
+        try {
+            await mw(
+                makeReq({
+                    hostname: `${sub}.site.puter.localhost`,
+                    path: '/movie.bin',
+                }),
+                res,
+                vi.fn(),
+            );
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(res.destroyed).toBe(true);
+        expect(res.writableFinished).toBe(false);
+        expect(body.destroyed).toBe(true);
+    });
+
     it("rewrites a trailing slash request to /index.html under the site's root", async () => {
         const owner = await makeUserWithHome();
         const homePath = `/${owner.username}`;
@@ -1216,6 +1278,50 @@ describe('createPuterSiteMiddleware — .puter_site_config', () => {
         expect(piped!.equals(body)).toBe(true);
     });
 
+    it('reads the config only for a path that 404s', async () => {
+        const { owner, homePath, sub } = await setupSiteWithConfig({
+            errors: { '404': { file: '/index.html', status: 200 } },
+        });
+        const body = Buffer.from('<html>spa-shell</html>');
+        await writeFile(owner.id, `${homePath}/index.html`, body, 'text/html');
+        const root = await server.stores.fsEntry.getEntryByPath(homePath);
+        // The loader caches whatever it reads, so an empty slot means it
+        // never ran.
+        const cached = () =>
+            server.clients.redis.get(`puter-site-config:${root!.id}`);
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+        const mw = buildMiddleware();
+        const served = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/index.html',
+            }),
+            served.res,
+            vi.fn(),
+        );
+        await settle();
+        expect(served.out.statusCode).toBe(200);
+        expect(await cached()).toBeNull();
+
+        const missing = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/client-route',
+            }),
+            missing.res,
+            vi.fn(),
+        );
+        await settle();
+        expect(missing.out.statusCode).toBe(200);
+        expect((missing.out.body as Buffer | undefined)?.equals(body)).toBe(
+            true,
+        );
+        expect(await cached()).not.toBeNull();
+    });
+
     it('serves the cached config on a second request, even when the on-disk file is removed (Redis cache holds within TTL)', async () => {
         // First request seeds the cache with the parsed config. We
         // then delete the underlying file and fire a second request:
@@ -1460,6 +1566,86 @@ describe('createPuterSiteMiddleware — __workers/ is never served', () => {
         const piped = out.body as Buffer | undefined;
         expect(Buffer.isBuffer(piped)).toBe(true);
         expect(piped!.equals(shell)).toBe(true);
+    });
+
+    // SQLite compares paths bytewise; MySQL's utf8mb4_unicode_ci folds
+    // accents, fullwidth forms and zero-width chars. Emulate that fold.
+    const withCollationAlias = async (
+        alias: string,
+        real: string,
+        fn: () => Promise<void>,
+    ) => {
+        const store = server.stores.fsEntry;
+        const original = store.getEntryByPath.bind(store);
+        const spy = vi
+            .spyOn(store, 'getEntryByPath')
+            .mockImplementation((path, options) =>
+                original(
+                    path.startsWith(alias)
+                        ? real + path.slice(alias.length)
+                        : path,
+                    options,
+                ),
+            );
+        try {
+            await fn();
+        } finally {
+            spy.mockRestore();
+        }
+    };
+
+    it('404s a collation alias of __workers/ that the database resolves to the real file', async () => {
+        const { homePath, sub } = await setupSiteWithWorker();
+        await withCollationAlias(
+            `${homePath}/__wörkers/matchmaking.worker.js`,
+            `${homePath}/__workers/matchmaking.worker.js`,
+            async () => {
+                const out = await request(
+                    sub,
+                    '/__w%C3%B6rkers/matchmaking.worker.js',
+                );
+                expect(out.statusCode).toBe(404);
+                expect(String(out.body)).not.toContain('secret');
+            },
+        );
+    });
+
+    it('404s a collation alias of a folder whose index.html sits in __workers/', async () => {
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        await writeFile(
+            owner.id,
+            `${homePath}/__workers/index.html`,
+            Buffer.from('<html>listing</html>'),
+            'text/html',
+        );
+        await withCollationAlias(
+            `${homePath}/__wörkers`,
+            `${homePath}/__workers`,
+            async () => {
+                const out = await request(sub, '/__w%C3%B6rkers');
+                expect(out.statusCode).toBe(404);
+                expect(String(out.body)).not.toContain('listing');
+            },
+        );
+    });
+
+    it('404s a collation alias of .puter_site_config', async () => {
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        await writeFile(
+            owner.id,
+            `${homePath}/.puter_site_config`,
+            Buffer.from(JSON.stringify({ errors: {}, marker: 'cfg-body' })),
+            'application/json',
+        );
+        await withCollationAlias(
+            `${homePath}/.püter_site_config`,
+            `${homePath}/.puter_site_config`,
+            async () => {
+                const out = await request(sub, '/.p%C3%BCter_site_config');
+                expect(out.statusCode).toBe(404);
+                expect(String(out.body)).not.toContain('cfg-body');
+            },
+        );
     });
 });
 
@@ -1766,7 +1952,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
         return out;
     };
 
-    const cookieName = () => server.services.auth.getPrivateAssetCookieNameV2();
+    const cookieName = () => HOSTED_ASSET_COOKIES.private.name;
 
     it('sets the cookie and redirects a top-level page to the same URL without the token', async () => {
         const out = await visit({ dest: 'document' });
@@ -1793,12 +1979,15 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
     });
 
     it('still strips the token when the visitor already holds the cookie', async () => {
-        const cookie = await server.services.auth.createPrivateAssetToken({
-            appUid,
-            userUid: visitor.uuid,
-            subdomain: sub,
-            privateHost: host,
-        });
+        const cookie = await server.services.auth.createHostedAssetToken(
+            'private',
+            {
+                appUid,
+                userUid: visitor.uuid,
+                subdomain: sub,
+                host,
+            },
+        );
         const out = await visit({
             dest: 'document',
             cookies: { [cookieName()]: cookie },
@@ -1809,7 +1998,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
     it('serves without redirecting when the cookie could not be minted', async () => {
         // Without the cookie, the clean URL would bounce back to sign-in.
         const spy = vi
-            .spyOn(server.services.auth, 'createPrivateAssetToken')
+            .spyOn(server.services.auth, 'createHostedAssetToken')
             .mockRejectedValueOnce(new Error('mint failed'));
         try {
             const out = await visit({ dest: 'document' });
@@ -1819,4 +2008,464 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             spy.mockRestore();
         }
     });
+});
+
+// ── Owner, app and root lookups ─────────────────────────────────────
+
+describe('createPuterSiteMiddleware — site lookups', () => {
+    const failure = (what: string) => new Error(`${what} lookup failed`);
+    const isAppQuery = (sql: unknown) => /FROM `?apps`?\b/.test(String(sql));
+
+    /** Unhandled rejections raised while `fn` runs, and shortly after. */
+    const unhandledDuring = async (fn: () => Promise<void>) => {
+        const seen: unknown[] = [];
+        const onUnhandled = (reason: unknown) => seen.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            await fn();
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        return seen;
+    };
+
+    const makeSite = async (opts: { suspended?: boolean } = {}) => {
+        const owner = await makeUserWithHome();
+        if (opts.suspended) {
+            await server.stores.user.update(owner.id, { suspended: 1 });
+        }
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `look-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('<html>hi</html>'),
+            'text/html',
+        );
+        return { owner, sub, rootDirId: homeEntry!.id };
+    };
+
+    const failRootLookup = () =>
+        vi
+            .spyOn(server.stores.fsEntry, 'getEntryById')
+            .mockRejectedValueOnce(failure('root'));
+
+    const failAppLookup = () => {
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        return vi
+            .spyOn(db, 'read')
+            .mockImplementation((sql, params) =>
+                isAppQuery(sql)
+                    ? Promise.reject(failure('app'))
+                    : realRead(sql, params),
+            );
+    };
+
+    /** Spies on app queries and root lookups, failing both. */
+    const failAndCountLookups = () => {
+        const readSpy = failAppLookup();
+        const rootSpy = vi
+            .spyOn(server.stores.fsEntry, 'getEntryById')
+            .mockRejectedValue(failure('root'));
+        return {
+            appQueries: () =>
+                readSpy.mock.calls.filter(([sql]) => isAppQuery(sql)).length,
+            rootLookups: () => rootSpy.mock.calls.length,
+            restore: () => {
+                readSpy.mockRestore();
+                rootSpy.mockRestore();
+            },
+        };
+    };
+
+    it('starts the app and root lookups together once the owner is known', async () => {
+        const { owner, sub, rootDirId } = await makeSite();
+        const ownerRow = await server.stores.user.getById(owner.id);
+        let releaseOwner!: () => void;
+        const userSpy = vi
+            .spyOn(server.stores.user, 'getById')
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        releaseOwner = () => resolve(ownerRow);
+                    }),
+            );
+        const rootSpy = vi.spyOn(server.stores.fsEntry, 'getEntryById');
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const heldAppQueries: Array<() => void> = [];
+        const readSpy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) => {
+                if (isAppQuery(sql)) {
+                    await new Promise<void>((resolve) => {
+                        heldAppQueries.push(resolve);
+                    });
+                }
+                return realRead(sql, params);
+            });
+        const appQueried = () =>
+            readSpy.mock.calls.some(([sql]) => isAppQuery(sql));
+        try {
+            const mw = buildMiddleware();
+            const { res, out } = makeRes();
+            const done = mw(
+                makeReq({
+                    hostname: `${sub}.site.puter.localhost`,
+                    path: '/index.html',
+                }),
+                res,
+                vi.fn(),
+            );
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(appQueried()).toBe(false);
+            expect(rootSpy).not.toHaveBeenCalled();
+
+            releaseOwner();
+            await vi.waitFor(() => expect(appQueried()).toBe(true));
+            expect(rootSpy).toHaveBeenCalledWith(rootDirId);
+
+            for (const release of heldAppQueries.splice(0)) release();
+            await done;
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(out.statusCode).toBe(200);
+        } finally {
+            for (const release of heldAppQueries.splice(0)) release();
+            userSpy.mockRestore();
+            rootSpy.mockRestore();
+            readSpy.mockRestore();
+        }
+    });
+
+    it.each([
+        ['suspended', { suspended: true }],
+        ['missing', {}],
+    ] as const)(
+        '404s a %s owner without querying the app or the root',
+        async (kind, opts) => {
+            const { sub } = await makeSite(opts);
+            const userSpy =
+                kind === 'missing'
+                    ? vi
+                          .spyOn(server.stores.user, 'getById')
+                          .mockResolvedValueOnce(null)
+                    : null;
+            const lookups = failAndCountLookups();
+            try {
+                let out: CapturedRes | undefined;
+                const unhandled = await unhandledDuring(async () => {
+                    ({ out } = await runMiddleware(
+                        buildMiddleware(),
+                        makeReq({ hostname: `${sub}.site.puter.localhost` }),
+                    ));
+                });
+                expect(out?.statusCode).toBe(404);
+                expect(out?.body).toBe('Subdomain not found');
+                expect(lookups.appQueries()).toBe(0);
+                expect(lookups.rootLookups()).toBe(0);
+                expect(unhandled).toEqual([]);
+            } finally {
+                userSpy?.mockRestore();
+                lookups.restore();
+            }
+        },
+    );
+
+    it("surfaces the owner lookup's failure before the others start", async () => {
+        const { sub } = await makeSite();
+        const userSpy = vi
+            .spyOn(server.stores.user, 'getById')
+            .mockRejectedValueOnce(failure('owner'));
+        const lookups = failAndCountLookups();
+        try {
+            const unhandled = await unhandledDuring(async () => {
+                await expect(
+                    runMiddleware(
+                        buildMiddleware(),
+                        makeReq({ hostname: `${sub}.site.puter.localhost` }),
+                    ),
+                ).rejects.toThrow('owner lookup failed');
+            });
+            expect(lookups.appQueries()).toBe(0);
+            expect(lookups.rootLookups()).toBe(0);
+            expect(unhandled).toEqual([]);
+        } finally {
+            userSpy.mockRestore();
+            lookups.restore();
+        }
+    });
+
+    it("surfaces the app lookup's failure ahead of the root's", async () => {
+        const { sub } = await makeSite();
+        const readSpy = failAppLookup();
+        const rootSpy = failRootLookup();
+        try {
+            const unhandled = await unhandledDuring(async () => {
+                await expect(
+                    runMiddleware(
+                        buildMiddleware(),
+                        makeReq({ hostname: `${sub}.site.puter.localhost` }),
+                    ),
+                ).rejects.toThrow('app lookup failed');
+            });
+            expect(unhandled).toEqual([]);
+        } finally {
+            readSpy.mockRestore();
+            rootSpy.mockRestore();
+        }
+    });
+
+    it('surfaces a failed root lookup once the gate lets the request through', async () => {
+        const { sub } = await makeSite();
+        const rootSpy = failRootLookup();
+        try {
+            const unhandled = await unhandledDuring(async () => {
+                await expect(
+                    runMiddleware(
+                        buildMiddleware(),
+                        makeReq({ hostname: `${sub}.site.puter.localhost` }),
+                    ),
+                ).rejects.toThrow('root lookup failed');
+            });
+            expect(unhandled).toEqual([]);
+        } finally {
+            rootSpy.mockRestore();
+        }
+    });
+
+    it('redirects off the private host and drops the failed root lookup', async () => {
+        const { sub } = await makeSite();
+        const rootSpy = failRootLookup();
+        try {
+            let out: CapturedRes | undefined;
+            const unhandled = await unhandledDuring(async () => {
+                ({ out } = await runMiddleware(
+                    buildMiddleware(),
+                    makeReq({ hostname: `${sub}.app.puter.localhost` }),
+                ));
+            });
+            expect(out?.redirected).toEqual({
+                status: 302,
+                url: `http://${sub}.site.puter.localhost/`,
+            });
+            expect(unhandled).toEqual([]);
+        } finally {
+            rootSpy.mockRestore();
+        }
+    });
+
+    it('asks a private-app visitor to sign in and drops the failed root lookup', async () => {
+        const { owner, sub } = await makeSite();
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                `app-${uuidv4()}`,
+                sub,
+                `Title ${sub}`,
+                `http://${sub}.app.puter.localhost/`,
+                owner.id,
+                1,
+            ],
+        );
+        const rootSpy = failRootLookup();
+        try {
+            let out: CapturedRes | undefined;
+            const unhandled = await unhandledDuring(async () => {
+                ({ out } = await runMiddleware(
+                    buildMiddleware(),
+                    makeReq({ hostname: `${sub}.app.puter.localhost` }),
+                ));
+            });
+            expect(out?.statusCode).toBe(200);
+            expect(String(out?.body)).toContain(`Title ${sub}`);
+            expect(String(out?.body)).toContain('Sign in required');
+            expect(unhandled).toEqual([]);
+        } finally {
+            rootSpy.mockRestore();
+        }
+    });
+});
+
+// ── Private-app gate decisions ──────────────────────────────────────
+
+describe('createPuterSiteMiddleware — private-app gate decisions', () => {
+    let entitled = false;
+    const listener = (_key: string, data: { result: { allowed: boolean } }) => {
+        if (entitled) data.result.allowed = true;
+    };
+    let visitor: Awaited<ReturnType<typeof makeUser>>;
+    let token: string;
+
+    beforeAll(async () => {
+        visitor = await makeUser();
+        ({ token } = await server.services.auth.createSessionToken(
+            visitor as never,
+        ));
+        server.clients.event.on('app.privateAccess.check', listener as never);
+    });
+
+    afterAll(() => {
+        server.clients.event.off('app.privateAccess.check', listener as never);
+    });
+
+    const makePrivateSite = async (opts: {
+        suspended?: boolean;
+        root?: 'home' | 'none' | 'foreign';
+    }) => {
+        const owner = await makeUserWithHome();
+        const sub = `gate-${Math.random().toString(36).slice(2, 8)}`;
+        let rootDirId: number | undefined;
+        if (opts.root === 'home') {
+            rootDirId = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}`,
+            ))!.id;
+            await writeFile(
+                owner.id,
+                `/${owner.username}/index.html`,
+                Buffer.from('<html>gated</html>'),
+                'text/html',
+            );
+        } else if (opts.root === 'foreign') {
+            const other = await makeUserWithHome();
+            rootDirId = (await server.stores.fsEntry.getEntryByPath(
+                `/${other.username}`,
+            ))!.id;
+        }
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            ...(rootDirId !== undefined ? { rootDirId } : {}),
+        });
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                `app-${uuidv4()}`,
+                sub,
+                sub,
+                `http://${sub}.app.puter.localhost/`,
+                owner.id,
+                1,
+            ],
+        );
+        if (opts.suspended) {
+            await server.stores.user.update(owner.id, { suspended: 1 });
+        }
+        return sub;
+    };
+
+    const visit = async (
+        sub: string,
+        host: 'site' | 'app',
+        identity: 'none' | 'cookie',
+    ) => {
+        const mw = buildMiddleware({ cookie_name: 'puter_session' });
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.${host}.puter.localhost`,
+                path: '/index.html',
+                cookies: identity === 'cookie' ? { puter_session: token } : {},
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    const decide = (out: CapturedRes, sub: string) => {
+        if (out.redirected) {
+            return `302 ${out.redirected.url.replaceAll(sub, 'SUB')}`;
+        }
+        const body = Buffer.isBuffer(out.body)
+            ? out.body.toString()
+            : String(out.body);
+        if (body.includes('Sign in required'))
+            return `${out.statusCode} sign-in`;
+        if (body.includes('Subdomain or site is not pointing')) {
+            return `${out.statusCode} site-404`;
+        }
+        return `${out.statusCode} ${body}`;
+    };
+
+    it.each([
+        // A suspended owner hides the app entirely, whoever asks.
+        [
+            { suspended: true, root: 'home' },
+            'app',
+            'cookie',
+            true,
+            '404 Subdomain not found',
+        ],
+        [
+            { suspended: true, root: 'home' },
+            'app',
+            'none',
+            false,
+            '404 Subdomain not found',
+        ],
+        [
+            { suspended: true, root: 'home' },
+            'site',
+            'cookie',
+            true,
+            '404 Subdomain not found',
+        ],
+        // The public host always bounces to the private one first.
+        [
+            { root: 'home' },
+            'site',
+            'cookie',
+            true,
+            '302 http://SUB.app.puter.localhost/index.html',
+        ],
+        [
+            { root: 'home' },
+            'site',
+            'none',
+            false,
+            '302 http://SUB.app.puter.localhost/index.html',
+        ],
+        [{ root: 'home' }, 'app', 'none', true, '200 sign-in'],
+        [
+            { root: 'home' },
+            'app',
+            'cookie',
+            false,
+            '302 https://puter.localhost/app/app-center/?item=SUB',
+        ],
+        [{ root: 'home' }, 'app', 'cookie', true, '200 <html>gated</html>'],
+        // Root checks run only after entitlement passes.
+        [
+            { root: 'none' },
+            'app',
+            'cookie',
+            false,
+            '302 https://puter.localhost/app/app-center/?item=SUB',
+        ],
+        [{ root: 'none' }, 'app', 'cookie', true, '404 site-404'],
+        [{ root: 'foreign' }, 'app', 'none', false, '200 sign-in'],
+        [{ root: 'foreign' }, 'app', 'cookie', true, '404 site-404'],
+    ] as const)(
+        '%o on %s host, identity %s, entitled %s → %s',
+        async (site, host, identity, allow, expected) => {
+            const sub = await makePrivateSite(site);
+            entitled = allow;
+            try {
+                expect(decide(await visit(sub, host, identity), sub)).toBe(
+                    expected,
+                );
+            } finally {
+                entitled = false;
+            }
+        },
+    );
 });

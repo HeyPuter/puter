@@ -19,7 +19,12 @@
 
 import { describe, expect, it } from 'vitest';
 import validator from 'validator';
-import { cleanEmail, isBlockedEmail, isStorableEmail } from './email.ts';
+import {
+    cleanEmail,
+    isBlockedEmail,
+    isSameAddress,
+    isStorableEmail,
+} from './email.ts';
 
 describe('cleanEmail', () => {
     it('lowercases the whole address', () => {
@@ -94,6 +99,22 @@ describe('cleanEmail', () => {
     });
 });
 
+describe('isSameAddress', () => {
+    it('ignores case and surrounding space', () => {
+        expect(isSameAddress('Foo@Example.com ', 'foo@example.COM')).toBe(true);
+    });
+
+    it('tells accent variants apart', () => {
+        expect(isSameAddress('foo@gmáil.com', 'foo@gmail.com')).toBe(false);
+        expect(isSameAddress('fóo@gmail.com', 'foo@gmail.com')).toBe(false);
+    });
+
+    it('never matches a missing address', () => {
+        expect(isSameAddress(null, 'foo@example.com')).toBe(false);
+        expect(isSameAddress(undefined, '')).toBe(false);
+    });
+});
+
 describe('isBlockedEmail', () => {
     it('is false when no block list is configured', () => {
         expect(isBlockedEmail('a@mailinator.com', undefined)).toBe(false);
@@ -120,6 +141,18 @@ describe('isBlockedEmail', () => {
         expect(
             isBlockedEmail('A.B+tag@MAILINATOR.com', ['mailinator.com']),
         ).toBe(true);
+        expect(
+            isBlockedEmail('first.last+tag@googlemail.com', ['@gmail.com']),
+        ).toBe(true);
+    });
+
+    it('ignores case in the configured suffixes too', () => {
+        expect(isBlockedEmail('a@mailinator.com', ['Mailinator.COM'])).toBe(
+            true,
+        );
+        expect(isBlockedEmail('a@Mailinator.com', ['Mailinator.com'])).toBe(
+            true,
+        );
     });
 });
 

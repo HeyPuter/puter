@@ -19,19 +19,22 @@
 
 import { assertImagePrompt } from './imageValidation.js';
 import crypto from 'node:crypto';
-import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
-import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
-import { secureFetch } from '../../util/secureHttp.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import {
+    resolveOutputPath,
+    saveGeneratedMediaToFS,
+} from '../util/generatedMedia.js';
+import { ModelCatalog } from '../util/modelCatalog.js';
+import { CATALOG_TTL_MS } from '../ai-chat/utils/cachedRemoteCatalog.js';
+import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
@@ -83,6 +86,14 @@ export class ImageGenerationDriver extends PuterDriver {
         string,
         { provider: string; reason?: string }
     >();
+    #catalog = new ModelCatalog<IImageModel>([], [], 'aiImage');
+    #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
+    /**
+     * The model map rebuild in flight. Providers adopt their refreshed prices
+     * as each catalog lands, before the map is swapped, so generate() waits
+     * this out to bill only prices the driver publishes.
+     */
+    #modelMapBuild: Promise<void> | undefined;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -95,10 +106,27 @@ export class ImageGenerationDriver extends PuterDriver {
 
     override async onServerStart() {
         this.#registerProviders();
-        await this.#buildModelMap();
+        await this.#refreshModelMap();
+        // Remote price catalogs expire; rebuild so listings track billing.
+        this.#modelMapRefresh = setInterval(() => {
+            void this.#refreshModelMap();
+        }, CATALOG_TTL_MS);
+        this.#modelMapRefresh.unref?.();
     }
 
-    async models() {
+    override onServerShutdown() {
+        clearInterval(this.#modelMapRefresh);
+    }
+
+    async models(): Promise<IImageModel[]> {
+        return this.#catalog.models;
+    }
+
+    async list(): Promise<string[]> {
+        return this.#catalog.names;
+    }
+
+    #listModels(): IImageModel[] {
         const seen = new Set<string>();
         return Object.values(this.#modelIdMap)
             .flat()
@@ -130,32 +158,8 @@ export class ImageGenerationDriver extends PuterDriver {
             });
     }
 
-    async list() {
-        return (await this.models()).map((m) => m.puterId || m.id).sort();
-    }
-
     override getReportedCosts(): Record<string, unknown>[] {
-        const out: Record<string, unknown>[] = [];
-        const seen = new Set<string>();
-        for (const bucket of Object.values(this.#modelIdMap)) {
-            for (const model of bucket) {
-                const key = `${model.provider}:${model.id}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                for (const [costKey, raw] of Object.entries(
-                    (model as { costs?: Record<string, number> }).costs ?? {},
-                )) {
-                    if (typeof raw !== 'number' || !Number.isFinite(raw))
-                        continue;
-                    out.push({
-                        usageType: `${model.provider}:${model.id}:${costKey}`,
-                        costValue: raw,
-                        source: `driver:aiImage/${model.provider}`,
-                    });
-                }
-            }
-        }
-        return out;
+        return this.#catalog.reportedCosts;
     }
 
     async generate(args: IGenerateParams): Promise<string> {
@@ -184,23 +188,13 @@ export class ImageGenerationDriver extends PuterDriver {
         const { puter_output_path: puterOutputPath, ...request } = args;
 
         // Validate the output path early — before spending credits.
-        let resolvedOutputPath: string | undefined;
-        if (puterOutputPath) {
-            const username = actor.user?.username;
-            const userId = actor.user?.id;
-            if (!userId || !username) {
-                throw new HttpError(
-                    400,
-                    'User ID required for puter_output_path',
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            resolvedOutputPath = this.#resolveOutputPath(
-                puterOutputPath,
-                username,
-            );
-            await this.#assertWriteAccess(actor, resolvedOutputPath);
-        }
+        const resolvedOutputPath = puterOutputPath
+            ? await resolveOutputPath(this.services, actor, puterOutputPath)
+            : undefined;
+
+        // Last await before provider.generate() takes its price snapshot:
+        // from here routing and pricing both read the published map.
+        while (this.#modelMapBuild) await this.#modelMapBuild.catch(() => {});
 
         let modelId =
             typeof args.model === 'string'
@@ -337,7 +331,13 @@ export class ImageGenerationDriver extends PuterDriver {
         const result = await provider.generate(request);
 
         if (resolvedOutputPath) {
-            await this.#saveToFS(actor, result, resolvedOutputPath);
+            await saveGeneratedMediaToFS(
+                this.services.fs,
+                actor,
+                result,
+                resolvedOutputPath,
+                { noun: 'image', defaultType: 'application/octet-stream' },
+            );
         }
 
         return result;
@@ -347,20 +347,7 @@ export class ImageGenerationDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const m = this.#aiMetering;
 
-        const readKey = (
-            ...cfgs: Array<Record<string, unknown> | undefined>
-        ): string | undefined => {
-            for (const cfg of cfgs) {
-                if (!cfg) continue;
-                const k =
-                    (cfg.apiKey as string | undefined) ??
-                    (cfg.secret_key as string | undefined);
-                if (k) return k;
-            }
-            return undefined;
-        };
-
-        const openaiKey = readKey(
+        const openaiKey = readProviderKey(
             providers['openai-image-generation'],
             providers['openai-completion'],
             providers['openai'],
@@ -370,7 +357,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 new OpenAiImageProvider({ apiKey: openaiKey }, m);
         }
 
-        const geminiKey = readKey(
+        const geminiKey = readProviderKey(
             providers['gemini-image-generation'],
             providers['gemini'],
         );
@@ -379,7 +366,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 new GeminiImageProvider({ apiKey: geminiKey }, m);
         }
 
-        const togetherKey = readKey(
+        const togetherKey = readProviderKey(
             providers['together-image-generation'],
             providers['together-ai'],
         );
@@ -394,8 +381,7 @@ export class ImageGenerationDriver extends PuterDriver {
             Record<string, unknown> | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
-            (cloudflare?.apiKey as string | undefined) ??
-            (cloudflare?.secret_key as string | undefined);
+            readProviderKey(cloudflare);
         const cfAccount =
             (cloudflare?.accountId as string | undefined) ??
             (cloudflare?.account_id as string | undefined);
@@ -412,7 +398,7 @@ export class ImageGenerationDriver extends PuterDriver {
                 );
         }
 
-        const xaiKey = readKey(
+        const xaiKey = readProviderKey(
             providers['xai-image-generation'],
             providers['xai'],
         );
@@ -423,7 +409,9 @@ export class ImageGenerationDriver extends PuterDriver {
             );
         }
 
-        const replicateKey = readKey(providers['replicate-image-generation']);
+        const replicateKey = readProviderKey(
+            providers['replicate-image-generation'],
+        );
         if (replicateKey) {
             this.#providers['replicate-image-generation'] =
                 new ReplicateImageGenerationProvider(
@@ -441,7 +429,10 @@ export class ImageGenerationDriver extends PuterDriver {
             Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
             Record<string, unknown> | undefined;
-        const byteplusKey = readKey(byteplusImageCfg, byteplusSharedCfg);
+        const byteplusKey = readProviderKey(
+            byteplusImageCfg,
+            byteplusSharedCfg,
+        );
         if (byteplusKey) {
             this.#providers['byteplus-image-generation'] =
                 new BytePlusImageProvider(
@@ -456,21 +447,34 @@ export class ImageGenerationDriver extends PuterDriver {
         }
     }
 
+    /** Rebuilds the model map; overlapping callers share one rebuild. */
+    #refreshModelMap(): Promise<void> {
+        this.#modelMapBuild ??= this.#buildModelMap().finally(() => {
+            this.#modelMapBuild = undefined;
+        });
+        return this.#modelMapBuild;
+    }
+
     async #buildModelMap() {
+        const catalogs = await Promise.all(
+            Object.entries(this.#providers).map(
+                async ([providerName, provider]) =>
+                    [providerName, provider, await provider.models()] as const,
+            ),
+        );
+        // Everything below is synchronous, so requests never see a half-built map.
         this.#modelIdMap = Object.create(null);
         this.#excludedModelIdMap = Object.create(null);
         this.#retiredModelAliases.clear();
         const models: IImageModel[] = [];
-        for (const [providerName, provider] of Object.entries(
-            this.#providers,
-        )) {
+        for (const [providerName, provider, entries] of catalogs) {
             for (const alias of provider.retiredModelAliases ?? []) {
                 this.#retiredModelAliases.set(alias.trim().toLowerCase(), {
                     provider: providerName,
                     reason: provider.retiredModelReasons?.[alias],
                 });
             }
-            for (const entry of await provider.models()) {
+            for (const entry of entries) {
                 models.push({ ...entry, provider: providerName });
             }
         }
@@ -519,110 +523,11 @@ export class ImageGenerationDriver extends PuterDriver {
                 register(alias, model);
             }
         }
-    }
-
-    async #saveToFS(
-        actor: Actor,
-        result: string,
-        resolvedPath: string,
-    ): Promise<void> {
-        const userId = actor.user!.id!;
-
-        let buffer: Buffer;
-        let contentType: string;
-
-        if (result.startsWith('data:')) {
-            const commaIdx = result.indexOf(',');
-            const header = result.substring(0, commaIdx);
-            contentType =
-                header.match(/data:(.*?);/)?.[1] ?? 'application/octet-stream';
-            buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
-        } else {
-            // Provider-minted URL, but fetched with the same SSRF guards as
-            // the input paths: it reaches an unauthenticated GET whose body
-            // lands in the user's filesystem. skipProxy because generated
-            // media is ours to download directly, not user input to screen.
-            const response = await secureFetch(result, { skipProxy: true });
-            if (!response.ok) {
-                throw new HttpError(
-                    502,
-                    `Failed to fetch generated image for FS write: ${response.status}`,
-                    { legacyCode: 'internal_error' },
-                );
-            }
-            contentType =
-                response.headers.get('content-type') ??
-                'application/octet-stream';
-            buffer = Buffer.from(await response.arrayBuffer());
-        }
-
-        await this.services.fs.write(userId, {
-            fileMetadata: {
-                path: resolvedPath,
-                size: buffer.length,
-                contentType,
-                overwrite: true,
-                createMissingParents: true,
-            },
-            fileContent: Readable.from(buffer),
-        });
-    }
-
-    #resolveOutputPath(outputPath: string, username: string): string {
-        let resolved = outputPath.trim();
-        if (resolved === '~' || resolved.startsWith('~/')) {
-            resolved = `/${username}${resolved.slice(1)}`;
-        }
-        assertNormalized(resolved);
-        if (!resolved.startsWith('/')) {
-            resolved = `/${resolved}`;
-        }
-        if (resolved.length > 1 && resolved.endsWith('/')) {
-            resolved = resolved.slice(0, -1);
-        }
-        return resolved;
-    }
-
-    async #assertWriteAccess(
-        actor: Actor,
-        resolvedPath: string,
-    ): Promise<void> {
-        if (resolvedPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path', {
-                legacyCode: 'cannot_write_to_root',
-            });
-        }
-        const parentPath = pathPosix.dirname(resolvedPath);
-        if (parentPath === '/') {
-            throw new HttpError(400, 'Cannot write to root path', {
-                legacyCode: 'cannot_write_to_root',
-            });
-        }
-
-        const pathToCheck = parentPath;
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const canWrite = await this.services.acl.check(
-            actor,
-            {
-                path: pathToCheck,
-                resolveAncestors() {
-                    if (!ancestorsCache) {
-                        ancestorsCache =
-                            fsService.getAncestorChain(pathToCheck);
-                    }
-                    return ancestorsCache;
-                },
-            },
-            'write',
+        this.#catalog = new ModelCatalog(
+            this.#listModels(),
+            Object.values(this.#modelIdMap).flat(),
+            'aiImage',
         );
-        if (!canWrite) {
-            throw new HttpError(403, 'Write access denied for destination', {
-                legacyCode: 'access_denied',
-            });
-        }
     }
 
     #resolveModel(modelId: string, provider?: string): IImageModel | null {

@@ -22,9 +22,11 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
+import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
+import { awaitLater } from '../../../util/concurrency';
 import { makeActor } from '../../actor';
 import {
     buildAppCenterFallback,
@@ -92,6 +94,20 @@ const isWorkersSourcePath = (urlPath: string): boolean =>
     urlPath
         .split('/')
         .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
+
+/**
+ * Checks the stored path of a looked-up entry. The URL-level guards are not
+ * enough on MySQL: `fsentries.path` is utf8mb4_unicode_ci, so `__wörkers`,
+ * fullwidth or zero-width spellings resolve to the real `__workers` row.
+ */
+const isServableEntryPath = (
+    entryPath: string | null | undefined,
+    rootPath: string,
+): boolean => {
+    if (!entryPath?.startsWith(`${rootPath}/`)) return false;
+    const relPath = entryPath.slice(rootPath.length);
+    return !isWorkersSourcePath(relPath) && !isSiteConfigPath(relPath);
+};
 
 /** Inside some owner's top-level Trash, which is where Delete puts things. */
 const isTrashedPath = (path: string): boolean =>
@@ -191,6 +207,7 @@ export const createPuterSiteMiddleware = (
     if (hostingDomains.length === 0) {
         return (_req, _res, next) => next();
     }
+    const hostingCfg = buildHostingConfig(config);
 
     // Longest-first so `foo.bar.puter.site` matches `bar.puter.site` before
     // falling back to `puter.site`.
@@ -253,20 +270,32 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        const hostingCfg = buildHostingConfig(config);
-
+        // The hosted app and the site root depend only on the site row, so
+        // both lookups run together. Each is awaited where it is read, so an
+        // early return drops the other and errors surface in the same order.
+        //
         // The subdomain row's `associated_app_id` column is intentionally
         // not consulted — it was previously user-writable without an
         // ownership check (so any value there is either legacy or planted).
         // Resolve "what app does this subdomain host?" directly from
         // `apps.owner_user_id = site.user_id` + `index_url` match against
         // the request host.
-        const associatedApp = (await resolveOwnedAppForHostedSite({
-            req,
-            site: { user_id: site.user_id },
-            db: layers.clients.db,
-            config: hostingCfg,
-        })) as AppRow | null;
+        const appLookup = awaitLater(
+            resolveOwnedAppForHostedSite({
+                req,
+                site: { user_id: site.user_id },
+                appStore: layers.stores.app,
+                config: hostingCfg,
+            }),
+        );
+        const rootLookup =
+            site.root_dir_id === null || site.root_dir_id === undefined
+                ? null
+                : awaitLater(
+                      layers.stores.fsEntry.getEntryById(site.root_dir_id),
+                  );
+
+        const associatedApp = (await appLookup) as AppRow | null;
 
         const isPrivateApp = Boolean(associatedApp?.is_private);
         const privateApp = isPrivateApp ? associatedApp : null;
@@ -376,17 +405,20 @@ export const createPuterSiteMiddleware = (
             if (!hasStickyCookie) {
                 try {
                     const token =
-                        await layers.services.auth.createPrivateAssetToken({
-                            appUid: privateApp!.uid,
-                            userUid: identity.userUid,
-                            sessionUuid: identity.sessionUuid,
-                            subdomain,
-                            privateHost: host,
-                        });
+                        await layers.services.auth.createHostedAssetToken(
+                            'private',
+                            {
+                                appUid: privateApp!.uid,
+                                userUid: identity.userUid,
+                                sessionUuid: identity.sessionUuid,
+                                subdomain,
+                                host,
+                            },
+                        );
                     res.cookie(
-                        layers.services.auth.getPrivateAssetCookieNameV2(),
+                        HOSTED_ASSET_COOKIES.private.name,
                         token,
-                        layers.services.auth.getPrivateAssetCookieOptions({
+                        layers.services.auth.getHostedAssetCookieOptions({
                             requestHostname: host,
                         }),
                     );
@@ -458,7 +490,8 @@ export const createPuterSiteMiddleware = (
                     associatedApp?.uid
                 ) {
                     const token =
-                        await layers.services.auth.createPublicHostedActorToken(
+                        await layers.services.auth.createHostedAssetToken(
+                            'public',
                             {
                                 appUid: associatedApp.uid,
                                 userUid: identity.userUid,
@@ -468,9 +501,9 @@ export const createPuterSiteMiddleware = (
                             },
                         );
                     res.cookie(
-                        layers.services.auth.getPublicHostedActorCookieNameV2(),
+                        HOSTED_ASSET_COOKIES.public.name,
                         token,
-                        layers.services.auth.getPublicHostedActorCookieOptions({
+                        layers.services.auth.getHostedAssetCookieOptions({
                             requestHostname: host,
                         }),
                     );
@@ -491,9 +524,7 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        const rootEntry = await layers.stores.fsEntry.getEntryById(
-            site.root_dir_id,
-        );
+        const rootEntry = await rootLookup;
         if (!rootEntry) {
             res.status(404)
                 .type('text/html; charset=UTF-8')
@@ -575,24 +606,6 @@ export const createPuterSiteMiddleware = (
         }
         const filePath = rootPath + resolvedUrlPath;
 
-        // Best-effort site config load. A missing / malformed config
-        // never blocks the request — `loadSiteConfig` swallows all
-        // errors and returns null on any failure. The Redis cache
-        // keyed on `rootDirId` keeps the hot path off S3 for the
-        // common case where the same subdomain gets repeat visits.
-        let siteConfig: SiteConfig | null = null;
-        try {
-            siteConfig = await loadSiteConfig({
-                rootPath,
-                rootDirId: rootEntry.id,
-                fsEntryStore: layers.stores.fsEntry,
-                fsService: layers.services.fs,
-                cache: layers.clients.redis,
-            });
-        } catch (e) {
-            console.warn('[puter-site] loadSiteConfig threw', e);
-        }
-
         // Hide the config file from public serving — visitors should
         // see the same 404 as for any other missing path so the
         // deployment shape isn't leaked.
@@ -616,6 +629,9 @@ export const createPuterSiteMiddleware = (
                 pathPosix.join(filePath, 'index.html'),
             );
         }
+        if (entry && !isServableEntryPath(entry.path, rootPath)) {
+            entry = null;
+        }
 
         // Custom error page fallback. On a 404 we consult the site config
         // for a rule and, if one resolves to an existing file, serve that
@@ -625,6 +641,21 @@ export const createPuterSiteMiddleware = (
         // default 404 page rather than looping.
         let statusOverride: number | undefined;
         if (!entry || entry.isDir) {
+            // Best-effort site config load, only needed on a 404. A missing /
+            // malformed config never blocks the request — `loadSiteConfig`
+            // returns null on any failure, and caches by `rootDirId`.
+            let siteConfig: SiteConfig | null = null;
+            try {
+                siteConfig = await loadSiteConfig({
+                    rootPath,
+                    rootDirId: rootEntry.id,
+                    fsEntryStore: layers.stores.fsEntry,
+                    fsService: layers.services.fs,
+                    cache: layers.clients.redis,
+                });
+            } catch (e) {
+                console.warn('[puter-site] loadSiteConfig threw', e);
+            }
             const errorTarget = resolveErrorTarget(siteConfig, 404, rootPath);
             // A config pointing `errors.404.file` into `__workers/` would
             // publish worker source through the error page — refuse it the
@@ -636,7 +667,11 @@ export const createPuterSiteMiddleware = (
                 const candidate = await layers.stores.fsEntry.getEntryByPath(
                     errorTarget.absPath,
                 );
-                if (candidate && !candidate.isDir) {
+                if (
+                    candidate &&
+                    !candidate.isDir &&
+                    isServableEntryPath(candidate.path, rootPath)
+                ) {
                     entry = candidate;
                     statusOverride = errorTarget.status;
                 }

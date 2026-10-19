@@ -1515,3 +1515,50 @@ describe('NDJSON stream termination', () => {
     });
 
 });
+
+
+describe('driver streaming shapes', () => {
+    it('serializes structured chunks in the ReadableStream adapter', async () => {
+        const chunks = [
+            { type: 'text', text: 'hello' },
+            { type: 'usage', usage: { output_tokens: 1 } },
+            { type: 'tool_use', text: '', name: 'search', input: { query: 'hello' } },
+            { type: 'reasoning', reasoning: 'thinking' },
+            { type: 'error', error: { code: 'failed', message: 'failed' } },
+        ];
+        const lines = (async function* () { yield* chunks; })();
+        const body = await new Response(new ReadableStream(driverLineStream(lines, {}, {}))).text();
+        expect(body).toBe('hello' + chunks.slice(1).map(chunk => JSON.stringify(chunk) + '\n').join(''));
+        expect(body).not.toContain('[object Object]');
+    });
+
+    it('normalizes malformed final JSON to a stable SDK error', async () => {
+        installFakeXHR(xhr => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"type":"text","text":"partial');
+            xhr._done();
+        });
+        const resp = await fetchUrl('https://api.example/stream');
+        await expect(resp.stream().next()).rejects.toEqual({
+            message: 'Invalid or truncated stream response.', code: 'invalid_stream_response',
+        });
+    });
+
+    it('passes a driver abort signal through before and after stream headers', async () => {
+        const puter = { APIOrigin: 'https://api.example', authToken: 'token' };
+        const controller = new AbortController();
+        const instances = installFakeXHR(xhr => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+        });
+        const stream = await driverCall({ iface: 'ai', method: 'complete', puter }, { signal: controller.signal });
+        const abort = vi.spyOn(instances[0], 'abort');
+        const read = stream.next();
+        controller.abort();
+        await expect(read).rejects.toMatchObject({ name: 'AbortError' });
+        expect(abort).toHaveBeenCalledOnce();
+        await expect(driverCall({ iface: 'ai', method: 'complete', puter }, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+        expect(instances[1].reqBody).toBeUndefined();
+    });
+});

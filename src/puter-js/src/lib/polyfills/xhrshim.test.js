@@ -83,3 +83,27 @@ describe('xhrshim', () => {
     );
 
 });
+
+
+it('decodes split UTF-8 incrementally without redecoding accumulated bytes', async () => {
+    const bytes = new TextEncoder().encode('{"text":"🙂"}\n');
+    respond = (res) => {
+        res.setHeader('Content-Type', 'application/x-ndjson');
+        res.write(bytes.slice(0, 10));
+        setTimeout(() => { res.write(bytes.slice(10, 12)); }, 10);
+        setTimeout(() => { res.end(bytes.slice(12)); }, 20);
+    };
+    const originalDecode = TextDecoder.prototype.decode;
+    let decodedBytes = 0;
+    TextDecoder.prototype.decode = function (input, options) {
+        decodedBytes += input?.byteLength ?? 0;
+        return originalDecode.call(this, input, options);
+    };
+    try {
+        const xhr = await put();
+        expect(xhr.responseText).toBe('{"text":"🙂"}\n');
+        expect(decodedBytes).toBe(bytes.byteLength);
+    } finally {
+        TextDecoder.prototype.decode = originalDecode;
+    }
+});

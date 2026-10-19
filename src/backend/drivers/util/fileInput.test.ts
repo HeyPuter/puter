@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -24,7 +26,11 @@ import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import { inferFilenameFromUrlOrPath, loadFileInput } from './fileInput.js';
+import {
+    inferFilenameFromUrlOrPath,
+    loadFileInput,
+    resolveFileInput,
+} from './fileInput.js';
 
 // Web inputs leave the process through secureFetch; stub that boundary so
 // the tests control the remote response without real network access.
@@ -270,7 +276,7 @@ describe('loadFileInput data URL', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects an oversize data URL with 413 + storage_limit_reached', async () => {
+    it('rejects an oversize data URL with 413 + input_too_large', async () => {
         const { actor } = await makeUser();
         const payload = Buffer.alloc(64);
         const dataUrl = `data:application/octet-stream;base64,${payload.toString('base64')}`;
@@ -279,7 +285,7 @@ describe('loadFileInput data URL', () => {
             callLoadFileInput(actor, dataUrl, { maxBytes: 32 }),
         ).rejects.toMatchObject({
             statusCode: 413,
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
     });
 
@@ -413,8 +419,110 @@ describe('loadFileInput FS path', () => {
             callLoadFileInput(actor, path, { maxBytes: 64 }),
         ).rejects.toMatchObject({
             statusCode: 413,
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
+    });
+
+    it('rejects the load when storage fails partway through the read', async () => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user!.username!}/Documents/cut-off.bin`;
+        const entry = await withActor(actor, () =>
+            writeFile(userId, path, Buffer.alloc(64, 0x42)),
+        );
+        // The storage client is the boundary: one chunk, then the
+        // connection drops.
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(entry.bucketRegion),
+        );
+        const send = client.send.bind(client);
+        const spy = vi.spyOn(client, 'send').mockImplementation(((
+            command: unknown,
+        ) => {
+            if (!(command instanceof GetObjectCommand)) {
+                return send(command as never);
+            }
+            let reads = 0;
+            const body = new Readable({
+                read() {
+                    reads += 1;
+                    if (reads === 1) this.push(Buffer.alloc(16, 0x42));
+                    else this.destroy(new Error('aborted'));
+                },
+            });
+            return Promise.resolve({ Body: body, ContentLength: 64 });
+        }) as never);
+        try {
+            await expect(callLoadFileInput(actor, path)).rejects.toThrow(
+                'aborted',
+            );
+        } finally {
+            spy.mockRestore();
+        }
+    });
+});
+
+// ── resolveFileInput ───────────────────────────────────────────────
+
+describe('resolveFileInput', () => {
+    it('checks access to a Puter file without reading it, then reads it once on load', async () => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user!.username!}/Documents/lazy.txt`;
+        const body = Buffer.from('read me later');
+        const entry = await withActor(actor, () =>
+            writeFile(userId, path, body, 'text/plain'),
+        );
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        try {
+            const resolved = await withActor(actor, () =>
+                resolveFileInput(
+                    server.stores,
+                    server.services.fs,
+                    actor,
+                    path,
+                ),
+            );
+            expect(resolved.filename).toBe('lazy.txt');
+            expect(resolved.fsEntry?.uuid).toBe(entry.uuid);
+            expect(s3Read).not.toHaveBeenCalled();
+
+            const [first, second] = await Promise.all([
+                resolved.load(),
+                resolved.load(),
+            ]);
+            expect(first.buffer.equals(body)).toBe(true);
+            expect(second).toBe(first);
+            expect(s3Read).toHaveBeenCalledTimes(1);
+        } finally {
+            s3Read.mockRestore();
+        }
+    });
+
+    it('refuses a Puter file over maxBytes from its recorded size, before any read', async () => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user!.username!}/Documents/big.bin`;
+        await withActor(actor, () =>
+            writeFile(userId, path, Buffer.alloc(2048, 0x42)),
+        );
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        try {
+            await expect(
+                withActor(actor, () =>
+                    resolveFileInput(
+                        server.stores,
+                        server.services.fs,
+                        actor,
+                        path,
+                        { maxBytes: 64 },
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 413,
+                legacyCode: 'input_too_large',
+            });
+            expect(s3Read).not.toHaveBeenCalled();
+        } finally {
+            s3Read.mockRestore();
+        }
     });
 });
 
@@ -471,7 +579,7 @@ describe('loadFileInput web URL', () => {
             }),
         ).rejects.toMatchObject({
             statusCode: 413,
-            legacyCode: 'storage_limit_reached',
+            legacyCode: 'input_too_large',
         });
         expect(state.cancelled).toBe(true);
     });

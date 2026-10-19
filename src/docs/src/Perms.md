@@ -6,9 +6,7 @@ platforms: [websites, apps]
 
 The Permissions API enables your application to request access to user data and resources such as email addresses, special folders (Desktop, Documents, Pictures, Videos), apps, subdomains, and other apps' saved data.
 
-There are two methods. [`puter.perms.request()`](/Perms/request/) asks the user for access, and [`puter.perms.check()`](/Perms/check/) reports whether they have already granted it without prompting.
-
-Both take the same two arguments: the resource being asked about, and the details that resource needs.
+Each request names a resource and the details that resource needs:
 
 ```js
 await puter.perms.request('email');
@@ -16,8 +14,6 @@ await puter.perms.request('folder', { name: 'Documents', access: 'write' });
 await puter.perms.request('apps', { access: 'read' });
 await puter.perms.request('appData', { app: 'contacts', scopes: 'read' });
 ```
-
-When requesting permissions, users will be prompted to grant or deny access. If a permission has already been granted, the user will not be prompted again. This provides a seamless experience while maintaining user privacy and control.
 
 ## Features
 
@@ -189,22 +185,6 @@ Pass an array to ask for everything your app needs in one call. Anything already
 ```
 
 </div>
-
-## Resources
-
-The resource decides which details the call takes and what a request resolves to:
-
-| Resource | Details | `request()` resolves to |
-| -------- | ------- | ----------------------- |
-| `'email'` | — | The user's email address |
-| `'folder'` | `{ name, access }` | The folder's path |
-| `'apps'` | `{ access }` | `true` if granted |
-| `'subdomains'` | `{ access }` | `true` if granted |
-| `'appData'` | `{ app, scopes }` | `true` if granted |
-| `'appRootDir'` | `{ app, access }` | The app's root directory, or `undefined` if denied |
-| `'permission'` | `{ permission }` or `{ permissions }` | `true` if granted |
-
-Anything denied resolves to a falsy value, so one `if` covers both outcomes. `access` is `'read'` (the default) or `'write'`.
 
 ## Functions
 

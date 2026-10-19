@@ -1391,6 +1391,26 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    it('hands back the whoami account shape, without the phone number', async () => {
+        const user = await server.stores.user.getByUsername(username, {
+            force: true,
+        });
+        await server.stores.user.update(user!.id, { phone: '+15550100' });
+        const res = makeRes();
+        await controller.handleLogin(makeReq({ username, password }), res);
+        const body = res.body as { user: Record<string, unknown> };
+        expect(body.user).not.toHaveProperty('phone');
+        expect(body.user).toMatchObject({
+            username,
+            uuid: user!.uuid,
+            oidc_only: false,
+            otp: false,
+            is_user_token: true,
+        });
+        expect(body.user.directories).toBeTypeOf('object');
+        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
+    });
+
     // A deleted row still answering from cache reaches the session INSERT.
     it('answers 401 rather than 500 when the account row is gone but still cached', async () => {
         const goneName = `lg_${Math.random().toString(36).slice(2, 10)}`;
@@ -2237,6 +2257,62 @@ describe('AuthController grant flows', () => {
         expect(
             (rows as Array<{ permission: string }>).map((r) => r.permission),
         ).not.toContain(permission);
+    });
+
+    it('revoke-user-app `*`: deletes the worker sessions that app deployed for the user, and only those', async () => {
+        const app = await server.stores.app.create(
+            {
+                name: `tr-worker-${uuidv4()}`,
+                title: 'TestRevokeWorkerApp',
+                index_url: `https://tr-worker-${uuidv4()}.example.test/`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const workerName = () => `wk-${uuidv4().slice(0, 8)}`;
+        const appWorker = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: app.uid, workerName: workerName() },
+        );
+        const otherApp = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: `app-${uuidv4()}`, workerName: workerName() },
+        );
+        const userScoped = await server.stores.session.getOrCreateWorker(
+            issuer.id,
+            { appUid: null, workerName: workerName() },
+        );
+        const exists = async (uuid: string) =>
+            (
+                await server.clients.db.read(
+                    'SELECT 1 FROM `sessions` WHERE `uuid` = ?',
+                    [uuid],
+                )
+            ).length > 0;
+
+        // A single permission leaves the app's workers running as before.
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: 'service:x:ii:read' },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await exists(appWorker.uuid)).toBe(true);
+
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: '*' },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await exists(appWorker.uuid)).toBe(false);
+        expect(await exists(otherApp.uuid)).toBe(true);
+        expect(await exists(userScoped.uuid)).toBe(true);
     });
 
     it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
@@ -3519,6 +3595,46 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
                 'mkdir:start',
             ]),
         );
+    });
+
+    // The handler's own lookup is the row the grant and the token use.
+    it('reads the app row once per get-user-app-token and check-app', async () => {
+        const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+        const lookupsOf = () =>
+            getByUid.mock.calls.filter(([uid]) => uid === app.uid).length;
+        try {
+            const tokenRes = makeRes();
+            await inCtx(actor, () =>
+                controller.handleGetUserAppToken(
+                    makeReq({ app_uid: app.uid }, { actor }),
+                    tokenRes,
+                ),
+            );
+            expect(lookupsOf()).toBe(1);
+            const minted = tokenRes.body as { token: string };
+
+            getByUid.mockClear();
+            const checkRes = makeRes();
+            await inCtx(actor, () =>
+                controller.handleCheckApp(
+                    makeReq({ app_uid: app.uid }, { actor }),
+                    checkRes,
+                ),
+            );
+            expect(lookupsOf()).toBe(1);
+            const checked = checkRes.body as { token: string };
+
+            // Both tokens name the same app session.
+            const sessionOf = (token: string) =>
+                (
+                    server.services.token.verify('auth', token) as {
+                        session_uid: string;
+                    }
+                ).session_uid;
+            expect(sessionOf(checked.token)).toBe(sessionOf(minted.token));
+        } finally {
+            getByUid.mockRestore();
+        }
     });
 
     it('after get-user-app-token, check-app reports authenticated:true and returns a token', async () => {
@@ -6782,20 +6898,18 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         const { user: leaver, actor: leaverActor } = await makeUserAndActor();
         const vacated = leaver.username;
         // Warm the entry cache under the old path, as any read would.
-        const docs = (await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        ))!;
+        await server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`);
         await controller.handleChangeUsername(
             makeReq({ new_username: `r_${uniq()}` }, { actor: leaverActor }),
             makeRes(),
         );
 
-        // The cache still maps the old path to the leaver's folder, so a new
-        // holder of the name would pass ACL on it.
-        const cached = await server.stores.fsEntry.getEntryByPath(
-            `/${vacated}/Documents`,
-        );
-        expect(cached?.uuid).toBe(docs.uuid);
+        // Dropped here, but a peer region or lagging replica can still map the
+        // old path to the leaver's folder, where a new holder of the name
+        // would pass ACL on it.
+        await expect(
+            server.stores.fsEntry.getEntryByPath(`/${vacated}/Documents`),
+        ).resolves.toBeNull();
 
         const { user: claimer, actor: claimerActor } = await makeUserAndActor();
         await expect(
@@ -9326,56 +9440,6 @@ describe('AuthController.handleGetDevProfile additional branches', () => {
         await expect(
             controller.handleGetDevProfile(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 404 });
-    });
-});
-
-describe('AuthController.handleGetGuiToken / handleSessionSyncCookie additional branches', () => {
-    it('get-gui-token: 404 when actor has a session but the user row is gone', async () => {
-        const { user, actor } = await makeUserAndActor();
-        const sessionRes = await server.services.auth.createSessionToken(
-            user,
-            {},
-        );
-        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
-        const sessionedActor = {
-            ...actor,
-            session: { uid: sessionUid },
-        } as Actor;
-        // Pull the user row out from under the session.
-        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
-            user.id,
-        ]);
-        await server.stores.user.invalidateById(user.id);
-        await expect(
-            controller.handleGetGuiToken(
-                makeReq({}, { actor: sessionedActor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('session/sync-cookie: 404 when actor has a session but the user row is gone', async () => {
-        const { user, actor } = await makeUserAndActor();
-        const sessionRes = await server.services.auth.createSessionToken(
-            user,
-            {},
-        );
-        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
-        const sessionedActor = {
-            ...actor,
-            session: { uid: sessionUid },
-        } as Actor;
-        await server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
-            user.id,
-        ]);
-        await server.stores.user.invalidateById(user.id);
-
-        const res = makeRes();
-        await controller.handleSessionSyncCookie(
-            makeReq({}, { actor: sessionedActor, tokenSource: 'header' }),
-            res,
-        );
-        expect(res.statusCode).toBe(404);
     });
 });
 

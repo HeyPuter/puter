@@ -170,6 +170,81 @@ describe('whoami extension — handleWhoami', () => {
         expect(captured.body).toEqual({ error: 'User not found' });
     });
 
+    describe("an app's view of the email", () => {
+        const appActorFor = async (user: { uuid: string; id: unknown }) => {
+            const app = await (
+                server.stores.app.create as unknown as (
+                    fields: Record<string, unknown>,
+                    opts: { ownerUserId: number },
+                ) => Promise<{ uid: string; id: number }>
+            )(
+                {
+                    name: `we-${uuidv4()}`,
+                    title: 'Email reader',
+                    index_url: `https://${uuidv4()}.example/`,
+                },
+                { ownerUserId: user.id as number },
+            );
+            return {
+                app,
+                actor: makeActor({
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: app.uid, id: app.id },
+                }),
+            };
+        };
+
+        const whoamiAs = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor }, () =>
+                handleWhoami(makeReq(), res),
+            );
+            return captured;
+        };
+
+        it('is withheld until the user grants it, then shown', async () => {
+            const user = await seedUser();
+            const { app, actor } = await appActorFor(user);
+
+            const before = (await whoamiAs(actor)).body as Record<
+                string,
+                unknown
+            >;
+            expect(before).not.toHaveProperty('email');
+            expect(before).not.toHaveProperty('unconfirmed_email');
+
+            await server.services.permission.grantUserAppPermission(
+                makeActor({ user: { uuid: user.uuid, id: user.id as number } }),
+                app.uid,
+                `user:${user.uuid}:email:read`,
+            );
+            const after = (await whoamiAs(actor)).body as Record<
+                string,
+                unknown
+            >;
+            expect(after.email).toBe(user.email);
+            expect(after.unconfirmed_email).toBe(user.email);
+        });
+
+        it('answers 404 for a missing account even when the check fails', async () => {
+            const check = vi
+                .spyOn(server.services.permission, 'check')
+                .mockRejectedValue(new Error('scan failed'));
+            try {
+                const captured = await whoamiAs(
+                    makeActor({
+                        user: { uuid: 'ghost-uuid', id: 99_999_998 },
+                        app: { uid: 'app-ghost', id: 1 },
+                    }),
+                );
+                expect(captured.statusCode).toBe(404);
+                expect(captured.body).toEqual({ error: 'User not found' });
+            } finally {
+                check.mockRestore();
+            }
+        });
+    });
+
     it('returns full user details for a user actor', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();

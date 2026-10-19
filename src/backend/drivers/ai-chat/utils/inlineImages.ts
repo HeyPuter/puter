@@ -17,10 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { secureFetch } from '../../../util/secureHttp.js';
+import { Context } from '../../../core/context.js';
+import { isHttpError } from '../../../core/http/HttpError.js';
+import { runWithConcurrencyLimit } from '../../../util/concurrency.js';
+import { fetchImageBytes } from '../../util/imageInput.js';
 
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
+export const MAX_INLINE_IMAGES = 20;
+const IMAGE_FETCH_CONCURRENCY = 4;
 
 interface ImageContentPart {
     type?: string;
@@ -38,7 +43,7 @@ interface MessageWithContent {
 export async function inlineHttpImageUrls(
     messages: MessageWithContent[],
 ): Promise<void> {
-    const tasks: Array<Promise<void>> = [];
+    const tasks: Array<{ part: ImageContentPart; url: string }> = [];
     for (const message of messages) {
         if (!Array.isArray(message.content)) continue;
         for (const part of message.content as ImageContentPart[]) {
@@ -47,58 +52,47 @@ export async function inlineHttpImageUrls(
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 continue;
             }
-            tasks.push(inlineOne(part, url));
+            if (tasks.length >= MAX_INLINE_IMAGES) {
+                setTextError(
+                    part,
+                    `maximum of ${MAX_INLINE_IMAGES} remote images per request`,
+                );
+                continue;
+            }
+            tasks.push({ part, url });
         }
     }
-    await Promise.all(tasks);
+    await runWithConcurrencyLimit(
+        tasks,
+        IMAGE_FETCH_CONCURRENCY,
+        ({ part, url }) => inlineOne(part, url),
+    );
 }
 
 async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
     try {
-        const response = await secureFetch(url);
-        if (!response.ok) {
-            setTextError(
-                part,
-                `failed to fetch image (status ${response.status})`,
-            );
-            return;
-        }
-        const contentLength = Number(
-            response.headers.get('content-length') ?? NaN,
-        );
-        if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
-            setTextError(
-                part,
-                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
-            );
-            return;
-        }
-
-        const arrayBuf = await response.arrayBuffer();
-        if (arrayBuf.byteLength > MAX_IMAGE_BYTES) {
-            setTextError(
-                part,
-                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
-            );
-            return;
-        }
-
-        const mimeType = (response.headers.get('content-type') ?? '')
-            .split(';')[0]
-            ?.trim();
-        if (!mimeType || !mimeType.startsWith('image/')) {
-            setTextError(
-                part,
-                `expected an image, got ${mimeType || 'unknown MIME type'}`,
-            );
-            return;
-        }
-
-        const base64 = Buffer.from(arrayBuf).toString('base64');
+        const { bytes, mime } = await fetchImageBytes(url, {
+            maxBytes: MAX_IMAGE_BYTES,
+            signal: Context.get('abortSignal'),
+            requireImageMime: true,
+        });
         part.type = 'image_url';
-        part.image_url = { url: `data:${mimeType};base64,${base64}` };
+        part.image_url = {
+            url: `data:${mime};base64,${bytes.toString('base64')}`,
+        };
     } catch (err) {
-        const message = (err as Error)?.message || 'failed to fetch image';
+        if (isHttpError(err) && err.code === 'input_too_large') {
+            setTextError(
+                part,
+                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
+            );
+            return;
+        }
+        // fetchImageBytes' own errors are safe to show; anything else (DNS,
+        // socket, SSRF guard) stays generic.
+        const message = isHttpError(err)
+            ? err.message
+            : 'failed to fetch image';
         setTextError(part, message);
     }
 }

@@ -66,9 +66,9 @@ const items = await puter.fs.readdir({
 });
 ```
 
-The `sortBy` option takes `name` (the default), `modified`, `type` or `size`,
-and `sortOrder` takes `asc` (the default) or `desc`. When you read pages with a
-cursor, every page must use the same sort as the first one.
+All the sort options are listed on [`puter.fs.readdir()`](/FS/readdir/). When
+you read pages with a cursor, every page must use the same sort as the first
+one.
 
 ## Include Subdirectories
 

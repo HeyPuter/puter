@@ -89,6 +89,43 @@ export const deliversTokenAtBoot = (action) =>
     deliversTokenToOpener(action) && !defersTokenToOpener(action);
 
 /**
+ * Whether a popup hands its boot-time token to the `/login/set` relay instead
+ * of posting it to the opener.
+ *
+ * @param {string|null|undefined} action
+ * @param {boolean} crossOriginIsolated - The popup's `cross_origin_isolated` flag.
+ * @returns {boolean}
+ */
+export const relaysTokenAtBoot = (action, crossOriginIsolated) =>
+    crossOriginIsolated && deliversTokenAtBoot(action);
+
+/**
+ * The opener origin a popup acts for.
+ *
+ * A relay popup takes it only from `document.referrer`, the origin of the page
+ * that opened it with this session id. Whoever holds the session id collects
+ * the relayed token, and the opener can navigate to another app before it
+ * answers the `requestOrigin` handshake.
+ *
+ * @param {{
+ *     relaysToken: boolean;
+ *     oidcOpenerOrigin: string|null|undefined;
+ *     referrer: string;
+ *     askOpener: () => Promise<string>;
+ * }} sources
+ * @returns {Promise<string>} `''` for a relay popup with no referrer.
+ */
+export const resolveOpenerOrigin = async ({
+    relaysToken,
+    oidcOpenerOrigin,
+    referrer,
+    askOpener,
+}) => {
+    if ( relaysToken ) return referrer;
+    return oidcOpenerOrigin || referrer || await askOpener();
+};
+
+/**
  * Whether the opener's existing relationship with the user stands in for
  * consent. Only when no account picker was shown: a dismissed picker is a no.
  *

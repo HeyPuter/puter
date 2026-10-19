@@ -171,6 +171,7 @@ export class AIChatStream {
 
     /** Set once the caller has gone away; see `abort`. */
     aborted = false;
+    abortController = new AbortController();
 
     /**
      * Stop/usage/context-management state for the end-of-stream `usage` line,
@@ -203,6 +204,41 @@ export class AIChatStream {
      */
     abort() {
         this.aborted = true;
+        this.abortController.abort();
+    }
+
+    async waitForDrain() {
+        this.#assertOpen();
+        if (!this.stream.writableNeedDrain) return;
+        await new Promise((resolve, reject) => {
+            const cleanup = () => {
+                this.stream.removeListener('drain', onDrain);
+                this.stream.removeListener('close', onAbort);
+                this.stream.removeListener('error', onError);
+                this.abortController.signal.removeEventListener(
+                    'abort',
+                    onAbort,
+                );
+            };
+            const onDrain = () => {
+                cleanup();
+                resolve();
+            };
+            const onError = (error) => {
+                cleanup();
+                reject(error);
+            };
+            const onAbort = () => onError(new ChatStreamAbortedError());
+            this.stream.once('drain', onDrain);
+            this.stream.once('close', onAbort);
+            this.stream.once('error', onError);
+            this.abortController.signal.addEventListener('abort', onAbort, {
+                once: true,
+            });
+            if (this.stream.destroyed || this.aborted) onAbort();
+            else if (!this.stream.writableNeedDrain) onDrain();
+        });
+        this.#assertOpen();
     }
 
     #assertOpen() {

@@ -26,7 +26,7 @@
  * end. OpenRouter is OpenAI-compatible, so the OpenAI SDK is mocked
  * at the module boundary; the model catalog is fetched via `axios`
  * which is mocked at its module boundary too. Both are the real
- * network egress points. Each test clears the kv-cached model list.
+ * network egress points.
  * The companion integration test (OpenRouterProvider.integration.test.ts)
  * exercises the real OpenRouter endpoint.
  */
@@ -44,13 +44,15 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -85,8 +87,6 @@ vi.mock('axios', () => ({
 
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
-
-const KV_KEY = 'openrouterChat:models';
 
 const SAMPLE_API_MODELS = [
     {
@@ -142,6 +142,23 @@ const SAMPLE_API_MODELS = [
         pricing: { prompt: 0.0000012, completion: 0.000006 },
         top_provider: { max_completion_tokens: 32768 },
         expiration_date: '2026-10-09',
+    },
+    {
+        // Batch variants aren't served on chat/completions — filtered out.
+        id: 'openai/gpt-6-luna:batch',
+        name: 'GPT-6 Luna (batch)',
+        created: 1714564800,
+        context_length: 128000,
+        pricing: { prompt: 0.000005, completion: 0.000015 },
+        top_provider: { max_completion_tokens: 16000 },
+    },
+    {
+        id: 'openai/gpt-6-luna:free',
+        name: 'GPT-6 Luna (free)',
+        created: 1714564800,
+        context_length: 128000,
+        pricing: { prompt: 0, completion: 0 },
+        top_provider: { max_completion_tokens: 16000 },
     },
     {
         // 'openrouter/auto' is filtered out — disallowed.
@@ -206,13 +223,12 @@ beforeEach(() => {
     openAICtor.mockReset();
     axiosRequestMock.mockReset();
     seedModelsCache();
-    kv.del(KV_KEY);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
-    kv.del(KV_KEY);
 });
 
 // ── Construction ────────────────────────────────────────────────────
@@ -224,6 +240,8 @@ describe('OpenRouterProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://openrouter.ai/api/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -238,6 +256,8 @@ describe('OpenRouterProvider construction', () => {
         expect(openAICtor).toHaveBeenLastCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://custom.openrouter.example/api/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -252,7 +272,7 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('list() prefixes ids with openrouter: and filters out openrouter/auto', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toContain('openrouter:openai/gpt-6-luna');
         expect(ids).toContain('openrouter:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('openrouter:openrouter/auto');
@@ -260,12 +280,24 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('filters out models OpenRouter has scheduled for expiration', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).not.toContain('openrouter:qwen/qwen3-max');
         expect(ids).not.toContain('qwen/qwen3-max');
     });
 
-    it('coerces string prices and skips the structured overrides entry', async () => {
+    it('filters out batch variants and keeps their base model', async () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(await provider.models());
+        expect(ids).not.toContain('openrouter:openai/gpt-6-luna:batch');
+        expect(ids).not.toContain('openai/gpt-6-luna:batch');
+        expect(ids).not.toContain('gpt-6-luna:batch');
+        expect(ids).toContain('openrouter:openai/gpt-6-luna');
+        expect(ids).toContain('gpt-6-luna');
+        expect(ids).toContain('openrouter:openai/gpt-6-luna:free');
+        expect(ids).toContain('gpt-6-luna:free');
+    });
+
+    it('coerces string prices and normalizes conditional tiers', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
         const sol = models.find((m) => m.id === 'openrouter:openai/gpt-6.1-sol')!;
@@ -273,16 +305,46 @@ describe('OpenRouterProvider model catalog', () => {
             tokens: 1_000_000,
             prompt: 200,
             completion: 1000,
-            request: 0,
         });
+        expect(sol.pricingOverrides).toEqual([{
+            minPromptTokens: 272000,
+            costs: { prompt: 400, completion: 1500 },
+        }]);
     });
 
-    it('caches the coerced model list in kv after the first axios round-trip', async () => {
+    it('caches the coerced model list after the first axios round-trip', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();
         // Second call should be a cache hit, not a second axios request.
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('serves completions from the cached catalog and reuses its entries', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const before = await provider.models();
+
+        for (let i = 0; i < 3; i++) {
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        }
+
+        expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+        // The same converted entries, not a catalog rebuilt per request.
+        expect(await provider.models()).toBe(before);
     });
 
     it('falls back to the context window when no output cap is reported', async () => {
@@ -304,22 +366,11 @@ describe('OpenRouterProvider model catalog', () => {
         expect(capped.max_tokens).toBe(16000);
     });
 
-    it('maps OpenRouter created timestamps to release_date metadata', async () => {
+    it('does not reinterpret catalog-added timestamps as release dates', async () => {
         const { provider } = makeProvider();
-        const models = await provider.models();
-        expect(models).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    id: 'openrouter:openai/gpt-6-luna',
-                    release_date: '2024-05-01',
-                }),
-                expect.objectContaining({
-                    id: 'openrouter:anthropic/claude-haiku-4.5',
-                    release_date: '2025-10-15',
-                }),
-            ]),
-        );
+        expect((await provider.models()).every(model => model.release_date === undefined)).toBe(true);
     });
+
 });
 
 // ── Disallowed model gate ───────────────────────────────────────────
@@ -412,7 +463,7 @@ describe('OpenRouterProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openrouter:anthropic/claude-sonnet',
+                model: 'openrouter:anthropic/claude-haiku-4.5',
                 messages: [
                     {
                         role: 'user',
@@ -552,8 +603,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         const { provider } = makeProvider();
         const apiError = { error: { message: 'Some other failure' } };
         createMock.mockRejectedValueOnce(apiError);
-        // Provider logs before rethrowing — silence the noise.
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -568,7 +617,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         // Only one attempt was made.
         expect(createMock).toHaveBeenCalledTimes(1);
         expect(recordSpy).not.toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
     });
 
     it('rethrows a transport error as itself rather than masking it', async () => {
@@ -576,7 +624,6 @@ describe('OpenRouterProvider.complete request shape', () => {
         // No `.error` on the object: the shape a socket failure arrives in.
         const transportError = new Error('socket hang up');
         createMock.mockRejectedValueOnce(transportError);
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -589,8 +636,127 @@ describe('OpenRouterProvider.complete request shape', () => {
         ).rejects.toBe(transportError);
 
         expect(createMock).toHaveBeenCalledTimes(1);
-        expect(logSpy).toHaveBeenCalled();
     });
+});
+
+describe('OpenRouterProvider account policy block', () => {
+    const POLICY_MESSAGE =
+        'Policy Violation: this user has been blocked for a previous policy violation. Learn more: https://openrouter.ai/docs/policy (request id: req-secret)';
+
+    // Shaped like the OpenAI SDK's APIError for OpenRouter's error body.
+    const apiError = (status: number, body: Record<string, unknown>) =>
+        Object.assign(new Error(`${status} ${String(body.message)}`), {
+            status,
+            error: body,
+            code: body.code,
+        });
+
+    const complete = () =>
+        withTestActor(() =>
+            makeProvider().provider.complete({
+                model: 'openrouter:openai/gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+    const expectModelUnavailable = async () => {
+        const err = await complete().catch((e: unknown) => e);
+        expect(err).toMatchObject({
+            name: 'UpstreamResponseError',
+            status: 403,
+            code: 'model_not_found',
+            provider: 'openrouter',
+            message: 'Model not available: openrouter:openai/gpt-6-luna',
+        });
+        expect(JSON.stringify(err)).not.toMatch(/policy|http|request id/i);
+        expect((err as Error).message).not.toMatch(/policy|http/i);
+    };
+
+    it('reports a numeric 403 policy block as the model being unavailable', async () => {
+        createMock.mockRejectedValueOnce(
+            apiError(403, { code: 403, message: POLICY_MESSAGE }),
+        );
+        await expectModelUnavailable();
+        expect(createMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the in-band 403 policy block of a 200 with no choices the same way', async () => {
+        createMock.mockResolvedValueOnce({
+            error: { code: 403, message: POLICY_MESSAGE },
+        });
+        await expectModelUnavailable();
+        expect(recordSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a generic 403', apiError(403, { code: 403, message: 'Forbidden' })],
+        [
+            'a key limit 403',
+            apiError(403, {
+                code: 403,
+                message: 'Key limit exceeded (daily limit).',
+            }),
+        ],
+        [
+            'a moderation 403',
+            apiError(403, {
+                code: 403,
+                message:
+                    'Your chosen model requires moderation and your input was flagged',
+                metadata: { reasons: ['violence'] },
+            }),
+        ],
+        [
+            'a similar 403 wording',
+            apiError(403, {
+                code: 403,
+                message: 'Policy Violation: this key has been blocked.',
+            }),
+        ],
+        [
+            'the policy wording without its numeric code',
+            apiError(403, { message: POLICY_MESSAGE }),
+        ],
+        [
+            'the policy wording on a 401',
+            apiError(401, { code: 401, message: POLICY_MESSAGE }),
+        ],
+        [
+            'the policy wording on a 503',
+            apiError(503, { code: 403, message: POLICY_MESSAGE }),
+        ],
+        [
+            'a 402 credit exhaustion',
+            apiError(402, { code: 402, message: 'Insufficient credits' }),
+        ],
+    ])('rethrows %s unchanged', async (_label, thrown) => {
+        createMock.mockRejectedValueOnce(thrown);
+        await expect(complete()).rejects.toBe(thrown);
+    });
+
+    it.each([
+        ['no error body', {}, 'no completion was returned'],
+        [
+            'an in-band error with another code',
+            { error: { code: 401, message: POLICY_MESSAGE } },
+            POLICY_MESSAGE,
+        ],
+        [
+            'an in-band error with other wording',
+            { error: { code: 403, message: 'Provider returned error' } },
+            'Provider returned error',
+        ],
+    ])(
+        'keeps a no-choice completion with %s as bad_response',
+        async (_label, completion, message) => {
+            createMock.mockResolvedValueOnce(completion);
+            await expect(complete()).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_response',
+                message,
+            });
+        },
+    );
 });
 
 // ── Non-stream completion: cost calculator branches ─────────────────
@@ -679,6 +845,228 @@ describe('OpenRouterProvider.complete non-stream output', () => {
     });
 });
 
+describe('OpenRouterProvider billed cost through the driver', () => {
+    const makeDriver = async () => {
+        const driver = new ChatCompletionDriver(
+            {
+                providers: {
+                    openrouter: { apiKey: 'test-key' },
+                    ollama: { enabled: false },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        await driver.onServerStart();
+        return driver;
+    };
+
+    /** Applies `factor` to every AI cost, as the hosted deployment does. */
+    const withCostFactor = (factor: number) => {
+        const listener = (_key: string, event: { factor: number }) => {
+            event.factor = factor;
+        };
+        server.clients.event.on('ai.cost.factor.*', listener as never);
+        return () => server.clients.event.off('ai.cost.factor.*', listener as never);
+    };
+
+    /** µ¢ the ledger was handed for every usage recorded so far. */
+    const ledgerTotal = (spy: MockInstance<MeteringService['batchIncrementUsages']>) =>
+        spy.mock.calls
+            .flatMap(([, usages]) => usages)
+            .reduce((total, usage) => total + (usage.costOverride ?? 0), 0);
+
+    it('reports a billed completion to cost listeners split at the catalog rates', async () => {
+        const driver = await makeDriver();
+        const costEvents: Record<string, unknown>[] = [];
+        vi.spyOn(server.clients.event, 'emit').mockImplementation(
+            (key, data) => {
+                if (key === 'ai.prompt.cost-calculated') {
+                    costEvents.push(data as Record<string, unknown>);
+                }
+            },
+        );
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 50,
+                prompt_tokens_details: { cached_tokens: 10 },
+                cost: 0.0001,
+            },
+        });
+
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } finally {
+            driver.onServerShutdown();
+        }
+
+        // At 1000/3000 µ¢ per prompt/completion token the 10,000 µ¢ bill
+        // divides 90k + 10k (cached reads at the prompt rate) : 150k.
+        expect(costEvents).toHaveLength(1);
+        expect(costEvents[0]).toMatchObject({
+            input_tokens: 90,
+            output_tokens: 50,
+            input_ucents: 4000,
+            output_ucents: 6000,
+            total_ucents: 10_000,
+        });
+    });
+
+    it('reports what a billed completion was charged, after the cost factor', async () => {
+        const driver = await makeDriver();
+        const stopFactor = withCostFactor(1.6);
+        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0001 },
+        });
+
+        let result: { usage: Record<string, number> };
+        try {
+            result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            )) as typeof result;
+            await vi.waitFor(() => expect(recorded).toHaveBeenCalled());
+        } finally {
+            stopFactor();
+            driver.onServerShutdown();
+        }
+
+        expect(ledgerTotal(recorded)).toBe(16_000);
+        expect(result.usage.cost).toBe(16_000);
+        // The upstream's own price stays where it was.
+        expect(result.usage.usd_cents).toBe(0.01);
+    });
+
+    it("keeps a completion's credit hold until its usage is recorded", async () => {
+        const driver = await makeDriver();
+        const actor = makeActor({
+            user: {
+                id: 94,
+                uuid: `openrouter-hold-${Date.now()}`,
+                username: 'openrouter-hold',
+            },
+        });
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 1e12, held: 0 });
+        // The gate looks the factor up first; hold back the recording's lookup.
+        let lookups = 0;
+        let landRecording = () => {};
+        const recordingHeld = new Promise<void>((resolve) => {
+            landRecording = resolve;
+        });
+        const slowFactor = async (_key: string, event: { factor: number }) => {
+            if (++lookups === 2) await recordingHeld;
+            event.factor = 1.6;
+        };
+        server.clients.event.on('ai.cost.factor.*', slowFactor as never);
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0001 },
+        });
+
+        try {
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'openrouter:openai/gpt-6-luna',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                actor,
+            );
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBeGreaterThan(0);
+
+            landRecording();
+            await vi.waitFor(async () =>
+                expect(
+                    await server.stores.creditHold.outstanding(
+                        actor.user!.uuid,
+                    ),
+                ).toBe(0),
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', slowFactor as never);
+            driver.onServerShutdown();
+        }
+    });
+
+    it('ends a stream with what it was charged at the catalog rates, after the cost factor', async () => {
+        const driver = await makeDriver();
+        const stopFactor = withCostFactor(1.6);
+        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'hello' } }] },
+                {
+                    choices: [{ delta: {} }],
+                    usage: {
+                        prompt_tokens: 100,
+                        completion_tokens: 50,
+                        prompt_tokens_details: { cached_tokens: 10 },
+                    },
+                },
+            ]),
+        );
+
+        let usageLine: { usage: Record<string, number> } | undefined;
+        try {
+            const result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'openrouter:openai/gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                }),
+            )) as unknown as { stream: AsyncIterable<Buffer> };
+            const chunks: Buffer[] = [];
+            for await (const chunk of result.stream) chunks.push(chunk);
+            usageLine = Buffer.concat(chunks)
+                .toString('utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line))
+                .find((line) => line.type === 'usage');
+            await vi.waitFor(() => expect(recorded).toHaveBeenCalled());
+        } finally {
+            stopFactor();
+            driver.onServerShutdown();
+        }
+
+        // 90·1000 + 50·3000 + 10·1000 (cached reads at the prompt rate), ×1.6.
+        expect(ledgerTotal(recorded)).toBe(400_000);
+        expect(usageLine?.usage.cost).toBe(400_000);
+    });
+});
+
 // ── Streaming deltas ────────────────────────────────────────────────
 
 describe('OpenRouterProvider.complete streaming', () => {
@@ -735,5 +1123,34 @@ describe('OpenRouterProvider.checkModeration', () => {
         expect(() => provider.checkModeration('anything')).toThrow(
             /not implemented/i,
         );
+    });
+});
+
+
+describe('OpenRouter catalog refresh validation', () => {
+    it('keeps missing model fields and prices unknown and blocks unpriced inference', async () => {
+        axiosRequestMock.mockResolvedValue({ data: { data: [{ id: 'fixture/model', name: 'Fixture' }] } });
+        const { provider } = makeProvider();
+        const [model] = await provider.models();
+        expect(model.costs).toEqual({ tokens: 1_000_000 });
+        expect(model.context).toBeUndefined();
+        expect(model.max_tokens).toBe(0);
+        await expect(withTestActor(() => provider.complete({ model: 'openrouter:fixture/model', messages: [] })))
+            .rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['malformed', 'failed', 'ambiguous conditional price'])('retains last-good data after a %s refresh', async failure => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { provider } = makeProvider();
+        const good = await provider.models();
+        vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+        if (failure === 'failed') axiosRequestMock.mockRejectedValueOnce(new Error('unavailable'));
+        else if (failure === 'malformed') axiosRequestMock.mockResolvedValueOnce({ data: {} });
+        else axiosRequestMock.mockResolvedValueOnce({ data: { data: [{ ...SAMPLE_API_MODELS[0], pricing: {
+            prompt: '0.000002', overrides: [{ min_prompt_tokens: 10, prompt: '' }],
+        } }] } });
+        expect(await provider.models()).toBe(good);
     });
 });

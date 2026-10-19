@@ -18,24 +18,30 @@
  */
 
 import { posix as pathPosix } from 'node:path';
-import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
-import type { Actor } from '../../core/actor.js';
-import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
+import {
+    actorOwnsRow,
+    assertActorEmailVerified,
+    requireContextUserActor,
+    type Actor,
+} from '../../core/actor.js';
+import type { DriverRateLimitConfig } from '../meta.js';
+import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import type { AppView } from '../../util/appView.js';
 import { MANAGE_PERM_PREFIX } from '../../services/permission/consts.js';
 import {
     APP_ICONS_SUBDOMAIN,
     PROFILES_SUBDOMAIN,
 } from '../../util/systemSite.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
@@ -123,15 +129,7 @@ export class SubdomainDriver extends PuterDriver {
         },
     };
 
-    readonly concurrent: DriverConcurrentConfig = {
-        default: {
-            limit: 20,
-            bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 10,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
-            },
-        },
-    };
+    readonly concurrent = CRUD_CONCURRENT;
 
     // -- Driver methods ----------------------------------------------
 
@@ -143,9 +141,8 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
 
         const subdomain = this.#validateSubdomain(object.subdomain);
 
@@ -243,34 +240,25 @@ export class SubdomainDriver extends PuterDriver {
         }
         const [shaped] = await this.#hydrateRows(
             created ? [created as Record<string, unknown>] : [],
+            actor,
         );
         return shaped ?? null;
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
+        const actor = requireContextUserActor();
         const row = await this.#resolve(args);
-        // Worker deployments live in this table but aren't sites. `select`
-        // excludes them and the workers driver serves them under its own
-        // scoping, so answering for them here would make the hosting API a
-        // by-name lookup for objects it doesn't manage. Same 404 as a miss:
-        // the name is resolved globally, so a distinct refusal would confirm
-        // the row exists.
-        const isWorkerRow =
-            typeof row?.subdomain === 'string' &&
-            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX);
-        if (!row || isWorkerRow)
+        if (!row)
             throw new HttpError(404, 'Subdomain not found', {
                 legacyCode: 'not_found',
             });
         await this.#checkReadAccess(row, actor);
-        const [shaped] = await this.#hydrateRows([row]);
+        const [shaped] = await this.#hydrateRows([row], actor);
         return shaped ?? null;
     }
 
     async select(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
+        const actor = requireContextUserActor();
 
         const predicate = args.predicate as unknown[] | string | undefined;
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 5000;
@@ -327,7 +315,7 @@ export class SubdomainDriver extends PuterDriver {
             );
         }
 
-        const items = await this.#hydrateRows(rows);
+        const items = await this.#hydrateRows(rows, actor);
         if (!paginated) return items;
 
         let total: number | undefined;
@@ -357,9 +345,8 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
 
         const row = await this.#resolve(args);
         if (!row)
@@ -398,6 +385,7 @@ export class SubdomainDriver extends PuterDriver {
         );
         const [shaped] = await this.#hydrateRows(
             updated ? [updated as Record<string, unknown>] : [],
+            actor,
         );
 
         try {
@@ -427,9 +415,8 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     async delete(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
-        this.#requireUser(actor);
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
 
         const row = await this.#resolve(args);
         if (!row)
@@ -466,7 +453,29 @@ export class SubdomainDriver extends PuterDriver {
 
     // -- Resolve -----------------------------------------------------
 
+    /**
+     * Worker deployments live in this table but aren't sites, so every method
+     * here resolves them as a miss. `select` excludes them and the workers
+     * driver serves them under its own scoping. Answering for them would make
+     * the hosting API a by-name lookup for objects it doesn't manage, and
+     * deleting one here would drop the row with no Cloudflare delete behind it
+     * — the script stays live and the user loses the handle to destroy it. Same
+     * 404 as a miss: the name is resolved globally, so a distinct refusal would
+     * confirm the row exists.
+     */
     async #resolve(
+        args: Record<string, unknown>,
+    ): Promise<Record<string, unknown> | null> {
+        const row = await this.#resolveAny(args);
+        if (
+            typeof row?.subdomain === 'string' &&
+            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX)
+        )
+            return null;
+        return row;
+    }
+
+    async #resolveAny(
         args: Record<string, unknown>,
     ): Promise<Record<string, unknown> | null> {
         if (args.uid) return this.stores.subdomain.getByUuid(String(args.uid));
@@ -515,40 +524,6 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     // -- Permissions -------------------------------------------------
-
-    #requireActor(): Actor & {
-        user: { id: number; uuid: string; username: string };
-    } {
-        const actor = Context.get('actor') as Actor | undefined;
-        if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
-        return actor as Actor & {
-            user: { id: number; uuid: string; username: string };
-        };
-    }
-
-    #requireUser(actor: Actor): void {
-        if (!actor.user?.id)
-            throw new HttpError(403, 'User actor required', {
-                legacyCode: 'forbidden',
-            });
-    }
-
-    /**
-     * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
-     * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver level
-     * so /drivers/call can't bypass the gate the HTTP route enforces.
-     */
-    #requireVerified(actor: Actor): void {
-        assertVerifiedEmail(
-            Boolean(this.config.strict_email_verification_required),
-            actor.user,
-            400,
-        );
-    }
 
     async #hasPermission(actor: Actor, permission: string): Promise<boolean> {
         try {
@@ -623,26 +598,15 @@ export class SubdomainDriver extends PuterDriver {
         row: Record<string, unknown>,
         actor: Actor,
     ): Promise<void> {
-        // App actor matching app_owner
-        const app = actor.effectiveApp;
-        let hasAccess = false;
-        if (!app?.id) {
-            hasAccess = actor.user?.id === row.user_id;
-        } else if (app.id === row.app_owner) {
-            hasAccess = actor.user?.id === row.user_id;
+        const owns = actorOwnsRow(actor, {
+            ownerUserId: row.user_id,
+            appOwnerId: row.app_owner,
+        });
+        if (owns) return;
+        if (await this.#hasPermission(actor, 'system:es:write-all-owners')) {
+            return;
         }
-        // System-wide write
-        if (!hasAccess) {
-            hasAccess = await this.#hasPermission(
-                actor,
-                'system:es:write-all-owners',
-            );
-        }
-        if (!hasAccess) {
-            throw new HttpError(403, 'Access denied', {
-                legacyCode: 'forbidden',
-            });
-        }
+        throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     // -- Config ------------------------------------------------------
@@ -679,10 +643,12 @@ export class SubdomainDriver extends PuterDriver {
      * associated_app_id / app_owner → app shapes) with one batched lookup per
      * store, regardless of how many rows we're shaping. Used by both `select`
      * (many rows) and the single-row paths (`create`/`read`/`update`/`upsert`)
-     * so the wire shape stays identical.
+     * so the wire shape stays identical. Embedded apps get the same launch
+     * gates as a direct app read, for `actor`.
      */
     async #hydrateRows(
         rows: Array<Record<string, unknown>>,
+        actor: Actor,
     ): Promise<Array<Record<string, unknown>>> {
         if (rows.length === 0) return [];
 
@@ -705,6 +671,14 @@ export class SubdomainDriver extends PuterDriver {
         const rootDirIds = collectIds('root_dir_id');
         const appOwnerIds = collectIds('app_owner');
 
+        // Owners and root dirs don't depend on the derived apps, so they load
+        // alongside the derive. Handled now so a derive error, which still
+        // wins, can't leave them rejecting unobserved.
+        const pendingUsers = awaitLater(this.stores.user.getByIds(userIds));
+        const pendingEntries = awaitLater(
+            this.stores.fsEntry.getEntriesByIds(rootDirIds),
+        );
+
         // `associated_app` is derived: match apps owned by `subdomain.user_id`
         // whose `index_url` resolves to one of the subdomain's host
         // variants. The row's stored `associated_app_id` is ignored
@@ -721,18 +695,26 @@ export class SubdomainDriver extends PuterDriver {
         // so it doesn't need to wait for the app rows.
         const [usersById, entriesById, appsById, filetypesByAppId] =
             await Promise.all([
-                this.stores.user.getByIds(userIds),
-                this.stores.fsEntry.getEntriesByIds(rootDirIds),
+                pendingUsers,
+                pendingEntries,
                 this.stores.app.getByIds(allAppIds),
                 this.stores.app.getFiletypeAssociationsByIds(allAppIds),
             ]);
+
+        const embeddedApps = [...appsById.values()];
+        const embedViews = await this.services.app.views(embeddedApps, actor, {
+            source: 'subdomainDriver:embed',
+            filetypesByAppId,
+        });
+        const appViewsById = new Map(
+            embeddedApps.map((app, i) => [Number(app.id), embedViews[i]!.view]),
+        );
 
         return rows.map((row) =>
             this.#shapeRow(row, {
                 usersById,
                 entriesById,
-                appsById,
-                filetypesByAppId,
+                appViewsById,
                 associatedAppIdByRowUuid,
             }),
         );
@@ -829,8 +811,7 @@ export class SubdomainDriver extends PuterDriver {
         lookups: {
             usersById: Map<number, UserRow>;
             entriesById: Map<number, FSEntry>;
-            appsById: Map<number, Record<string, unknown>>;
-            filetypesByAppId: Map<number, string[]>;
+            appViewsById: Map<number, AppView>;
             associatedAppIdByRowUuid: Map<string, number>;
         },
     ): Record<string, unknown> {
@@ -862,7 +843,7 @@ export class SubdomainDriver extends PuterDriver {
                 : null;
         const associatedApp =
             associatedAppRefId != null
-                ? (lookups.appsById.get(associatedAppRefId) ?? null)
+                ? (lookups.appViewsById.get(associatedAppRefId) ?? null)
                 : null;
 
         const appOwnerRefId =
@@ -873,7 +854,7 @@ export class SubdomainDriver extends PuterDriver {
                   : Number(row.app_owner);
         const appOwnerApp =
             appOwnerRefId != null
-                ? (lookups.appsById.get(appOwnerRefId) ?? null)
+                ? (lookups.appViewsById.get(appOwnerRefId) ?? null)
                 : null;
 
         return {
@@ -883,22 +864,12 @@ export class SubdomainDriver extends PuterDriver {
             // is set; the mapping declares `domain` as a string column.
             domain: typeof row.domain === 'string' ? row.domain : '',
             root_dir: rootEntry ? mapEntryToSubdomainRootDir(rootEntry) : null,
-            associated_app: associatedApp
-                ? mapAppForEmbed(
-                      associatedApp,
-                      lookups.filetypesByAppId.get(associatedAppRefId!) ?? [],
-                  )
-                : null,
+            associated_app: associatedApp,
             created_at: createdAt,
             owner: owner
                 ? { username: owner.username, uuid: owner.uuid }
                 : null,
-            app_owner: appOwnerApp
-                ? mapAppForEmbed(
-                      appOwnerApp,
-                      lookups.filetypesByAppId.get(appOwnerRefId!) ?? [],
-                  )
-                : null,
+            app_owner: appOwnerApp,
             protected: Boolean(row.protected),
         };
     }
@@ -949,37 +920,5 @@ function mapEntryToSubdomainRootDir(entry: FSEntry): Record<string, unknown> {
         subdomains: entry.subdomains ?? [],
         workers: entry.workers ?? [],
         has_website: entry.hasWebsite ?? (entry.subdomains?.length ?? 0) > 0,
-    };
-}
-
-/**
- * Embed shape for nested app references (`associated_app`, `app_owner`).
- * Follows v1's AppES read shape minus the per-app async work
- * (`created_from_origin`, private-app gating) — those are top-level-read
- * concerns, not relevant for an app embed inside a subdomain row.
- */
-function mapAppForEmbed(
-    app: Record<string, unknown>,
-    filetypes: string[],
-): Record<string, unknown> {
-    return {
-        uid: app.uid,
-        name: app.name,
-        title: app.title,
-        description: app.description,
-        icon: app.icon,
-        index_url: app.index_url,
-        background: Boolean(app.background),
-        maximize_on_start: Boolean(app.maximize_on_start),
-        is_private: Boolean(app.is_private),
-        protected: Boolean(app.protected),
-        approved_for_listing: Boolean(app.approved_for_listing),
-        approved_for_opening_items: Boolean(app.approved_for_opening_items),
-        approved_for_incentive_program: Boolean(
-            app.approved_for_incentive_program,
-        ),
-        metadata: app.metadata ?? null,
-        filetype_associations: filetypes,
-        created_at: app.created_at ?? app.timestamp ?? null,
     };
 }

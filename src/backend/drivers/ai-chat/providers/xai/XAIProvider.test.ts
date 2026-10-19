@@ -47,7 +47,10 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { costsForRequest, usageCost } from '../../utils/pricing.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { XAI_CHAT_MODELS } from './catalog.js';
+import catalogFixture from './fixtures/language-models.json';
 import { XAI_MODELS } from './models.js';
 import { XAIProvider } from './XAIProvider.js';
 
@@ -57,10 +60,10 @@ import { XAIProvider } from './XAIProvider.js';
 // the test body so each test can stub `chat.completions.create` with
 // the response shape it cares about.
 
-const { createMock, openAICtor } = vi.hoisted(() => {
+const { createMock, openAICtor, axiosGetMock } = vi.hoisted(() => {
     const createMock = vi.fn();
     const openAICtor = vi.fn();
-    return { createMock, openAICtor };
+    return { createMock, openAICtor, axiosGetMock: vi.fn() };
 });
 
 vi.mock('openai', () => {
@@ -77,6 +80,10 @@ vi.mock('openai', () => {
     // every provider, not just xAI.
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
+
+// The pricing catalog is fetched with axios; tests that don't serve one see
+// the upstream down and get the curated catalog.
+vi.mock('axios', () => ({ default: { get: axiosGetMock } }));
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -130,6 +137,8 @@ const makeCapturingChatStream = () => {
 beforeEach(() => {
     createMock.mockReset();
     openAICtor.mockReset();
+    axiosGetMock.mockReset();
+    axiosGetMock.mockRejectedValue(new Error('Catalog unavailable'));
     // Spy on the live MeteringService — keep the underlying impl so
     // recording-side bugs surface here, but capture calls so per-test
     // assertions can verify metering shape.
@@ -149,6 +158,8 @@ describe('XAIProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.x.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -161,9 +172,15 @@ describe('XAIProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('grok-4.5');
     });
 
-    it('exposes the static XAI_MODELS list verbatim from models()', () => {
+    it('serves the curated catalog from models() while the upstream is down', async () => {
         const { provider } = makeProvider();
-        expect(provider.models()).toBe(XAI_MODELS);
+        expect(await provider.models()).toBe(XAI_CHAT_MODELS);
+        expect(
+            (await provider.models()).map(({ id, aliases }) => ({
+                id,
+                aliases,
+            })),
+        ).toEqual(XAI_MODELS.map(({ id, aliases }) => ({ id, aliases })));
     });
 
     it('list() flattens canonical ids and aliases', async () => {
@@ -195,7 +212,26 @@ describe('XAIProvider.complete request shape', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1 },
     };
 
-    it('forwards model + messages and locks max_tokens=1000', async () => {
+    it('forwards model, messages and the max_tokens it was given', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.6',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 4096,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.model).toBe('grok-4.6');
+        expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
+        // The driver's credit gate writes its output cap here.
+        expect(args.max_tokens).toBe(4096);
+    });
+
+    it('leaves max_tokens off the request when none is given', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -207,11 +243,7 @@ describe('XAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('grok-4.6');
-        expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
-        // max_tokens is hardcoded by the provider — the call to xAI
-        // should always cap at 1000 tokens of completion.
-        expect(args.max_tokens).toBe(1000);
+        expect('max_tokens' in args).toBe(false);
     });
 
     it('omits the `tools` key entirely when no tools are supplied', async () => {
@@ -540,6 +572,324 @@ describe('XAIProvider model resolution', () => {
 });
 
 // ── Non-stream completion + tool-call passthrough ───────────────────
+
+// ── Remote pricing catalog ──────────────────────────────────────────
+
+/** The live catalog with grok-4.5 repriced, so catalog rates are observable. */
+const repricedCatalog = () => ({
+    models: catalogFixture.models.map((m) =>
+        m.id === 'grok-4.5'
+            ? {
+                  ...m,
+                  prompt_text_token_price: 25_000,
+                  prompt_image_token_price: 25_000,
+                  cached_prompt_text_token_price: 2_500,
+                  completion_text_token_price: 70_000,
+                  prompt_text_token_price_long_context: 45_000,
+                  cached_prompt_text_token_price_long_context: 0,
+                  completion_text_token_price_long_context: 150_000,
+              }
+            : m,
+    ),
+});
+
+const okCompletion = (usage: Record<string, unknown>) => ({
+    choices: [
+        {
+            message: { content: 'ok', role: 'assistant' },
+            finish_reason: 'stop',
+        },
+    ],
+    usage,
+});
+
+const promptOf = (total: number) => ({
+    prompt_tokens: total,
+    completion_tokens: 100,
+    prompt_tokens_details: { cached_tokens: 1000 },
+});
+
+describe('XAIProvider remote pricing catalog', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('fetches the catalog once and serves it from memory', async () => {
+        axiosGetMock.mockResolvedValue({ data: repricedCatalog() });
+        const { provider } = makeProvider();
+
+        const [a, b, c] = await Promise.all([
+            provider.models(),
+            provider.models(),
+            provider.list(),
+        ]);
+        await provider.models();
+
+        expect(axiosGetMock).toHaveBeenCalledTimes(1);
+        expect(a).toBe(b);
+        expect(c).toEqual(await provider.list());
+        expect(a.find((m) => m.id === 'grok-4.5')!.costs).toEqual({
+            tokens: 1_000_000,
+            prompt_tokens: 250,
+            completion_tokens: 700,
+            cached_tokens: 25,
+        });
+    });
+
+    it('keeps the last good catalog when a refresh fails, and remembers the failure', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        axiosGetMock.mockResolvedValueOnce({ data: repricedCatalog() });
+        const { provider } = makeProvider();
+        const good = await provider.models();
+
+        vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+        axiosGetMock.mockRejectedValue(new Error('upstream down'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        expect(await provider.models()).toBe(good);
+        expect(await provider.models()).toBe(good);
+        expect(axiosGetMock).toHaveBeenCalledTimes(2);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0]![0])).not.toContain('test-key');
+    });
+
+    it('serves the curated catalog when the first fetch returns garbage', async () => {
+        axiosGetMock.mockResolvedValueOnce({ data: { data: [] } });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { provider } = makeProvider();
+        expect(await provider.models()).toBe(XAI_CHAT_MODELS);
+    });
+
+    it('bills completions at catalog rates and keeps aliases and the default', async () => {
+        axiosGetMock.mockResolvedValue({ data: repricedCatalog() });
+        const { provider } = makeProvider();
+        for (const model of ['grok-build-latest', 'not-a-model']) {
+            createMock.mockResolvedValueOnce(okCompletion(promptOf(11_000)));
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        }
+
+        expect(createMock.mock.calls.map((c) => c[0].model)).toEqual([
+            'grok-4.5',
+            'grok-4.5',
+        ]);
+        for (const call of recordSpy.mock.calls) {
+            expect(call[2]).toBe('xai:grok-4.5');
+            expect(call[3]).toEqual({
+                prompt_tokens: 10_000 * 250,
+                cached_tokens: 1000 * 25,
+                completion_tokens: 100 * 700,
+            });
+        }
+    });
+
+    it.each([
+        [199_999, { prompt: 250, cached: 25, completion: 700 }],
+        // The long tier's zero cache amount falls back to the standard rate.
+        [200_000, { prompt: 450, cached: 25, completion: 1500 }],
+        [200_001, { prompt: 450, cached: 25, completion: 1500 }],
+    ])(
+        'a %i-token prompt is metered, reported and estimated at one rate',
+        async (prompt, rate) => {
+            axiosGetMock.mockResolvedValue({ data: repricedCatalog() });
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce(okCompletion(promptOf(prompt)));
+
+            const result = (await withTestActor(() =>
+                provider.complete({
+                    model: 'grok-4.5',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            )) as {
+                usage: Record<string, number>;
+                usageCosts: Record<string, number>;
+            };
+
+            const ledger = {
+                prompt_tokens: (prompt - 1000) * rate.prompt,
+                cached_tokens: 1000 * rate.cached,
+                completion_tokens: 100 * rate.completion,
+            };
+            expect(recordSpy.mock.calls[0]![0]).toEqual({
+                prompt_tokens: prompt - 1000,
+                cached_tokens: 1000,
+                completion_tokens: 100,
+            });
+            expect(recordSpy.mock.calls[0]![3]).toEqual(ledger);
+            expect(result.usageCosts).toEqual(ledger);
+
+            // The figure the driver reports from the returned usage matches
+            // the ledger, and the credit gate quotes the same tier.
+            const model = (await provider.models()).find(
+                (m) => m.id === 'grok-4.5',
+            )!;
+            const cost = usageCost(result.usage, model, result.usageCosts)!;
+            expect(cost.inputMicroCents + cost.outputMicroCents).toBe(
+                ledger.prompt_tokens +
+                    ledger.cached_tokens +
+                    ledger.completion_tokens,
+            );
+            const estimate = costsForRequest(model, prompt);
+            expect(estimate.prompt_tokens).toBe(rate.prompt);
+            expect(estimate.completion_tokens).toBe(rate.completion);
+        },
+    );
+
+    it('bills explicit zero catalog rates as free and keeps a priced cache rate', async () => {
+        const catalog = repricedCatalog();
+        catalog.models = catalog.models.map((m) =>
+            m.id === 'grok-4.5'
+                ? {
+                      ...m,
+                      prompt_text_token_price: 0,
+                      prompt_image_token_price: 0,
+                      completion_text_token_price: 0,
+                  }
+                : m,
+        );
+        axiosGetMock.mockResolvedValue({ data: catalog });
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(okCompletion(promptOf(11_000)));
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.5',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(recordSpy.mock.calls[0]![3]).toEqual({
+            prompt_tokens: 0,
+            cached_tokens: 1000 * 25,
+            completion_tokens: 0,
+        });
+    });
+});
+
+/** The live catalog with grok-4.5 priced above the fixture on every rate. */
+const higherCatalog = () => ({
+    models: catalogFixture.models.map((m) =>
+        m.id === 'grok-4.5'
+            ? {
+                  ...m,
+                  prompt_text_token_price: 30_000,
+                  prompt_image_token_price: 30_000,
+                  cached_prompt_text_token_price: 5_000,
+                  completion_text_token_price: 90_000,
+                  prompt_text_token_price_long_context: 60_000,
+                  cached_prompt_text_token_price_long_context: 10_000,
+                  completion_text_token_price_long_context: 180_000,
+              }
+            : m,
+    ),
+});
+
+const usageChunks = (usage: Record<string, unknown>) =>
+    asAsyncIterable([
+        { choices: [{ delta: { content: 'ok' } }] },
+        { choices: [{ delta: {} }], usage },
+    ]);
+
+describe('XAIProvider resolved catalog snapshot', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it.each([false, true])(
+        'bills the snapshot the driver held credit against after the catalog refreshes higher (stream: %s)',
+        async (stream) => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            axiosGetMock.mockResolvedValueOnce({
+                data: structuredClone(catalogFixture),
+            });
+            const { provider } = makeProvider();
+            const snapshot = (await provider.models()).find(
+                (m) => m.id === 'grok-4.5',
+            )!;
+
+            vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+            axiosGetMock.mockResolvedValue({ data: higherCatalog() });
+            const usage = promptOf(200_000);
+            if (stream) createMock.mockReturnValueOnce(usageChunks(usage));
+            else createMock.mockResolvedValueOnce(okCompletion(usage));
+
+            const result = await withTestActor(() =>
+                provider.complete(
+                    {
+                        model: 'grok-4.5',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        stream,
+                    },
+                    snapshot,
+                ),
+            );
+            if (stream) {
+                await (
+                    result as {
+                        init_chat_stream: (p: {
+                            chatStream: unknown;
+                        }) => Promise<void>;
+                    }
+                ).init_chat_stream({
+                    chatStream: makeCapturingChatStream().chatStream,
+                });
+            }
+
+            // No catalog fetch of its own, and the snapshot's long tier
+            // applies from the inclusive threshold.
+            expect(axiosGetMock).toHaveBeenCalledTimes(1);
+            expect(createMock.mock.calls[0]![0].model).toBe('grok-4.5');
+            expect(recordSpy).toHaveBeenCalledTimes(1);
+            expect(recordSpy.mock.calls[0]![2]).toBe('xai:grok-4.5');
+            expect(recordSpy.mock.calls[0]![3]).toEqual({
+                prompt_tokens: 199_000 * 400,
+                cached_tokens: 1000 * 60,
+                completion_tokens: 100 * 1200,
+            });
+
+            // The catalog the provider would have read is newer and higher.
+            const fresh = (await provider.models()).find(
+                (m) => m.id === 'grok-4.5',
+            )!;
+            expect(axiosGetMock).toHaveBeenCalledTimes(2);
+            expect(costsForRequest(fresh, 200_000)).toMatchObject({
+                prompt_tokens: 600,
+                cached_tokens: 100,
+                completion_tokens: 1800,
+            });
+        },
+    );
+
+    it('resolves and refreshes the catalog itself when called without a snapshot', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        axiosGetMock.mockResolvedValueOnce({
+            data: structuredClone(catalogFixture),
+        });
+        const { provider } = makeProvider();
+        await provider.models();
+
+        vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+        axiosGetMock.mockResolvedValue({ data: higherCatalog() });
+        createMock.mockResolvedValueOnce(okCompletion(promptOf(200_000)));
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.5-latest',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(axiosGetMock).toHaveBeenCalledTimes(2);
+        expect(createMock.mock.calls[0]![0].model).toBe('grok-4.5');
+        expect(recordSpy.mock.calls[0]![3]).toEqual({
+            prompt_tokens: 199_000 * 600,
+            cached_tokens: 1000 * 100,
+            completion_tokens: 100 * 1800,
+        });
+    });
+});
 
 describe('XAIProvider.complete non-stream output', () => {
     it('returns the first choice and runs the metered usage calculator', async () => {

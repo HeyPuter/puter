@@ -58,7 +58,7 @@ When paginating, iterate until the result has no `cursor` — a page may hold fe
 
 Invalid options, such as a non-boolean `reverse` or `offset` combined with `stream`, reject the returned promise with an `invalid_request` error; `list()` never throws synchronously. With `stream: true`, the iterator's first `next()` rejects instead.
 
-Full (non-paginated) listings keep resolving to a plain array, so existing code is unaffected — under the hood the SDK now fetches them page by page. They still read the entire store, though: every page is metered, so on large stores a bare `list()` gets slow and costly (the SDK logs a one-time console warning when a full listing spans multiple pages). Prefer `stream: true` or explicit `limit`/`cursor` pages, and narrow the scan with a `pattern`.
+Without pagination params, the full listing is returned as a plain array. It reads the entire store and is metered per page, so on large stores a bare `list()` gets slow and costly. The SDK logs a one-time console warning when a full listing spans multiple pages. Use `stream: true` or `limit` and `cursor` pages instead, and narrow the scan with a `pattern`.
 
 With `stream: true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead:
 
@@ -74,7 +74,7 @@ for await (const page of puter.kv.list({ pattern: 'log:*', stream: true })) {
 
 <strong class="example-title">List keys in reverse order</strong>
 
-```html;kv-list-reverse
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

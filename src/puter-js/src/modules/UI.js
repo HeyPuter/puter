@@ -262,8 +262,16 @@ const createDeferred = () => {
     return { promise, resolve, reject };
 };
 
-const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
-const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
+const PICKER_CANCELLED = Symbol('PICKER_CANCELLED');
+// The popup pickers in older GUI builds spell these with one `l`.
+const PICKER_CANCEL_MSGS = new Set([
+    'fileOpenCancelled',
+    'fileOpenCanceled',
+    'fileSaveCancelled',
+    'fileSaveCanceled',
+    'directoryOpenCancelled',
+    'directoryOpenCanceled',
+]);
 
 // A consent prompt covers a handful of scopes at most, and the popup carries
 // them in its URL.
@@ -608,6 +616,19 @@ export class UIModule extends EventListener {
         callback(value);
     }
 
+    // A cancelled picker leaves its promise pending and settles only
+    // `undefinedOnCancel`, with `undefined`.
+    #registerPickerCallback (msgId, resolve, undefinedOnCancel) {
+        this.#callbackFunctions[msgId] = (result) => {
+            if ( result === PICKER_CANCELLED ) {
+                undefinedOnCancel.resolve(undefined);
+                return;
+            }
+            undefinedOnCancel.resolve(result);
+            resolve(result);
+        };
+    }
+
     #postMessageAsync (name, args = {}) {
         return new Promise(resolve => {
             this.#postMessageWithCallback(name, resolve, args);
@@ -928,13 +949,8 @@ export class UIModule extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file));
                 }
-                else if ( e.data.msg === 'fileSaveCancelled' ) {
-                    // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
-                }
-                else if ( e.data.msg === 'fileOpenCancelled' ) {
-                    // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
+                else if ( PICKER_CANCEL_MSGS.has(e.data.msg) ) {
+                    this.#callbackFunctions[e.data.original_msg_id](PICKER_CANCELLED);
                 }
                 else {
                     // execute callback
@@ -1310,14 +1326,17 @@ export class UIModule extends EventListener {
 
     /**
      * Shows a directory picker over the user's Puter storage. Resolves to one
-     * `FSItem`, or an array of them when multiple selection is allowed.
+     * `FSItem`, or an array of them when multiple selection is allowed. The
+     * returned promise also carries `undefinedOnCancel`, which resolves to
+     * `undefined` instead of staying pending when the user cancels.
      *
      * @param {{ multiple?: boolean }} [options]
      * @param {(value: FSItem | FSItem[]) => void} [callback]
-     * @returns {Promise<FSItem | FSItem[]>}
+     * @returns {CancelAwarePromise<FSItem | FSItem[]>}
      */
     showDirectoryPicker (options, callback) {
-        return new Promise((resolve, reject) => {
+        const undefinedOnCancel = createDeferred();
+        const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
@@ -1348,9 +1367,10 @@ export class UIModule extends EventListener {
                 ));
             }
 
-            //register callback
-            this.#callbackFunctions[msg_id] = resolve;
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
+        return resolveOnlyPromise;
     };
 
     /**
@@ -1361,7 +1381,7 @@ export class UIModule extends EventListener {
      *
      * @param {{ multiple?: boolean, accept?: string }} [options]
      * @param {(value: FSItem | FSItem[]) => void} [callback]
-     * @returns {Promise<FSItem | FSItem[]>}
+     * @returns {CancelAwarePromise<FSItem | FSItem[]>}
      */
     showOpenFilePicker (options, callback) {
         const undefinedOnCancel = createDeferred();
@@ -1392,16 +1412,7 @@ export class UIModule extends EventListener {
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
                 ));
             }
-            //register callback
-            this.#callbackFunctions[msg_id] = (maybe_result) => {
-                // Only resolve cancel events if this was called with `.undefinedOnCancel`
-                if ( maybe_result === FILE_OPEN_CANCELLED ) {
-                    undefinedOnCancel.resolve(undefined);
-                    return;
-                }
-                undefinedOnCancel.resolve(maybe_result);
-                resolve(maybe_result);
-            };
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
         return resolveOnlyPromise;
@@ -1550,7 +1561,7 @@ export class UIModule extends EventListener {
      *   or the path of an existing file when 'move' or 'copy'
      * @param {string} [suggestedName] name to prefill in the dialog
      * @param {'url' | 'move' | 'copy'} [type] how `content` is read; inferred as 'url' for a URL
-     * @returns {Promise<FSItem>}
+     * @returns {CancelAwarePromise<FSItem>}
      */
     showSaveFilePicker (content, suggestedName, type) {
         const undefinedOnCancel = createDeferred();
@@ -1627,16 +1638,7 @@ export class UIModule extends EventListener {
                 // Same window, for the picker's own reply on the main listener.
                 this.#trackPickerPopup(popup);
             }
-            //register callback
-            this.#callbackFunctions[msg_id] = (maybe_result) => {
-                // Only resolve cancel events if this was called with `.undefinedOnCancel`
-                if ( maybe_result === FILE_SAVE_CANCELLED ) {
-                    undefinedOnCancel.resolve(undefined);
-                    return;
-                }
-                undefinedOnCancel.resolve(maybe_result);
-                resolve(maybe_result);
-            };
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
 
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;

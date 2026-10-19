@@ -45,7 +45,11 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { ElevenLabsTTSProvider } from './ElevenLabsTTSProvider.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
@@ -139,6 +143,43 @@ describe('ElevenLabsTTSProvider catalog', () => {
         });
     });
 
+    it('listVoices calls ElevenLabs once per cache window', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockImplementation(async () =>
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+
+        const [first, second] = await Promise.all([
+            provider.listVoices(),
+            provider.listVoices(),
+        ]);
+        const third = await provider.listVoices();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+    });
+
+    it('listVoices does not cache a failed fetch', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }));
+        await expect(provider.listVoices()).rejects.toMatchObject({
+            status: 503,
+        });
+
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({ voices: [{ voice_id: 'v', name: 'V' }] }),
+                { status: 200 },
+            ),
+        );
+        expect(await provider.listVoices()).toHaveLength(1);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
     it('listVoices uses a custom apiBaseUrl when configured', async () => {
         const provider = makeProvider({ apiBaseUrl: 'https://custom.example' });
         fetchSpy.mockResolvedValueOnce(
@@ -175,6 +216,28 @@ describe('ElevenLabsTTSProvider catalog', () => {
         expect([...ids].sort()).toEqual(
             Object.keys(ELEVENLABS_TTS_COSTS).sort(),
         );
+    });
+
+    it('prices each engine from the cost table in dollars per 1M chars', async () => {
+        const provider = makeProvider();
+        const engines = await provider.listEngines();
+        // toBe considers NaN equal to itself, so assert finiteness separately.
+        for (const cost of Object.values(ELEVENLABS_TTS_COSTS)) {
+            expect(Number.isFinite(cost)).toBe(true);
+        }
+        for (const engine of engines) {
+            expect(Number.isFinite(engine.pricing_per_million_chars)).toBe(
+                true,
+            );
+            expect(engine.pricing_per_million_chars).toBe(
+                ELEVENLABS_TTS_COSTS[engine.id] / 100,
+            );
+        }
+        const byId = Object.fromEntries(
+            engines.map((e) => [e.id, e.pricing_per_million_chars]),
+        );
+        expect(byId.eleven_multilingual_v2).toBe(162);
+        expect(byId.eleven_flash_v2_5).toBe(81);
     });
 
     it.each(['eleven_turbo_v2_5', 'eleven_turbo_v2'])(
@@ -273,7 +336,11 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
-        await withTestActor(() => provider.synthesize({ text: 'hi', model }));
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text: 'hi', model }),
+            ),
+        );
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         const [, init] = fetchSpy.mock.calls[0]!;
@@ -312,10 +379,11 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         const [url, init] = fetchSpy.mock.calls[0]!;
         // Default voice id is the documented Rachel sample.
         expect(String(url)).toBe(
-            'https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM',
+            'https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM?output_format=mp3_44100_128',
         );
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>)['xi-api-key']).toBe(
             'test-key',
         );
@@ -323,7 +391,6 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         expect(body).toEqual({
             text: 'hello',
             model_id: 'eleven_multilingual_v2',
-            output_format: 'mp3_44100_128',
         });
     });
 
@@ -335,7 +402,7 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
 
         const [url] = fetchSpy.mock.calls[0]!;
         expect(String(url)).toBe(
-            'https://api.elevenlabs.io/v1/text-to-speech/custom-voice-id',
+            'https://api.elevenlabs.io/v1/text-to-speech/custom-voice-id?output_format=mp3_44100_128',
         );
     });
 
@@ -354,7 +421,9 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         const body = JSON.parse(
             (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
         );
-        expect(body.output_format).toBe('mp3_22050_32');
+        const url = new URL(String(fetchSpy.mock.calls[0]![0]));
+        expect(url.searchParams.get('output_format')).toBe('mp3_22050_32');
+        expect(body).not.toHaveProperty('output_format');
     });
 
     it('falls back to response_format when output_format is absent', async () => {
@@ -371,7 +440,109 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
         const body = JSON.parse(
             (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
         );
-        expect(body.output_format).toBe('pcm_44100');
+        const url = new URL(String(fetchSpy.mock.calls[0]![0]));
+        expect(url.searchParams.get('output_format')).toBe('pcm_44100');
+        expect(body).not.toHaveProperty('output_format');
+    });
+
+    it.each(['mp3_44100_128', 'pcm_44100', 'ulaw_8000', 'opus_48000_128'])(
+        'sends %s only as a query parameter',
+        async (outputFormat) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(audioResponse());
+
+            await withTestActor(() =>
+                provider.synthesize({
+                    text: 'hi',
+                    output_format: outputFormat,
+                }),
+            );
+
+            const [url, init] = fetchSpy.mock.calls[0]!;
+            expect(new URL(String(url)).searchParams.get('output_format')).toBe(
+                outputFormat,
+            );
+            expect(JSON.parse(String(init?.body))).not.toHaveProperty(
+                'output_format',
+            );
+        },
+    );
+
+    it.each([
+        ['mp3', 'mp3_44100_128'],
+        ['opus', 'opus_48000_128'],
+        ['pcm', 'pcm_24000'],
+        ['wav', 'wav_24000'],
+    ])(
+        'maps the OpenAI-style response_format %s to %s',
+        async (responseFormat, outputFormat) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(audioResponse());
+
+            await withTestActor(() =>
+                provider.synthesize({
+                    text: 'hi',
+                    response_format: responseFormat,
+                }),
+            );
+
+            const url = new URL(String(fetchSpy.mock.calls[0]![0]));
+            expect(url.searchParams.get('output_format')).toBe(outputFormat);
+        },
+    );
+
+    it.each([
+        ['output_format', 'pcm_44100&enable_logging=false'],
+        ['output_format', 'aac'],
+        ['response_format', 'flac'],
+    ])(
+        'rejects the unsupported %s %s before reserving credits',
+        async (key, value) => {
+            const provider = makeProvider();
+
+            await expect(
+                withTestActor(() =>
+                    provider.synthesize({ text: 'hi', [key]: value }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'field_invalid',
+                fields: { key, got: value },
+            });
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(hasCreditsSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('encodes the resolved voice ID in the request path', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    voices: [
+                        { voice_id: 'voice/id?name=value', name: 'Custom' },
+                    ],
+                }),
+            ),
+        );
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({
+                text: 'hi',
+                voice: 'Custom',
+                output_format: 'pcm_44100',
+            }),
+        );
+
+        const url = new URL(String(fetchSpy.mock.calls[1]![0]));
+        expect(url.pathname).toBe(
+            '/v1/text-to-speech/voice%2Fid%3Fname%3Dvalue',
+        );
+        expect([...url.searchParams]).toEqual([
+            ['output_format', 'pcm_44100'],
+        ]);
     });
 
     it('attaches voice_settings (snake_case preferred) to the payload', async () => {
@@ -411,6 +582,233 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
     });
 });
 
+describe('ElevenLabsTTSProvider.synthesize voice resolution', () => {
+    const catalogResponse = (
+        voices = [
+            { voice_id: 'bella-id', name: 'Bella' },
+            { voice_id: 'elli-id', name: 'Elli' },
+        ],
+    ) => new Response(JSON.stringify({ voices }));
+
+    it.each(['Bella', 'Elli'])('resolves %s to its voice ID', async (voice) => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(catalogResponse());
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice }),
+            ),
+        );
+
+        expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+            `https://api.elevenlabs.io/v2/voices?search=${voice}&page_size=100&include_total_count=false`,
+            `https://api.elevenlabs.io/v1/text-to-speech/${voice.toLowerCase()}-id?output_format=mp3_44100_128`,
+        ]);
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['21m00Tcm4TlvDq8ikWAM', 'hpp4J3VqNfWAUOO0d1Us'])(
+        'sends the voice ID %s without a catalog lookup',
+        async (voice) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(audioResponse());
+
+            await withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice }),
+            );
+
+            expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+                `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`,
+            ]);
+        },
+    );
+
+    it('resolves a premade voice by the short name before its description', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                {
+                    voice_id: 'library-bella-id',
+                    name: 'Bella - Cozy Narrator',
+                    category: 'professional',
+                },
+                {
+                    voice_id: 'premade-bella-id',
+                    name: 'Bella - Professional, Bright, Warm',
+                    category: 'premade',
+                },
+            ] as never),
+        );
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'Bella' }),
+        );
+
+        expect(String(fetchSpy.mock.calls[1]![0])).toBe(
+            'https://api.elevenlabs.io/v1/text-to-speech/premade-bella-id?output_format=mp3_44100_128',
+        );
+    });
+
+    it('prefers an exact full name over a premade short name', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                {
+                    voice_id: 'premade-adam-id',
+                    name: 'Adam - Dominant, Firm',
+                    category: 'premade',
+                },
+                {
+                    voice_id: 'library-adam-id',
+                    name: 'Adam',
+                    category: 'professional',
+                },
+            ] as never),
+        );
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'Adam' }),
+        );
+
+        expect(String(fetchSpy.mock.calls[1]![0])).toBe(
+            'https://api.elevenlabs.io/v1/text-to-speech/library-adam-id?output_format=mp3_44100_128',
+        );
+    });
+
+    it('does not resolve library voices by their short name', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                {
+                    voice_id: 'library-rachel-id',
+                    name: 'Rachel - Social Media Narrator',
+                    category: 'professional',
+                },
+            ] as never),
+        );
+
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice: 'Rachel' }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'field_invalid' });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('follows search pages until the name is found', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    voices: [{ voice_id: 'other-id', name: 'Bella Two' }],
+                    has_more: true,
+                    next_page_token: 'page-2',
+                }),
+            ),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    voices: [{ voice_id: 'bella-id', name: 'Bella' }],
+                    has_more: false,
+                }),
+            ),
+        );
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'Bella' }),
+        );
+
+        expect(
+            new URL(String(fetchSpy.mock.calls[1]![0])).searchParams.get(
+                'next_page_token',
+            ),
+        ).toBe('page-2');
+        expect(String(fetchSpy.mock.calls[2]![0])).toBe(
+            'https://api.elevenlabs.io/v1/text-to-speech/bella-id?output_format=mp3_44100_128',
+        );
+    });
+
+    it('prefers an exact ID over a matching voice name', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                { voice_id: 'other-id', name: 'bella-id' },
+                { voice_id: 'bella-id', name: 'Bella' },
+            ]),
+        );
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', voice: 'bella-id' }),
+        );
+
+        expect(String(fetchSpy.mock.calls[1]![0])).toBe(
+            'https://api.elevenlabs.io/v1/text-to-speech/bella-id?output_format=mp3_44100_128',
+        );
+    });
+
+    it.each(['Unknown', 'bella', '../voices'])(
+        'rejects unknown voice %s before synthesis',
+        async (voice) => {
+            const provider = makeProvider();
+            fetchSpy.mockResolvedValueOnce(catalogResponse());
+
+            await expect(
+                withTestActor(() => provider.synthesize({ text: 'hi', voice })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'field_invalid',
+                message:
+                    'Unknown ElevenLabs voice. Use a voice ID or exact name from listVoices.',
+                fields: { key: 'voice' },
+            });
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('requires an ID when a name matches multiple voices', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            catalogResponse([
+                { voice_id: 'first-id', name: 'Bella' },
+                { voice_id: 'second-id', name: 'Bella' },
+            ]),
+        );
+
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', voice: 'Bella' }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'field_invalid',
+            message:
+                'Ambiguous ElevenLabs voice name. Use a voice ID from listVoices.',
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('propagates catalog failure without attempting synthesis or metering', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+
+        expect(
+            await callerError(() =>
+                provider.synthesize({ text: 'hi', voice: 'Bella' }),
+            ),
+        ).toMatchObject({ legacyCode: 'upstream_provider_unavailable' });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
 // ── Streaming output ────────────────────────────────────────────────
 
 describe('ElevenLabsTTSProvider.synthesize streaming output', () => {
@@ -437,6 +835,30 @@ describe('ElevenLabsTTSProvider.synthesize streaming output', () => {
         expect(Buffer.concat(chunks).toString()).toBe('AAA-BBB');
     });
 
+    it('answers before the upstream body has finished arriving', async () => {
+        const provider = makeProvider();
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        fetchSpy.mockResolvedValueOnce(
+            new Response(body, { headers: { 'content-type': 'audio/mpeg' } }),
+        );
+
+        // Resolves with the upstream still open: nothing is buffered first.
+        const result = (await withTestActor(() =>
+            provider.synthesize({ text: 'hi' }),
+        )) as { stream: Readable };
+        controller.enqueue(Buffer.from('AAA'));
+        controller.close();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.stream) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toBe('AAA');
+    });
+
     it('uses the response content-type header when present', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse('x', 'audio/wav'));
@@ -457,8 +879,10 @@ describe('ElevenLabsTTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello';
-        await withTestActor(() =>
-            provider.synthesize({ text, model: 'eleven_flash_v2_5' }),
+        await readStreamResult(
+            await withTestActor(() =>
+                provider.synthesize({ text, model: 'eleven_flash_v2_5' }),
+            ),
         );
 
         const expectedCost = ELEVENLABS_TTS_COSTS['eleven_flash_v2_5'] * text.length;
@@ -496,11 +920,12 @@ describe('ElevenLabsTTSProvider.synthesize error paths', () => {
             }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
+            fields: { provider: 'elevenlabs', upstreamStatus: 422 },
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });

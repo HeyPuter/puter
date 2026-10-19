@@ -22,13 +22,15 @@ import { imageDataUri } from '../../imageOutput.js';
 import { OpenAI } from 'openai';
 import { formatAspectRatio } from '../../imageDimensions.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { IGenerateParams, IImageProvider } from '../../types.js';
 import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { toUrlOrDataUri } from '../../inputImage.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { cachedRemoteCatalog } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
+import { fetchXaiImageCatalog } from './catalog.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
 // xAI's Grok Imagine edit endpoint accepts up to 5 source images per request.
@@ -40,9 +42,18 @@ interface XaiImageResponse {
 
 export class XAIImageProvider implements IImageProvider {
     #client: OpenAI;
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
+    /**
+     * The catalog last handed to the driver; generate() bills from it so a
+     * hold, its metering and the advertised price always agree.
+     */
+    #models: XaiImageModel[] = XAI_IMAGE_GENERATION_MODELS;
+    #catalog: () => Promise<XaiImageModel[]>;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         if (!config.apiKey) {
             throw new Error('xAI image generation requires an API key');
         }
@@ -52,10 +63,17 @@ export class XAIImageProvider implements IImageProvider {
             apiKey: config.apiKey,
             baseURL: 'https://api.x.ai/v1',
         });
+        this.#catalog = cachedRemoteCatalog({
+            name: 'xAI image pricing',
+            fallback: XAI_IMAGE_GENERATION_MODELS,
+            fetch: (signal, previous) =>
+                fetchXaiImageCatalog(config.apiKey, signal, previous),
+        });
     }
 
-    models(): XaiImageModel[] {
-        return XAI_IMAGE_GENERATION_MODELS;
+    async models(): Promise<XaiImageModel[]> {
+        this.#models = await this.#catalog();
+        return this.#models;
     }
 
     getDefaultModel(): string {
@@ -129,65 +147,72 @@ export class XAIImageProvider implements IImageProvider {
         const estimatedCostInCents =
             outputPriceInCents +
             (hasInputImages ? mediaInputPriceInCents * inputImageCount : 0);
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            `xai:${selectedModel.id}:${outputCostKey}`,
             estimatedCostInCents * 1_000_000,
         );
 
-        if (!usageAllowed) {
+        if (!hold) {
             throw insufficientCreditsError();
         }
 
-        const response = hasInputImages
-            ? await this.#edit({
-                  modelId: selectedModel.id,
-                  prompt,
-                  inputImages: input_images!,
-                  mimeHint: input_image_mime_type,
-                  resolution,
-                  aspectRatio,
-                  imageQuality,
-                  userIdentifier,
-              })
-            : ((await this.#client.images.generate({
-                  model: selectedModel.id,
-                  prompt,
-                  user: userIdentifier,
-                  // xAI-specific params not in the OpenAI type; passed through.
-                  ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
-                  resolution,
-                  ...(imageQuality ? { quality: imageQuality } : {}),
-              } as Parameters<
-                  OpenAI['images']['generate']
-              >[0])) as XaiImageResponse);
+        try {
+            const response = hasInputImages
+                ? await this.#edit({
+                      modelId: selectedModel.id,
+                      prompt,
+                      inputImages: input_images!,
+                      mimeHint: input_image_mime_type,
+                      resolution,
+                      aspectRatio,
+                      imageQuality,
+                      userIdentifier,
+                  })
+                : ((await this.#client.images.generate({
+                      model: selectedModel.id,
+                      prompt,
+                      user: userIdentifier,
+                      // xAI-specific params not in the OpenAI type; passed through.
+                      ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+                      resolution,
+                      ...(imageQuality ? { quality: imageQuality } : {}),
+                  } as Parameters<
+                      OpenAI['images']['generate']
+                  >[0])) as XaiImageResponse);
 
-        const first = response.data?.[0];
-        const url =
-            first?.url ||
-            (first?.b64_json ? imageDataUri(first.b64_json) : undefined);
+            const first = response.data?.[0];
+            const url =
+                first?.url ||
+                (first?.b64_json ? imageDataUri(first.b64_json) : undefined);
 
-        if (!url) {
-            throw new Error('Failed to extract image URL from xAI response');
+            if (!url) {
+                throw new Error(
+                    'Failed to extract image URL from xAI response',
+                );
+            }
+
+            const usageEntries = [
+                {
+                    usageType: `xai:${selectedModel.id}:${outputCostKey}`,
+                    usageAmount: 1,
+                    costOverride: outputPriceInCents * 1_000_000,
+                },
+            ];
+            if (hasInputImages && mediaInputPriceInCents > 0) {
+                usageEntries.push({
+                    usageType: `xai:${selectedModel.id}:media_input`,
+                    usageAmount: inputImageCount,
+                    costOverride:
+                        mediaInputPriceInCents * inputImageCount * 1_000_000,
+                });
+            }
+            this.#meteringService.batchIncrementUsages(actor, usageEntries);
+
+            return url;
+        } finally {
+            await hold.release();
         }
-
-        const usageEntries = [
-            {
-                usageType: `xai:${selectedModel.id}:${outputCostKey}`,
-                usageAmount: 1,
-                costOverride: outputPriceInCents * 1_000_000,
-            },
-        ];
-        if (hasInputImages && mediaInputPriceInCents > 0) {
-            usageEntries.push({
-                usageType: `xai:${selectedModel.id}:media_input`,
-                usageAmount: inputImageCount,
-                costOverride:
-                    mediaInputPriceInCents * inputImageCount * 1_000_000,
-            });
-        }
-        this.#meteringService.batchIncrementUsages(actor, usageEntries);
-
-        return url;
     }
 
     // Edits go to POST /v1/images/edits as application/json (the OpenAI SDK's
@@ -238,7 +263,7 @@ export class XAIImageProvider implements IImageProvider {
     }
 
     #getModel(model?: string) {
-        const models = this.models();
+        const models = this.#models;
         const found = models.find(
             (m) => m.id === model || m.aliases?.includes(model ?? ''),
         );

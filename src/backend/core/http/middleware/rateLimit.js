@@ -116,6 +116,31 @@ async function checkMemory(key, limit, windowMs) {
 }
 
 /**
+ * Spend up to `units` from one bucket at once and report how many fit: the
+ * many-unit form of `checkMemory`, for a caller that would otherwise loop.
+ */
+async function claimMemory(key, limit, windowMs, units) {
+    const now = Date.now();
+    let entry = memoryWindows.get(key);
+    if (!entry) {
+        if (memoryWindows.size >= MEMORY_MAX_KEYS) {
+            const oldest = memoryWindows.keys().next().value;
+            memoryWindows.delete(oldest);
+        }
+        entry = { ts: [], windowMs };
+        memoryWindows.set(key, entry);
+    } else {
+        entry.windowMs = windowMs;
+    }
+    const timestamps = entry.ts;
+    const cutoff = now - windowMs;
+    while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
+    const admitted = Math.max(0, Math.min(units, limit - timestamps.length));
+    for (let i = 0; i < admitted; i++) timestamps.push(now);
+    return admitted;
+}
+
+/**
  * Read a bucket's state without spending from it. For gates whose budget is
  * consumed by something other than the request being admitted — a failed
  * credential check, say — where charging the check itself would bill every
@@ -182,6 +207,32 @@ async function checkRedis(
     return true;
 }
 
+/**
+ * `checkRedis` for many units in one round trip: add them all, count, and take
+ * back however many landed over the limit. Same add-then-count shape, so
+ * concurrent claims can under-admit but never over-admit.
+ */
+async function claimRedis(redis, key, limit, windowMs, units) {
+    const redisKey = `rate:${key}`;
+    const now = Date.now();
+    const members = Array.from(
+        { length: units },
+        () => `${now}:${crypto.randomUUID()}`,
+    );
+    const results = await redis
+        .multi()
+        .zremrangebyscore(redisKey, 0, now - windowMs)
+        .zadd(redisKey, ...members.flatMap((member) => [now, member]))
+        .zcard(redisKey)
+        .pexpire(redisKey, windowMs)
+        .exec();
+
+    const count = Number(multiResult(results, 2));
+    const excess = Math.min(units, Math.max(0, count - limit));
+    if (excess > 0) await redis.zrem(redisKey, ...members.slice(-excess));
+    return units - excess;
+}
+
 async function peekRedis(redis, key, limit, windowMs) {
     const redisKey = `rate:${key}`;
     const results = await redis
@@ -198,11 +249,13 @@ async function checkKv(kv, key, limit, windowMs) {
     const prefix = `rate:${key}:`;
     // `list` filters by TTL already, so a non-expired row ⇒ in-window.
     // Cap the fetch at `limit + 1` — once we know it's over, the exact
-    // count doesn't matter.
+    // count doesn't matter. The cap applies before expired rows are dropped,
+    // so read newest first: unswept rows from past windows sort oldest.
     const { res } = await kv.list({
         as: 'keys',
         pattern: prefix,
         limit: limit + 1,
+        reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
     if (keys.length >= limit) return false;
@@ -216,6 +269,31 @@ async function checkKv(kv, key, limit, windowMs) {
     return true;
 }
 
+// `checkKv` for many units: one read, then a row per admitted unit. Newest
+// first for the same reason `checkKv` reads that way.
+async function claimKv(kv, key, limit, windowMs, units) {
+    const prefix = `rate:${key}:`;
+    const { res } = await kv.list({
+        as: 'keys',
+        pattern: prefix,
+        limit: limit + 1,
+        reverse: true,
+    });
+    const keys = Array.isArray(res) ? res : (res?.items ?? []);
+    const admitted = Math.max(0, Math.min(units, limit - keys.length));
+    const now = Date.now();
+    await Promise.all(
+        Array.from({ length: admitted }, () =>
+            kv.set({
+                key: `${prefix}${now}:${crypto.randomUUID()}`,
+                value: 1,
+                expireAt: Math.ceil((now + windowMs) / 1000),
+            }),
+        ),
+    );
+    return admitted;
+}
+
 // `list` filters by TTL, so a non-expired row is in-window — same read
 // `checkKv` does, minus the write.
 async function peekKv(kv, key, limit) {
@@ -223,6 +301,7 @@ async function peekKv(kv, key, limit) {
         as: 'keys',
         pattern: `rate:${key}:`,
         limit: limit + 1,
+        reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
     return keys.length < limit;
@@ -331,12 +410,14 @@ async function acquireKvConcurrent(kv, key, limit) {
     // KV has no atomic increment. Use the row-per-slot pattern: each
     // in-flight request owns a unique row under a shared prefix; count
     // by listing the prefix. Same race profile as `checkKv` — best
-    // effort, conservative bias.
+    // effort, conservative bias. Newest first, as in `checkKv`, so unswept
+    // orphan slots don't fill the capped fetch.
     const prefix = `concurrent:${key}:`;
     const { res } = await kv.list({
         as: 'keys',
         pattern: prefix,
         limit: limit + 1,
+        reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
     if (keys.length >= limit) return { ok: false };
@@ -390,6 +471,10 @@ function instrumentBackendPair(name, pair) {
             withSpan('rate_limit.peek', attrs, () =>
                 pair.peek(key, limit, windowMs),
             ),
+        claim: (key, limit, windowMs, units) =>
+            withSpan('rate_limit.claim', attrs, () =>
+                pair.claim(key, limit, windowMs, units),
+            ),
         acquire: (key, limit) =>
             withSpan('rate_limit.acquire', attrs, () =>
                 pair.acquire(key, limit),
@@ -400,6 +485,7 @@ function instrumentBackendPair(name, pair) {
 const memoryBackendPair = instrumentBackendPair('memory', {
     rate: checkMemory,
     peek: peekMemory,
+    claim: claimMemory,
     acquire: acquireMemoryConcurrent,
 });
 
@@ -448,6 +534,8 @@ export function configureRateLimit({
                 checkRedis(redis, key, limit, windowMs),
             peek: (key, limit, windowMs) =>
                 peekRedis(redis, key, limit, windowMs),
+            claim: (key, limit, windowMs, units) =>
+                claimRedis(redis, key, limit, windowMs, units),
             acquire: (key, limit) => acquireRedisConcurrent(redis, key, limit),
         });
     }
@@ -455,6 +543,8 @@ export function configureRateLimit({
         backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
             peek: (key, limit) => peekKv(kv, key, limit),
+            claim: (key, limit, windowMs, units) =>
+                claimKv(kv, key, limit, windowMs, units),
             acquire: (key, limit) => acquireKvConcurrent(kv, key, limit),
         });
     }
@@ -594,6 +684,73 @@ function fingerprint(req) {
         : network;
 }
 
+// -- Shared charge path ----------------------------------------------
+
+const noop = async () => {};
+
+/**
+ * The one path every entry point charges through: resolve the limit (with any
+ * `bySubscription` override for `req`'s actor), then `rate`, `peek` or
+ * `acquire` against `backend`. A backend error fails open — `true`, or `null`
+ * in place of a slot — so a broken Redis/KV doesn't fail every request it
+ * guards. With `failOpen: false` the error is thrown instead.
+ */
+async function charge(
+    req,
+    key,
+    spec,
+    { mode, backend, failOpen = true, label },
+) {
+    try {
+        const limit = await resolveSubscriptionLimit(req, spec);
+        return mode === 'acquire'
+            ? await backend.acquire(key, limit)
+            : await backend[mode](key, limit, spec.window);
+    } catch (err) {
+        if (!failOpen) throw err;
+        console.error(`${label} failed, failing open:`, err);
+        return mode === 'acquire' ? null : true;
+    }
+}
+
+/** Bucket key for a route-shaped spec: its `key` strategy within its scope. */
+function routeKey(req, spec) {
+    return resolveKey(
+        req,
+        spec.scope ?? req.route?.path ?? 'route',
+        spec.key ?? 'fingerprint',
+    );
+}
+
+/**
+ * Wrap an acquired slot so `release` runs at most once and neither it nor
+ * `renew` ever rejects: a failed release is logged, not thrown into the
+ * caller's `finally` or a response listener.
+ */
+function guardSlot(slot, label) {
+    let released = false;
+    return {
+        ok: true,
+        release: async () => {
+            if (released) return;
+            released = true;
+            try {
+                await slot.release();
+            } catch (err) {
+                console.error(`${label} release failed:`, err);
+            }
+        },
+        renew: async () => {
+            if (released) return;
+            try {
+                await slot.renew?.();
+            } catch (err) {
+                console.error(`${label} renew failed:`, err);
+            }
+        },
+    };
+}
+
 // -- Route middleware ------------------------------------------------
 
 /**
@@ -602,44 +759,26 @@ function fingerprint(req) {
  * { rateLimit: { limit: 10, window: 15 * 60_000, key: 'user' } } { rateLimit: {
  * limit: 100, window: 60_000, backend: 'memory' } }
  *
- * Rejects with 429. Fails open on backend error — a broken Redis/KV shouldn't
- * 500 every request.
+ * Rejects with 429. Fails open on backend error.
  */
 export function rateLimitGate(opts) {
-    const {
-        window: windowMs,
-        key: strategy = 'fingerprint',
-        scope,
-        backend,
-    } = opts;
-
-    const backendPair = resolveBackend(backend);
+    const backend = resolveBackend(opts.backend);
 
     return async (req, _res, next) => {
-        const key = resolveKey(
-            req,
-            scope ?? req.route?.path ?? 'route',
-            strategy,
-        );
-        try {
-            // `limit` may be overridden per-actor via `bySubscription`;
-            // the resolver returns `opts.limit` unchanged when the
-            // override doesn't apply (no actor, no metering, etc.).
-            const limit = await resolveSubscriptionLimit(req, opts);
-            if (!(await backendPair.rate(key, limit, windowMs)))
-                return next(
-                    new HttpError(429, 'Too many requests.', {
-                        legacyCode: 'too_many_requests',
-                    }),
-                );
-            next();
-        } catch (err) {
-            console.error(
-                '[rate-limit] backend check failed, failing open:',
-                err,
+        const allowed = await charge(req, routeKey(req, opts), opts, {
+            mode: 'rate',
+            backend,
+            label: '[rate-limit] backend check',
+        });
+        if (!allowed) {
+            next(
+                new HttpError(429, 'Too many requests.', {
+                    legacyCode: 'too_many_requests',
+                }),
             );
-            next();
+            return;
         }
+        next();
     };
 }
 
@@ -668,23 +807,20 @@ function driverCaller(req) {
  * Returns true if allowed, false if rate-limited.
  */
 export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
-    const { window: windowMs = 60_000, backend } = opts;
-    const key = `driver:${ifaceName}:${method}:${driverCaller(req)}`;
-    const backendPair = resolveBackend(backend);
-    try {
-        // Drivers can pin a per-subscription limit via `bySubscription`
-        // on their decorator config; `resolveSubscriptionLimit` reads
-        // that through `opts.limit` and falls back to the 600/min
-        // default when neither the spec nor the override apply.
-        const limit = await resolveSubscriptionLimit(req, {
+    return charge(
+        req,
+        `driver:${ifaceName}:${method}:${driverCaller(req)}`,
+        {
             limit: opts.limit ?? 600,
+            window: opts.window ?? 60_000,
             bySubscription: opts.bySubscription,
-        });
-        return await backendPair.rate(key, limit, windowMs);
-    } catch (err) {
-        console.error('[rate-limit] driver check failed, failing open:', err);
-        return true;
-    }
+        },
+        {
+            mode: 'rate',
+            backend: resolveBackend(opts.backend),
+            label: '[rate-limit] driver check',
+        },
+    );
 }
 
 // -- Imperative helper -----------------------------------------------
@@ -693,19 +829,48 @@ export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
  * Imperative rate-limit check (no middleware shape). For handlers that need a
  * second-axis limit after their route-level limit fires — e.g. `/login` clamps
  * per IP at the route, then tighter still on the requests that carry an
- * `auth_id` hint. Returns true if allowed, false if rate-limited. Fails open on
- * backend error, matching the rest of this module's policy.
+ * `auth_id` hint. Returns true if allowed, false if rate-limited.
+ *
+ * Fails open on backend error, like the rest of this module; pass `{ failOpen:
+ * false }` for a limit that must hold even then; the backend error is thrown
+ * instead.
  */
-export async function checkRateLimit(key, limit, windowMs, backend) {
+export async function checkRateLimit(
+    key,
+    limit,
+    windowMs,
+    backend,
+    { failOpen = true } = {},
+) {
+    return charge(
+        undefined,
+        key,
+        { limit, window: windowMs },
+        {
+            mode: 'rate',
+            backend: resolveBackend(backend),
+            failOpen,
+            label: '[rate-limit] imperative check',
+        },
+    );
+}
+
+/**
+ * `checkRateLimit` for `units` hits at once, in one backend round trip.
+ * Resolves to how many were admitted (0..units) and spent; the rest were not
+ * charged. Fails open, admitting every unit, like the rest of this module.
+ */
+export async function claimRateLimit(key, limit, windowMs, units, backend) {
+    if (!(units > 0)) return 0;
     const bk = resolveBackend(backend);
     try {
-        return await bk.rate(key, limit, windowMs);
+        return await bk.claim(key, limit, windowMs, units);
     } catch (err) {
         console.error(
-            '[rate-limit] imperative check failed, failing open:',
+            '[rate-limit] imperative claim failed, failing open:',
             err,
         );
-        return true;
+        return units;
     }
 }
 
@@ -727,21 +892,11 @@ export async function consumeRouteRateLimit(req, spec) {
         }
         return true;
     }
-    const {
-        window: windowMs,
-        key: strategy = 'fingerprint',
-        scope,
-        backend,
-    } = spec;
-    const backendPair = resolveBackend(backend);
-    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
-    try {
-        const limit = await resolveSubscriptionLimit(req, spec);
-        return await backendPair.rate(key, limit, windowMs);
-    } catch (err) {
-        console.error('[rate-limit] handler charge failed, failing open:', err);
-        return true;
-    }
+    return charge(req, routeKey(req, spec), spec, {
+        mode: 'rate',
+        backend: resolveBackend(spec.backend),
+        label: '[rate-limit] handler charge',
+    });
 }
 
 /**
@@ -750,21 +905,11 @@ export async function consumeRouteRateLimit(req, spec) {
  * consume after it succeeds. Single-window specs only. Fails open.
  */
 export async function peekRouteRateLimit(req, spec) {
-    const {
-        window: windowMs,
-        key: strategy = 'fingerprint',
-        scope,
-        backend,
-    } = spec;
-    const backendPair = resolveBackend(backend);
-    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
-    try {
-        const limit = await resolveSubscriptionLimit(req, spec);
-        return await backendPair.peek(key, limit, windowMs);
-    } catch (err) {
-        console.error('[rate-limit] handler peek failed, failing open:', err);
-        return true;
-    }
+    return charge(req, routeKey(req, spec), spec, {
+        mode: 'peek',
+        backend: resolveBackend(spec.backend),
+        label: '[rate-limit] handler peek',
+    });
 }
 
 /**
@@ -775,16 +920,16 @@ export async function peekRouteRateLimit(req, spec) {
  * open on backend error, matching the rest of this module's policy.
  */
 export async function peekRateLimit(key, limit, windowMs, backend) {
-    const bk = resolveBackend(backend);
-    try {
-        return await bk.peek(key, limit, windowMs);
-    } catch (err) {
-        console.error(
-            '[rate-limit] imperative peek failed, failing open:',
-            err,
-        );
-        return true;
-    }
+    return charge(
+        undefined,
+        key,
+        { limit, window: windowMs },
+        {
+            mode: 'peek',
+            backend: resolveBackend(backend),
+            label: '[rate-limit] imperative peek',
+        },
+    );
 }
 
 /**
@@ -807,46 +952,19 @@ export async function peekRateLimit(key, limit, windowMs, backend) {
  * stops counting it. Anything that finishes in seconds can ignore it.
  */
 export async function acquireConcurrent(key, limit, backend) {
-    const bk = resolveBackend(backend);
-    try {
-        const result = await bk.acquire(key, limit);
-        if (!result.ok)
-            return {
-                ok: false,
-                release: async () => {},
-                renew: async () => {},
-            };
-        let released = false;
-        return {
-            ok: true,
-            release: async () => {
-                if (released) return;
-                released = true;
-                try {
-                    await result.release();
-                } catch (err) {
-                    console.error(
-                        '[concurrent] imperative release failed:',
-                        err,
-                    );
-                }
-            },
-            renew: async () => {
-                if (released) return;
-                try {
-                    await result.renew?.();
-                } catch (err) {
-                    console.error('[concurrent] imperative renew failed:', err);
-                }
-            },
-        };
-    } catch (err) {
-        console.error(
-            '[concurrent] imperative acquire failed, failing open:',
-            err,
-        );
-        return { ok: true, release: async () => {}, renew: async () => {} };
-    }
+    const slot = await charge(
+        undefined,
+        key,
+        { limit },
+        {
+            mode: 'acquire',
+            backend: resolveBackend(backend),
+            label: '[concurrent] imperative acquire',
+        },
+    );
+    if (!slot) return { ok: true, release: noop, renew: noop };
+    if (!slot.ok) return { ok: false, release: noop, renew: noop };
+    return guardSlot(slot, '[concurrent] imperative');
 }
 
 /**
@@ -859,17 +977,17 @@ export const CONCURRENT_SLOT_TTL_MS = ORPHAN_SAFETY_TTL_MS;
 // -- Subscription-aware limit resolution -----------------------------
 
 /**
- * Per-request limit resolution shared by `rateLimitGate` and `concurrencyGate`.
- * The base value is `opts.limit`; if `bySubscription` is set and we have an
- * authenticated actor plus a metering service, we look up the actor's
- * subscription policy and prefer the matching entry. Failure to resolve (no
- * actor, no metering, metering throws) falls through to the base — rate /
- * concurrency limiting should never _amplify_ a request failure path.
+ * Per-request limit resolution shared by every entry point. The base value is
+ * `opts.limit`; if `bySubscription` is set and we have an authenticated actor
+ * plus a metering service, we look up the actor's subscription policy and
+ * prefer the matching entry. Failure to resolve (no actor, no metering,
+ * metering throws) falls through to the base — rate / concurrency limiting
+ * should never _amplify_ a request failure path.
  */
 async function resolveSubscriptionLimit(req, opts) {
     const base = opts.limit;
     if (!opts.bySubscription || !meteringService) return base;
-    const actor = req.actor;
+    const actor = req?.actor;
     if (!actor?.user?.uuid) return base;
     try {
         const sub = await meteringService.getActorSubscription(actor);
@@ -895,51 +1013,34 @@ async function resolveSubscriptionLimit(req, opts) {
  * branch). Fails open on backend error.
  */
 export function concurrencyGate(opts) {
-    const { key: strategy = 'fingerprint', scope, backend } = opts;
-    const backendPair = resolveBackend(backend);
+    const backend = resolveBackend(opts.backend);
 
     return async (req, res, next) => {
-        const key = resolveKey(
-            req,
-            scope ?? req.route?.path ?? 'route',
-            strategy,
-        );
-        let result;
-        try {
-            const limit = await resolveSubscriptionLimit(req, opts);
-            result = await backendPair.acquire(key, limit);
-        } catch (err) {
-            console.error(
-                '[concurrent] backend acquire failed, failing open:',
-                err,
-            );
-            return next();
+        const slot = await charge(req, routeKey(req, opts), opts, {
+            mode: 'acquire',
+            backend,
+            label: '[concurrent] backend acquire',
+        });
+        if (!slot) {
+            next();
+            return;
         }
-
-        if (!result.ok) {
-            return next(
+        if (!slot.ok) {
+            next(
                 new HttpError(429, 'Too many concurrent requests.', {
                     legacyCode: 'too_many_requests',
                 }),
             );
+            return;
         }
 
-        // `finish` (response sent) and `close` (connection closed,
-        // possibly aborted before finish) can both fire; the once
-        // guard makes release exactly-once.
-        let released = false;
-        const release = () => {
-            if (released) return;
-            released = true;
-            Promise.resolve()
-                .then(() => result.release())
-                .catch((err) =>
-                    console.error('[concurrent] release failed:', err),
-                );
-        };
-        res.once('finish', release);
-        res.once('close', release);
-        if (res.destroyed || res.writableFinished) release();
+        // `finish` (response sent) and `close` (connection closed, possibly
+        // aborted before finish) can both fire; the guard releases once.
+        const { release } = guardSlot(slot, '[concurrent]');
+        const onDone = () => void release();
+        res.once('finish', onDone);
+        res.once('close', onDone);
+        if (res.destroyed || res.writableFinished) onDone();
         next();
     };
 }
@@ -959,31 +1060,20 @@ export function concurrencyGate(opts) {
  */
 export async function acquireDriverConcurrent(req, ifaceName, method, opts) {
     if (!opts || typeof opts.limit !== 'number') {
-        return { ok: true, release: () => {} };
+        return { ok: true, release: noop };
     }
-    const { backend } = opts;
-    const key = `driver:${ifaceName}:${method}:${driverCaller(req)}`;
-    const backendPair = resolveBackend(backend);
-    try {
-        const limit = await resolveSubscriptionLimit(req, opts);
-        const result = await backendPair.acquire(key, limit);
-        if (!result.ok) return { ok: false, release: () => {} };
-        // Wrap release to swallow errors — a failed release shouldn't
-        // bubble out of the handler's `finally`.
-        return {
-            ok: true,
-            release: () =>
-                Promise.resolve()
-                    .then(() => result.release())
-                    .catch((err) =>
-                        console.error(
-                            '[concurrent] driver release failed:',
-                            err,
-                        ),
-                    ),
-        };
-    } catch (err) {
-        console.error('[concurrent] driver acquire failed, failing open:', err);
-        return { ok: true, release: () => {} };
-    }
+    const slot = await charge(
+        req,
+        `driver:${ifaceName}:${method}:${driverCaller(req)}`,
+        opts,
+        {
+            mode: 'acquire',
+            backend: resolveBackend(opts.backend),
+            label: '[concurrent] driver acquire',
+        },
+    );
+    if (!slot) return { ok: true, release: noop };
+    if (!slot.ok) return { ok: false, release: noop };
+    const { release } = guardSlot(slot, '[concurrent] driver');
+    return { ok: true, release };
 }

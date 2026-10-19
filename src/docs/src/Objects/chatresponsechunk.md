@@ -82,7 +82,7 @@ Provider-specific metadata attached to the stream.
 
 #### `usage` (Object)
 
-An object containing token usage totals. Present on the final `usage` chunk.
+An object containing token usage totals, plus `cost`: what the request was charged to the user, in microcents ($0.01 = 1,000,000). Present on the final `usage` chunk.
 
 #### `finish_reason` (String)
 

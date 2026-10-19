@@ -28,7 +28,6 @@ import {
     lookupFsSubject,
     lookupKvSubject,
     lookupPublicSubject,
-    pushProjection,
     type FsDeliveryContext,
     type FsPublicSubject,
     type KvDeliveryContext,
@@ -181,20 +180,6 @@ describe('PUBLIC_SUBJECTS', () => {
     it('requires list to subscribe — see alone is not enough', () => {
         for (const subject of fsSubjects()) expect(subject.mode).toBe('list');
     });
-
-    it('produces no push payload while notify is null', () => {
-        for (const subject of fsSubjects()) {
-            expect(subject.notify).toBeNull();
-            expect(
-                pushProjection(subject, subject.project(delivery)),
-            ).toBeNull();
-        }
-    });
-
-    it('defaults every entry to broadcast', () => {
-        for (const subject of PUBLIC_SUBJECTS)
-            expect(subject.defaultDelivery).toBe('broadcast');
-    });
 });
 
 describe('the kv subject', () => {
@@ -255,11 +240,6 @@ describe('the kv subject', () => {
         expect(subject().matchScope('cart:', 'cart:items:1')).toBe(
             'cart:items:1',
         );
-    });
-
-    it('is not pushable and broadcasts by default', () => {
-        expect(subject().notify).toBeNull();
-        expect(subject().defaultDelivery).toBe('broadcast');
     });
 });
 

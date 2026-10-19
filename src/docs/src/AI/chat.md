@@ -29,11 +29,12 @@ An object containing the following properties:
 
 - `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
 - `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
+- `signal` (AbortSignal) (Optional) - Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`).
 - `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
-- `temperature` (Number) - A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the specific model's temperature is used. OpenAI and Azure Responses calls omit unsupported sampling options. GPT-5.6 and GPT-6 Sol/Luna only receive `temperature` and `top_p` when the reasoning effort sent upstream is `none`; GPT-6 Astra, GPT-6.1 Sol, and GPT-5.3 Codex omit them. The `message.output_text.logprobs` include option is also omitted when sampling is unsupported.
+- `temperature` (Number) - A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. Some OpenAI reasoning models ignore `temperature` and `top_p`. GPT-5.6 and GPT-6 Sol/Luna accept them only with `reasoning_effort: 'none'`, and GPT-6 Astra, GPT-6.1 Sol, and GPT-5.3 Codex always ignore them. `gemini-4-argon` ignores `temperature` too. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` use it.
 - `tools` (Array) (Optional) - Function definitions the AI can call. See [Function Calling](#function-calling) for details.
-- `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models and Meta's Muse Spark models only; Muse Spark always reasons, so `none` is ignored for it.
+- `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only; Muse Spark always reasons, so `none` is ignored for it. `gemini-4-argon` accepts `low`, `medium` and `high`, and uses `medium` when you leave it unset. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these three Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
 - `verbosity` / `text.verbosity` (String) (Optional) - Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only.
 - `normalize` (Boolean) (Optional) - Controls the format of the non-streaming response. When `true`, the response is normalized to the OpenAI format regardless of the model's vendor: `message.content` is a string, tool calls appear as `message.tool_calls`, and `finish_reason` is one of `stop`, `length`, `tool_calls`, or `content_filter` — or the vendor's own stop reason, passed through unchanged when it has no OpenAI equivalent. When `false`, the response keeps the vendor's native format (for Anthropic models, an array of content blocks). When unset, the SDK-wide `puter.ai.normalize` applies — itself tri-state: set it to `true` to normalize every call regardless of release date, `false` to disable normalization for every call, and when it is left unset too (the default) the release-date policy applies: **models released on or after September 1, 2026 return normalized (OpenAI-format) responses by default**, and for older models the default is unchanged — `message.content` keeps its vendor-native shape. (A handful of reasoning fields were made consistent across all models independently of this option; see [Reasoning fields on existing models](#reasoning-fields-on-existing-models).) Streaming responses are unaffected — chunks already share one format across vendors. See [Response normalization](#response-normalization).
 - `compaction` (Boolean | Object) (Optional) - Opt into inline context compaction for long conversations. Pass `true` to enable it with provider defaults, or `{ trigger_tokens: number }` to set the token threshold at which earlier context is summarized. When the model compacts, you receive a `compaction` chunk while streaming (or a `compaction` field on the result when not streaming) containing an opaque `encrypted_content` summary. Resend that item in `messages` on the next turn in place of the summarized history. The compaction chunk shape is identical across providers, so the same code works whether `model` is an OpenAI or Anthropic model. See [Compaction](#compaction).
@@ -123,7 +124,8 @@ if the provider stops sending the response before it is complete. Check for
 error chunks in your `for await...of` loop before treating the response as complete.
 
 If the network connection fails after streaming starts, the loop throws
-`{ message, code: "network_error" }`. If the stream sends nothing for 15
+`{ message, code: "network_error" }`. Malformed or truncated JSON throws
+`{ message, code: "invalid_stream_response" }`. If the stream sends nothing for 15
 minutes, it throws `{ message, code: "request_timeout" }`; a call that gets no
 response at all for 15 minutes rejects the same way. Neither is retried, since
 the model may already have run (see
@@ -135,7 +137,34 @@ the model may already have run (see
 Break out of the `for await...of` loop to stop a chat stream. When using
 `new ReadableStream(response)`, call `reader.cancel()` to stop it.
 
-Output generated before the stream stops may still be billed.
+You can also pass an `AbortSignal` to stop generation before output arrives:
+
+```js
+const controller = new AbortController();
+const stopButton = document.createElement('button');
+stopButton.textContent = 'Stop';
+stopButton.onclick = () => controller.abort();
+document.body.append(stopButton);
+try {
+    const response = await puter.ai.chat('Write a long story', {
+        stream: true,
+        signal: controller.signal,
+    });
+    for await (const part of response) {
+        if (part.type === 'text') console.log(part.text);
+    }
+} catch (error) {
+    if (error.name !== 'AbortError') throw error;
+} finally {
+    stopButton.remove();
+}
+```
+
+Output generated before the provider processes cancellation may still be billed.
+
+The `ReadableStream` adapter emits text chunks as UTF-8 text. Other chunk types
+(including usage, tool calls, reasoning and errors) are serialized as JSON followed
+by a newline. Use the async iterator to receive every chunk as an object.
 
 ## Vendors
 
@@ -225,6 +254,8 @@ After executing the function, send the result back by including a message with:
 - `role` (String) - Must be `"tool"`
 - `tool_call_id` (String) - The `id` from the tool call
 - `content` (String) - The function result as a string
+
+Gemini models can attach `extra_content.google.thought_signature` to a tool call. Send the assistant message back with its `tool_calls` unchanged, including `extra_content`, so the model can continue its reasoning. In a stream, the signature arrives on the `tool_use` chunk's `extra_content`.
 
 See the [Function Calling example](/playground/ai-function-calling/) for a complete working implementation.
 

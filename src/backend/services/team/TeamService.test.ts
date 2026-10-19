@@ -28,6 +28,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
@@ -112,6 +113,25 @@ describe('TeamService', () => {
         );
         // 0 is what makes the owner pay for itself.
         expect(Number(membership?.org_owned)).toBe(0);
+    });
+
+    it('reports a handle claimed after the availability check as taken', async () => {
+        const handle = freeHandle();
+        await service.createTeam(owner.id, { name: 'First', handle });
+        // What a replica that has not seen the first claim yet answers.
+        const probe = vi
+            .spyOn(server.stores.team, 'isHandleAvailable')
+            .mockResolvedValue(true);
+        try {
+            await expect(
+                service.createTeam(owner.id, { name: 'Second', handle }),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                legacyCode: 'conflict',
+            });
+        } finally {
+            probe.mockRestore();
+        }
     });
 
     it('holds the owner invariant that no dialect can express', async () => {
@@ -1379,6 +1399,76 @@ describe('TeamService', () => {
                 `${username}-other@test.local`,
             ),
         ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('stops an owner who keeps deleting and re-provisioning seats', async () => {
+        // The cap frees the slot on delete; the budget does not.
+        const cfg = () =>
+            (service as unknown as { config: Record<string, unknown> }).config;
+        const churner = await makeUser();
+        const team = await service.createTeam(churner.id, {
+            name: 'Churn Co',
+            handle: freeHandle(),
+        });
+        const saved = {
+            seats: cfg().max_seats_per_team,
+            teams: cfg().max_teams_per_user,
+        };
+        cfg().max_seats_per_team = 1;
+        cfg().max_teams_per_user = 1;
+
+        let made = 0;
+        let refusal: { statusCode?: number } | null = null;
+        try {
+            for (let i = 0; i < 40; i++) {
+                const seat = await service.provisionAccount(
+                    team.uid,
+                    churner.id,
+                    { username: `ch_${i}_${Math.random().toString(36).slice(2, 7)}` },
+                );
+                made += 1;
+                // Frees the only slot, so the cap never refuses.
+                await service.disableMember(team.uid, churner.id, seat.userId);
+                await service.deleteMember(team.uid, churner.id, seat.userId);
+            }
+        } catch (e) {
+            refusal = e as { statusCode?: number };
+        } finally {
+            cfg().max_seats_per_team = saved.seats;
+            cfg().max_teams_per_user = saved.teams;
+        }
+
+        expect(refusal?.statusCode).toBe(429);
+        expect(made).toBeLessThan(40);
+    });
+
+    it('asks the signup gate about a seat, and refuses what it blocks', async () => {
+        const { team } = await makeTeam();
+        const gate = vi
+            .spyOn(server.services.signup, 'runSignupGate')
+            .mockResolvedValue({
+                verdict: 'blocked',
+                message: 'no',
+                code: null,
+            } as never);
+
+        try {
+            await expect(
+                service.provisionAccount(
+                    team.uid,
+                    owner.id,
+                    {
+                        username: `gated_${Math.random()
+                            .toString(36)
+                            .slice(2, 7)}`,
+                    },
+                    { req: {} as never },
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(gate).toHaveBeenCalled();
+        } finally {
+            gate.mockRestore();
+        }
     });
 
     // -- notifications -------------------------------------------------

@@ -77,7 +77,7 @@ describe('AppStore app stats (cache-on-read)', () => {
 
     it('computes all-time open/unique-user counts from SQL when no ClickHouse client is registered', async () => {
         const uid = freshUid();
-        // 3 opens across 2 distinct users.
+        // 3 rows across 2 users, two of them the same user within one hour.
         await insertOpen(uid, 1, 1700000000);
         await insertOpen(uid, 1, 1700000100);
         await insertOpen(uid, 2, 1700000200);
@@ -85,9 +85,36 @@ describe('AppStore app stats (cache-on-read)', () => {
         const stats = await appStore.getAppsStats([uid]);
 
         expect(stats.get(uid)).toEqual({
-            open_count: 3,
+            // An account's repeat opens in an hour count once.
+            open_count: 2,
             user_count: 2,
             referral_count: null,
+        });
+    });
+
+    it('counts the same account again in a later hour', async () => {
+        const uid = freshUid();
+        const hour = 3600;
+        await insertOpen(uid, 1, 1700000000);
+        await insertOpen(uid, 1, 1700000000 + 30);
+        await insertOpen(uid, 1, 1700000000 + hour);
+        await insertOpen(uid, 1, 1700000000 + 2 * hour);
+
+        expect((await appStore.getAppsStats([uid])).get(uid)).toMatchObject({
+            open_count: 3,
+            user_count: 1,
+        });
+    });
+
+    it('buckets on the clock hour rather than a rolling window', async () => {
+        const uid = freshUid();
+        // 1699999200 starts an hour; these straddle its end a second apart.
+        await insertOpen(uid, 1, 1699999200 + 3599);
+        await insertOpen(uid, 1, 1699999200 + 3600);
+
+        expect((await appStore.getAppsStats([uid])).get(uid)).toMatchObject({
+            open_count: 2,
+            user_count: 1,
         });
     });
 
@@ -549,6 +576,24 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getById(app.id)).title).toBe('ByUid');
     });
 
+    it('replaceDataUrlIcon swaps an inline icon and leaves any other alone', async () => {
+        const inline = await createApp({ icon: 'data:image/png;base64,AAAA' });
+        const linked = await createApp({ icon: 'https://cdn.example/i.png' });
+        // Cached first, so a stale copy would show if the write didn't drop it.
+        await appStore.getByUid(inline.uid);
+        await appStore.getByUid(linked.uid);
+
+        await appStore.replaceDataUrlIcon(inline.uid, 'https://api/icon/a');
+        await appStore.replaceDataUrlIcon(linked.uid, 'https://api/icon/b');
+
+        expect((await appStore.getByUid(inline.uid)).icon).toBe(
+            'https://api/icon/a',
+        );
+        expect((await appStore.getByUid(linked.uid)).icon).toBe(
+            'https://cdn.example/i.png',
+        );
+    });
+
     it('invalidateById is a no-op for an app that does not exist', async () => {
         await expect(
             appStore.invalidateById(99999999),
@@ -578,15 +623,11 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await appStore.getById(bad.id)).metadata).toBeNull();
     });
 
-    it('existsByName / existsByIndexUrl answer the driver uniqueness checks', async () => {
+    it('existsByName answers the driver uniqueness check', async () => {
         const app = await createApp();
 
         expect(await appStore.existsByName(app.name)).toBe(true);
         expect(await appStore.existsByName('definitely-not-taken')).toBe(false);
-        expect(await appStore.existsByIndexUrl(app.index_url)).toBe(true);
-        expect(
-            await appStore.existsByIndexUrl('https://unused.example.com/'),
-        ).toBe(false);
     });
 
     it('rejects a duplicate app name at the database level', async () => {
@@ -759,8 +800,92 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(await appStore.getFiletypeAssociations(app.id)).toEqual([]);
     });
 
+    it('drops the cached sites and workers that go with a deleted app', async () => {
+        const subdomains = server.stores.subdomain;
+        const app = await createApp();
+        const slug = freshName();
+        const site = await subdomains.create({
+            userId: OTHER_OWNER,
+            subdomain: `${slug}-site`,
+            appOwner: app.id,
+        });
+        const worker = await subdomains.create({
+            userId: OTHER_OWNER,
+            subdomain: `workers.puter.${slug}`,
+            appOwner: app.id,
+        });
+        // SQLite keeps this row (MySQL and Postgres cascade it); either way
+        // its cached copy has to go.
+        const associated = await subdomains.create({
+            userId: OTHER_OWNER,
+            subdomain: `${slug}-associated`,
+            associatedAppId: app.id,
+        });
+        const cacheKey = (row) => `subdomains:name:${row.subdomain}`;
+        expect(await redis.get(cacheKey(site))).not.toBeNull();
+
+        await appStore.delete(app.id);
+
+        expect(await subdomains.getBySubdomain(site.subdomain)).toBeNull();
+        expect(await subdomains.getBySubdomain(worker.subdomain)).toBeNull();
+        expect(await redis.get(cacheKey(associated))).toBeNull();
+    });
+
     it('reports false when deleting an app that is already gone', async () => {
         expect(await appStore.delete(99999999)).toBe(false);
+    });
+
+    it("records a deleted app's uid with its owner", async () => {
+        const owned = await createApp();
+        const unowned = await appStore.createFromOrigin(
+            freshUid(),
+            `https://${freshName()}.example.com`,
+        );
+        await appStore.delete(owned.id);
+        await appStore.delete(unowned.id);
+
+        const live = await createApp();
+        const deleted = await appStore.getDeletedOwnersByUids([
+            owned.uid,
+            unowned.uid,
+            live.uid,
+        ]);
+        expect(deleted).toEqual(
+            new Map([
+                [owned.uid, OWNER],
+                [unowned.uid, null],
+            ]),
+        );
+    });
+
+    it("records every app an owner has, and a later owner's delete replaces it", async () => {
+        const first = await createApp({}, { ownerUserId: OTHER_OWNER });
+        const second = await createApp({}, { ownerUserId: OTHER_OWNER });
+        const notTheirs = await createApp();
+
+        await appStore.recordDeletedForOwner(OTHER_OWNER);
+        expect(
+            await appStore.getDeletedOwnersByUids([
+                first.uid,
+                second.uid,
+                notTheirs.uid,
+            ]),
+        ).toEqual(
+            new Map([
+                [first.uid, OTHER_OWNER],
+                [second.uid, OTHER_OWNER],
+            ]),
+        );
+
+        await db.write('UPDATE `apps` SET `owner_user_id` = ? WHERE `id` = ?', [
+            OWNER,
+            first.id,
+        ]);
+        await appStore.invalidate(first);
+        await appStore.delete(first.id);
+        expect(
+            (await appStore.getDeletedOwnersByUids([first.uid])).get(first.uid),
+        ).toBe(OWNER);
     });
 
     // -- ownership claiming --------------------------------------------
@@ -838,6 +963,59 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(found.id).toBe(app.id);
     });
 
+    it("lists at most two of an owner's index_url matches, private first, with only the gate's columns", async () => {
+        const url = `https://${freshName()}.example.com/`;
+        const candidates = [url, `${url}index.html`];
+        const publicApp = await createApp({
+            index_url: url,
+            icon: `data:image/png;base64,${'A'.repeat(512)}`,
+            description: 'not read by the gate',
+        });
+        const privateApp = await createApp({ index_url: candidates[1] });
+        await db.write('UPDATE `apps` SET `is_private` = 1 WHERE `id` = ?', [
+            privateApp.id,
+        ]);
+        await createApp({ index_url: url });
+        await createApp({ index_url: url }, { ownerUserId: OTHER_OWNER });
+
+        const rows = await appStore.listOwnedByIndexUrlCandidates(
+            OWNER,
+            candidates,
+        );
+        expect(rows.map((row) => row.id)).toEqual([
+            privateApp.id,
+            publicApp.id,
+        ]);
+        expect(Object.keys(rows[1]).sort()).toEqual([
+            'id',
+            'index_url',
+            'is_private',
+            'name',
+            'owner_user_id',
+            'title',
+            'uid',
+        ]);
+
+        const privateOnly = await appStore.listOwnedByIndexUrlCandidates(
+            OWNER,
+            candidates,
+            { requirePrivate: true },
+        );
+        expect(privateOnly.map((row) => row.id)).toEqual([privateApp.id]);
+    });
+
+    it('lists no index_url matches for no candidates, without a query', async () => {
+        const read = vi.spyOn(db, 'read');
+        try {
+            expect(
+                await appStore.listOwnedByIndexUrlCandidates(OWNER, []),
+            ).toEqual([]);
+            expect(read).not.toHaveBeenCalled();
+        } finally {
+            read.mockRestore();
+        }
+    });
+
     // -- createFromOrigin ----------------------------------------------
 
     it('creates an origin-bootstrap app with the marker shape', async () => {
@@ -908,6 +1086,26 @@ describe('AppStore CRUD and cache invalidation', () => {
         const second = await appStore.createFromOrigin(uid, origin);
         expect(second.id).toBe(first.id);
         expect(second.uid).toBe(uid);
+    });
+
+    it('caches the row a lost bootstrap race reads from the primary', async () => {
+        const uid = `app-origin-${Math.random().toString(36).slice(2, 10)}`;
+        const origin = `https://${uid}.example.com`;
+        const first = await appStore.createFromOrigin(uid, origin);
+        // Let the read-through backfill land before clearing it.
+        await new Promise((r) => setTimeout(r, 20));
+        await redis.del(
+            `apps:id:${first.id}`,
+            `apps:uid:${uid}`,
+            `apps:name:${uid}`,
+        );
+
+        await appStore.createFromOrigin(uid, origin);
+
+        const cached = JSON.parse(
+            (await redis.get(`apps:uid:${uid}`)) ?? 'null',
+        );
+        expect(cached?.id).toBe(first.id);
     });
 
     // -- list / count ---------------------------------------------------
@@ -1023,13 +1221,49 @@ describe('AppStore CRUD and cache invalidation', () => {
         await createApp({ title: 'Recovered' }, { ownerUserId: badOwner });
         await appStore.list({ ownerUserId: badOwner });
 
-        const keys = await redis.smembers('apps:list:keys');
-        const key = keys.find((k) => k.includes(String(badOwner)));
-        expect(key).toBeDefined();
-        await redis.set(key, 'not-json');
+        const generation = await redis.get(`apps:list:gen:${badOwner}`);
+        const keys = await redis.keys(`apps:list:${generation}:*`);
+        expect(keys).toHaveLength(1);
+        await redis.set(keys[0], 'not-json');
 
         const rows = await appStore.list({ ownerUserId: badOwner });
         expect(rows[0].title).toBe('Recovered');
+    });
+
+    it('drops an unscoped cached list when any app changes', async () => {
+        const app = await createApp({ title: 'Unscoped' });
+        const find = async () =>
+            (await appStore.list({ afterId: app.id - 1, limit: 1 }))[0];
+
+        expect((await find()).title).toBe('Unscoped');
+        await db.write('UPDATE `apps` SET `title` = ? WHERE `id` = ?', [
+            'BehindTheCache',
+            app.id,
+        ]);
+        expect((await find()).title).toBe('Unscoped');
+
+        await createApp({}, { ownerUserId: 4701 });
+        expect((await find()).title).toBe('BehindTheCache');
+    });
+
+    it('invalidates cached lists without scanning them', async () => {
+        const owner = 4800;
+        const app = await createApp({}, { ownerUserId: owner });
+        for (let i = 0; i < 5; i++) {
+            await appStore.list({ ownerUserId: owner, limit: i + 1 });
+        }
+
+        const smembers = vi.spyOn(redis, 'smembers');
+        const keysScan = vi.spyOn(redis, 'keys');
+        await appStore.update(app.id, { title: 'Bumped' });
+        expect(smembers).not.toHaveBeenCalled();
+        expect(keysScan).not.toHaveBeenCalled();
+        smembers.mockRestore();
+        keysScan.mockRestore();
+
+        expect(
+            (await appStore.list({ ownerUserId: owner, limit: 3 }))[0].title,
+        ).toBe('Bumped');
     });
 
     it('counts apps by owner, creator and per-caller visibility', async () => {
@@ -1129,6 +1363,132 @@ describe('AppStore CRUD and cache invalidation', () => {
         const map = await appStore.getByUids(['app-nope']);
         expect(map.size).toBe(0);
     });
+
+    // -- behind a lagging replica --------------------------------------
+
+    /**
+     * Replica reads of `apps` see only `staleRows`. sqlite's pread delegates to
+     * read, so the primary is pinned to the real one.
+     */
+    const withLaggingReplica = async (staleRows, fn) => {
+        const realRead = db.read.bind(db);
+        const preadSpy = vi.spyOn(db, 'pread').mockImplementation(realRead);
+        const readSpy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                /FROM `apps`/.test(sql)
+                    ? staleRows.map((r) => ({ ...r }))
+                    : realRead(sql, params),
+            );
+        try {
+            return await fn();
+        } finally {
+            readSpy.mockRestore();
+            preadSpy.mockRestore();
+        }
+    };
+
+    const rawRow = async (id) =>
+        (await db.read('SELECT * FROM `apps` WHERE `id` = ?', [id]))[0];
+
+    const cachedByUid = async (uid) =>
+        JSON.parse((await redis.get(`apps:uid:${uid}`)) ?? 'null');
+
+    it('returns and caches a created app before the replica has it', async () => {
+        const app = await withLaggingReplica([], () =>
+            createApp({ title: 'Lagged' }),
+        );
+        expect(app?.title).toBe('Lagged');
+        expect((await cachedByUid(app.uid))?.title).toBe('Lagged');
+
+        const origin = 'https://lagging-replica-bootstrap.test';
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const bootstrapped = await withLaggingReplica([], () =>
+            appStore.createFromOrigin(uid, origin),
+        );
+        expect(bootstrapped?.uid).toBe(uid);
+        expect((await cachedByUid(uid))?.index_url).toBe(origin);
+    });
+
+    it('returns and caches the updated app, not a replica copy missing an earlier update', async () => {
+        const app = await createApp({ title: 'One' });
+        const stale = await rawRow(app.id);
+        await appStore.update(app.id, { title: 'Two' });
+
+        const updated = await withLaggingReplica([stale], () =>
+            appStore.update(app.id, { description: 'later' }),
+        );
+
+        expect(updated).toMatchObject({ title: 'Two', description: 'later' });
+        expect(await cachedByUid(app.uid)).toMatchObject({
+            title: 'Two',
+            description: 'later',
+        });
+    });
+
+    it('does not cache the pre-claim row a lagging replica still serves', async () => {
+        const name = freshName();
+        await db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`) VALUES (?, ?, ?, ?)',
+            [`app-${name}`, name, name, `https://${name}.example.com/`],
+        );
+        // Straight from the table, so nothing is cached yet.
+        const [stale] = await db.read('SELECT * FROM `apps` WHERE `name` = ?', [
+            name,
+        ]);
+
+        await withLaggingReplica([stale], async () => {
+            expect(await appStore.claimOwnership(Number(stale.id), OWNER)).toBe(
+                true,
+            );
+            // Let any unawaited cache write land.
+            await new Promise((r) => setTimeout(r, 20));
+        });
+
+        // Nothing cached, or the claimed row; never the unowned copy.
+        const cached = await cachedByUid(stale.uid);
+        expect(cached === null || cached.owner_user_id === OWNER).toBe(true);
+    });
+
+    it('returns and caches a created app as the table holds it, without reading it back', async () => {
+        const origin = `https://${freshName()}.built.test`;
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        let created;
+        let reads;
+        try {
+            created = [
+                await createApp({
+                    title: 'Built',
+                    description: 'every column',
+                    icon: 'data:image/png;base64,AA==',
+                    maximize_on_start: true,
+                    metadata: JSON.stringify({ category: 'tools' }),
+                }),
+                await appStore.createFromOrigin(uid, origin),
+            ];
+        } finally {
+            reads = [...read.mock.calls, ...pread.mock.calls].filter(([q]) =>
+                /FROM `apps`/u.test(q),
+            );
+            read.mockRestore();
+            pread.mockRestore();
+        }
+        expect(reads).toEqual([]);
+
+        for (const app of created) {
+            expect(await cachedByUid(app.uid)).toEqual(
+                JSON.parse(JSON.stringify(app)),
+            );
+            await redis.del(
+                `apps:id:${app.id}`,
+                `apps:uid:${app.uid}`,
+                `apps:name:${app.name}`,
+            );
+            expect(app).toEqual(await appStore.getById(app.id));
+        }
+    });
 });
 
 describe('AppStore detailed stats', () => {
@@ -1145,10 +1505,10 @@ describe('AppStore detailed stats', () => {
         db = server.clients.db;
         await clearAppCache(server.clients.redis);
 
-        // Three opens right now from two distinct users.
+        // Two users; the repeat shares a timestamp so it is always same-hour.
         for (const [userId, offset] of [
             [1, 0],
-            [1, 60],
+            [1, 0],
             [2, 120],
         ]) {
             await db.write(
@@ -1165,7 +1525,8 @@ describe('AppStore detailed stats', () => {
     it('computes all-time totals from SQL by default', async () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID);
         expect(stats).toEqual({
-            open_count: 3,
+            // Three rows, but two of them one account in one hour.
+            open_count: 2,
             user_count: 2,
             referral_count: null,
         });
@@ -1191,7 +1552,8 @@ describe('AppStore detailed stats', () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID, {
             period,
         });
-        expect(stats.open_count).toBe(3);
+        // The fixture's three rows are two accounts in one hour.
+        expect(stats.open_count).toBe(2);
         expect(stats.user_count).toBe(2);
     });
 
@@ -1218,7 +1580,7 @@ describe('AppStore detailed stats', () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID, {
             period: 'not-a-period',
         });
-        expect(stats.open_count).toBe(3);
+        expect(stats.open_count).toBe(2);
     });
 
     it('rejects an unsupported grouping', async () => {
@@ -1236,7 +1598,7 @@ describe('AppStore detailed stats', () => {
             grouping: 'day',
         });
 
-        expect(stats.open_count).toBe(3);
+        expect(stats.open_count).toBe(2);
         expect(stats.user_count).toBe(2);
         const open = stats.grouped_stats.open_count;
         // A 7-day window yields 8 day buckets (inclusive of both ends).
@@ -1244,7 +1606,7 @@ describe('AppStore detailed stats', () => {
         expect(open.every((b) => typeof b.count === 'number')).toBe(true);
         const today = new Date().toISOString().slice(0, 10);
         const todayBucket = open.find((b) => b.period === today);
-        expect(todayBucket?.count).toBe(3);
+        expect(todayBucket?.count).toBe(2);
         // Every earlier bucket is an explicit zero, not a gap.
         expect(
             open.filter((b) => b.period !== today).every((b) => b.count === 0),
@@ -1258,7 +1620,7 @@ describe('AppStore detailed stats', () => {
                 period: 'today',
                 grouping,
             });
-            expect(stats.open_count).toBe(3);
+            expect(stats.open_count).toBe(2);
             expect(stats.grouped_stats.open_count.length).toBeGreaterThan(0);
             expect(stats.grouped_stats.user_count.length).toBe(
                 stats.grouped_stats.open_count.length,
@@ -1275,7 +1637,7 @@ describe('AppStore detailed stats', () => {
             period: '30d',
             grouping: 'week',
         });
-        expect(stats.open_count).toBe(3);
+        expect(stats.open_count).toBe(2);
         expect(stats.grouped_stats.open_count.length).toBeGreaterThan(0);
     });
 
@@ -1550,13 +1912,23 @@ describe('AppStore findCanonicalUidByIndexUrlCandidates', () => {
     it('prefers the private row, then the oldest match', async () => {
         const url = `https://canon-${Math.random().toString(36).slice(2, 10)}.example.com/`;
         const pub = await appStore.create(
-            { name: `pub-${Math.random().toString(36).slice(2, 8)}`, title: 't', index_url: url },
+            {
+                name: `pub-${Math.random().toString(36).slice(2, 8)}`,
+                title: 't',
+                index_url: url,
+            },
             { ownerUserId: 1 },
         );
         const privUid = `app-${Math.random().toString(36).slice(2, 10)}`;
         await server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
-            [privUid, `priv-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+            [
+                privUid,
+                `priv-${Math.random().toString(36).slice(2, 8)}`,
+                't',
+                url,
+                1,
+            ],
         );
 
         const uid = await appStore.findCanonicalUidByIndexUrlCandidates([url]);
@@ -1565,8 +1937,12 @@ describe('AppStore findCanonicalUidByIndexUrlCandidates', () => {
     });
 
     it('returns null for an empty, non-array, or non-matching candidate list', async () => {
-        expect(await appStore.findCanonicalUidByIndexUrlCandidates([])).toBeNull();
-        expect(await appStore.findCanonicalUidByIndexUrlCandidates(null)).toBeNull();
+        expect(
+            await appStore.findCanonicalUidByIndexUrlCandidates([]),
+        ).toBeNull();
+        expect(
+            await appStore.findCanonicalUidByIndexUrlCandidates(null),
+        ).toBeNull();
         expect(
             await appStore.findCanonicalUidByIndexUrlCandidates([
                 'https://nothing-here.example.com/',
@@ -1623,13 +1999,25 @@ describe('AppStore listIndexUrlWinners', () => {
         const priv1Uid = `app-${Math.random().toString(36).slice(2, 10)}`;
         await server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
-            [priv1Uid, `priv1-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+            [
+                priv1Uid,
+                `priv1-${Math.random().toString(36).slice(2, 8)}`,
+                't',
+                url,
+                1,
+            ],
         );
         const priv1 = await appStore.getByUid(priv1Uid);
         const priv2Uid = `app-${Math.random().toString(36).slice(2, 10)}`;
         await server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `is_private`) VALUES (?, ?, ?, ?, ?)',
-            [priv2Uid, `priv2-${Math.random().toString(36).slice(2, 8)}`, 't', url, 1],
+            [
+                priv2Uid,
+                `priv2-${Math.random().toString(36).slice(2, 8)}`,
+                't',
+                url,
+                1,
+            ],
         );
         const priv2 = await appStore.getByUid(priv2Uid);
 

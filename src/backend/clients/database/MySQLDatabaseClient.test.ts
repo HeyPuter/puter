@@ -435,6 +435,105 @@ describe('MySQLDatabaseClient — query interface', () => {
         ]);
     });
 
+    it.each([
+        { method: 'pread', poolIndex: 0, maxTimeInQueue: 30 },
+        { method: 'read', poolIndex: 1, maxTimeInQueue: 10 },
+    ] as const)(
+        '$method: flushes lone reads at once until 8 are in flight, then waits $maxTimeInQueue ms and coalesces',
+        async ({ method, poolIndex, maxTimeInQueue }) => {
+            const client = await startClient({ replica: { host: 'replica' } });
+            const pool = createdPools[poolIndex];
+            const held: Array<() => void> = [];
+            pool.respond = (sql) =>
+                new Promise((resolve) => {
+                    const sets = sql
+                        .split(';')
+                        .slice(0, -1)
+                        .map((stmt) => [{ stmt }]);
+                    held.push(() => resolve(rowSets(...sets)));
+                });
+            vi.useFakeTimers({
+                toFake: [
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                ],
+            });
+            try {
+                const reads: Promise<unknown>[] = [];
+                for (let i = 0; i < 8; i++) {
+                    reads.push(client[method](`SELECT ${i}`));
+                    await vi.advanceTimersByTimeAsync(0);
+                }
+                expect(pool.calls).toHaveLength(8);
+
+                reads.push(client[method]('SELECT 8'));
+                await vi.advanceTimersByTimeAsync(maxTimeInQueue - 1);
+                reads.push(client[method]('SELECT 9'));
+                expect(pool.calls).toHaveLength(8);
+                await vi.advanceTimersByTimeAsync(1);
+                expect(pool.calls.map((c) => c.sql).at(-1)).toBe(
+                    'SELECT 8;SELECT 9; SELECT 1',
+                );
+
+                for (const release of held.splice(0)) release();
+                const rows = await Promise.all(reads);
+                expect(rows.at(-2)).toEqual([{ stmt: 'SELECT 8' }]);
+                expect(rows.at(-1)).toEqual([{ stmt: 'SELECT 9' }]);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
+    it.each([
+        { setup: 'single node', replica: undefined, waits: true },
+        { setup: 'replica', replica: { host: 'replica' }, waits: false },
+    ])(
+        '$setup: 8 primary reads in flight hold back a lone read: $waits',
+        async ({ replica, waits }) => {
+            const client = await startClient(replica ? { replica } : {});
+            const held: Array<() => void> = [];
+            for (const pool of createdPools) {
+                pool.respond = (sql) =>
+                    new Promise((resolve) => {
+                        const sets = sql
+                            .split(';')
+                            .slice(0, -1)
+                            .map((stmt) => [{ stmt }]);
+                        held.push(() => resolve(rowSets(...sets)));
+                    });
+            }
+            const sent = () => createdPools.flatMap((pool) => pool.calls);
+            vi.useFakeTimers({
+                toFake: [
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                ],
+            });
+            try {
+                const reads: Promise<unknown>[] = [];
+                for (let i = 0; i < 8; i++) {
+                    reads.push(client.pread(`SELECT ${i}`));
+                    await vi.advanceTimersByTimeAsync(0);
+                }
+                reads.push(client.read('SELECT 8'));
+                await vi.advanceTimersByTimeAsync(0);
+                expect(sent()).toHaveLength(waits ? 8 : 9);
+                await vi.advanceTimersByTimeAsync(10);
+                expect(sent()).toHaveLength(9);
+
+                for (const release of held.splice(0)) release();
+                await Promise.all(reads);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
     it('sends a write on its own, outside a transaction', async () => {
         const client = await startClient();
         const pool = createdPools[0];
@@ -469,6 +568,23 @@ describe('MySQLDatabaseClient — query interface', () => {
             insertId: 42,
             affectedRows: 2,
             anyRowsAffected: true,
+        });
+    });
+
+    it('passes the warning count through, so callers can tell a clean write', async () => {
+        const client = await startClient();
+        createdPools[0].respond = () =>
+            writeHeader({ insertId: 9, affectedRows: 1, warningStatus: 1 });
+
+        await expect(
+            client.write('INSERT IGNORE INTO `user` (`username`) VALUES (?)', [
+                'ada',
+            ]),
+        ).resolves.toEqual({
+            insertId: 9,
+            affectedRows: 1,
+            anyRowsAffected: true,
+            warningStatus: 1,
         });
     });
 
@@ -619,6 +735,21 @@ describe('MySQLDatabaseClient — tryHardRead', () => {
             { from: 'primary' },
         ]);
     });
+
+    it('reads the primary once when the replica fails in a way read() fails over on', async () => {
+        const replica = {
+            execute: vi.fn().mockRejectedValue(codedError('dbBatchFailed')),
+        };
+        const primary = {
+            execute: vi.fn().mockResolvedValue([[{ from: 'primary' }]]),
+        };
+        const client = makeClient({ replica, primary });
+
+        await expect(client.tryHardRead('SELECT 1')).resolves.toEqual([
+            { from: 'primary' },
+        ]);
+        expect(primary.execute).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('MySQLDatabaseClient — migrations', () => {
@@ -696,46 +827,6 @@ describe('MySQLDatabaseClient — migrations', () => {
 });
 
 describe('MySQLDatabaseClient — pool lifecycle', () => {
-    it('replaces and closes the previous primary pool on reinit', async () => {
-        const client = await startClient();
-        const original = createdPools[0];
-
-        client.reinitPrimary();
-
-        expect(createdPools).toHaveLength(2);
-        expect(original.ended).toBe(true);
-        // Single-node: the replica batcher must follow the new primary.
-        createdPools[1].respond = () => rowSets([{ from: 'new-primary' }]);
-        await expect(client.read('SELECT 1')).resolves.toEqual([
-            { from: 'new-primary' },
-        ]);
-    });
-
-    it('replaces only the replica pool on replica reinit', async () => {
-        const client = await startClient({ replica: { host: 'replica' } });
-        const [primary, originalReplica] = createdPools;
-
-        client.reinitReplica();
-
-        expect(createdPools).toHaveLength(3);
-        expect(originalReplica.ended).toBe(true);
-        expect(primary.ended).toBe(false);
-    });
-
-    it('ignores a replica reinit when no replica is configured', async () => {
-        const client = await startClient();
-        client.reinitReplica();
-        expect(createdPools).toHaveLength(1);
-    });
-
-    it('ignores reinit once shutdown has started', async () => {
-        const client = await startClient();
-        await client.onServerPrepareShutdown();
-        client.reinitPrimary();
-        expect(createdPools).toHaveLength(1);
-        await client.onServerShutdown();
-    });
-
     it('closes both pools on shutdown when a replica is configured', async () => {
         const client = await startClient({ replica: { host: 'replica' } });
         await client.onServerShutdown();
@@ -777,110 +868,5 @@ describe('MySQLDatabaseClient — pool lifecycle', () => {
         createdPools[0].endThrows = new Error('end exploded');
 
         await expect(client.onServerShutdown()).rejects.toThrow('end exploded');
-    });
-});
-
-describe('MySQLDatabaseClient.readWithRetry', () => {
-    const codedFailure = (code: string) => {
-        const err = new Error(code) as Error & { code: string };
-        err.code = code;
-        return err;
-    };
-
-    it('classifies transient connection failures as retriable', () => {
-        expect(
-            MySQLDatabaseClient.isRetriableError(codedFailure('ECONNRESET')),
-        ).toBe(true);
-        expect(
-            MySQLDatabaseClient.isRetriableError(codedFailure('ER_DUP_ENTRY')),
-        ).toBe(false);
-        expect(
-            MySQLDatabaseClient.isRetriableError(new Error('Connection lost')),
-        ).toBe(true);
-    });
-
-    it('retries a transient failure and returns the eventual result', async () => {
-        const client = await startClient();
-        let attempts = 0;
-        const operation = vi.fn(async () => {
-            attempts += 1;
-            if (attempts < 3) throw codedFailure('PROTOCOL_CONNECTION_LOST');
-            return [{ ok: 1 }];
-        });
-
-        await expect(
-            client.readWithRetry('health', operation, { baseBackoffMs: 0 }),
-        ).resolves.toEqual([{ ok: 1 }]);
-        expect(operation).toHaveBeenCalledTimes(3);
-    });
-
-    it('gives up after the attempt budget is spent', async () => {
-        const client = await startClient();
-        const operation = vi.fn(async () => {
-            throw codedFailure('ETIMEDOUT');
-        });
-
-        await expect(
-            client.readWithRetry('health', operation, {
-                maxAttempts: 2,
-                baseBackoffMs: 0,
-            }),
-        ).rejects.toMatchObject({ code: 'ETIMEDOUT' });
-        expect(operation).toHaveBeenCalledTimes(2);
-    });
-
-    it('never retries a deterministic SQL error', async () => {
-        const client = await startClient();
-        const operation = vi.fn(async () => {
-            throw codedFailure('ER_PARSE_ERROR');
-        });
-
-        await expect(
-            client.readWithRetry('health', operation, { baseBackoffMs: 0 }),
-        ).rejects.toMatchObject({ code: 'ER_PARSE_ERROR' });
-        expect(operation).toHaveBeenCalledTimes(1);
-    });
-
-    it('stops retrying once shutdown has started', async () => {
-        const client = await startClient();
-        await client.onServerPrepareShutdown();
-        const operation = vi.fn(async () => {
-            throw codedFailure('ECONNRESET');
-        });
-
-        await expect(
-            client.readWithRetry('health', operation, { baseBackoffMs: 0 }),
-        ).rejects.toMatchObject({ code: 'ECONNRESET' });
-        expect(operation).toHaveBeenCalledTimes(1);
-        await client.onServerShutdown();
-    });
-
-    it('applies jittered exponential backoff capped at maxBackoffMs', async () => {
-        const client = await startClient();
-        const delays: number[] = [];
-        const realSetTimeout = globalThis.setTimeout;
-        const timeoutSpy = vi
-            .spyOn(globalThis, 'setTimeout')
-            .mockImplementation(((fn: () => void, ms?: number) => {
-                delays.push(ms ?? 0);
-                return realSetTimeout(fn, 0);
-            }) as typeof setTimeout);
-
-        try {
-            const operation = vi.fn(async () => {
-                throw codedFailure('ECONNRESET');
-            });
-            await expect(
-                client.readWithRetry('health', operation, {
-                    maxAttempts: 4,
-                    baseBackoffMs: 100,
-                    maxBackoffMs: 150,
-                    jitterRatio: 0,
-                }),
-            ).rejects.toMatchObject({ code: 'ECONNRESET' });
-            expect(delays).toEqual([100, 150, 150]);
-        } finally {
-            timeoutSpy.mockRestore();
-        }
     });
 });

@@ -66,13 +66,8 @@ const makeDriver = async () => {
         server.stores,
         server.services,
     );
-    d.onServerStart();
-    for (let i = 0; i < 200; i++) {
-        const m = await d.models();
-        if (m.length > 0) return d;
-        await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error('ChatCompletionDriver model map never populated in test');
+    await d.onServerStart();
+    return d;
 };
 
 const drain = async (stream: Readable): Promise<void> => {
@@ -958,7 +953,10 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         expect(providerError).toBeInstanceOf(ChatStreamAbortedError);
         // Nobody is listening, so no error line is written for the abort.
         expect(body).not.toContain('"type":"error"');
-        expect(await metering.getOutstandingHolds(actor)).toBe(0);
+        // The hold goes back once the usage write lands.
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
         // What was generated before the hang-up is still charged.
         expect(metered).toHaveBeenCalled();
     });
@@ -989,7 +987,135 @@ describe('stream pump termination', () => {
             model: 'priced', messages: [{ role: 'user', content: 'hi' }], stream: true,
         }), actor) as unknown as { stream: Readable };
         await drain(result.stream);
-        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0);
+        await vi.waitFor(async () =>
+            expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0),
+        );
         expect(warning).toHaveBeenCalledWith('Chat stream cleanup failed:', 'cleanup failed');
+    });
+});
+
+// A list-price change can land while a completion is running. The attempt is
+// held, metered and estimated at the rates in force when it started, so the
+// hold covers what is charged and the charge doesn't jump mid-request.
+describe('ChatCompletionDriver pricing across a scheduled rate change', () => {
+    const REPRICED_MODEL = {
+        ...PRICED_MODEL,
+        id: 'repriced',
+        pricingOverrides: [
+            {
+                startsAt: '2026-12-01T00:00:00Z',
+                costs: { input_tokens: 2000, output_tokens: 4000 },
+            },
+        ],
+    };
+    const BEFORE = new Date('2026-11-30T23:59:59.000Z');
+    const AFTER = new Date('2026-12-01T00:00:05.000Z');
+
+    beforeEach(async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
+            REPRICED_MODEL,
+            PRICED_MODEL,
+        ] as never);
+        driver = await makeDriver();
+        vi.useFakeTimers({ toFake: ['Date'], now: BEFORE });
+    });
+
+    const listedOutputRate = async (id: string) => ({
+        listed: (await driver.models()).find((m) => m.id === id)!.costs
+            .output_tokens,
+        reported: driver
+            .getReportedCosts()
+            .find((c) => String(c.usageType).endsWith(`:${id}:output_tokens`))!
+            .ucentsPerUnit,
+    });
+
+    it('lists and reports the rates in force, before and after the change', async () => {
+        expect(await listedOutputRate('repriced')).toEqual({
+            listed: 2000,
+            reported: 2000,
+        });
+        vi.setSystemTime(AFTER);
+        expect(await listedOutputRate('repriced')).toEqual({
+            listed: 4000,
+            reported: 4000,
+        });
+        // A model with no scheduled change lists its own rates either way.
+        expect(await listedOutputRate('priced')).toEqual({
+            listed: 2000,
+            reported: 2000,
+        });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('holds, meters and estimates an in-flight stream at its start instant', async () => {
+        const actor = freeUser() as never;
+        const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+        const metered = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockImplementationOnce(async () => {
+                vi.setSystemTime(AFTER);
+                return streamOf(async ({ chatStream }) => {
+                    chatStream
+                        .message()
+                        .contentBlock({ type: 'text' })
+                        .addText('x'.repeat(4000));
+                    chatStream.end(undefined as never);
+                }) as never;
+            });
+
+        const result = (await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'repriced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    stream: true,
+                    max_tokens: 10,
+                }),
+            actor,
+        )) as unknown as { stream: Readable };
+        await drain(result.stream);
+
+        expect(completeSpy.mock.calls[0]![2]).toEqual(BEFORE);
+        const [, held] = reserve.mock.calls[0]!;
+        expect(held).toBeGreaterThanOrEqual(10 * 2000);
+        expect(held).toBeLessThan(10 * 4000);
+        const output = meteredUsages(metered).find((u) =>
+            u.usageType.endsWith('estimated_output_tokens'),
+        )!;
+        // 4000 characters at 4 chars/token, at the launch output rate.
+        expect(output.costOverride).toBe(1000 * 2000);
+    });
+
+    it('prices an attempt that starts after the change at the new rates', async () => {
+        vi.setSystemTime(AFTER);
+        const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: { role: 'assistant', content: 'ok' },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'repriced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    max_tokens: 10,
+                }),
+            freeUser() as never,
+        );
+
+        expect(completeSpy.mock.calls[0]![2]).toEqual(AFTER);
+        const [, held] = reserve.mock.calls[0]!;
+        expect(held).toBeGreaterThanOrEqual(10 * 4000);
     });
 });

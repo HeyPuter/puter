@@ -657,6 +657,32 @@ describe('PermissionService (integration)', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
         });
+
+        it('keeps each refusal’s status and wording', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const tooLong = `zztest:${'x'.repeat(300)}:ii:read`;
+
+            await expect(
+                permService.grantDevAppPermission(actor, app.uid, tooLong),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'Invalid `permission`',
+            });
+            await expect(
+                permService.grantUserGroupPermission(actor, uuidv4(), tooLong),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'permission is too long',
+            });
+            await expect(
+                permService.revokeDevAppAll({ user: {} } as Actor, app.uid),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+                message: 'actor must be a user',
+            });
+        });
     });
 
     describe('queryIssuerHolderPermissionsByPrefix', () => {
@@ -1948,6 +1974,39 @@ describe('PermissionService — scan paths', () => {
             ).toBe(true);
         });
 
+        it('a scoped token scan reads the token grant list once for every option', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const permission = `zztest:tok-${uuidv4()}:ii:read`;
+            await permissionFor(row.id, permission);
+            const tokenUid = `tok-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`, `extra`) VALUES (?, ?, ?)',
+                [tokenUid, permission, '{}'],
+            );
+
+            const get = vi.spyOn(server.clients.redis, 'get');
+            try {
+                expect(
+                    await permService.check(
+                        scopedToken(actor, tokenUid),
+                        [
+                            `zztest:tok-${uuidv4()}:ii:read`,
+                            `zztest:tok-${uuidv4()}:ii:read`,
+                            permission,
+                        ],
+                        { noCache: true },
+                    ),
+                ).toBe(true);
+                expect(
+                    get.mock.calls.filter(
+                        ([key]) => key === `perms:token:${tokenUid}`,
+                    ),
+                ).toHaveLength(1);
+            } finally {
+                get.mockRestore();
+            }
+        });
+
         it('a scoped token cannot exceed its issuer even with a row of its own', async () => {
             const { actor } = await makeGroupedUser();
             const permission = `zztest:tok-${uuidv4()}:ii:read`;
@@ -2142,6 +2201,39 @@ describe('PermissionService — scan paths', () => {
                 },
             );
             expect(nonShortcutRan).toBe(false);
+        });
+
+        it('asks each rule about an option once, however many requested options explode into it', async () => {
+            const { actor } = await makeLooseUser();
+            const root = `zzdup${uuidv4().replaceAll('-', '')}`;
+            const asked = { shortcut: [] as string[], plain: [] as string[] };
+            permService.registerImplicator({
+                id: 'test-dup-shortcut',
+                shortcut: true,
+                matches: (p) => p.startsWith(root),
+                check: async ({ permission }) => {
+                    asked.shortcut.push(permission);
+                    return undefined;
+                },
+            });
+            permService.registerImplicator({
+                id: 'test-dup-plain',
+                matches: (p) => p.startsWith(root),
+                check: async ({ permission }) => {
+                    asked.plain.push(permission);
+                    return permission === `${root}:a` ? {} : undefined;
+                },
+            });
+
+            // Both options share the parents `${root}:a` and `${root}`.
+            expect(
+                await permService.check(actor, [`${root}:a:b`, `${root}:a`], {
+                    noCache: true,
+                }),
+            ).toBe(true);
+            const firstSeen = [`${root}:a:b`, `${root}:a`, root];
+            expect(asked.shortcut).toEqual(firstSeen);
+            expect(asked.plain).toEqual(firstSeen);
         });
 
         it('a non-shortcut implicator contributes an option alongside the scanners', async () => {

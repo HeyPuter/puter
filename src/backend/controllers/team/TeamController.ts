@@ -287,10 +287,16 @@ export class TeamController extends PuterController {
         await this.services.team.requireOwner(uid, userId);
 
         const body = this.#body(req);
-        const result = await this.services.team.provisionAccount(uid, userId, {
-            username: this.#requireString(body.username, 'username'),
-            email: this.#optionalString(body.email, 'email'),
-        });
+        const result = await this.services.team.provisionAccount(
+            uid,
+            userId,
+            {
+                username: this.#requireString(body.username, 'username'),
+                email: this.#optionalString(body.email, 'email'),
+            },
+            // The owner's request is what the signup gate gets to judge.
+            { req, fingerprint: req.deviceFingerprint ?? null },
+        );
         // Shown once; the admin delivers it out of band.
         res.json({
             username: result.username,

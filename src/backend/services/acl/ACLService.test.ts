@@ -25,7 +25,12 @@ import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
-import { ACLService, type ResourceDescriptor } from './ACLService.js';
+import {
+    ACLService,
+    aclRefusal,
+    FS_ROUTE_REFUSAL,
+    type ResourceDescriptor,
+} from './ACLService.js';
 
 // -- Test scaffolding -------------------------------------------------
 
@@ -77,7 +82,7 @@ function makeService() {
     const stores = {
         permission: {
             // Default: token carries no explicit fs grant rows.
-            hasAccessTokenPerm: vi.fn().mockResolvedValue(false),
+            hasAnyAccessTokenPerm: vi.fn().mockResolvedValue(false),
         },
         user: {
             getByUsername: vi.fn().mockResolvedValue(null),
@@ -86,6 +91,10 @@ function makeService() {
         share: {
             // Default: no node on the chain is open to anyone with the link.
             listAnyoneReaching: vi.fn().mockResolvedValue([]),
+        },
+        app: {
+            // Default: no app row behind any AppData folder.
+            getByUids: vi.fn().mockResolvedValue(new Map()),
         },
     };
     const services = {
@@ -123,7 +132,7 @@ describe('ACLService.check — full-access tokens', () => {
         expect(allowed).toBe(true);
         // The grant comes from the fullAccess short-circuit (bounded by the
         // issuer check), NOT from per-token permission rows or a scan.
-        expect(stores.permission.hasAccessTokenPerm).not.toHaveBeenCalled();
+        expect(stores.permission.hasAnyAccessTokenPerm).not.toHaveBeenCalled();
         expect(services.permission.scan).not.toHaveBeenCalled();
     });
 
@@ -159,7 +168,7 @@ describe('ACLService.check — full-access tokens', () => {
     it('cannot exceed the issuer: denied even with a token perm row when the issuer lacks access', async () => {
         const { service, stores } = makeService();
         // Even if the token row claims the grant, the issuer gate runs first.
-        stores.permission.hasAccessTokenPerm.mockResolvedValue(true);
+        stores.permission.hasAnyAccessTokenPerm.mockResolvedValue(true);
 
         const allowed = await service.check(
             fullAccessTokenActor(),
@@ -187,12 +196,12 @@ describe('ACLService.check — scoped tokens (regression)', () => {
         );
 
         expect(allowed).toBe(false);
-        expect(stores.permission.hasAccessTokenPerm).toHaveBeenCalled();
+        expect(stores.permission.hasAnyAccessTokenPerm).toHaveBeenCalled();
     });
 
     it('grants when the token carries an explicit fs permission row', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockResolvedValue(true);
+        stores.permission.hasAnyAccessTokenPerm.mockResolvedValue(true);
 
         const allowed = await service.check(
             scopedTokenActor(),
@@ -201,6 +210,26 @@ describe('ACLService.check — scoped tokens (regression)', () => {
         );
 
         expect(allowed).toBe(true);
+    });
+
+    it('reads the token grants once for the whole ancestor chain', async () => {
+        const { service, stores } = makeService();
+
+        await service.check(
+            scopedTokenActor(),
+            resource('/issuer/a/b/c.txt'),
+            'read',
+        );
+
+        expect(stores.permission.hasAnyAccessTokenPerm).toHaveBeenCalledTimes(
+            1,
+        );
+        const [, asked] =
+            stores.permission.hasAnyAccessTokenPerm.mock.calls[0]!;
+        // Four nodes, each answered by read, write or manage.
+        expect(asked).toHaveLength(12);
+        expect(asked).toContain('fs:uid\\C/issuer/a/b/c.txt:read');
+        expect(asked).toContain('manage:fs:uid\\C/issuer');
     });
 });
 
@@ -218,7 +247,7 @@ describe('ACLService.check — system actor', () => {
             'write',
         );
         expect(allowed).toBe(true);
-        expect(stores.permission.hasAccessTokenPerm).not.toHaveBeenCalled();
+        expect(stores.permission.hasAnyAccessTokenPerm).not.toHaveBeenCalled();
         expect(services.permission.scan).not.toHaveBeenCalled();
     });
 });
@@ -355,6 +384,56 @@ describe('ACLService.check — app-under-user', () => {
         ).toBe(true);
     });
 
+    it("is refused an opted-out app's AppData whatever it was granted", async () => {
+        const { service, stores, services } = makeService();
+        services.permission.scan.mockResolvedValue([{ $: 'option', key: 'k' }]);
+        const closed = `app-${uuidv4()}`;
+        stores.app.getByUids.mockImplementation(async (uids: string[]) =>
+            uids.includes(closed)
+                ? new Map([
+                      [
+                          closed,
+                          { uid: closed, metadata: { share_app_data: false } },
+                      ],
+                  ])
+                : new Map(),
+        );
+        // Asked in another case; the stored chain names the real folder.
+        const asked: ResourceDescriptor = {
+            path: `/issuer/appdata/${closed.toUpperCase()}/state.json`,
+            resolveAncestors: async () => [
+                {
+                    uid: 'uid:file',
+                    path: `/issuer/AppData/${closed}/state.json`,
+                },
+                { uid: 'uid:root', path: `/issuer/AppData/${closed}` },
+                { uid: 'uid:appdata', path: '/issuer/AppData' },
+                { uid: 'uid:home', path: '/issuer' },
+            ],
+        };
+        expect(await service.check(appActor('issuer'), asked, 'read')).toBe(
+            false,
+        );
+        expect(stores.app.getByUids).toHaveBeenCalledWith(
+            expect.arrayContaining([closed]),
+        );
+    });
+
+    it('looks up no app for an AppData folder not named like one', async () => {
+        const { service, stores, services } = makeService();
+        services.permission.scan.mockResolvedValue([{ $: 'option', key: 'k' }]);
+        for (const name of ['日本', 'notes', 'app-2']) {
+            expect(
+                await service.check(
+                    appActor('issuer'),
+                    resource(`/issuer/AppData/${name}/x`),
+                    'read',
+                ),
+            ).toBe(true);
+        }
+        expect(stores.app.getByUids).not.toHaveBeenCalled();
+    });
+
     it("does not get its user's home short-circuit", async () => {
         const { service, services } = makeService();
         // The app's user owns /issuer, so the recursive user check passes,
@@ -471,6 +550,40 @@ describe('ACLService.check — public folders', () => {
         expect(
             await service.check(issuerActor, resource('/owner'), 'read'),
         ).toBe(false);
+    });
+
+    it('stays closed for a case variant that resolved a private folder', async () => {
+        const { service, stores } = publicService();
+        stores.user.getByUsername.mockResolvedValue({
+            username: 'owner',
+            email_confirmed: true,
+        });
+        // What MySQL hands back for `/owner/Public/...` when the owner's
+        // folder is stored as `public`: the lookup collates case-insensitively.
+        const variant: ResourceDescriptor = {
+            path: '/owner/Public/secret.txt',
+            resolveAncestors: async () => [
+                { uid: 'uid:secret', path: '/owner/public/secret.txt' },
+                { uid: 'uid:public', path: '/owner/public' },
+                { uid: 'uid:owner', path: '/owner' },
+            ],
+        };
+        expect(await service.check(issuerActor, variant, 'read')).toBe(false);
+    });
+
+    it('stays closed when no Public folder is stored under the path', async () => {
+        const { service, stores } = publicService();
+        stores.user.getByUsername.mockResolvedValue({
+            username: 'owner',
+            email_confirmed: true,
+        });
+        const orphan: ResourceDescriptor = {
+            path: '/owner/Public/index.html',
+            resolveAncestors: async () => [
+                { uid: 'uid:owner', path: '/owner' },
+            ],
+        };
+        expect(await service.check(issuerActor, orphan, 'read')).toBe(false);
     });
 
     it('stays closed when the feature flag is off', async () => {
@@ -593,14 +706,173 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
     });
 });
 
+describe('ACLService.check — ancestor scans', () => {
+    const path = '/other/a/b/file.txt';
+
+    /**
+     * Scan answers by the ancestor they ask about: each after its own delay, a
+     * hit, a miss, or a failure.
+     */
+    const answering = (
+        services: ReturnType<typeof makeService>['services'],
+        answers: Record<string, { ms: number; hit?: boolean; fail?: boolean }>,
+        events: string[] = [],
+    ) =>
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) => {
+                const ancestor = Object.keys(answers).find((p) =>
+                    permissions.includes(`fs:uid\\C${p}:read`),
+                )!;
+                const answer = answers[ancestor];
+                events.push(`${ancestor}:start`);
+                await new Promise((resolve) => setTimeout(resolve, answer.ms));
+                events.push(`${ancestor}:end`);
+                if (answer.fail) throw new Error(`${ancestor} scan failed`);
+                return answer.hit ? [{ $: 'option', key: 'k' }] : [];
+            },
+        );
+
+    const outcome = async (run: () => Promise<boolean>) => {
+        try {
+            return { granted: await run() };
+        } catch (error) {
+            return { error: (error as Error).message };
+        }
+    };
+
+    it('answers a grant on the node itself with one scan', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 5, hit: true },
+                '/other/a/b': { ms: 5 },
+                '/other/a': { ms: 5 },
+                '/other': { ms: 5 },
+            },
+            events,
+        );
+        expect(await service.check(issuerActor, resource(path), 'read')).toBe(
+            true,
+        );
+        expect(events).toEqual([`${path}:start`, `${path}:end`]);
+    });
+
+    it('after a miss on the node, starts the scans above it before the first answers', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 5 },
+                '/other/a/b': { ms: 5 },
+                '/other/a': { ms: 5 },
+                '/other': { ms: 5 },
+            },
+            events,
+        );
+        expect(await service.check(issuerActor, resource(path), 'read')).toBe(
+            false,
+        );
+        expect(events.slice(0, 2)).toEqual([`${path}:start`, `${path}:end`]);
+        expect(events.slice(2, 5).every((e) => e.endsWith(':start'))).toBe(
+            true,
+        );
+        expect(services.permission.scan).toHaveBeenCalledTimes(4);
+    });
+
+    it('lets the deepest hit win over a failed scan above it', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, hit: true },
+            '/other/a': { ms: 0, fail: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ granted: true });
+    });
+
+    it('fails with the first failed scan below any hit, however fast the hit', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, fail: true },
+            '/other/a': { ms: 0, hit: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: '/other/a/b scan failed' });
+    });
+
+    it('fails with the deepest failure when nothing hits', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, fail: true },
+            '/other/a': { ms: 0 },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: '/other/a/b scan failed' });
+    });
+
+    it('fails on a failed node scan without scanning above it, even where a grant sits', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 0, fail: true },
+                '/other/a/b': { ms: 0, hit: true },
+                '/other/a': { ms: 0 },
+                '/other': { ms: 0 },
+            },
+            events,
+        );
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: `${path} scan failed` });
+        expect(events).toEqual([`${path}:start`, `${path}:end`]);
+    });
+
+    it('lets a grant on the node win before any scan above it could fail', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0, hit: true },
+            '/other/a/b': { ms: 0, fail: true },
+            '/other/a': { ms: 0, fail: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ granted: true });
+        expect(services.permission.scan).toHaveBeenCalledTimes(1);
+    });
+});
+
 // -- Scoped access tokens, manage mode ---------------------------------
 
 describe('ACLService.check — scoped tokens and manage', () => {
     it('accepts a manage grant recorded against the token', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockImplementation(
-            async (_uid: string, permission: string) =>
-                permission === 'manage:fs:uid\\C/issuer/projects',
+        stores.permission.hasAnyAccessTokenPerm.mockImplementation(
+            async (_uid: string, permissions: string[]) =>
+                permissions.includes('manage:fs:uid\\C/issuer/projects'),
         );
         expect(
             await service.check(
@@ -613,9 +885,9 @@ describe('ACLService.check — scoped tokens and manage', () => {
 
     it('accepts a manage grant recorded against the token for a write', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockImplementation(
-            async (_uid: string, permission: string) =>
-                permission === 'manage:fs:uid\\C/issuer/projects',
+        stores.permission.hasAnyAccessTokenPerm.mockImplementation(
+            async (_uid: string, permissions: string[]) =>
+                permissions.includes('manage:fs:uid\\C/issuer/projects'),
         );
         expect(
             await service.check(
@@ -628,9 +900,9 @@ describe('ACLService.check — scoped tokens and manage', () => {
 
     it('accepts an ancestor grant recorded against the token', async () => {
         const { service, stores } = makeService();
-        stores.permission.hasAccessTokenPerm.mockImplementation(
-            async (_uid: string, permission: string) =>
-                permission === 'fs:uid\\C/issuer:write',
+        stores.permission.hasAnyAccessTokenPerm.mockImplementation(
+            async (_uid: string, permissions: string[]) =>
+                permissions.includes('fs:uid\\C/issuer:write'),
         );
         expect(
             await service.check(
@@ -639,6 +911,67 @@ describe('ACLService.check — scoped tokens and manage', () => {
                 'read',
             ),
         ).toBe(true);
+    });
+});
+
+// -- Group holders ----------------------------------------------------
+
+describe('ACLService.setUserGroup / statUserGroup', () => {
+    const withGroupGrants = (existing: string[]) => {
+        const made = makeService();
+        const permission = Object.assign(made.services.permission, {
+            queryIssuerGroupPermissionsByPrefix: vi.fn(
+                async (_issuer: Actor, _group: string, prefix: string) =>
+                    existing.filter((perm) => perm.startsWith(`${prefix}:`)),
+            ),
+            grantUserGroupPermission: vi.fn().mockResolvedValue(undefined),
+            revokeUserGroupPermission: vi.fn().mockResolvedValue(true),
+        });
+        return { service: made.service, permission };
+    };
+    const node = 'fs:uid\\C/issuer/projects';
+
+    it('grants the new mode to the group and clears the one it supersedes', async () => {
+        const { service, permission } = withGroupGrants([`${node}:read`]);
+
+        expect(
+            await service.setUserGroup(
+                issuerActor,
+                'g-1',
+                resource('/issuer/projects'),
+                'write',
+            ),
+        ).toBe(true);
+        expect(permission.grantUserGroupPermission).toHaveBeenCalledWith(
+            issuerActor,
+            'g-1',
+            `${node}:write`,
+        );
+        expect(permission.revokeUserGroupPermission).toHaveBeenCalledWith(
+            issuerActor,
+            'g-1',
+            `${node}:read`,
+        );
+    });
+
+    it('reports the group grants per ancestor, and refuses a non-user issuer', async () => {
+        const { service } = withGroupGrants([`${node}:read`]);
+
+        expect(
+            await service.statUserGroup(
+                issuerActor,
+                'g-1',
+                resource('/issuer/projects/a.txt'),
+            ),
+        ).toEqual({ '/issuer/projects': [`${node}:read`] });
+        await expect(
+            service.setUserGroup(
+                scopedTokenActor(),
+                'g-1',
+                resource('/issuer/projects'),
+                'read',
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
     });
 });
 
@@ -863,6 +1196,54 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         });
     });
 
+    it("does not release the next holder's lock when its own TTL lapses mid-release", async () => {
+        const issuer = await makeUser();
+        const holder = await makeUser();
+        const res = await ownedResource(issuer);
+        const key = `acl:set-user-user:${issuer.user!.id}:${holder.user!.id}:${res.uid}`;
+        const redis = server.clients.redis;
+        const real = {
+            set: redis.set.bind(redis),
+            get: redis.get.bind(redis),
+            del: redis.del.bind(redis),
+            eval: redis.eval.bind(redis),
+        };
+        // After the first command on the held lock (the release), the lock
+        // lapses and another node takes it, as if the TTL ran out in between.
+        let held = false;
+        let lapsed = false;
+        const spies = (Object.keys(real) as Array<keyof typeof real>).map(
+            (name) =>
+                vi.spyOn(redis, name).mockImplementation((async (
+                    ...args: unknown[]
+                ) => {
+                    const result = await (
+                        real[name] as (...a: unknown[]) => Promise<unknown>
+                    )(...args);
+                    const touched = name === 'eval' ? args[2] : args[0];
+                    if (touched !== key || lapsed) return result;
+                    if (!held) {
+                        held = name === 'set' && result === 'OK';
+                        return result;
+                    }
+                    lapsed = true;
+                    await real.del(key);
+                    await real.set(key, 'next-holder', 'PX', 60_000, 'NX');
+                    return result;
+                }) as never),
+        );
+        try {
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            );
+        } finally {
+            for (const spy of spies) spy.mockRestore();
+        }
+        expect(lapsed).toBe(true);
+        expect(await redis.get(key)).toBe('next-holder');
+        await redis.del(key);
+    });
+
     it('onlyIfHigher declines to downgrade an existing stronger grant', async () => {
         const issuer = await makeUser();
         const holder = await makeUser();
@@ -905,8 +1286,44 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         ).toBe(false);
     });
 
+    it('reads a scoped token grant list once per check, however deep the path', async () => {
+        const issuer = await makeUser();
+        const tokenUid = `tok-${uuidv4()}`;
+        const token: Actor = {
+            user: issuer.user,
+            accessToken: {
+                uid: tokenUid,
+                issuer,
+                authorized: null,
+                fullAccess: false,
+            },
+        };
+        const home = `/${issuer.user.username}`;
+        const deep = resource(`${home}/a/b/c/d.txt`);
+        const top = acl.permissionsFor(`uid:${home}`, 'read')[0]!;
+        await server.clients.db.write(
+            'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
+            [tokenUid, top],
+        );
+
+        const get = vi.spyOn(server.clients.redis, 'get');
+        try {
+            expect(await acl.check(token, deep, 'read')).toBe(true);
+            expect(await acl.check(token, deep, 'write')).toBe(false);
+            const tokenReads = get.mock.calls.filter(
+                ([key]) => key === `perms:token:${tokenUid}`,
+            );
+            expect(tokenReads).toHaveLength(2);
+        } finally {
+            get.mockRestore();
+        }
+    });
+
     describe('app-under-user on shared paths', () => {
-        const makeApp = async (ownerUserId: number) =>
+        const makeApp = async (
+            ownerUserId: number,
+            fields: Record<string, unknown> = {},
+        ) =>
             (
                 server.stores.app.create as unknown as (
                     fields: Record<string, unknown>,
@@ -917,6 +1334,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                     name: `acl-app-${uuidv4()}`,
                     title: 'ACL app',
                     index_url: `https://acl-${uuidv4()}.test/`,
+                    ...fields,
                 },
                 { ownerUserId },
             );
@@ -1030,6 +1448,71 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
             expect(
                 await acl.check(asApp(holder, mine), appDataOf(theirs.uid), 'write'),
             ).toBe(false);
+        });
+
+        describe("another app's AppData", () => {
+            /** `/<user>/AppData/<appUid>/inner`, as the app would leave it. */
+            const seedAppData = async (user: Actor, appUid: string) => {
+                const root = `/${user.user.username}/AppData/${appUid}`;
+                await server.services.fs.mkdir(user.user.id!, {
+                    path: `${root}/inner`,
+                    createMissingParents: true,
+                } as never);
+                return root;
+            };
+
+            const grantTo = (
+                user: Actor,
+                app: { uid: string },
+                permission: string,
+            ) =>
+                runWithContext({ actor: user }, () =>
+                    server.services.permission.grantUserAppPermission(
+                        user,
+                        app.uid,
+                        permission,
+                    ),
+                );
+
+            it('stays closed to every grant once that app opts out of sharing', async () => {
+                const user = await makeUser();
+                const closed = await makeApp(user.user.id!, {
+                    metadata: JSON.stringify({ share_app_data: false }),
+                });
+                const root = await seedAppData(user, closed.uid);
+                const inner = acl.fsDescriptor(`${root}/inner`);
+                const home = `/${user.user.username}`;
+
+                // The folder by path, its parent, and the whole home.
+                for (const target of [root, `${home}/AppData`, home]) {
+                    const reader = await makeApp(user.user.id!);
+                    await grantTo(user, reader, `fs:${target}:read`);
+                    expect(
+                        await acl.check(asApp(user, reader), inner, 'read'),
+                    ).toBe(false);
+                }
+
+                // The user and the app that owns the folder keep their access.
+                expect(await acl.check(user, inner, 'write')).toBe(true);
+                expect(
+                    await acl.check(asApp(user, closed), inner, 'write'),
+                ).toBe(true);
+            });
+
+            it('opens to an fs grant while that app shares', async () => {
+                const user = await makeUser();
+                const open = await makeApp(user.user.id!);
+                const root = await seedAppData(user, open.uid);
+                const reader = await makeApp(user.user.id!);
+                await grantTo(user, reader, `fs:${root}:read`);
+                expect(
+                    await acl.check(
+                        asApp(user, reader),
+                        acl.fsDescriptor(`${root}/inner`),
+                        'read',
+                    ),
+                ).toBe(true);
+            });
         });
     });
 
@@ -1187,5 +1670,180 @@ describe('ACLService.check — anyone with the link', () => {
         const made = makeService();
         await made.service.check(issuerActor, resource('/issuer/mine'), 'read');
         expect(made.stores.share.listAnyoneReaching).not.toHaveBeenCalled();
+    });
+});
+
+// -- Filesystem descriptors and refusals --------------------------------
+
+describe('ACLService filesystem descriptors and refusals', () => {
+    /** The chain `resource()` builds, served the way `FSEntryStore` would. */
+    const withChains = () => {
+        const made = makeService();
+        const getAncestorChain = vi.fn(async (path: string) =>
+            resource(path).resolveAncestors(),
+        );
+        (made.stores as Record<string, unknown>).fsEntry = { getAncestorChain };
+        return { ...made, getAncestorChain };
+    };
+
+    /** Let the scan answer `mode` (and nothing else) on `path`. */
+    const grant = (
+        services: ReturnType<typeof makeService>['services'],
+        grants: Array<[path: string, mode: string]>,
+    ) =>
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) =>
+                grants.some(([path, mode]) =>
+                    permissions.includes(`fs:uid\\C${path}:${mode}`),
+                )
+                    ? [{ $: 'option', key: 'k' }]
+                    : [],
+        );
+
+    const refusedWith = async (run: () => Promise<unknown>) => {
+        try {
+            await run();
+        } catch (err) {
+            const e = err as {
+                statusCode: number;
+                message: string;
+                legacyCode?: string;
+            };
+            return {
+                status: e.statusCode,
+                message: e.message,
+                legacyCode: e.legacyCode,
+            };
+        }
+        throw new Error('expected a refusal');
+    };
+
+    it('reads a descriptor chain once however many checks share it', async () => {
+        const { service, getAncestorChain } = withChains();
+        const descriptor = service.fsDescriptor('/victim/secret');
+
+        await service.check(issuerActor, descriptor, 'read');
+        await service.check(issuerActor, descriptor, 'write');
+
+        expect(getAncestorChain).toHaveBeenCalledTimes(1);
+        expect(getAncestorChain).toHaveBeenCalledWith('/victim/secret');
+    });
+
+    it('passes what the actor may do', async () => {
+        const { service } = withChains();
+        await expect(
+            service.assertFsAccess(issuerActor, '/issuer/notes', 'write'),
+        ).resolves.toBeUndefined();
+    });
+
+    it('answers a node the actor cannot see as absent', async () => {
+        const { service } = withChains();
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, '/victim/secret', 'write'),
+            ),
+        ).resolves.toEqual({
+            status: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, '/victim/secret', 'list', {
+                    notFoundMessage: 'No such entry: x',
+                }),
+            ),
+        ).resolves.toMatchObject({ status: 404, message: 'No such entry: x' });
+    });
+
+    it('answers a visible node as forbidden, in the code the route uses', async () => {
+        const { service, services } = withChains();
+        grant(services, [['/victim/secret', 'see']]);
+
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, '/victim/secret', 'write'),
+            ),
+        ).resolves.toEqual({
+            status: 403,
+            message: 'Forbidden',
+            legacyCode: 'forbidden',
+        });
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(
+                    issuerActor,
+                    '/victim/secret',
+                    'write',
+                    FS_ROUTE_REFUSAL,
+                ),
+            ),
+        ).resolves.toMatchObject({ status: 403, legacyCode: 'access_denied' });
+    });
+
+    it('hides even a visible node from an app when asked to', async () => {
+        const { service, services } = withChains();
+        grant(services, [['/victim/secret', 'see']]);
+        const app = makeActor({
+            user: ISSUER_USER as never,
+            app: { uid: 'app-x', id: 7 },
+        });
+
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(app, '/victim/secret', 'write', {
+                    hideFromApps: true,
+                }),
+            ),
+        ).resolves.toEqual({
+            status: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+    });
+
+    it('lets a create through on write to the parent or to the target', async () => {
+        const { service, services } = withChains();
+        grant(services, [['/victim/shared', 'write']]);
+        await expect(
+            service.assertFsCreate(issuerActor, '/victim/shared/new.txt'),
+        ).resolves.toBeUndefined();
+
+        grant(services, [['/victim/inbox/mine', 'write']]);
+        await expect(
+            service.assertFsCreate(issuerActor, '/victim/inbox/mine'),
+        ).resolves.toBeUndefined();
+
+        grant(services, [['/victim/inbox', 'see']]);
+        await expect(
+            refusedWith(() =>
+                service.assertFsCreate(
+                    issuerActor,
+                    '/victim/inbox/x',
+                    FS_ROUTE_REFUSAL,
+                ),
+            ),
+        ).resolves.toMatchObject({ status: 403, legacyCode: 'access_denied' });
+    });
+
+    it('maps a described refusal without asking anything else', () => {
+        const notFound = aclRefusal({
+            status: 404,
+            message: 'Subject does not exist',
+            fields: { code: 'subject_does_not_exist' },
+        });
+        expect(notFound.statusCode).toBe(404);
+        expect(notFound.legacyCode).toBe('subject_does_not_exist');
+
+        const forbidden = aclRefusal(
+            {
+                status: 403,
+                message: 'Forbidden',
+                fields: { code: 'forbidden' },
+            },
+            { forbiddenCode: 'access_denied' },
+        );
+        expect(forbidden.statusCode).toBe(403);
+        expect(forbidden.legacyCode).toBe('access_denied');
     });
 });

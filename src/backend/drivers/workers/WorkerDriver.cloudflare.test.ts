@@ -422,6 +422,102 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         expect(putCalls()).toHaveLength(0);
     });
 
+    // The file's owner keeps editing rights at any share level, and later
+    // redeploys read the file as the worker's owner.
+    it.each(['read', 'write', 'manage'] as const)(
+        'refuses a source file shared with the actor at %s',
+        async (mode) => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const path = `/${owner.user.username}/worker.js`;
+            const entry = await writeSource(
+                owner.actor,
+                owner.user.id,
+                path,
+                'v1',
+            );
+            await server.services.acl.setUserUser(
+                owner.actor,
+                holder.actor,
+                {
+                    path: entry.path,
+                    resolveAncestors: () =>
+                        server.services.fs.getAncestorChain(entry.path),
+                },
+                mode,
+            );
+            const name = `borrowed-${mode}-${holder.user.username}`;
+
+            await expect(
+                inCtx(holder.actor, () =>
+                    target.create({
+                        appId: '',
+                        workerName: name,
+                        filePath: path,
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+            expect(putCalls()).toHaveLength(0);
+            expect(
+                await server.stores.subdomain.getBySubdomain(
+                    `workers.puter.${name}`,
+                ),
+            ).toBeNull();
+            expect(
+                await server.stores.session.getWorker(holder.user.id, {
+                    workerName: name,
+                }),
+            ).toBeNull();
+        },
+    );
+
+    it('refuses repointing an existing worker at another user’s file', async () => {
+        const { user, actor } = await makeUser();
+        const other = await makeUser();
+        const own = `/${user.username}/worker.js`;
+        const ownEntry = await writeSource(actor, user.id, own, 'v1');
+        const foreign = `/${other.user.username}/worker.js`;
+        const foreignEntry = await writeSource(
+            other.actor,
+            other.user.id,
+            foreign,
+            'v2',
+        );
+        await server.services.acl.setUserUser(
+            other.actor,
+            actor,
+            {
+                path: foreignEntry.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(foreignEntry.path),
+            },
+            'read',
+        );
+        const name = `repoint-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({ appId: '', workerName: name, filePath: own }),
+        );
+
+        await expect(
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: name,
+                    filePath: foreign,
+                    [INTERNAL_ADMISSION_BYPASS]: true,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(putCalls()).toHaveLength(1);
+        const row = await server.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+        expect(Number(row!.root_dir_id)).toBe(ownEntry.id);
+    });
+
     it('surfaces an edge deploy failure with stack lines rebased past the preamble', async () => {
         const { user, actor } = await makeUser();
         const path = `/${user.username}/worker.js`;
@@ -472,7 +568,8 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
                 target.create({
                     appId: '',
                     workerName: 'ghost-worker',
-                    filePath: '/ghost/worker.js',
+                    // Inline source: a path would 404 before the user lookup.
+                    filePath: 'data:application/javascript,export default {}',
                 }),
             ),
         ).rejects.toMatchObject({
@@ -697,10 +794,15 @@ describe('WorkerDriver hot reload', () => {
     });
 
     it('tears the worker down when its source file is deleted', async () => {
-        const { user, actor, path, entry, name } = await deployWorker();
+        const { user, actor, path, name } = await deployWorker();
         fetchSpy.mockClear();
+        // Resolved at delete time, as every caller does: the entry names the
+        // workers bound to it.
+        const entry = await server.stores.fsEntry.getEntryByPath(path);
 
-        await inCtx(actor, () => server.services.fs.remove(user.id, { entry }));
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: entry! }),
+        );
 
         await waitFor(async () => {
             const row = await server.stores.subdomain.getBySubdomain(
@@ -712,6 +814,37 @@ describe('WorkerDriver hot reload', () => {
             `${SCRIPTS_BASE}/${name}/`,
         );
         expect(path).toContain(user.username);
+    });
+
+    it('tears the worker down when the delete nulls its root_dir_id', async () => {
+        // MySQL and Postgres null `subdomains.root_dir_id` when its fsentry row
+        // is deleted (FK ON DELETE SET NULL). SQLite's schema has no such FK,
+        // so a trigger stands in for it.
+        await server.clients.db.write(
+            'CREATE TRIGGER test_subdomain_root_set_null AFTER DELETE ON fsentries ' +
+                'BEGIN UPDATE subdomains SET root_dir_id = NULL WHERE root_dir_id = OLD.id; END',
+        );
+        try {
+            const { user, actor, path, name } = await deployWorker();
+            fetchSpy.mockClear();
+            const entry = await server.stores.fsEntry.getEntryByPath(path);
+
+            await inCtx(actor, () =>
+                server.services.fs.remove(user.id, { entry: entry! }),
+            );
+
+            await waitFor(
+                () => deleteCalls().length > 0,
+                'edge delete after source delete',
+            );
+            expect(deleteCalls().map((call) => call[0])).toContain(
+                `${SCRIPTS_BASE}/${name}/`,
+            );
+        } finally {
+            await server.clients.db.write(
+                'DROP TRIGGER IF EXISTS test_subdomain_root_set_null',
+            );
+        }
     });
 
     it('tears the worker down when its source file is moved to Trash', async () => {
@@ -785,6 +918,55 @@ describe('WorkerDriver hot reload', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
+    it('runs no subdomain query for a write, delete or move of a file no worker is bound to', async () => {
+        const { user, actor } = await makeUser();
+        const listSpy = vi.spyOn(
+            server.stores.subdomain,
+            'listByUserIdAndPrefix',
+        );
+        const batchSpy = vi.spyOn(server.stores.subdomain, 'getBySubdomains');
+        const path = `/${user.username}/plain.js`;
+
+        await writeSource(actor, user.id, path, 'first');
+        const entry = await writeSource(actor, user.id, path, 'second');
+        const trash = await server.stores.fsEntry.getEntryByPath(
+            `/${user.username}/Trash`,
+        );
+        await inCtx(actor, () =>
+            server.services.fs.move(user.id, {
+                source: entry,
+                destinationParent: trash!,
+            }),
+        );
+        const moved = await server.stores.fsEntry.getEntryByUuid(entry.uuid);
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: moved! }),
+        );
+
+        await new Promise((r) => setTimeout(r, 120));
+        expect(listSpy).not.toHaveBeenCalled();
+        expect(batchSpy).not.toHaveBeenCalled();
+    });
+
+    it('looks up a bound file’s worker rows with one primary batch read', async () => {
+        const { user, actor, path, name } = await deployWorker();
+        const listSpy = vi.spyOn(
+            server.stores.subdomain,
+            'listByUserIdAndPrefix',
+        );
+        const batchSpy = vi.spyOn(server.stores.subdomain, 'getBySubdomains');
+        fetchSpy.mockClear();
+
+        await writeSource(actor, user.id, path, 'v2');
+
+        await waitFor(() => putCalls().length > 0, 'hot-reload deploy');
+        expect(listSpy).not.toHaveBeenCalled();
+        expect(batchSpy).toHaveBeenCalledTimes(1);
+        expect(batchSpy).toHaveBeenCalledWith([`workers.puter.${name}`], {
+            primary: true,
+        });
+    });
+
     // Deleting the app a worker is bound to deletes the worker row with it.
     // Were the row to survive unbound, the next source write would redeploy
     // it with an account-scoped token — a child app is enough to set that up.
@@ -839,5 +1021,110 @@ describe('WorkerDriver hot reload', () => {
         await new Promise((r) => setTimeout(r, 120));
         expect(putCalls()).toHaveLength(0);
         expect(sessionMint).not.toHaveBeenCalled();
+    });
+});
+
+// -- worker sessions --------------------------------------------------
+
+describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
+    const deployedToken = () => {
+        const [, init] = putCalls().at(-1)!;
+        const form = (init as RequestInit).body as FormData;
+        const metadata = JSON.parse(form.get('metadata') as string);
+        return metadata.bindings.find(
+            (b: { name: string }) => b.name === 'puter_auth',
+        ).text as string;
+    };
+
+    const deployWorker = async (label: string) => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/${label}.js`;
+        const entry = await writeSource(actor, user.id, path, 'src');
+        const name = `${label}-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({ appId: '', workerName: name, filePath: path }),
+        );
+        return { user, actor, entry, name, token: deployedToken() };
+    };
+
+    const workerSession = (userId: number, workerName: string) =>
+        server.stores.session.getWorker(userId, { appUid: null, workerName });
+
+    it('binds the deployed token to the worker row, and a redeploy keeps it', async () => {
+        const { user, actor, name, token } = await deployWorker('bind');
+        const row = await server.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+        const decoded = server.services.token.verify('auth', token) as {
+            worker_uid?: string;
+        };
+        expect(decoded.worker_uid).toBe(row!.uuid);
+        expect(
+            (await server.services.auth.authenticate(token)).actor,
+        ).toBeTruthy();
+
+        await inCtx(actor, () =>
+            target.create({
+                appId: '',
+                workerName: name,
+                filePath: `/${user.username}/bind.js`,
+            }),
+        );
+        const redeployed = server.services.token.verify(
+            'auth',
+            deployedToken(),
+        ) as { worker_uid?: string };
+        expect(redeployed.worker_uid).toBe(row!.uuid);
+    });
+
+    it('destroy deletes the worker`s session and leaves other workers alone', async () => {
+        const kept = await deployWorker('kept');
+        const { user, actor, name, token } = await deployWorker('gone');
+
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+
+        expect(await workerSession(user.id, name)).toBeNull();
+        expect(await server.services.auth.authenticate(token)).toEqual({
+            invalid: true,
+        });
+        expect(await workerSession(kept.user.id, kept.name)).toBeTruthy();
+        expect(
+            (await server.services.auth.authenticate(kept.token)).actor,
+        ).toBeTruthy();
+    });
+
+    it('deleting the source file deletes the worker`s session', async () => {
+        const { user, actor, entry, name } = await deployWorker('srcdel');
+        // Resolved at delete time, as every caller does: the entry names the
+        // workers bound to it.
+        const current = await server.stores.fsEntry.getEntryByUuid(entry.uuid);
+
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: current! }),
+        );
+
+        await waitFor(
+            async () => !(await workerSession(user.id, name)),
+            'worker session removal after source delete',
+        );
+    });
+
+    it('a worker row deleted elsewhere takes its session with it', async () => {
+        const { user, name } = await deployWorker('elsewhere');
+        const row = await server.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+
+        await server.stores.subdomain.deleteByUuid(String(row!.uuid));
+        server.clients.event.emit(
+            'subdomain.delete',
+            { subdomain: `workers.puter.${name}`, uid: String(row!.uuid) },
+            {},
+        );
+
+        await waitFor(
+            async () => !(await workerSession(user.id, name)),
+            'worker session removal after subdomain.delete',
+        );
     });
 });

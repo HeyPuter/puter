@@ -129,6 +129,13 @@ export interface KVOpts {
      * only after its cross-app permission check has passed.
      */
     namespaceAppUuid?: string;
+    /**
+     * Files system data under its own partition of the system namespace, so a
+     * high-volume key family doesn't share one partition key with the rest of
+     * the internal state. Honored only for the system actor; reads must name
+     * the same partition.
+     */
+    systemPartition?: string;
 }
 
 export interface RecursiveRecord<T> {
@@ -140,6 +147,8 @@ export interface RecursiveRecord<T> {
 /** Namespace app component for an actor acting without an app. */
 export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
+// The extra segment keeps a partition from parsing as a user's namespace.
+const SYSTEM_PARTITION_PREFIX = `${SYSTEM_NAMESPACE}:`;
 const MAX_KEY_BYTES = 1024;
 
 /**
@@ -178,6 +187,20 @@ const KV_CACHE_BROADCAST_CHUNK = 500;
  * caller data can neither collide with it nor set it.
  */
 export const KV_PRIVATE_ATTR = 'noShare';
+
+/**
+ * Prefix of the attribute where a fenced `incr` records the last token it
+ * applied for its writer. Beside `value`, so readers never see it.
+ */
+const KV_FENCE_ATTR_PREFIX = 'fence_';
+
+/**
+ * An `incr` refused because the item already holds its writer's token, or a
+ * later one: the write was applied before, so it must not be applied again.
+ */
+export class KvFencedWriteError extends Error {
+    override name = 'KvFencedWriteError';
+}
 
 /** `[key]` when the item carries the private flag, else nothing. */
 const privateKeys = (
@@ -345,7 +368,11 @@ const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
 // than the driver treating it as app-scoped while the store files its data
 // under the shared global key.
 const getNamespace = (actor: Actor, opts?: KVOpts): string => {
-    if (isSystemActor(actor)) return SYSTEM_NAMESPACE;
+    if (isSystemActor(actor)) {
+        return opts?.systemPartition
+            ? `${SYSTEM_PARTITION_PREFIX}${opts.systemPartition}`
+            : SYSTEM_NAMESPACE;
+    }
     const appUuid =
         opts?.namespaceAppUuid ??
         actor.effectiveApp?.uid ??
@@ -357,6 +384,11 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
 /** The namespace one user's data for one app lives in. */
 export const kvNamespace = (userUuid: string, appUid: string): string =>
     `v1:${userUuid}:${appUid}`;
+
+/** The system namespace or one of its partitions. */
+const isSystemNamespace = (namespace: string): boolean =>
+    namespace === SYSTEM_NAMESPACE ||
+    namespace.startsWith(SYSTEM_PARTITION_PREFIX);
 
 /** Split a namespace back into its parts, or `null` if it is not one. */
 export const parseKvNamespace = (
@@ -1214,7 +1246,7 @@ export class SystemKVStore extends PuterStore {
      * to opt in or out: the namespace already says which kind of data it is.
      */
     #cacheable(namespace: string): boolean {
-        return this.#cache.enabled && namespace !== SYSTEM_NAMESPACE;
+        return this.#cache.enabled && !isSystemNamespace(namespace);
     }
 
     /**
@@ -2659,12 +2691,24 @@ export class SystemKVStore extends PuterStore {
         return { res: true, usage: addUsage(probeUsage, usage) };
     }
 
+    /**
+     * `fence` makes the increment apply at most once per token: it is refused
+     * with `KvFencedWriteError` when the item already holds `fence.token` or a
+     * later one from the same writer. A writer's tokens must increase in the
+     * order its writes to a key are applied.
+     */
     async incr<T extends Record<string, number>>(
         {
             key,
             pathAndAmountMap,
             expireAt,
-        }: { key: string; pathAndAmountMap: T; expireAt?: number | null },
+            fence,
+        }: {
+            key: string;
+            pathAndAmountMap: T;
+            expireAt?: number | null;
+            fence?: { writer: string; token: number };
+        },
         opts?: KVOpts,
     ): Promise<
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
@@ -2706,20 +2750,42 @@ export class SystemKVStore extends PuterStore {
             renderer.names['#ttl'] = 'ttl';
         }
 
+        if (fence) {
+            setStatements.push('#fence = :fenceToken');
+            valueAttributeValues[':fenceToken'] = fence.token;
+            renderer.names['#fence'] = `${KV_FENCE_ATTR_PREFIX}${fence.writer}`;
+        }
+
         const updateExpression = `SET ${setStatements.join(', ')}`;
         // Only applies to a writable (or missing) row — a stale expired one,
         // or a legacy row whose ttl a condition can't read, refuses so the
         // caller settles it instead of building on top of it.
-        const runUpdate = () => {
+        const runUpdate = async () => {
             const live = writableRowFilter(Date.now() / 1000);
-            return this.clients.dynamo.update(
-                this.tableName,
-                { key, namespace },
-                updateExpression,
-                { ...valueAttributeValues, ...live.values },
-                { ...renderer.names, ...live.names },
-                { condition: live.expression },
-            );
+            const condition = fence
+                ? `(${live.expression}) AND (attribute_not_exists(#fence) OR #fence < :fenceToken)`
+                : live.expression;
+            try {
+                return await this.clients.dynamo.update(
+                    this.tableName,
+                    { key, namespace },
+                    updateExpression,
+                    { ...valueAttributeValues, ...live.values },
+                    { ...renderer.names, ...live.names },
+                    { condition },
+                );
+            } catch (e) {
+                if (
+                    fence &&
+                    isConditionRefused(e) &&
+                    (await this.#holdsFence(namespace, key, fence))
+                ) {
+                    throw new KvFencedWriteError(
+                        `kv: ${key} already applied token ${fence.token}`,
+                    );
+                }
+                throw e;
+            }
         };
 
         // Most increments land on an item whose parent maps already exist (a
@@ -2769,6 +2835,22 @@ export class SystemKVStore extends PuterStore {
         );
 
         return { res: response.Attributes?.value, usage };
+    }
+
+    /** Whether a live `key` already holds `fence.token` or a later one. */
+    async #holdsFence(
+        namespace: string,
+        key: string,
+        fence: { writer: string; token: number },
+    ): Promise<boolean> {
+        const { Item: item } = await this.clients.dynamo.get(
+            this.tableName,
+            { namespace, key },
+            true,
+        );
+        if (!item || isExpiredTtl(item.ttl, Date.now() / 1000)) return false;
+        const held = item[`${KV_FENCE_ATTR_PREFIX}${fence.writer}`];
+        return typeof held === 'number' && held >= fence.token;
     }
 
     async decr<T extends Record<string, number>>(
@@ -2986,6 +3068,7 @@ export class SystemKVStore extends PuterStore {
             key,
             pathAndValueMap,
             ttl,
+            onlyIfAbsent,
         }: {
             key: string;
             pathAndValueMap: Record<string, unknown>;
@@ -2994,6 +3077,11 @@ export class SystemKVStore extends PuterStore {
              * key's TTL; `null` removes it.
              */
             ttl?: number | null;
+            /**
+             * Leave paths that already hold a value as they are. The returned
+             * value shows which value each path ended up with.
+             */
+            onlyIfAbsent?: boolean;
         },
         opts?: KVOpts,
     ): Promise<KVResult<unknown>> {
@@ -3020,7 +3108,9 @@ export class SystemKVStore extends PuterStore {
         const renderer = new PathExpressionRenderer();
         const setStatements = pathTokens.map((tokens, idx) => {
             const attrName = renderer.path(tokens);
-            return `${attrName} = :value${idx}`;
+            return onlyIfAbsent
+                ? `${attrName} = if_not_exists(${attrName}, :value${idx})`
+                : `${attrName} = :value${idx}`;
         });
         const valueAttributeValues: Record<string, unknown> = Object.entries(
             pathAndValueMap,

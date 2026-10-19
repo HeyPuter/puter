@@ -45,12 +45,15 @@ import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './providers/cloudflare/models.js';
+import cloudflareModelSearchFixture from './providers/cloudflare/fixtures/model-search.json';
 import { GEMINI_IMAGE_GENERATION_MODELS } from './providers/gemini/models.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './providers/openai/models.js';
 import { REPLICATE_IMAGE_GENERATION_MODELS } from './providers/replicate/models.js';
 import { TOGETHER_IMAGE_GENERATION_MODELS } from './providers/together/models.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './providers/xai/models.js';
+import xaiLiveCatalog from './providers/xai/fixtures/image-generation-models.json';
 import { ImageGenerationDriver } from './ImageGenerationDriver.js';
+import { CATALOG_TTL_MS } from '../ai-chat/utils/cachedRemoteCatalog.js';
 import { ReplicateImageGenerationProvider } from './providers/replicate/ReplicateImageGenerationProvider.js';
 
 // ── SDK mocks ──────────────────────────────────────────────────────
@@ -140,6 +143,20 @@ vi.mock('../../util/secureHttp.js', async (importOriginal) => ({
     secureFetch: secureFetchMock,
 }));
 
+// xAI's image pricing catalog is fetched at boot; serve it a repriced 2.0
+// low/1k tier so its effect is visible in listings and billing.
+const { axiosGetMock } = vi.hoisted(() => ({ axiosGetMock: vi.fn() }));
+
+vi.mock('axios', () => ({ default: { get: axiosGetMock } }));
+
+const XAI_LIVE_LOW_1K_CENTS = 4.5;
+
+// Cloudflare prices its catalog from model search via fetch; answer it offline.
+const cloudflareModelSearch = () =>
+    new Response(JSON.stringify(cloudflareModelSearchFixture), {
+        headers: { 'content-type': 'application/json' },
+    });
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -147,7 +164,48 @@ let driver: ImageGenerationDriver;
 let fetchSpy: MockInstance<typeof fetch>;
 let eventEmitSpy: MockInstance<(...args: unknown[]) => unknown>;
 
+/** The live xAI catalog response with every low/1k tier at `cents`. */
+const xaiCatalogAt = (cents: number) => ({
+    data: {
+        models: xaiLiveCatalog.models.map((model) => ({
+            ...model,
+            pricing: model.pricing?.map((tier) =>
+                tier.quality === 'low' && tier.resolution === '1k'
+                    ? { ...tier, price_per_image: cents * 100_000_000 }
+                    : tier,
+            ),
+        })),
+    },
+});
+
 beforeAll(async () => {
+    axiosGetMock.mockImplementation(async (url: string) => {
+        if (url !== 'https://api.x.ai/v1/image-generation-models')
+            throw new Error(`unexpected fetch ${url}`);
+        return {
+            data: {
+                models: xaiLiveCatalog.models.map((model) => ({
+                    ...model,
+                    pricing: model.pricing?.map((tier) =>
+                        tier.quality === 'low' && tier.resolution === '1k'
+                            ? {
+                                  ...tier,
+                                  price_per_image:
+                                      XAI_LIVE_LOW_1K_CENTS * 100_000_000,
+                              }
+                            : tier,
+                    ),
+                })),
+            },
+        };
+    });
+    const bootFetch = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (url) => {
+            if (!String(url).includes('/ai/models/search'))
+                throw new Error(`unexpected fetch ${url}`);
+            return cloudflareModelSearch();
+        });
     server = await setupTestServer({
         providers: {
             'openai-image-generation': { apiKey: 'oai-key' },
@@ -161,6 +219,7 @@ beforeAll(async () => {
             'replicate-image-generation': { apiKey: 'rp-key' },
         },
     } as never);
+    bootFetch.mockRestore();
     driver = server.drivers.aiImage as unknown as ImageGenerationDriver;
 });
 
@@ -267,6 +326,11 @@ describe('ImageGenerationDriver model catalog', () => {
         expect(ids).toEqual(sorted);
     });
 
+    it('builds the catalog once at boot, not on every listing', async () => {
+        expect(await driver.models()).toBe(await driver.models());
+        expect(await driver.list()).toBe(await driver.list());
+    });
+
     it('getReportedCosts emits per-cost-key line items namespaced by provider:model:costKey', () => {
         const reported = driver.getReportedCosts() as Array<{
             usageType: string;
@@ -340,12 +404,21 @@ describe('image model data policy', () => {
     });
 
     it('skips an excluded provider when choosing the deployment default', async () => {
-        const limitedDriver = new ImageGenerationDriver({
-            providers: {
-                'together-image-generation': { apiKey: 'tg-key' },
-                'cloudflare-image-generation': { apiToken: 'cf-token', accountId: 'acct' },
-            },
-        } as never, server.clients, server.stores, server.services);
+        const limitedDriver = new ImageGenerationDriver(
+            {
+                providers: {
+                    'together-image-generation': { apiKey: 'tg-key' },
+                    'cloudflare-image-generation': {
+                        apiToken: 'cf-token',
+                        accountId: 'acct',
+                    },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        fetchSpy.mockResolvedValueOnce(cloudflareModelSearch());
         await limitedDriver.onServerStart();
         await withActor(() => limitedDriver.generate({ prompt: 'hi', test_mode: true }));
         expect(eventEmitSpy).toHaveBeenCalledWith('ai.log.image', expect.objectContaining({
@@ -650,6 +723,187 @@ describe('ImageGenerationDriver.generate provider routing', () => {
                     );
                 }
             }
+        }
+    });
+
+    it('advertises, holds and meters the same live xAI price', async () => {
+        const v2 = (await driver.models()).find(
+            (m) => m.id === 'grok-imagine-image-2.0',
+        )!;
+        expect(v2.costs['output:1k:low']).toBe(XAI_LIVE_LOW_1K_CENTS);
+        expect(driver.getReportedCosts()).toContainEqual(
+            expect.objectContaining({
+                usageType:
+                    'xai-image-generation:grok-imagine-image-2.0:output:1k:low',
+                costValue: XAI_LIVE_LOW_1K_CENTS,
+            }),
+        );
+
+        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const usageSpy = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        openaiImagesGenerateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://xai/img.png' }],
+        });
+        await withActor(() =>
+            driver.generate({
+                model: 'grok-imagine-image-2.0',
+                prompt: 'hi',
+            } as never),
+        );
+
+        const microcents = XAI_LIVE_LOW_1K_CENTS * 1_000_000;
+        expect(reserveSpy.mock.calls[0][1]).toBe(microcents);
+        expect(usageSpy.mock.calls[0][1]).toEqual([
+            expect.objectContaining({
+                usageType: 'xai:grok-imagine-image-2.0:output:1k:low',
+                costOverride: microcents,
+            }),
+        ]);
+    });
+
+    it('bills a refreshed price only once every provider catalog is published', async () => {
+        vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+        const bootXaiCatalog = axiosGetMock.getMockImplementation()!;
+        const PHOENIX = '@cf/leonardo/phoenix-1.0';
+        const OLD_PHOENIX = { tile_512: 583_000, step: 11_000 };
+        const NEW_PHOENIX = { tile_512: 1_000_000, step: 20_200 };
+        const NEW_XAI_LOW_1K_CENTS = 6;
+        const repricedSearch = structuredClone(cloudflareModelSearchFixture);
+        repricedSearch.result.find(
+            (model) => model.name === PHOENIX,
+        )!.properties = [
+            {
+                property_id: 'price',
+                value: [
+                    {
+                        unit: 'per 512 by 512 tile',
+                        price: 0.01,
+                        currency: 'USD',
+                    },
+                    { unit: 'per step', price: 0.000202, currency: 'USD' },
+                ],
+            },
+        ];
+        let search: unknown = cloudflareModelSearchFixture;
+        fetchSpy.mockImplementation(
+            async (url) =>
+                new Response(
+                    JSON.stringify(
+                        String(url).includes('/ai/models/search')
+                            ? search
+                            : { result: { image: 'AAAA' } },
+                    ),
+                    { headers: { 'content-type': 'application/json' } },
+                ),
+        );
+        const mixedDriver = new ImageGenerationDriver(
+            {
+                providers: {
+                    'cloudflare-image-generation': {
+                        apiToken: 'cf-token',
+                        accountId: 'acct',
+                    },
+                    'xai-image-generation': { apiKey: 'xai-key' },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        const listed = async () => {
+            const models = await mixedDriver.models();
+            return {
+                phoenix: models.find((m) => m.id === PHOENIX)?.costs,
+                xai: models.find((m) => m.id === 'grok-imagine-image-2.0')
+                    ?.costs['output:1k:low'],
+            };
+        };
+        const settle = async () => {
+            for (let i = 0; i < 10; i++)
+                await new Promise((resolve) => setImmediate(resolve));
+        };
+        try {
+            await mixedDriver.onServerStart();
+            expect(await listed()).toEqual({
+                phoenix: OLD_PHOENIX,
+                xai: XAI_LIVE_LOW_1K_CENTS,
+            });
+            const reserveSpy = vi.spyOn(
+                server.services.metering,
+                'reserveCredits',
+            );
+
+            // Cloudflare answers the scheduled refresh with new rates at once;
+            // xAI's catalog request hangs until released.
+            search = repricedSearch;
+            let releaseXai!: () => void;
+            const xaiReleased = new Promise<void>(
+                (resolve) => (releaseXai = resolve),
+            );
+            const xaiCallsBefore = axiosGetMock.mock.calls.length;
+            axiosGetMock.mockImplementation(async () => {
+                await xaiReleased;
+                return xaiCatalogAt(NEW_XAI_LOW_1K_CENTS);
+            });
+            const searchesBefore = fetchSpy.mock.calls.length;
+            await vi.advanceTimersByTimeAsync(CATALOG_TTL_MS);
+            await vi.waitFor(() => {
+                expect(fetchSpy.mock.calls.length).toBeGreaterThan(
+                    searchesBefore,
+                );
+                expect(axiosGetMock.mock.calls.length).toBeGreaterThan(
+                    xaiCallsBefore,
+                );
+            });
+            await settle();
+
+            // Cloudflare's provider holds its new rates; the driver still lists
+            // the old ones, so a request waits rather than bill unlisted rates.
+            expect(await listed()).toEqual({
+                phoenix: OLD_PHOENIX,
+                xai: XAI_LIVE_LOW_1K_CENTS,
+            });
+            const pending = withActor(() =>
+                mixedDriver.generate({
+                    model: PHOENIX,
+                    prompt: 'hi',
+                    ratio: { w: 1024, h: 600 },
+                    steps: 10,
+                } as never),
+            );
+            await settle();
+            expect(reserveSpy).not.toHaveBeenCalled();
+
+            releaseXai();
+            await pending;
+            expect(await listed()).toEqual({
+                phoenix: NEW_PHOENIX,
+                xai: NEW_XAI_LOW_1K_CENTS,
+            });
+            // 1024x600 rounds up to 2x2 tiles at 10 steps.
+            expect(reserveSpy.mock.calls.map(([, cost]) => cost)).toEqual([
+                4 * NEW_PHOENIX.tile_512 + 10 * NEW_PHOENIX.step,
+            ]);
+
+            openaiImagesGenerateMock.mockResolvedValueOnce({
+                data: [{ url: 'https://xai/img.png' }],
+            });
+            await withActor(() =>
+                mixedDriver.generate({
+                    model: 'grok-imagine-image-2.0',
+                    prompt: 'hi',
+                } as never),
+            );
+            expect(reserveSpy.mock.calls[1]![1]).toBe(
+                NEW_XAI_LOW_1K_CENTS * 1_000_000,
+            );
+        } finally {
+            mixedDriver.onServerShutdown();
+            axiosGetMock.mockImplementation(bootXaiCatalog);
+            vi.useRealTimers();
         }
     });
 

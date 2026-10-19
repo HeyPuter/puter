@@ -913,6 +913,25 @@ describe('reading rows for dispatch', () => {
         expect(kept).toEqual([session]);
     });
 
+    it('drops many cached rows in one pass per owner', async () => {
+        const rows = durableRows(3);
+        await store.cacheDurable(rows);
+
+        const hdel = vi.spyOn(redis, 'hdel');
+        try {
+            await store.dropDurables(rows);
+            expect(hdel).toHaveBeenCalledTimes(1);
+        } finally {
+            hdel.mockRestore();
+        }
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+    });
+
     it('bounds each token on its own', async () => {
         await store.cacheDurable(durableRows(100));
         await store.add(makeSub({ token: 'f#other', anchorUid: 'other' }));
@@ -923,6 +942,65 @@ describe('reading rows for dispatch', () => {
 
         expect(rows.filter((row) => row.token === 'f#anchor')).toHaveLength(10);
         expect(rows.filter((row) => row.token === 'f#other')).toHaveLength(1);
+    });
+});
+
+describe('anyone watching, when the region is warm', () => {
+    it('answers null while the region is cold, whatever is watched', async () => {
+        await store.add(makeSub());
+
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBeNull();
+    });
+
+    it('answers what userHasAny would once the region is warm', async () => {
+        await store.markRegionWarm(USER);
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(false);
+
+        await store.add(makeSub());
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(true);
+    });
+
+    it('counts a peer watching one of the owner`s tokens', async () => {
+        await store.markRegionWarm(USER);
+        await store.noteRemoteWatch(USER, 'f#anchor', 'peer-region', 'add');
+
+        await expect(store.userHasAny(USER)).resolves.toBe(true);
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(true);
+    });
+
+    it('goes back to null once the region is marked cold', async () => {
+        await store.markRegionWarm(USER);
+        await store.add(makeSub());
+        await store.markRegionCold(USER);
+
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBeNull();
+    });
+
+    // One pipeline in a cluster has to stay in one slot.
+    it('asks in one pipeline, on keys under the owner`s hash tag', async () => {
+        await store.markRegionWarm(USER);
+        const keys: string[] = [];
+        let pipelines = 0;
+        const realPipeline = redis.pipeline.bind(redis);
+        const spy = vi.spyOn(redis, 'pipeline').mockImplementation(() => {
+            pipelines++;
+            const pipeline = realPipeline();
+            const exists = pipeline.exists.bind(pipeline);
+            pipeline.exists = ((key: string) => {
+                keys.push(key);
+                return exists(key);
+            }) as typeof pipeline.exists;
+            return pipeline;
+        });
+        try {
+            await store.userHasAnyIfWarm(USER);
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(pipelines).toBe(1);
+        expect(keys).toHaveLength(3);
+        for (const key of keys) expect(key).toContain(`{${USER}}`);
     });
 });
 

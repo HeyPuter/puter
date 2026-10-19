@@ -17,13 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { ProviderCatalog } from '../util/providerRegistry.js';
+
 /**
  * Canonical `puter-speech2txt` provider ids and the aliases callers may use in
  * their place. Resolution lives here rather than in the SDK so a new alias
  * reaches every caller at once, including clients on an older bundle.
  */
 
-export const SPEECH_TO_TEXT_PROVIDERS = ['openai', 'xai'] as const;
+export const SPEECH_TO_TEXT_PROVIDERS = ['openai', 'xai', 'gemini'] as const;
 
 export type SpeechToTextProviderName =
     (typeof SPEECH_TO_TEXT_PROVIDERS)[number];
@@ -49,12 +51,14 @@ const PROVIDER_BY_ALIAS: Record<string, SpeechToTextProviderName> = {
     'x-ai': 'xai',
     xai: 'xai',
     'xai-speech2txt': 'xai',
+    gemini: 'gemini',
+    google: 'gemini',
+    'gemini-speech2txt': 'gemini',
 };
 
-/** Resolve a caller-supplied provider name, or `undefined` if unrecognized. */
-export function normalizeSpeechToTextProvider(
-    value: unknown,
-): SpeechToTextProviderName | undefined {
-    if (typeof value !== 'string') return undefined;
-    return PROVIDER_BY_ALIAS[value.trim().toLowerCase()];
-}
+export const SPEECH_TO_TEXT_CATALOG: ProviderCatalog = {
+    label: 'Speech-to-text',
+    ids: SPEECH_TO_TEXT_PROVIDERS,
+    defaultId: DEFAULT_SPEECH_TO_TEXT_PROVIDER,
+    aliases: PROVIDER_BY_ALIAS,
+};

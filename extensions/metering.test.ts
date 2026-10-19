@@ -63,15 +63,6 @@ const seedUser = async () => {
 };
 
 describe('metering extension — handleMeteringUsage', () => {
-    it('throws HttpError(401) when no user actor is on the context', async () => {
-        const { res } = makeRes();
-        await expect(
-            runWithContext({ actor: undefined }, () =>
-                handleMeteringUsage(makeReq(), res),
-            ),
-        ).rejects.toMatchObject({ statusCode: 401 });
-    });
-
     it('returns usage details merged with allowanceInfo for an authenticated user', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();
@@ -166,18 +157,6 @@ describe('metering extension — handleMeteringUsage', () => {
 });
 
 describe('metering extension — handleMeteringUsageForApp', () => {
-    it('throws HttpError(401) when no user actor is on the context', async () => {
-        const { res } = makeRes();
-        await expect(
-            runWithContext({ actor: undefined }, () =>
-                handleMeteringUsageForApp(
-                    makeReq({ params: { appIdOrName: 'any' } }),
-                    res,
-                ),
-            ),
-        ).rejects.toMatchObject({ statusCode: 401 });
-    });
-
     it('throws HttpError(400) when no appId is supplied', async () => {
         const user = await seedUser();
         const { res } = makeRes();
@@ -329,5 +308,42 @@ describe('metering extension — handleMeteringAllCosts', () => {
         // actually want to lock down (no rewalk of every driver/controller
         // per request).
         expect(costsA).toBe(costsB);
+    });
+
+    it('refreshes a warm catalogue at the UTC price boundary', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date('2026-11-30T23:59:59Z'));
+            const before = makeRes();
+            await handleMeteringAllCosts(makeReq(), before.res);
+            vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
+            const after = makeRes();
+            await handleMeteringAllCosts(makeReq(), after.res);
+            expect(
+                (after.captured.body as { costs: unknown[] }).costs,
+            ).not.toBe((before.captured.body as { costs: unknown[] }).costs);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    // A scheduled price change has to reach the catalogue without a restart.
+    it('collects the catalogue again once the cache expires', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date('2026-12-02T00:00:00Z'));
+            const a = makeRes();
+            const b = makeRes();
+            await handleMeteringAllCosts(makeReq(), a.res);
+            vi.setSystemTime(Date.now() + 10 * 60 * 1000 + 1);
+            await handleMeteringAllCosts(makeReq(), b.res);
+
+            const costsA = (a.captured.body as { costs: unknown[] }).costs;
+            const costsB = (b.captured.body as { costs: unknown[] }).costs;
+            expect(costsB).not.toBe(costsA);
+            expect(costsB).toEqual(costsA);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

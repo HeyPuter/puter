@@ -65,11 +65,20 @@ interface IncomingHeaders {
 /** Connections one peer may hold open, and how long an idle one survives. */
 const ADDRESSED_MAX_SOCKETS_PER_PEER = 16;
 const ADDRESSED_MAX_FREE_SOCKETS_PER_PEER = 4;
-const ADDRESSED_SOCKET_IDLE_MS = 30_000;
+const PEER_SOCKET_IDLE_MS = 30_000;
 const ADDRESSED_REQUEST_TIMEOUT_MS = 5_000;
 
 /** What a deployment with no configured identity calls itself. */
 const DEFAULT_REGION_ID = 'local';
+
+// -- Webhook fan-out -------------------------------------------------
+
+/** Largest webhook body by default; peers accept up to 50 MB. */
+const DEFAULT_OUTBOUND_MAX_BODY_BYTES = 4 * 1024 * 1024;
+/** A peer's undelivered backlog holds at most this many bodies' worth. */
+const OUTBOUND_BACKLOG_BODIES = 4;
+/** `{"events":[` and `]}` around the comma-joined events. */
+const EVENTS_BODY_OVERHEAD_BYTES = '{"events":[]}'.length;
 
 // -- Service ---------------------------------------------------------
 
@@ -77,9 +86,10 @@ const DEFAULT_REGION_ID = 'local';
  * Cross-node event replication via signed HTTP webhooks.
  *
  * **Outbound** — subscribes to local `outer.*` events on the event bus. Each
- * event is added to a small in-memory map (deduped by serialized shape), then
- * flushed every `outbound_flush_ms` as a single POST per configured peer. Each
- * POST carries:
+ * event is added to a small in-memory set (deduped by serialized shape), then
+ * flushed every `outbound_flush_ms` to each configured peer, as POSTs of at
+ * most `outboundMaxBodyBytes`. A peer that fails keeps a bounded backlog of
+ * what it missed, retried on later flushes. Each POST carries:
  *
  * - `X-Broadcast-Peer-Id` — this server's own peerId
  * - `X-Broadcast-Timestamp` — unix seconds, peer rejects ±5min
@@ -106,20 +116,32 @@ export class BroadcastService extends PuterService {
     /** Identifier used to tell what server a redis fan-out is coming from. */
     #redisSourceId: string = `${this.config.serverId}:${randomUUID()}`;
 
-    /** Coalesced outbound events, keyed by serialized shape. */
-    #outboundEventsByDedupKey = new Map<string, BroadcastEvent>();
+    /** Serialized outbound events, oldest first; identical ones coalesce. */
+    #outboundQueue = new Set<string>();
+    /** Per peer, serialized events it has not accepted yet, oldest first. */
+    #outboundBacklogs = new Map<IBroadcastPeerConfig, string[]>();
     #outboundFlushTimer: ReturnType<typeof setTimeout> | null = null;
     #outboundIsFlushing = false;
-    #dedupFallbackCounter = 0;
 
     #webhookReplayWindowSeconds = 300;
     #outboundFlushMs = 2000;
-    /** Bound on re-queued events, so a peer that stays down can't grow it. */
+    #outboundMaxBodyBytes = DEFAULT_OUTBOUND_MAX_BODY_BYTES;
+    /** Bounds on a peer's backlog, so a peer that stays down can't grow it. */
     #outboundMaxQueued = 10_000;
+    #outboundMaxQueuedBytes =
+        OUTBOUND_BACKLOG_BODIES * DEFAULT_OUTBOUND_MAX_BODY_BYTES;
     #webhookProtocol: 'http' | 'https' = 'https';
     #webhookHostHeader: string | null = null;
-    /** Self-signed certs are common between Puter nodes — accept them. */
-    #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
+    /**
+     * Self-signed certs are common between Puter nodes — accept them. Kept
+     * alive across flushes, and a pool of its own so a flush never waits for a
+     * socket behind addressed sends at their cap.
+     */
+    #webhookHttpsAgent = new HttpsAgent({
+        rejectUnauthorized: false,
+        keepAlive: true,
+        timeout: PEER_SOCKET_IDLE_MS,
+    });
     /**
      * The agent addressed sends use. Separate because they run at event rates,
      * where a fresh handshake per request outweighs the payload; the pool is
@@ -130,7 +152,7 @@ export class BroadcastService extends PuterService {
         keepAlive: true,
         maxSockets: ADDRESSED_MAX_SOCKETS_PER_PEER,
         maxFreeSockets: ADDRESSED_MAX_FREE_SOCKETS_PER_PEER,
-        timeout: ADDRESSED_SOCKET_IDLE_MS,
+        timeout: PEER_SOCKET_IDLE_MS,
     });
     #redisSub: ReturnType<typeof this.clients.redis.duplicate> | null = null;
 
@@ -405,18 +427,29 @@ export class BroadcastService extends PuterService {
         if (safeMeta.from_outside) return;
 
         const event: BroadcastEvent = { key, data, meta: safeMeta };
-        const dedupKey = this.#createDedupKey(event);
-        this.#outboundEventsByDedupKey.set(dedupKey, event);
-        this.#scheduleOutboundFlush();
-    }
-
-    #createDedupKey(event: BroadcastEvent): string {
+        let serialized: string;
         try {
-            return JSON.stringify(event);
-        } catch {
-            this.#dedupFallbackCounter += 1;
-            return `fallback-${this.#dedupFallbackCounter}`;
+            serialized = JSON.stringify(event);
+        } catch (err) {
+            console.warn('[broadcast] dropping unserializable outbound event', {
+                key,
+                err,
+            });
+            return;
         }
+        // It could never be sent, and retrying it would hold up the rest.
+        if (
+            EVENTS_BODY_OVERHEAD_BYTES + Buffer.byteLength(serialized) >
+            this.#outboundMaxBodyBytes
+        ) {
+            console.warn(
+                `[broadcast] dropping outbound event over ${this.#outboundMaxBodyBytes} bytes`,
+                { key },
+            );
+            return;
+        }
+        this.#outboundQueue.add(serialized);
+        this.#scheduleOutboundFlush();
     }
 
     #scheduleOutboundFlush(): void {
@@ -432,70 +465,112 @@ export class BroadcastService extends PuterService {
     async #flushOutboundEvents(): Promise<void> {
         if (
             this.#outboundIsFlushing ||
-            this.#outboundEventsByDedupKey.size === 0
+            (this.#outboundQueue.size === 0 &&
+                this.#outboundBacklogs.size === 0)
         )
             return;
 
         this.#outboundIsFlushing = true;
         try {
-            const events = [...this.#outboundEventsByDedupKey.values()];
-            this.#outboundEventsByDedupKey.clear();
+            const fresh = this.#outboundQueue;
+            this.#outboundQueue = new Set();
 
-            let undelivered = false;
-            for (const peer of this.#webhookPeers) {
-                try {
-                    await this.#sendWebhookToPeer(peer, events);
-                } catch (err) {
-                    const peerId = peer.peerId ?? 'unknown';
-                    undelivered = true;
-                    console.warn(
-                        `[broadcast] webhook send to peer ${peerId} failed`,
-                        err,
+            // Peers at once, each still in order: a slow or hung peer must not
+            // hold up the others' invalidations. Settled, so the flush lock
+            // stays held until every peer is done.
+            const flushed = await Promise.allSettled(
+                this.#webhookPeers.map(async (peer) => {
+                    const backlog = this.#outboundBacklogs.get(peer) ?? [];
+                    // A fresh copy of a backlogged event keeps its later place.
+                    const pending = [
+                        ...backlog.filter((event) => !fresh.has(event)),
+                        ...fresh,
+                    ];
+                    const undelivered = await this.#sendWebhookToPeer(
+                        peer,
+                        pending,
                     );
-                }
-            }
-            // A lost flat-perm invalidation has no TTL to heal it.
-            if (undelivered) this.#requeueOutbound(events);
+                    // A lost flat-perm invalidation has no TTL to heal it.
+                    if (undelivered.length > 0) {
+                        this.#outboundBacklogs.set(
+                            peer,
+                            this.#boundBacklog(peer, undelivered),
+                        );
+                    } else {
+                        this.#outboundBacklogs.delete(peer);
+                    }
+                }),
+            );
+            for (const result of flushed)
+                if (result.status === 'rejected') throw result.reason;
         } finally {
             this.#outboundIsFlushing = false;
-            // Anything that arrived during flush gets the next tick.
-            if (this.#outboundEventsByDedupKey.size > 0) {
+            // Anything that arrived during flush, or is still owed to a peer,
+            // gets the next tick.
+            if (
+                this.#outboundQueue.size > 0 ||
+                this.#outboundBacklogs.size > 0
+            ) {
                 this.#scheduleOutboundFlush();
             }
         }
     }
 
-    /** Put undelivered events back for the next flush, oldest dropped first. */
-    #requeueOutbound(events: BroadcastEvent[]): void {
-        for (const event of events) {
-            const dedupKey = this.#createDedupKey(event);
-            // Whatever arrived since is fresher — never overwrite it.
-            if (this.#outboundEventsByDedupKey.has(dedupKey)) continue;
-            this.#outboundEventsByDedupKey.set(dedupKey, event);
+    /** The newest of a peer's undelivered events that fit its backlog bounds. */
+    #boundBacklog(peer: IBroadcastPeerConfig, events: string[]): string[] {
+        let kept = 0;
+        let bytes = 0;
+        while (kept < events.length && kept < this.#outboundMaxQueued) {
+            bytes += Buffer.byteLength(events[events.length - 1 - kept]);
+            if (bytes > this.#outboundMaxQueuedBytes) break;
+            kept++;
         }
-        let overflow =
-            this.#outboundEventsByDedupKey.size - this.#outboundMaxQueued;
-        if (overflow <= 0) return;
+        const dropped = events.length - kept;
+        if (dropped === 0) return events;
         console.warn(
-            `[broadcast] outbound queue over ${this.#outboundMaxQueued}; dropping ${overflow} oldest`,
+            `[broadcast] backlog for peer ${peer.peerId ?? 'unknown'} over ${this.#outboundMaxQueued} events or ${this.#outboundMaxQueuedBytes} bytes; dropping ${dropped} oldest`,
         );
-        for (const key of this.#outboundEventsByDedupKey.keys()) {
-            if (overflow-- <= 0) break;
-            this.#outboundEventsByDedupKey.delete(key);
-        }
+        return events.slice(dropped);
     }
 
+    /**
+     * Sends serialized events in order, in bodies under the byte budget, and
+     * stops at the first that fails. Returns the events the peer did not take.
+     */
     async #sendWebhookToPeer(
         peer: IBroadcastPeerConfig,
-        events: BroadcastEvent[],
-    ): Promise<void> {
-        await this.#post(
-            peer,
-            null,
-            JSON.stringify({ events }),
-            this.#webhookHttpsAgent,
-            15_000,
-        );
+        events: string[],
+    ): Promise<string[]> {
+        let start = 0;
+        while (start < events.length) {
+            let end = start + 1;
+            let bodyBytes =
+                EVENTS_BODY_OVERHEAD_BYTES + Buffer.byteLength(events[start]);
+            while (end < events.length) {
+                const next = bodyBytes + 1 + Buffer.byteLength(events[end]);
+                if (next > this.#outboundMaxBodyBytes) break;
+                bodyBytes = next;
+                end++;
+            }
+            try {
+                // Same bytes as JSON.stringify({ events }).
+                await this.#post(
+                    peer,
+                    null,
+                    `{"events":[${events.slice(start, end).join(',')}]}`,
+                    this.#webhookHttpsAgent,
+                    15_000,
+                );
+            } catch (err) {
+                console.warn(
+                    `[broadcast] webhook send to peer ${peer.peerId ?? 'unknown'} failed`,
+                    err,
+                );
+                return events.slice(start);
+            }
+            start = end;
+        }
+        return [];
     }
 
     /**
@@ -793,6 +868,15 @@ export class BroadcastService extends PuterService {
         const flushMs = Number(cfg.outbound_flush_ms ?? 2000);
         this.#outboundFlushMs =
             Number.isFinite(flushMs) && flushMs >= 0 ? flushMs : 2000;
+        const maxBodyBytes = Number(
+            cfg.outboundMaxBodyBytes ?? DEFAULT_OUTBOUND_MAX_BODY_BYTES,
+        );
+        this.#outboundMaxBodyBytes =
+            Number.isFinite(maxBodyBytes) && maxBodyBytes > 0
+                ? maxBodyBytes
+                : DEFAULT_OUTBOUND_MAX_BODY_BYTES;
+        this.#outboundMaxQueuedBytes =
+            OUTBOUND_BACKLOG_BODIES * this.#outboundMaxBodyBytes;
 
         this.#webhookHostHeader = this.config.domain ?? null;
         const protoRaw = String(this.config.protocol ?? '')

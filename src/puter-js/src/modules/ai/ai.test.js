@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AI } from './index.js';
 
 /**
@@ -561,6 +561,40 @@ describe('ai.speech2txt driver payloads', () => {
         });
     });
 
+    it('speech2txt still sends options the backend accepts but ignores', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'hi' } });
+        const legacy = {
+            timestamp_granularities: ['word'],
+            chunking_strategy: 'auto',
+            known_speaker_names: ['agent'],
+        };
+        await ai.speech2txt({ file: 'data:audio/mpeg;base64,QUJD', ...legacy });
+        expect(lastBody().args).toEqual({
+            file: 'data:audio/mpeg;base64,QUJD',
+            ...legacy,
+        });
+    });
+
+    it('speech2txt forwards gemini word timestamp and diarization options', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'hi' } });
+        await ai.speech2txt('data:audio/wav;base64,QUJD', {
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+        });
+        const body = lastBody();
+        expect(body.driver).toBe('ai-speech2txt');
+        expect(body.method).toBe('transcribe');
+        expect(body.args).toEqual({
+            file: 'data:audio/wav;base64,QUJD',
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+        });
+    });
+
     it('speech2txt returns bare text for response_format text', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: { text: 'transcribed' } });
         const out = await ai.speech2txt({
@@ -729,13 +763,13 @@ describe('ai.listModels', () => {
         const models = await ai.listModels('p2');
         const request = FakeXHR.requests.at(-1);
         expect(request.method).toBe('GET');
-        expect(request.url).toBe('https://api.test/puterai/chat/models/details');
+        expect(request.url).toBe('https://api.test/puterai/chat/models/details?provider=p2');
         expect(request.requestHeaders).toEqual({ Authorization: 'Bearer test-token' });
         expect(models).toEqual([{ id: 'm2', provider: 'p2' }]);
     });
 
-    it('falls back to the driver call when the endpoint fails', async () => {
-        FakeXHR.statusOverride = 500;
+    it.each([404, 501])('falls back to the driver when the endpoint returns %s', async (status) => {
+        FakeXHR.statusOverride = status;
         let driverCallArgs;
         fakePuter.drivers.call = async (...args) => {
             driverCallArgs = args;
@@ -757,4 +791,78 @@ describe('ai.listModels', () => {
         const providers = await ai.listModelProviders();
         expect(providers).toEqual(['p1', 'p2']);
     });
+});
+
+
+describe('AI catalogue caching and options ownership', () => {
+    it('deduplicates requests, caches successful results and returns independent values', async () => {
+        FakeXHR.respondWith = () => ({ models: [{ id: 'm', provider: 'p', cost: { input: 1 } }] });
+        const [a, b] = await Promise.all([ai.listModels(), ai.listModels()]);
+        a[0].cost.input = 99;
+        expect(b[0].cost.input).toBe(1);
+        expect((await ai.listModels())[0].cost.input).toBe(1);
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
+
+    it('refreshes after expiry, auth changes and origin changes', async () => {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+        try {
+            FakeXHR.respondWith = () => ({ models: [] });
+            await ai.listModels();
+            clock.mockReturnValue(61_001);
+            await ai.listModels();
+            fakePuter.authToken = 'new-token';
+            await ai.listModels();
+            fakePuter.APIOrigin = 'https://other.test';
+            await ai.listModels();
+            expect(FakeXHR.requests).toHaveLength(4);
+        } finally { clock.mockRestore(); }
+    });
+
+    it('surfaces failures and does not cache them as an empty catalogue', async () => {
+        FakeXHR.statusOverride = 500;
+        FakeXHR.respondWith = () => ({ message: 'Unavailable', code: 'unavailable' });
+        await expect(ai.listModels()).rejects.toMatchObject({ code: 'unavailable' });
+        FakeXHR.statusOverride = 200;
+        FakeXHR.respondWith = () => ({ models: [] });
+        await expect(ai.listModels()).resolves.toEqual([]);
+        expect(FakeXHR.requests).toHaveLength(2);
+    });
+
+    it('propagates legacy driver errors and rejects malformed catalogues', async () => {
+        FakeXHR.statusOverride = 404;
+        fakePuter.drivers.call = async () => { throw { message: 'Failed', code: 'failed' }; };
+        await expect(ai.listModels()).rejects.toMatchObject({ code: 'failed' });
+        FakeXHR.statusOverride = 200;
+        FakeXHR.respondWith = () => ({ models: 'invalid' });
+        await expect(ai.listModels()).rejects.toMatchObject({ code: 'invalid_response' });
+    });
+
+    it.each(['txt2img', 'txt2vid'])('%s accepts frozen options without changing paths or aliases', async (method) => {
+        FakeXHR.respondWith = () => ({ success: true, result: { url: 'https://asset.test/output' } });
+        const options = Object.freeze({ prompt: 'hello', duration: 5, puter_output_path: 'output' });
+        const snapshot = { ...options };
+        await ai[method](options);
+        expect(options).toEqual(snapshot);
+        await ai[method]('hello', options);
+        expect(options).toEqual(snapshot);
+    });
+});
+
+
+it('bounds catalogue cache entries per SDK instance', async () => {
+    FakeXHR.respondWith = () => ({ models: [] });
+    for (let i = 0; i < 33; i++) await ai.listModels(`provider-${i}`);
+    await ai.listModels('provider-0');
+    expect(FakeXHR.requests).toHaveLength(34);
+});
+
+it('returns stable errors to every caller sharing a failed catalogue request', async () => {
+    FakeXHR.respondWith = () => { throw new TypeError('Transport failed'); };
+    const results = await Promise.allSettled([ai.listModels(), ai.listModels()]);
+    for (const result of results) {
+        expect(result.status).toBe('rejected');
+        expect(result.reason).toEqual({ message: 'Failed to fetch model catalogue.', code: 'network_error' });
+    }
+    expect(FakeXHR.requests).toHaveLength(1);
 });

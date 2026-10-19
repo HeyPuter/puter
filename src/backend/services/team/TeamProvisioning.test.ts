@@ -18,7 +18,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { configContainer } from '../../exports.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { generateDefaultFsentries } from '../../util/userProvisioning.ts';
@@ -113,6 +114,81 @@ describe('team account provisioning: home path conflicts', () => {
             server.stores.user.getByUsername(username, { force: true }),
         ).resolves.toBeNull();
     });
+
+    it('puts a provisioned seat in the default user group, as signup does', async () => {
+        const owner = await makeUser();
+        const team = await makeTeam(owner.id);
+        const username = `tp_${Math.random().toString(36).slice(2, 10)}`;
+        const group = configContainer.default_user_group as string;
+        expect(group).toBeTruthy();
+
+        const { userId } = await service.provisionAccount(team.uid, owner.id, {
+            username,
+        });
+
+        const rows = (await server.clients.db.read(
+            'SELECT 1 FROM jct_user_group j JOIN `group` g ON g.id = j.group_id ' +
+                'WHERE j.user_id = ? AND g.uid = ?',
+            [userId, group],
+        )) as unknown[];
+        expect(rows).toHaveLength(1);
+    });
+
+    it.each([
+        ['inserting them', 'write', 'INSERT INTO fsentries'],
+        ['reading them back', 'pread', 'SELECT id, uuid FROM fsentries'],
+    ] as const)(
+        'creates no seat when its home folders fail while %s',
+        async (_step, method, statement) => {
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            const username = `tp_${Math.random().toString(36).slice(2, 10)}`;
+            const billing: string[] = [];
+            for (const key of [
+                'team.account.created',
+                'team.account.deleted',
+            ]) {
+                server.clients.event.on(
+                    key as never,
+                    ((k: string, data: { username?: string }) => {
+                        if (data.username === username) billing.push(k);
+                    }) as never,
+                );
+            }
+
+            const db = server.clients.db;
+            const real = db[method].bind(db);
+            const refuse = async (sql: string, params?: unknown[]) => {
+                if (sql.includes(statement)) {
+                    throw new Error('database unavailable');
+                }
+                return real(sql, params);
+            };
+            const failing = vi
+                .spyOn(db, method)
+                .mockImplementation(refuse as never);
+            try {
+                await expect(
+                    service.provisionAccount(team.uid, owner.id, { username }),
+                ).rejects.toMatchObject({
+                    statusCode: 500,
+                    legacyCode: 'internal_error',
+                });
+            } finally {
+                failing.mockRestore();
+            }
+
+            await expect(
+                server.stores.user.getByUsername(username, { force: true }),
+            ).resolves.toBeNull();
+            expect(await server.stores.team.countSeats(team.id)).toBe(0);
+            expect(billing).toEqual([]);
+
+            // Nothing written for the failed attempt still holds the name.
+            await service.provisionAccount(team.uid, owner.id, { username });
+            expect(await server.stores.team.countSeats(team.id)).toBe(1);
+        },
+    );
 
     it('does not suggest a name whose home path is occupied', async () => {
         const owner = await makeUser();

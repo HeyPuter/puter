@@ -24,7 +24,12 @@ export const GEMINI_DEFAULT_RATIO = { w: 1024, h: 1024 };
 // Estimated image output token counts for pre-flight cost checks.
 // These are based on Google's published pricing equivalences.
 // https://ai.google.dev/gemini-api/docs/image-generation#aspect_ratios_and_image_size
+// https://ai.google.dev/gemini-api/docs/pricing
 export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
+    'gemini-nano-banana-2.1:1K': 1120,
+    'gemini-nano-banana-2.1:2K': 1680,
+    'gemini-nano-banana-2.1:4K': 3780,
+
     'gemini-3-pro-image:1K': 1120,
     'gemini-3-pro-image:2K': 1120,
     'gemini-3-pro-image:4K': 2000,
@@ -37,10 +42,20 @@ export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
     'gemini-3.1-flash-lite-image:1K': 1120,
 };
 
+// Estimated text and thinking output tokens per image for pre-flight cost
+// checks. Google bills these at the model's text output rate; samples taken
+// 2026-10-11 ran 380-425 on 3.1 Flash, about 400 on 3.1 Flash Lite, 270 on
+// 3 Pro, and 440-1122 on Nano Banana 2.1.
+export const GEMINI_ESTIMATED_TEXT_OUTPUT_TOKENS: Record<string, number> = {
+    'gemini-nano-banana-2.1': 1000,
+    'gemini-3-pro-image': 300,
+    'gemini-3.1-flash-image': 450,
+    'gemini-3.1-flash-lite-image': 450,
+};
+
 export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
-        // First entry is the provider default: Google's recommended model and
-        // the named replacement for the retiring 2.5 Flash Image.
+        // Keep the existing provider default for callers that omit a model.
         puterId: 'google:google/gemini-3.1-flash-image',
         id: 'gemini-3.1-flash-image',
         name: 'Gemini 3.1 Flash Image',
@@ -76,6 +91,39 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
             output: 300, // $3.00 per 1M output tokens (text and thinking)
             output_image: 6000, // $60.00 per 1M output image tokens
             '1K:1x1': 6.7,
+        },
+    },
+    {
+        puterId: 'google:google/gemini-nano-banana-2.1',
+        id: 'gemini-nano-banana-2.1',
+        name: 'Gemini Nano Banana 2.1',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        index_input_cost_key: 'input',
+        aliases: ['google/gemini-nano-banana-2.1', 'nano-banana-2.1'],
+        allowedQualityLevels: ['1K', '2K', '4K'],
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 1, h: 4 },
+            { w: 1, h: 8 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 1 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 8, h: 1 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 150, // $1.50 per 1M input tokens (text/image)
+            output: 750, // $7.50 per 1M output tokens (text and thinking)
+            output_image: 3000, // $30.00 per 1M output image tokens
+            '1K:1x1': 3.36,
         },
     },
     {

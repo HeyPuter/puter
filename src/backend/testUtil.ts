@@ -17,6 +17,7 @@ import {
 import type { PoolConfig } from 'pg';
 import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
 import { FULL_API_ACCESS } from './services/permission/consts';
+import { WORKER_SUBDOMAIN_PREFIX } from './stores/subdomain/SubdomainStore.js';
 import { generateDefaultFsentries } from './util/userProvisioning';
 
 export const POSTGRES_TEST_MIGRATIONS_PATH =
@@ -160,6 +161,11 @@ export const setupTestServer = async (
         configOverrides ?? {},
     ) as IConfig;
 
+    // Ollama auto-discovers unless disabled, probing localhost on every boot
+    // and logging the failure after the test may have finished.
+    config.providers ??= {};
+    config.providers.ollama ??= { enabled: false };
+
     if (options?.listen) {
         if (!config.port) config.port = await allocateEphemeralPort();
         // Derive from `domain` so the advertised origins match the host
@@ -202,10 +208,36 @@ export const setupTestServer = async (
     try {
         await server.start(!options?.listen);
     } catch (e) {
-        pgMockClient?.destroy();
+        // Stops whatever boot already started; also destroys the pgmock.
+        try {
+            await server.shutdown();
+        } catch {
+            // the start error is the one worth reporting
+        }
         throw e;
     }
     return server;
+};
+
+const PORT_ATTEMPTS = 3;
+
+/**
+ * `allocateEphemeralPort` releases the port before boot listens on it, and
+ * another process can take it in between, so boot again on a fresh one.
+ */
+const bootOnFreshPort = async <T>(
+    boot: (port: number) => Promise<T>,
+): Promise<T> => {
+    for (let attempt = 1; ; attempt++) {
+        const port = await allocateEphemeralPort();
+        try {
+            return await boot(port);
+        } catch (e) {
+            const inUse =
+                (e as NodeJS.ErrnoException | undefined)?.code === 'EADDRINUSE';
+            if (!inUse || attempt >= PORT_ATTEMPTS) throw e;
+        }
+    }
 };
 
 export type TestUserCredentials = {
@@ -278,12 +310,20 @@ export const createTestUser = async (
     );
 
     // Mint a user-scoped worker token the same way deploying an app-less
-    // worker does (WorkerDriver falls back to createWorkerSessionToken).
+    // worker does (WorkerDriver falls back to createWorkerSessionToken). The
+    // token only lives as long as its worker row, so seed one.
+    const workerName = `test-env-worker-${user.id}`;
+    const workerRow = await server.stores.subdomain.create({
+        userId: user.id,
+        subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+    });
     const { token: workerToken } =
         await server.services.auth.createWorkerSessionToken(
             makeActor({ user }),
             user,
-            'puter-test-env-worker',
+            workerName,
+            {},
+            { workerUid: workerRow.uuid },
         );
 
     return {
@@ -343,13 +383,10 @@ export const TEST_OTHER_USER_CREDENTIALS = {
 export const setupPuterTestEnv = async (
     configOverrides?: IConfig,
 ): Promise<PuterTestEnv> => {
-    const port = await allocateEphemeralPort();
     // Real hostnames rather than 127.0.0.1: API routes are gated on the
     // `api` subdomain, and `*.localhost` resolves to loopback on modern
     // platforms (and in browsers).
     const domain = 'puter.localhost';
-    const origin = `http://${domain}:${port}`;
-    const apiOrigin = `http://api.${domain}:${port}`;
 
     // Unlike unit-test servers (extensions: []), the client env loads the
     // real extensions — clients depend on endpoints that live there
@@ -358,25 +395,33 @@ export const setupPuterTestEnv = async (
         new URL('../../extensions', import.meta.url),
     );
 
-    const server = await setupTestServer(
-        deepMerge(
-            {
-                port,
-                domain,
-                origin,
-                api_base_url: apiOrigin,
-                // The browser runner serves its fixture page from the API
-                // origin so the SDK runs same-origin, which makes that origin
-                // this env's GUI. A browser overrides any `Origin` header a
-                // test sets, so without this the credential routes behind
-                // `guiOriginGate` (/login, /signup, /session/sync-cookie) 403
-                // in the browser while passing everywhere else.
-                allow_gui_origins: [apiOrigin],
-                extensions: [extensionsDir],
-            },
-            configOverrides ?? {},
-        ) as IConfig,
-        { listen: true },
+    const { server, origin, apiOrigin } = await bootOnFreshPort(
+        async (port) => {
+            const origin = `http://${domain}:${port}`;
+            const apiOrigin = `http://api.${domain}:${port}`;
+            const server = await setupTestServer(
+                deepMerge(
+                    {
+                        port,
+                        domain,
+                        origin,
+                        api_base_url: apiOrigin,
+                        // The browser runner serves its fixture page from the
+                        // API origin so the SDK runs same-origin, which makes
+                        // that origin this env's GUI. A browser overrides any
+                        // `Origin` header a test sets, so without this the
+                        // credential routes behind `guiOriginGate` (/login,
+                        // /signup, /session/sync-cookie) 403 in the browser
+                        // while passing everywhere else.
+                        allow_gui_origins: [apiOrigin],
+                        extensions: [extensionsDir],
+                    },
+                    configOverrides ?? {},
+                ) as IConfig,
+                { listen: true },
+            );
+            return { server, origin, apiOrigin };
+        },
     );
 
     try {

@@ -48,7 +48,6 @@ import type {
     AIChatTextStream,
     AIChatToolUseStream,
 } from '../../utils/Streaming.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import {
     allowlistedFromHeader,
     applySafeguardsPolicy,
@@ -70,6 +69,7 @@ import {
 } from './anthropicPolicy.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
+import { sdkClientOptions, sdkRetryOptions } from '../../utils/sdkClient.js';
 
 /**
  * Canonical media part → Anthropic block: `url` source for links, `base64`
@@ -281,7 +281,7 @@ export class ClaudeProvider implements IChatProvider {
         this.#fsService = fsService;
         this.anthropic = new Anthropic({
             apiKey: config.apiKey,
-            timeout: 10 * 60 * 1001,
+            ...sdkClientOptions(10 * 60 * 1001),
         });
     }
 
@@ -291,10 +291,6 @@ export class ClaudeProvider implements IChatProvider {
 
     models() {
         return CLAUDE_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
     }
 
     /** The model key this provider records usage under. */
@@ -407,7 +403,8 @@ export class ClaudeProvider implements IChatProvider {
             try {
                 await completion.withResponse();
             } catch (e) {
-                await cleanupUploads();
+                // Best-effort and never rejects, so the fallback need not wait.
+                void cleanupUploads();
                 restoreUploads();
                 throw e;
             }
@@ -516,7 +513,8 @@ export class ClaudeProvider implements IChatProvider {
             restoreUploads();
             throw e;
         } finally {
-            await cleanupUploads();
+            // Best-effort and never rejects, so the response need not wait.
+            void cleanupUploads();
         }
     }
 
@@ -536,11 +534,15 @@ export class ClaudeProvider implements IChatProvider {
             const value = (sdkParams as any)[key];
             if (value !== undefined) picked[key] = value;
         }
-        const result = await this.anthropic.beta.messages.countTokens({
-            ...picked,
-            ...(betas.length ? { betas } : {}),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any);
+        // No other route serves a token count, so the SDK's retries stay on.
+        const result = await this.anthropic.beta.messages.countTokens(
+            {
+                ...picked,
+                ...(betas.length ? { betas } : {}),
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
+            sdkRetryOptions,
+        );
         return result.input_tokens;
     }
 
@@ -931,7 +933,8 @@ export class ClaudeProvider implements IChatProvider {
             };
         });
 
-        // Claude requires tool_use.input to be a dictionary
+        // Claude requires tool_use.input to be a dictionary. Gemini metadata
+        // is not part of Anthropic's tool_use schema.
         messages = messages.map((message) => {
             if (!Array.isArray(message.content)) return message;
             let changed = false;
@@ -945,14 +948,14 @@ export class ClaudeProvider implements IChatProvider {
                         } catch {
                             input = {};
                         }
-                        changed = true;
                     } else if (input === undefined || input === null) {
                         input = {};
-                        changed = true;
-                    } else {
+                    } else if (!('extra_content' in part)) {
                         return part;
                     }
-                    return { ...part, input };
+                    changed = true;
+                    const { extra_content, ...rest } = part;
+                    return { ...rest, input };
                 },
             );
             return changed ? { ...message, content } : message;
@@ -1190,6 +1193,7 @@ export class ClaudeProvider implements IChatProvider {
         let finalUsage: any = null;
 
         for await (const event of { [Symbol.asyncIterator]: () => events }) {
+            await chatStream.waitForDrain();
             switch (event.type) {
                 case 'message_start': {
                     message = chatStream.message();

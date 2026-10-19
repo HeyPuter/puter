@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
 import {
     APP_WINDOW_SECONDS,
+    GODMODE_TOKEN_MAX_AGE_SECONDS,
+    GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
     WORKER_WINDOW_SECONDS,
 } from './SessionStore.js';
@@ -59,6 +61,47 @@ describe('SessionStore', () => {
             [uuid],
         );
         return rows[0] ?? null;
+    };
+
+    /**
+     * Answer replica reads of `sessions` the way a lagging replica would: each
+     * listed uuid as its given row, or absent when `null`. A given row also
+     * answers, ahead of any other row, the (user, app) lookups that would match
+     * it. Returns a restore.
+     */
+    const lagReplica = (stale: Record<string, Record<string, any> | null>) => {
+        const db = server.clients.db;
+        const original = db.read.bind(db);
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const rows = await original(sql, params);
+                if (!sql.includes('FROM `sessions`')) return rows;
+                const result = rows.filter(
+                    (row: Record<string, any>) => !(row.uuid in stale),
+                );
+                for (const [uuid, row] of Object.entries(stale)) {
+                    if (!row) continue;
+                    const byComposite =
+                        sql.includes(`\`kind\` = '${row.kind}'`) &&
+                        params?.includes(row.user_id) &&
+                        params?.includes(row.app_uid);
+                    if (params?.includes(uuid) || byComposite) {
+                        result.unshift({ ...row });
+                    }
+                }
+                return result;
+            });
+        // sqlite's `pread` goes through `read`; keep it on the primary.
+        const primary = vi
+            .spyOn(db, 'pread')
+            .mockImplementation((sql: string, params?: unknown[]) =>
+                original(sql, params),
+            );
+        return () => {
+            spy.mockRestore();
+            primary.mockRestore();
+        };
     };
 
     describe('create', () => {
@@ -177,6 +220,24 @@ describe('SessionStore', () => {
             expect(uuids).not.toContain(revoked.uuid);
         });
 
+        it('with primary=true finds a session the replica has not seen yet', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+
+            const restore = lagReplica({ [session.uuid]: null });
+            try {
+                expect(await target.getByUserId(user.id)).toEqual([]);
+                const rows = await target.getByUserId(user.id, {
+                    primary: true,
+                });
+                expect(rows.map((r: { uuid: string }) => r.uuid)).toEqual([
+                    session.uuid,
+                ]);
+            } finally {
+                restore();
+            }
+        });
+
         it('returns revoked sessions when includeRevoked is true', async () => {
             const user = await makeUser();
             const active = await target.create(user.id);
@@ -222,6 +283,23 @@ describe('SessionStore', () => {
             }
         });
 
+        it('sends a peer region miss to the primary while its replica lags', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+            const live = await rawRow(session.uuid);
+
+            await target.removeByUuid(session.uuid);
+            // A peer gets the tombstone and a dropped key, not the row.
+            await server.clients.redis.del(`sessions:v2:uuid:${session.uuid}`);
+
+            const restore = lagReplica({ [session.uuid]: live });
+            try {
+                expect(await target.getByUuid(session.uuid)).toBeNull();
+            } finally {
+                restore();
+            }
+        });
+
         it('is idempotent — second call does not overwrite revoked_at', async () => {
             const user = await makeUser();
             const session = await target.create(user.id);
@@ -234,6 +312,48 @@ describe('SessionStore', () => {
             const secondRevokedAt = (await rawRow(session.uuid)).revoked_at;
 
             expect(secondRevokedAt).toBe(firstRevokedAt);
+        });
+    });
+
+    describe('purgeEndedInRange', () => {
+        it('deletes rows ended before their kind cutoff within the id range', async () => {
+            const user = await makeUser();
+            const now = Math.floor(Date.now() / 1000);
+            const cutoffs = { cutoff: now - 100, webCutoff: now - 1000 };
+            const end = async (column: string, at: number, kind = 'asset') => {
+                const { uuid } = await target.create(user.id, { kind });
+                await server.clients.db.write(
+                    `UPDATE \`sessions\` SET \`${column}\` = ? WHERE \`uuid\` = ?`,
+                    [at, uuid],
+                );
+                return uuid;
+            };
+            const revoked = await end('revoked_at', now - 101);
+            const expired = await end('expires_at', now - 101);
+            const webRecent = await end('revoked_at', now - 101, 'web');
+            const webOld = await end('expires_at', now - 1001, 'web');
+            const live = (await target.create(user.id, {})).uuid;
+            const firstId = Number((await rawRow(revoked)).id);
+
+            // A range ending at `revoked` leaves the later rows alone.
+            expect(
+                await target.purgeEndedInRange(firstId - 1, 1, cutoffs),
+            ).toBe(1);
+            expect(await rawRow(revoked)).toBeNull();
+            expect(await rawRow(expired)).not.toBeNull();
+
+            const maxId = await target.maxId();
+            expect(
+                await target.purgeEndedInRange(
+                    firstId,
+                    maxId - firstId,
+                    cutoffs,
+                ),
+            ).toBe(2);
+            expect(await rawRow(expired)).toBeNull();
+            expect(await rawRow(webOld)).toBeNull();
+            expect(await rawRow(webRecent)).not.toBeNull();
+            expect(await rawRow(live)).not.toBeNull();
         });
     });
 
@@ -292,6 +412,133 @@ describe('SessionStore', () => {
         it('is a no-op when called with a falsy uuid', async () => {
             await expect(target.revokeCascade('')).resolves.toBeNull();
             await expect(target.revokeCascade(undefined)).resolves.toBeNull();
+        });
+
+        it('keeps the revoked rows revoked when a lagging replica still shows them live', async () => {
+            const user = await makeUser();
+            const parent = await target.create(user.id);
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: parent.uuid,
+            });
+            const live = {
+                [parent.uuid]: await rawRow(parent.uuid),
+                [child.uuid]: await rawRow(child.uuid),
+            };
+
+            await target.revokeCascade(parent.uuid);
+
+            const restore = lagReplica(live);
+            try {
+                expect(await target.getByUuid(parent.uuid)).toBeNull();
+                expect(await target.getByUuid(child.uuid)).toBeNull();
+                // A peer region gets the tombstone and a dropped key, so its
+                // next miss reads the primary rather than its replica.
+                await server.clients.redis.del(
+                    `sessions:v2:uuid:${parent.uuid}`,
+                );
+                expect(await target.getByUuid(parent.uuid)).toBeNull();
+            } finally {
+                restore();
+            }
+            // The primary read re-cached the revoked row.
+            expect(
+                JSON.parse(
+                    (await server.clients.redis.get(
+                        `sessions:v2:uuid:${parent.uuid}`,
+                    )) as string,
+                ).revoked_at,
+            ).not.toBeNull();
+        });
+
+        it('revokes a session the replica has not seen yet', async () => {
+            const user = await makeUser();
+            const parent = await target.create(user.id);
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: parent.uuid,
+            });
+
+            const restore = lagReplica({
+                [parent.uuid]: null,
+                [child.uuid]: null,
+            });
+            let revoked;
+            try {
+                revoked = await target.revokeCascade(parent.uuid);
+            } finally {
+                restore();
+            }
+
+            expect(new Set(revoked.uuids)).toEqual(
+                new Set([parent.uuid, child.uuid]),
+            );
+            expect((await rawRow(child.uuid)).revoked_at).not.toBeNull();
+        });
+    });
+
+    describe('revokeCascades', () => {
+        it('revokes every root and its children, reported per user', async () => {
+            const alice = await makeUser();
+            const bob = await makeUser();
+            const aliceWeb = await target.create(alice.id);
+            const aliceAsset = await target.create(alice.id, {
+                kind: 'asset',
+                parent_session_id: aliceWeb.uuid,
+            });
+            const aliceApp = await target.getOrCreateApp(
+                alice.id,
+                `app-${uuidv4()}`,
+            );
+            const bobWeb = await target.create(bob.id);
+            const untouched = await target.create(alice.id);
+
+            const revoked = await target.revokeCascades([
+                aliceWeb.uuid,
+                // Already covered by its parent's cascade.
+                aliceAsset.uuid,
+                aliceApp.uuid,
+                bobWeb.uuid,
+            ]);
+
+            const byUser = new Map(
+                revoked.map((r: { userId: number; uuids: string[] }) => [
+                    r.userId,
+                    new Set(r.uuids),
+                ]),
+            );
+            expect(byUser).toEqual(
+                new Map([
+                    [
+                        alice.id,
+                        new Set([
+                            aliceWeb.uuid,
+                            aliceAsset.uuid,
+                            aliceApp.uuid,
+                        ]),
+                    ],
+                    [bob.id, new Set([bobWeb.uuid])],
+                ]),
+            );
+            for (const uuid of [
+                aliceWeb.uuid,
+                aliceAsset.uuid,
+                aliceApp.uuid,
+                bobWeb.uuid,
+            ]) {
+                expect(await target.getByUuid(uuid)).toBeNull();
+            }
+            expect(await target.getByUuid(untouched.uuid)).toBeTruthy();
+            expect(
+                (await target.getOrCreateApp(alice.id, aliceApp.app_uid)).uuid,
+            ).not.toBe(aliceApp.uuid);
+        });
+
+        it('returns nothing when no root is active', async () => {
+            expect(await target.revokeCascades([])).toEqual([]);
+            expect(await target.revokeCascades(['nonexistent-uuid'])).toEqual(
+                [],
+            );
         });
     });
 
@@ -353,6 +600,310 @@ describe('SessionStore', () => {
             await target.removeByUuid(first.uuid);
             const second = await target.getOrCreateApp(user.id, appUid);
             expect(second.uuid).not.toBe(first.uuid);
+        });
+
+        it('mints a new row, and does not re-cache the revoked one, while a lagging replica shows it live', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            const live = await rawRow(first.uuid);
+
+            await target.revokeCascade(first.uuid);
+            // A peer region gets the tombstone and dropped keys, not the row.
+            await server.clients.redis.del(`sessions:v2:uuid:${first.uuid}`);
+
+            const restore = lagReplica({ [first.uuid]: live });
+            let second;
+            try {
+                second = await target.getOrCreateApp(user.id, appUid);
+                expect(await target.getByUuid(first.uuid)).toBeNull();
+            } finally {
+                restore();
+            }
+            expect(second.uuid).not.toBe(first.uuid);
+            expect(await target.getByUuid(second.uuid)).toMatchObject({
+                uuid: second.uuid,
+            });
+        });
+
+        it('answers a lost insert race with the stored winner while the replica lags', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            // The racer that got there first: written, but not yet on the
+            // replica and not cached under the (user, app) key.
+            const winner = await target.create(user.id, {
+                kind: 'app',
+                app_uid: appUid,
+            });
+
+            const restore = lagReplica({ [winner.uuid]: null });
+            let row;
+            try {
+                row = await target.getOrCreateApp(user.id, appUid);
+            } finally {
+                restore();
+            }
+            expect(row.uuid).toBe(winner.uuid);
+            expect(await rawRow(row.uuid)).toMatchObject({ uuid: winner.uuid });
+            // The next call is served the same row from the cache.
+            expect((await target.getOrCreateApp(user.id, appUid)).uuid).toBe(
+                winner.uuid,
+            );
+        });
+
+        const appSelects = (calls: unknown[][]) =>
+            calls.filter(([sql]) =>
+                String(sql).includes("FROM `sessions` WHERE `kind` = 'app'"),
+            ).length;
+
+        it('returns the row it inserted without reading it back', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const db = server.clients.db;
+            const read = vi.spyOn(db, 'read');
+            const pread = vi.spyOn(db, 'pread');
+            let row;
+            try {
+                row = await target.getOrCreateApp(user.id, appUid, {
+                    auth_id: user.uuid,
+                });
+                // Only the lookup that found nothing to reuse.
+                expect(appSelects(read.mock.calls)).toBe(1);
+                expect(appSelects(pread.mock.calls)).toBe(0);
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+            // What it hands back is the row as stored.
+            const stored = await rawRow(row.uuid);
+            for (const column of [
+                'uuid',
+                'user_id',
+                'kind',
+                'app_uid',
+                'parent_session_id',
+                'created_at',
+                'last_activity',
+                'expires_at',
+                'revoked_at',
+                'auth_id',
+            ]) {
+                expect(row[column], column).toEqual(stored[column]);
+            }
+            expect(await target.getByUuid(row.uuid)).toMatchObject({
+                uuid: row.uuid,
+            });
+        });
+
+        it('returns a replica row before its cache write lands, and still caches it', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            const compositeKey = `sessions:v2:app:${user.id}:${appUid}`;
+            await server.clients.redis.del(compositeKey);
+
+            const redis = server.clients.redis;
+            const set = redis.set.bind(redis);
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const hold = vi
+                .spyOn(redis, 'set')
+                .mockImplementation(async (...args: unknown[]) => {
+                    await held;
+                    return (set as (...a: unknown[]) => Promise<unknown>)(
+                        ...args,
+                    );
+                });
+            try {
+                const again = await Promise.race([
+                    target.getOrCreateApp(user.id, appUid),
+                    new Promise((resolve) =>
+                        setTimeout(() => resolve('waited on the cache'), 1000),
+                    ),
+                ]);
+                expect(again).toMatchObject({ uuid: first.uuid });
+                expect(await redis.get(compositeKey)).toBeNull();
+            } finally {
+                release();
+                hold.mockRestore();
+            }
+            await vi.waitFor(async () => {
+                expect(JSON.parse((await redis.get(compositeKey))!).uuid).toBe(
+                    first.uuid,
+                );
+            });
+        });
+
+        it('caches a row only the primary has before returning it', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            const firstLive = await rawRow(first.uuid);
+            await target.revokeCascade(first.uuid);
+            const second = await target.getOrCreateApp(user.id, appUid);
+            const secondLive = await rawRow(second.uuid);
+            // Another region: none of this cached, the replica still shows the
+            // revoked row live and has yet to see the new one.
+            const redis = server.clients.redis;
+            await redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+                `sessions:v2:uuid:${first.uuid}`,
+                `sessions:v2:uuid:${second.uuid}`,
+            );
+
+            const restore = lagReplica({
+                [first.uuid]: firstLive,
+                [second.uuid]: null,
+            });
+            try {
+                const found = await target.getOrCreateApp(user.id, appUid);
+                expect(found.uuid).toBe(second.uuid);
+                // Token auth reads it back through the lagging replica.
+                expect(await target.getByUuid(second.uuid)).toMatchObject({
+                    uuid: second.uuid,
+                    revoked_at: secondLive.revoked_at,
+                });
+            } finally {
+                restore();
+            }
+        });
+    });
+
+    describe('getOrCreateGodmodeToken', () => {
+        const nowS = () => Math.floor(Date.now() / 1000);
+        const mint = (
+            userId: number,
+            parentSessionUid: string,
+            appUid = 'app-gm',
+        ) =>
+            target.getOrCreateGodmodeToken(userId, {
+                parentSessionUid,
+                appUid,
+                expiresAt: nowS() + GODMODE_TOKEN_WINDOW_SECONDS,
+                maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
+            });
+        const desktop = async () => {
+            const user = await makeUser();
+            const web = await target.create(user.id);
+            return { userId: user.id as number, web: web.uuid as string };
+        };
+
+        it('renews from the cache with no primary read and no write', async () => {
+            const { userId, web } = await desktop();
+            const first = await mint(userId, web);
+
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            const write = vi.spyOn(server.clients.db, 'write');
+            try {
+                const second = await mint(userId, web);
+                expect(second.row.uuid).toBe(first.row.uuid);
+                expect(second.row.expires_at).toBe(first.row.expires_at);
+                expect(second.replaced).toBeNull();
+                expect(pread).not.toHaveBeenCalled();
+                expect(write).not.toHaveBeenCalled();
+            } finally {
+                pread.mockRestore();
+                write.mockRestore();
+            }
+        });
+
+        it('extends the row once the move is an hour or more', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [nowS() + 2 * 60 * 60, row.uuid],
+            );
+            await target.publishCacheKeys({
+                keys: [`sessions:v2:uuid:${row.uuid}`],
+            });
+
+            const renewed = await mint(userId, web);
+            expect(renewed.row.uuid).toBe(row.uuid);
+            expect(renewed.row.expires_at).toBeGreaterThanOrEqual(
+                nowS() + GODMODE_TOKEN_WINDOW_SECONDS - 1,
+            );
+            expect((await rawRow(row.uuid)).expires_at).toBe(
+                renewed.row.expires_at,
+            );
+        });
+
+        it('mints a new row once the cached one is revoked', async () => {
+            const { userId, web } = await desktop();
+            const first = await mint(userId, web);
+            await target.revokeCascade(first.row.uuid);
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(first.row.uuid);
+            expect(next.replaced).toBeNull();
+
+            const second = await mint(userId, web);
+            await target.removeByUuid(second.row.uuid);
+            expect((await mint(userId, web)).row.uuid).not.toBe(
+                second.row.uuid,
+            );
+        });
+
+        it('mints a new row when a lagging read re-cached the revoked one', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            await target.revokeCascade(row.uuid);
+            // A replica that hadn't seen the revoke yet answered a read.
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${row.uuid}`,
+                JSON.stringify(row),
+            );
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(row.uuid);
+        });
+
+        it('mints a new row when a renewal finds the cached one already revoked', async () => {
+            const { userId, web } = await desktop();
+            const { row } = await mint(userId, web);
+            const soon = nowS() + 2 * 60 * 60;
+            // Revoked in the database, still live and due for renewal in the cache.
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ?',
+                [nowS(), row.uuid],
+            );
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${row.uuid}`,
+                JSON.stringify({ ...row, expires_at: soon }),
+            );
+
+            const next = await mint(userId, web);
+            expect(next.row.uuid).not.toBe(row.uuid);
+            expect((await rawRow(row.uuid)).expires_at).toBe(row.expires_at);
+        });
+
+        it('keeps one row per web session and app', async () => {
+            const { userId, web } = await desktop();
+            const other = (await target.create(userId)).uuid;
+            const first = await mint(userId, web);
+
+            expect((await mint(userId, other)).row.uuid).not.toBe(
+                first.row.uuid,
+            );
+            expect((await mint(userId, web, 'app-gm-other')).row.uuid).not.toBe(
+                first.row.uuid,
+            );
+            expect((await mint(userId, web)).row.uuid).toBe(first.row.uuid);
+        });
+
+        it('ignores a cached pointer to a row of another session', async () => {
+            const { userId, web } = await desktop();
+            const other = (await target.create(userId)).uuid;
+            const mine = await mint(userId, web);
+            const theirs = await mint(userId, other);
+            await server.clients.redis.set(
+                `sessions:v2:godmode:${userId}:${web}:app-gm`,
+                JSON.stringify({ uuid: theirs.row.uuid }),
+            );
+
+            expect((await mint(userId, web)).row.uuid).toBe(mine.row.uuid);
         });
     });
 
@@ -622,6 +1173,148 @@ describe('SessionStore', () => {
             expect(next.map((r: { uuid: string }) => r.uuid)).not.toContain(
                 first.uuid,
             );
+        });
+    });
+
+    describe('deleteWorkerSessions', () => {
+        const name = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('deletes every row of a worker name across users and apps, and nothing else', async () => {
+            const alice = await makeUser();
+            const bob = await makeUser();
+            const workerName = name();
+            const userScoped = await target.getOrCreateWorker(alice.id, {
+                appUid: null,
+                workerName,
+            });
+            const appScoped = await target.getOrCreateWorker(bob.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            const otherWorker = await target.getOrCreateWorker(alice.id, {
+                appUid: null,
+                workerName: name(),
+            });
+
+            const deleted = await target.deleteWorkerSessions({ workerName });
+
+            expect(deleted.map((r: { uuid: string }) => r.uuid).sort()).toEqual(
+                [userScoped.uuid, appScoped.uuid].sort(),
+            );
+            expect(await rawRow(userScoped.uuid)).toBeNull();
+            expect(await rawRow(appScoped.uuid)).toBeNull();
+            expect(await rawRow(otherWorker.uuid)).not.toBeNull();
+        });
+
+        it('filters by user and app together', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const deployed = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: name(),
+            });
+            const otherApp = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName: name(),
+            });
+            const userScoped = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: name(),
+            });
+            const otherUser = await target.getOrCreateWorker(other.id, {
+                appUid,
+                workerName: name(),
+            });
+
+            await target.deleteWorkerSessions({ userId: user.id, appUid });
+
+            expect(await rawRow(deployed.uuid)).toBeNull();
+            expect(await rawRow(otherApp.uuid)).not.toBeNull();
+            expect(await rawRow(userScoped.uuid)).not.toBeNull();
+            expect(await rawRow(otherUser.uuid)).not.toBeNull();
+        });
+
+        it('takes derived sessions with it', async () => {
+            const user = await makeUser();
+            const worker = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName: name(),
+            });
+            const child = await target.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: worker.uuid,
+                access_token_uid: uuidv4(),
+            });
+
+            const deleted = await target.deleteWorkerSessions({
+                userId: user.id,
+                appUid: worker.app_uid,
+            });
+
+            expect(await rawRow(child.uuid)).toBeNull();
+            expect(
+                deleted.find((r: { uuid: string }) => r.uuid === child.uuid)
+                    ?.accessTokenUid,
+            ).toBe(child.access_token_uid);
+        });
+
+        it('drops the cached rows, so a lookup misses and a redeploy mints fresh', async () => {
+            const user = await makeUser();
+            const workerName = name();
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            // Warm both the uuid and the composite worker cache.
+            expect(await target.getByUuidAny(first.uuid)).toBeTruthy();
+            expect(
+                await target.getWorker(user.id, { appUid: null, workerName }),
+            ).toBeTruthy();
+
+            await target.deleteWorkerSessions({ workerName });
+
+            expect(await target.getByUuidAny(first.uuid)).toBeNull();
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+        });
+
+        it('keeps a deleted session gone while a lagging replica still has it', async () => {
+            const user = await makeUser();
+            const workerName = name();
+            const worker = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+            const live = await rawRow(worker.uuid);
+
+            await target.deleteWorkerSessions({ workerName });
+
+            const restore = lagReplica({ [worker.uuid]: live });
+            try {
+                expect(await target.getByUuidAny(worker.uuid)).toBeNull();
+                expect(
+                    await target.getWorker(user.id, {
+                        appUid: null,
+                        workerName,
+                    }),
+                ).toBeNull();
+            } finally {
+                restore();
+            }
+        });
+
+        it('refuses to run without a filter', async () => {
+            const user = await makeUser();
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: name(),
+            });
+            expect(await target.deleteWorkerSessions({})).toEqual([]);
+            expect(await rawRow(row.uuid)).not.toBeNull();
         });
     });
 

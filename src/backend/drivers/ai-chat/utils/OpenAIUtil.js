@@ -149,13 +149,56 @@ export const toOpenAIChatMessages = (
 };
 
 /**
+ * Moves a message's `tool_use` blocks into OpenAI `tool_calls`, in place. True
+ * when this call created `tool_calls`. `canonicalId` keeps the Responses item
+ * id a replayed call carries. `preserveOrder` appends the hoisted calls in
+ * content order instead of reversed. `extraContent` keeps Gemini's
+ * `extra_content`, which other vendors may reject as an unknown field.
+ */
+const hoistToolUseBlocks = (
+    msg,
+    { canonicalId = false, preserveOrder = false, extraContent = false } = {},
+) => {
+    const content = msg.content;
+    const calls = [];
+    for (let i = content.length - 1; i >= 0; i--) {
+        const block = content[i];
+        if (block.type !== 'tool_use') continue;
+        calls.push({
+            id: block.id,
+            ...(canonicalId ? { canonical_id: block.canonical_id } : {}),
+            type: 'function',
+            function: {
+                name: block.name,
+                arguments: JSON.stringify(block.input),
+            },
+            ...(extraContent && block.extra_content
+                ? { extra_content: block.extra_content }
+                : {}),
+        });
+        content.splice(i, 1);
+    }
+    if (!calls.length) return false;
+    const hoisted = !msg.tool_calls;
+    msg.tool_calls ??= [];
+    msg.tool_calls.push(...(preserveOrder ? calls.reverse() : calls));
+    return hoisted;
+};
+
+/**
  * Process input messages from Puter's normalized format to OpenAI's format May
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
+ * @param {{ preserveToolCallOrder?: boolean; keepExtraContent?: boolean }} [opts]
+ *   `preserveToolCallOrder` keeps a turn's tool calls in the order the model made
+ *   them. `keepExtraContent` keeps each tool call's `extra_content`.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
-export const process_input_messages = async (messages) => {
+export const process_input_messages = async (
+    messages,
+    { preserveToolCallOrder = false, keepExtraContent = false } = {},
+) => {
     for (const msg of messages) {
         if (!msg.content) continue;
         if (typeof msg.content !== 'object') continue;
@@ -171,32 +214,13 @@ export const process_input_messages = async (messages) => {
             }
         }
 
-        // coerce tool calls
-        let is_tool_call = false;
-        for (let i = content.length - 1; i >= 0; i--) {
-            const content_block = content[i];
-
-            if (content_block.type === 'tool_use') {
-                if (!msg.tool_calls) {
-                    msg.tool_calls = [];
-                    is_tool_call = true;
-                }
-                msg.tool_calls.push({
-                    id: content_block.id,
-                    type: 'function',
-                    function: {
-                        name: content_block.name,
-                        arguments: JSON.stringify(content_block.input),
-                    },
-                    ...(content_block.extra_content
-                        ? { extra_content: content_block.extra_content }
-                        : {}),
-                });
-                content.splice(i, 1);
-            }
-        }
-
-        if (is_tool_call) msg.content = null;
+        if (
+            hoistToolUseBlocks(msg, {
+                preserveOrder: preserveToolCallOrder,
+                extraContent: keepExtraContent,
+            })
+        )
+            msg.content = null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)
@@ -380,10 +404,7 @@ export const process_input_messages_responses_api = async (messages) => {
             }
         }
 
-        // coerce tool calls
-        let is_tool_call = false;
-        for (let i = content.length - 1; i >= 0; i--) {
-            const content_block = content[i];
+        for (const content_block of content) {
             if (
                 content_block.type === 'text' &&
                 (msg.role === 'user' || msg.role === 'system')
@@ -393,30 +414,9 @@ export const process_input_messages_responses_api = async (messages) => {
             if (content_block.type === 'text' && msg.role === 'assistant') {
                 content_block.type = 'output_text';
             }
-
-            if (content_block.type === 'tool_use') {
-                if (!msg.tool_calls) {
-                    msg.tool_calls = [];
-                    is_tool_call = true;
-                }
-                msg.tool_calls.push({
-                    id: content_block.id,
-                    canonical_id: content_block.canonical_id,
-                    type: 'function',
-                    function: {
-                        name: content_block.name,
-                        arguments: JSON.stringify(content_block.input),
-                    },
-                    ...(content_block.extra_content
-                        ? { extra_content: content_block.extra_content }
-                        : {}),
-                });
-
-                content.splice(i, 1);
-            }
         }
 
-        if (is_tool_call) {
+        if (hoistToolUseBlocks(msg, { canonicalId: true })) {
             // One Responses `function_call` item per tool_use block. A
             // parallel tool-call turn used to keep only the first, which
             // silently dropped every other call the model made — the
@@ -431,9 +431,6 @@ export const process_input_messages_responses_api = async (messages) => {
                     id: toolCall.canonical_id,
                     name: toolCall.function.name,
                     arguments: toolCall.function.arguments,
-                    ...(toolCall.extra_content
-                        ? { extra_content: toolCall.extra_content }
-                        : {}),
                 });
             }
             continue;
@@ -457,33 +454,27 @@ export const process_input_messages_responses_api = async (messages) => {
     return flattened;
 };
 
-export const create_usage_calculator = ({ model_details }) => {
-    return ({ usage }) => {
-        const tokens = [];
-
-        tokens.push({
-            type: 'prompt',
-            model: model_details.id,
-            amount: usage.prompt_tokens,
-            cost: model_details.cost.input * usage.prompt_tokens,
-        });
-
-        tokens.push({
-            type: 'completion',
-            model: model_details.id,
-            amount: usage.completion_tokens,
-            cost: model_details.cost.output * usage.completion_tokens,
-        });
-
-        return tokens;
-    };
-};
-
 export const extractMeteredUsage = (usage) => {
     return {
         prompt_tokens: usage.prompt_tokens ?? 0,
         completion_tokens: usage.completion_tokens ?? 0,
         cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    };
+};
+
+/**
+ * Chat Completions usage as it's metered: `prompt_tokens` reports cached reads
+ * inside its count, so they come out of it and are priced only once, under
+ * `cached_tokens`.
+ *
+ * @param {import('openai/resources/completions.mjs').CompletionUsage | undefined} usage
+ */
+export const splitCachedPrompt = (usage) => {
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    return {
+        prompt_tokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
+        completion_tokens: usage?.completion_tokens ?? 0,
+        cached_tokens: cachedTokens,
     };
 };
 
@@ -584,6 +575,7 @@ export const create_chat_stream_handler =
         let last_extra_content = null;
         let finish_reason = null;
         for await (let chunk of completion) {
+            await chatStream.waitForDrain();
             chunk = deviations.chunk_but_like_actually(chunk);
             const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
             if (chunk_usage) last_usage = chunk_usage;
@@ -670,10 +662,15 @@ export const create_chat_stream_handler =
         // the upstream had already produced *and* skipped its billing. Leave
         // the usage undefined instead; the driver charges an estimate for a
         // stream that produced output nobody reported.
+        let usageDetails;
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
                   extra_content: last_extra_content,
+                  setUsageCosts: (c) => chatStream.setUsageCosts(c),
+                  setUsageDetails: (d) => {
+                      usageDetails = d;
+                  },
               })
             : undefined;
         // The calculator just metered. Reported here, not only via `end`:
@@ -686,7 +683,7 @@ export const create_chat_stream_handler =
         } else if (opened_tool_blocks.length > 0) {
             chatStream.setStop({ reason: 'tool_use' });
         }
-        const usageDetails = usageDetailsFromTrackedUsage(usage);
+        usageDetails ??= usageDetailsFromTrackedUsage(usage);
         if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
@@ -697,24 +694,10 @@ export const create_chat_stream_handler =
     };
 
 export const create_chat_stream_handler_responses_api =
-    ({ deviations, completion, usage_calculator }) =>
+    ({ completion, usage_calculator }) =>
     async ({ chatStream }) => {
-        deviations = Object.assign(
-            {
-                // affected by: Groq
-                index_usage_from_stream_chunk: (chunk) => chunk.usage,
-                // affected by: Mistral
-                chunk_but_like_actually: (chunk) => chunk,
-                index_tool_calls_from_stream_choice: (choice) =>
-                    choice.delta.tool_calls,
-            },
-            deviations,
-        );
-
         const message = chatStream.message();
         const textblock = message.contentBlock({ type: 'text' });
-        let toolblock = null;
-        const mode = 'text';
 
         let last_usage = null;
         let completed = false;
@@ -723,6 +706,7 @@ export const create_chat_stream_handler_responses_api =
         let webSearchCalls = 0;
         let toolUsage = null;
         for await (const chunk of completion) {
+            await chatStream.waitForDrain();
             if (chunk.type === 'response.failed' || chunk.type === 'error') {
                 throw new Error(
                     chunk.response?.error?.message ??
@@ -826,7 +810,7 @@ export const create_chat_stream_handler_responses_api =
             ) {
                 sawFunctionCall = true;
                 const tool_call = chunk.item;
-                toolblock = message.contentBlock({
+                const toolblock = message.contentBlock({
                     type: 'tool_use',
                     canonical_id: tool_call.id,
                     id: tool_call.call_id,
@@ -863,18 +847,49 @@ export const create_chat_stream_handler_responses_api =
         const usageDetails = usageDetailsFromTrackedUsage(usage);
         if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
-        if (mode === 'text') textblock.end();
-        if (mode === 'tool') toolblock.end();
+        textblock.end();
 
         message.end();
         chatStream.end(usage);
     };
+
+/**
+ * Withholds a completion that moderation flags, or that it couldn't check. The
+ * `code` tells the driver this is a refusal of a completion that was produced
+ * and charged, not a route failure — retrying it on a fallback provider would
+ * bill the account again for a completion the user never sees.
+ *
+ * @param {(text: string) => Promise<{ flagged: boolean }>} moderate
+ * @param {string} text
+ */
+const applyModeration = async (moderate, text) => {
+    let moderationResult;
+    try {
+        moderationResult = await moderate(text);
+    } catch (e) {
+        console.warn('[ai-chat] moderation check failed:', e?.message ?? e);
+        throw new HttpError(400, 'message could not be moderated', {
+            legacyCode: 'upstream_provider_unavailable',
+            code: 'moderation_unavailable',
+        });
+    }
+    if (moderationResult.flagged) {
+        throw new HttpError(400, 'message is not allowed', {
+            legacyCode: 'bad_request',
+            code: 'moderation_flagged',
+        });
+    }
+};
 
 export const handle_completion_output = async (
     /**
      * @type {Record<string, unknown> & {
      *     usage_calculator: (args: {
      *         usage: import('openai/resources/completions.mjs').CompletionUsage;
+     *         setUsageCosts: (costs: Record<string, number>) => void;
+     *         setUsageDetails: (
+     *             details: import('../types.js').UsageDetails,
+     *         ) => void;
      *     }) => unknown;
      * }}
      */
@@ -913,7 +928,7 @@ export const handle_completion_output = async (
             typeof upstreamMessage === 'string' && upstreamMessage
                 ? upstreamMessage
                 : 'no completion was returned',
-            { legacyCode: 'bad_response' },
+            { legacyCode: 'bad_response', cause: completion?.error },
         );
     }
 
@@ -927,12 +942,18 @@ export const handle_completion_output = async (
         ? usage_calculator({
               ...completion,
               usage: completion_usage,
+              setUsageCosts: (c) => {
+                  ret.usageCosts = c;
+              },
+              setUsageDetails: (d) => {
+                  ret.usageDetails = d;
+              },
           })
         : {
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
-    if (usage_calculator) {
+    if (usage_calculator && ret.usageDetails === undefined) {
         const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
         if (usageDetails) ret.usageDetails = usageDetails;
     }
@@ -945,17 +966,7 @@ export const handle_completion_output = async (
 
     const mod_text = completion.choices[0].message.content;
     if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            // `code` tells the driver this is a refusal of a completion that
-            // was produced and charged, not a route failure — retrying it on
-            // a fallback provider would bill the account again for another
-            // completion the user will never see.
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-                code: 'moderation_flagged',
-            });
-        }
+        await applyModeration(moderate, mod_text);
     }
 
     return ret;
@@ -963,7 +974,6 @@ export const handle_completion_output = async (
 
 /**
  * @param {object} params
- * @param {Record<string, unknown>} [params.deviations]
  * @param {boolean} [params.stream]
  * @param {any} params.completion
  * @param {((text: string) => Promise<{ flagged: boolean }>) | undefined} [params.moderate]
@@ -977,24 +987,14 @@ export const handle_completion_output = async (
  * @returns {ReturnType<import('../types').IChatProvider['complete']>}
  */
 export const handle_completion_output_responses_api = async ({
-    deviations,
     stream,
     completion,
     moderate,
     usage_calculator,
     finally_fn,
 }) => {
-    deviations = Object.assign(
-        {
-            // affected by: Mistral
-            coerce_completion_usage: (completion) => completion.usage,
-        },
-        deviations,
-    );
-
     if (stream) {
         const init_chat_stream = create_chat_stream_handler_responses_api({
-            deviations,
             completion,
             usage_calculator,
         });
@@ -1135,13 +1135,7 @@ export const handle_completion_output_responses_api = async ({
 
     const mod_text = completion.output_text;
     if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-                code: 'moderation_flagged',
-            });
-        }
+        await applyModeration(moderate, mod_text);
     }
 
     return ret;

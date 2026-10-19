@@ -28,6 +28,20 @@ import {
     type PostgresPoolClient,
 } from './PostgresDatabaseClient.js';
 
+// Pass-through spy: the rewrite is pure, so its call count shows the memo.
+const { rewriteSpy } = vi.hoisted(() => ({ rewriteSpy: vi.fn() }));
+vi.mock('./preparePostgresSql.js', async (importOriginal) => {
+    const actual =
+        await importOriginal<typeof import('./preparePostgresSql.js')>();
+    return {
+        ...actual,
+        preparePostgresSql: (sql: string) => {
+            rewriteSpy(sql);
+            return actual.preparePostgresSql(sql);
+        },
+    };
+});
+
 type QueryCall = {
     text: string;
     values?: unknown[];
@@ -165,6 +179,23 @@ describe('PostgresDatabaseClient', () => {
             text: 'INSERT INTO "apps" ("name") VALUES ($1) RETURNING id',
             values: ['editor'],
         });
+    });
+
+    it('rewrites a repeated query once', async () => {
+        const pool = new RecordingPool();
+        const client = new PostgresDatabaseClient(postgresConfig(), () => pool);
+        await client.onServerStart();
+        const query = 'SELECT `name` FROM `apps` WHERE `id` = ?';
+        rewriteSpy.mockClear();
+
+        await client.read(query, [1]);
+        await client.pread(query, [2]);
+        await client.write(query, [3]);
+
+        expect(rewriteSpy).toHaveBeenCalledTimes(1);
+        expect(pool.calls.slice(-3).map((c) => c.text)).toEqual(
+            Array(3).fill('SELECT "name" FROM "apps" WHERE "id" = $1'),
+        );
     });
 
     it('normalizes int8 fields on read and primary read rows', async () => {

@@ -17,16 +17,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { APIConnectionError as AnthropicConnectionError } from '@anthropic-ai/sdk';
+import { ConnectionError as MistralConnectionError } from '@mistralai/mistralai/models/errors/httpclienterrors.js';
 import { APIConnectionError, APIConnectionTimeoutError } from 'openai';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { translateProviderError } from '../../controllers/drivers/DriverController.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     CONTENT_FILTER_PATTERN,
     CREDIT_EXHAUSTION_PATTERN,
     isCreditExhaustion,
     isTransientUpstreamError,
+    isUpstreamConnectionError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
+    upstreamBodyStream,
+    upstreamFetch,
+    UpstreamResponseError,
 } from './upstreamErrors.js';
 
 const withStatus = (status: number) =>
@@ -57,6 +66,47 @@ describe('isUpstreamTimeoutError', () => {
         expect(isUpstreamTimeoutError(new Error('boom'))).toBe(false);
         expect(isUpstreamTimeoutError('timed out')).toBe(false);
         expect(isUpstreamTimeoutError(withStatus(504))).toBe(false);
+    });
+});
+
+describe('isUpstreamConnectionError', () => {
+    const fetchFailed = () =>
+        new TypeError('fetch failed', {
+            cause: Object.assign(new Error('read ECONNRESET'), {
+                code: 'ECONNRESET',
+            }),
+        });
+
+    it("recognises the SDKs' connection error classes", () => {
+        expect(
+            isUpstreamConnectionError(
+                new APIConnectionError({ cause: fetchFailed() }),
+            ),
+        ).toBe(true);
+        expect(
+            isUpstreamConnectionError(
+                new AnthropicConnectionError({ cause: fetchFailed() }),
+            ),
+        ).toBe(true);
+        expect(
+            isUpstreamConnectionError(
+                new MistralConnectionError('Unable to make request', {
+                    cause: fetchFailed(),
+                }),
+            ),
+        ).toBe(true);
+    });
+
+    it('recognises a reset wrapped in a fetch failed TypeError', () => {
+        expect(isUpstreamConnectionError(fetchFailed())).toBe(true);
+    });
+
+    it('does not count timeouts or ordinary errors as dropped connections', () => {
+        expect(isUpstreamConnectionError(new APIConnectionTimeoutError())).toBe(
+            false,
+        );
+        expect(isUpstreamConnectionError(new Error('boom'))).toBe(false);
+        expect(isUpstreamConnectionError(withStatus(503))).toBe(false);
     });
 });
 
@@ -192,5 +242,277 @@ describe('sanitizeUpstreamMessage', () => {
                 'Add credits at https://vendor.test/billing (request id: req-parenthesized) request_id: req_standalone',
             ),
         ).toBe('Add credits at');
+    });
+});
+
+describe('upstreamFetch', () => {
+    // A provider stand-in: `/status/<n>` answers with that status and the
+    // request body echoed back as the response body; `/hang` never answers;
+    // `/trickle` sends headers at once, then the body over ~500 ms.
+    const trickleChunks = Array.from({ length: 10 }, (_, i) => `chunk${i};`);
+    let server: Server;
+    let base: string;
+    beforeAll(async () => {
+        server = createServer((req, res) => {
+            if (req.url === '/hang') return;
+            if (req.url === '/trickle') {
+                res.writeHead(200, { 'content-type': 'audio/mpeg' });
+                let sent = 0;
+                const tick = setInterval(() => {
+                    res.write(trickleChunks[sent++]);
+                    if (sent === trickleChunks.length) {
+                        clearInterval(tick);
+                        res.end();
+                    }
+                }, 50);
+                res.on('close', () => clearInterval(tick));
+                return;
+            }
+            const status = Number(req.url?.split('/')[2] ?? 200);
+            const chunks: Buffer[] = [];
+            req.on('data', (c: Buffer) => chunks.push(c));
+            req.on('end', () => {
+                res.writeHead(status, { 'content-type': 'application/json' });
+                res.end(Buffer.concat(chunks));
+            });
+        });
+        await new Promise<void>((resolve) => server.listen(0, resolve));
+        base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+    afterAll(async () => {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    const fail = async (status: number, body: unknown): Promise<unknown> => {
+        try {
+            await upstreamFetch(
+                'vendor',
+                `${base}/status/${status}`,
+                {
+                    method: 'POST',
+                    body:
+                        typeof body === 'string' ? body : JSON.stringify(body),
+                },
+                { providerLabel: 'Vendor', timeoutMs: 5000 },
+            );
+        } catch (e) {
+            return e;
+        }
+        throw new Error('expected upstreamFetch to reject');
+    };
+
+    it('returns a 2xx response untouched', async () => {
+        const res = await upstreamFetch(
+            'vendor',
+            `${base}/status/200`,
+            { method: 'POST', body: '{"ok":true}' },
+            { providerLabel: 'Vendor', timeoutMs: 5000 },
+        );
+        expect(await res.json()).toEqual({ ok: true });
+    });
+
+    it.each([
+        [
+            { error: { message: 'openai-style', code: 'bad_voice' } },
+            'openai-style',
+            'bad_voice',
+        ],
+        [{ error: 'flat error', code: 'flat_code' }, 'flat error', 'flat_code'],
+        [
+            { detail: { message: 'nested detail', code: 'voice_not_found' } },
+            'nested detail',
+            'voice_not_found',
+        ],
+        [{ detail: 'string detail' }, 'string detail', undefined],
+        [{ message: 'top-level message' }, 'top-level message', undefined],
+        ['plain text body', 'plain text body', undefined],
+        ['', 'Vendor request failed (status 422)', undefined],
+    ])('reads the message and code out of %j', async (body, message, code) => {
+        const err = await fail(422, body);
+        expect(err).toBeInstanceOf(UpstreamResponseError);
+        expect(err).toMatchObject({ status: 422, message, code });
+    });
+
+    it.each([
+        [429, 429, 'upstream_rate_limited'],
+        [401, 500, 'upstream_auth_failed'],
+        [403, 500, 'upstream_auth_failed'],
+        [402, 503, 'upstream_credits_exhausted'],
+        [500, 400, 'upstream_provider_unavailable'],
+        [422, 400, 'upstream_bad_request'],
+    ])(
+        'maps an upstream %i to %i %s at the driver boundary',
+        async (upstreamStatus, statusCode, legacyCode) => {
+            const err = await fail(upstreamStatus, {
+                error: { message: 'nope', code: 'vendor_code' },
+            });
+            expect(translateProviderError(err)).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { provider: 'vendor', upstreamStatus },
+            });
+        },
+    );
+
+    it('keeps raw provider text out of what the caller sees', async () => {
+        const err = await fail(400, {
+            detail: {
+                message:
+                    '<b>Invalid</b> voice, see https://vendor.test/docs (request id: abc)',
+            },
+        });
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 400,
+            message: 'Invalid voice, see',
+        });
+    });
+
+    it('gives up after timeoutMs and surfaces as a 504 upstream_timeout', async () => {
+        let err: unknown;
+        try {
+            await upstreamFetch(
+                'vendor',
+                `${base}/hang`,
+                {},
+                { providerLabel: 'Vendor', timeoutMs: 50 },
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+    });
+
+    it('still honours a caller abort signal', async () => {
+        const controller = new AbortController();
+        const pending = upstreamFetch(
+            'vendor',
+            `${base}/hang`,
+            { signal: controller.signal },
+            { providerLabel: 'Vendor', timeoutMs: 5000 },
+        );
+        controller.abort();
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
+    it('lets a streamed body keep flowing past timeoutMs once headers arrive', async () => {
+        const res = await upstreamFetch(
+            'vendor',
+            `${base}/trickle`,
+            {},
+            { providerLabel: 'Vendor', timeoutMs: 250, stream: true },
+        );
+        expect(await res.text()).toBe(trickleChunks.join(''));
+    });
+
+    it('times out a streamed call whose headers never arrive as a 504 upstream_timeout', async () => {
+        let err: unknown;
+        try {
+            await upstreamFetch(
+                'vendor',
+                `${base}/hang`,
+                {},
+                { providerLabel: 'Vendor', timeoutMs: 50, stream: true },
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+    });
+
+    it('bounds a non-streamed call by the whole body', async () => {
+        const res = await upstreamFetch(
+            'vendor',
+            `${base}/trickle`,
+            {},
+            { providerLabel: 'Vendor', timeoutMs: 250 },
+        );
+        let err: unknown;
+        try {
+            await res.text();
+        } catch (e) {
+            err = e;
+        }
+        expect(isUpstreamTimeoutError(err)).toBe(true);
+    });
+
+    it('aborts a streamed body when the caller aborts mid-stream', async () => {
+        const controller = new AbortController();
+        const res = await upstreamFetch(
+            'vendor',
+            `${base}/trickle`,
+            { signal: controller.signal },
+            { providerLabel: 'Vendor', timeoutMs: 5000, stream: true },
+        );
+        const reader = upstreamBodyStream(res)[Symbol.asyncIterator]();
+        await reader.next();
+        controller.abort();
+        await expect(reader.next()).rejects.toMatchObject({
+            name: 'AbortError',
+        });
+    });
+});
+
+describe('upstreamBodyStream', () => {
+    const controlled = () => {
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c;
+            },
+        });
+        return { response: new Response(body), controller };
+    };
+
+    it('hands bytes on as they arrive instead of waiting for the whole body', async () => {
+        const { response, controller } = controlled();
+        const stream = upstreamBodyStream(response);
+        const reader = stream[Symbol.asyncIterator]();
+
+        controller.enqueue(Buffer.from('first'));
+        const first = await reader.next();
+        expect(Buffer.from(first.value as Uint8Array).toString()).toBe('first');
+
+        controller.enqueue(Buffer.from('second'));
+        controller.close();
+        const rest: Buffer[] = [];
+        for (;;) {
+            const next = await reader.next();
+            if (next.done) break;
+            rest.push(Buffer.from(next.value as Uint8Array));
+        }
+        expect(Buffer.concat(rest).toString()).toBe('second');
+    });
+
+    it('errors, rather than ending cleanly, when the body fails mid-stream', async () => {
+        const { response, controller } = controlled();
+        const stream = upstreamBodyStream(response);
+        const reader = stream[Symbol.asyncIterator]();
+
+        controller.enqueue(Buffer.from('partial'));
+        const first = await reader.next();
+        expect(Buffer.from(first.value as Uint8Array).toString()).toBe(
+            'partial',
+        );
+
+        controller.error(new Error('connection reset'));
+        await expect(reader.next()).rejects.toThrow('connection reset');
+    });
+
+    it('is an empty stream for a body-less response', async () => {
+        const chunks: unknown[] = [];
+        for await (const chunk of upstreamBodyStream(
+            new Response(null, { status: 204 }),
+        ))
+            chunks.push(chunk);
+        expect(chunks).toEqual([]);
     });
 });

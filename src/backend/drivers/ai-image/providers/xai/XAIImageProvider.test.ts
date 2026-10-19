@@ -49,16 +49,23 @@ import {
     sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
+import { CATALOG_TTL_MS } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
+import liveCatalog from './fixtures/image-generation-models.json';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { XAIImageProvider } from './XAIImageProvider.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
-const { generateMock, postMock, openAICtor } = vi.hoisted(() => ({
+const { generateMock, postMock, openAICtor, axiosGetMock } = vi.hoisted(() => ({
     generateMock: vi.fn(),
     postMock: vi.fn(),
     openAICtor: vi.fn(),
+    axiosGetMock: vi.fn(),
 }));
+
+// The pricing catalog is the provider's other network egress point.
+vi.mock('axios', () => ({ default: { get: axiosGetMock } }));
 
 vi.mock('openai', () => {
     const OpenAICtor = vi.fn().mockImplementation(function (
@@ -91,13 +98,23 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new XAIImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new XAIImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateMock.mockReset();
     postMock.mockReset();
     openAICtor.mockReset();
+    axiosGetMock.mockReset();
+    axiosGetMock.mockRejectedValue(new Error('Catalog unavailable'));
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -106,6 +123,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -123,8 +141,7 @@ describe('XAIImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new XAIImageProvider({ apiKey: '' }, server.services.metering),
+            () => new XAIImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -137,16 +154,16 @@ describe('XAIImageProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('grok-imagine-image');
     });
 
-    it('exposes the static XAI_IMAGE_GENERATION_MODELS list verbatim', () => {
+    it('serves the curated catalog verbatim when pricing is unavailable', async () => {
         const provider = makeProvider();
-        expect(provider.models()).toBe(XAI_IMAGE_GENERATION_MODELS);
+        expect(await provider.models()).toBe(XAI_IMAGE_GENERATION_MODELS);
     });
 
-    it('no longer exposes the deprecated grok-2-image model', () => {
+    it('no longer exposes the deprecated grok-2-image model', async () => {
         const provider = makeProvider();
-        expect(provider.models().some((m) => m.id === 'grok-2-image')).toBe(
-            false,
-        );
+        expect(
+            (await provider.models()).some((m) => m.id === 'grok-2-image'),
+        ).toBe(false);
     });
 });
 
@@ -224,6 +241,107 @@ describe('XAIImageProvider.generate credit gate', () => {
 
         expect(generateMock).not.toHaveBeenCalled();
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+    });
+
+    const perImage =
+        XAI_IMAGE_GENERATION_MODELS[0].costs['output:1k'] * 1_000_000;
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 51,
+                uuid: `xai-${name}-${Math.random().toString(36).slice(2)}`,
+                username: name,
+            },
+        });
+
+    // Usage lands only once a generation finishes, so a request that starts
+    // meanwhile has to see the first one's cost already committed.
+    it('refuses a concurrent generation the balance only covers once', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('concurrent');
+        const metering = server.services.metering;
+        const remaining = await metering.getRemainingUsage(actor);
+        await metering.incrementUsage(
+            actor,
+            'test:prior-spend',
+            1,
+            remaining - perImage * 1.5,
+        );
+
+        let finishFirst: () => void = () => {};
+        generateMock
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () =>
+                            resolve({ data: [{ url: 'https://x.ai/img/1' }] });
+                    }),
+            )
+            .mockResolvedValue({ data: [{ url: 'https://x.ai/img/2' }] });
+        const first = withTestActor(
+            () => provider.generate({ prompt: 'first' }),
+            actor,
+        );
+        await vi.waitFor(() => expect(generateMock).toHaveBeenCalledTimes(1));
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'second' }), actor),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(generateMock).toHaveBeenCalledTimes(1);
+
+        finishFirst();
+        expect(await first).toBe('https://x.ai/img/1');
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
+    });
+
+    it('holds at the model cost factor', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('factor');
+        const asked: string[] = [];
+        const doubled = (key: string, event: { factor: number }) => {
+            asked.push(key);
+            event.factor = 2;
+        };
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return { data: [{ url: 'https://x.ai/img/1' }] };
+        });
+
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withTestActor(
+                () => provider.generate({ prompt: 'hi' }),
+                actor,
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(asked).toContain(
+            'ai.cost.factor.ai-image.xai:grok-imagine-image',
+        );
+        expect(heldDuringCall).toBe(perImage * 2);
+    });
+
+    it('releases the hold when xAI fails', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('fail');
+        generateMock.mockRejectedValueOnce(new Error('upstream down'));
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'hi' }), actor),
+        ).rejects.toThrow('upstream down');
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 
@@ -554,10 +672,11 @@ describe('XAIImageProvider quality and reference limits', () => {
         'grok-imagine-image-quality-20260403',
         'grok-imagine-image-quality-latest',
         'grok-imagine-image-pro',
-    ])('drops the retired %s instead of redirecting it', (model) => {
-        const names = makeProvider()
-            .models()
-            .flatMap((m) => [m.id, ...(m.aliases ?? [])]);
+    ])('drops the retired %s instead of redirecting it', async (model) => {
+        const names = (await makeProvider().models()).flatMap((m) => [
+            m.id,
+            ...(m.aliases ?? []),
+        ]);
         expect(names).not.toContain(model);
     });
 
@@ -657,3 +776,389 @@ it.each([
         });
     },
 );
+
+// ── Live pricing catalog ────────────────────────────────────────────
+
+describe('XAIImageProvider live pricing', () => {
+    type Tier = {
+        quality: string;
+        resolution: string;
+        price_per_image: unknown;
+    };
+    type LiveModel = {
+        id: string;
+        image_price?: unknown;
+        pricing?: unknown;
+        aliases?: string[];
+    };
+
+    /**
+     * The sanitized live response with the 2.0 matrix (and anything else)
+     * swapped in.
+     */
+    const catalogWith = (
+        pricing: unknown,
+        extra: Partial<LiveModel> = {},
+    ): { models: LiveModel[] } => ({
+        models: liveCatalog.models.map((model) =>
+            model.id === 'grok-imagine-image-2.0'
+                ? { ...model, pricing, ...extra }
+                : model,
+        ),
+    });
+    /** A full 2.0 matrix in cents, in xAI's 1e-8 cent units. */
+    const matrix = (cents: Record<string, number>): Tier[] =>
+        Object.entries(cents).map(([tier, value]) => {
+            const [quality, resolution] = tier.split(' ');
+            return {
+                quality,
+                resolution,
+                price_per_image: value * 100_000_000,
+            };
+        });
+    const repriced = matrix({
+        'low 1k': 4.5,
+        'low 1.5k': 5.5,
+        'low 2k': 6.5,
+        'medium 1k': 7,
+        'medium 1.5k': 8,
+        'medium 2k': 9,
+    });
+    const v2Costs = async (provider: XAIImageProvider) =>
+        (await provider.models()).find(
+            (m) => m.id === 'grok-imagine-image-2.0',
+        )!.costs;
+    const curated = (id: string) =>
+        XAI_IMAGE_GENERATION_MODELS.find((m) => m.id === id)!;
+    const serve = (body: unknown) =>
+        axiosGetMock.mockResolvedValueOnce({ data: body });
+    const expire = () => vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
+    const pricedActor = () =>
+        makeActor({
+            user: {
+                id: 52,
+                uuid: `xai-live-${Math.random().toString(36).slice(2)}`,
+                username: 'live',
+            },
+        });
+
+    it('fetches the image model list with the provider key under a size cap', async () => {
+        serve(liveCatalog);
+        await makeProvider().models();
+        expect(axiosGetMock).toHaveBeenCalledWith(
+            'https://api.x.ai/v1/image-generation-models',
+            expect.objectContaining({
+                headers: { Authorization: 'Bearer test-key' },
+                signal: expect.any(AbortSignal),
+                maxContentLength: 1024 * 1024,
+            }),
+        );
+    });
+
+    it('converts the live matrix from 1e-8 cent units, keeping curated input and v1 rates', async () => {
+        serve(liveCatalog);
+        const models = await makeProvider().models();
+        expect(
+            models.find((m) => m.id === 'grok-imagine-image-2.0')!.costs,
+        ).toEqual({
+            'output:1k:low': 4,
+            'output:2k:low': 6,
+            'output:1k:medium': 6,
+            'output:2k:medium': 8,
+            media_input: 1,
+        });
+        // No matrix for v1: its curated rates, ids, aliases and options stay.
+        expect(models.find((m) => m.id === 'grok-imagine-image')).toBe(
+            curated('grok-imagine-image'),
+        );
+        expect(models.map((m) => m.id)).toEqual(
+            XAI_IMAGE_GENERATION_MODELS.map((m) => m.id),
+        );
+    });
+
+    it('reprices only the 2.0 output tiers, preserving everything else', async () => {
+        serve(catalogWith(repriced));
+        const v2 = (await makeProvider().models()).find(
+            (m) => m.id === 'grok-imagine-image-2.0',
+        )!;
+        const { costs, ...rest } = curated('grok-imagine-image-2.0');
+        expect(v2).toEqual({
+            ...rest,
+            costs: {
+                'output:1k:low': 4.5,
+                'output:2k:low': 6.5,
+                'output:1k:medium': 7,
+                'output:2k:medium': 9,
+                media_input: costs.media_input,
+            },
+        });
+    });
+
+    it.each([
+        ['1k', 'low', 4.5],
+        ['2k', 'low', 6.5],
+        ['1k', 'medium', 7],
+        ['2k', 'medium', 9],
+        ['1k', 'auto', 4.5],
+        ['2k', undefined, 6.5],
+    ])(
+        'holds and meters the live %s/%s rate',
+        async (resolution, quality, cents) => {
+            serve(catalogWith(repriced));
+            const provider = makeProvider();
+            await provider.models();
+            const actor = pricedActor();
+            let held = -1;
+            generateMock.mockImplementationOnce(async () => {
+                held = await server.stores.creditHold.outstanding(
+                    actor.user!.uuid,
+                );
+                return { data: [{ url: 'https://x.ai/image.png' }] };
+            });
+
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'grok-imagine-image-2.0',
+                        prompt: 'a landscape',
+                        resolution,
+                        quality,
+                    }),
+                actor,
+            );
+
+            const expectedQuality =
+                quality === 'auto' || !quality ? 'low' : quality;
+            expect(generateMock.mock.calls[0][0]).toMatchObject({
+                resolution,
+                quality: expectedQuality,
+            });
+            expect(held).toBe(cents * 1_000_000);
+            expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual([
+                {
+                    usageType: `xai:grok-imagine-image-2.0:output:${resolution}:${expectedQuality}`,
+                    usageAmount: 1,
+                    costOverride: cents * 1_000_000,
+                },
+            ]);
+        },
+    );
+
+    it('bills edits at the live output rate plus the curated input rate', async () => {
+        serve(catalogWith(repriced));
+        const provider = makeProvider();
+        await provider.models();
+        const actor = pricedActor();
+        let held = -1;
+        postMock.mockImplementationOnce(async () => {
+            held = await server.stores.creditHold.outstanding(actor.user!.uuid);
+            return { data: [{ url: 'https://x.ai/image.png' }] };
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'grok-imagine-image-2.0',
+                    prompt: 'add a hat',
+                    input_images: [
+                        'https://example.com/a.png',
+                        'https://example.com/b.png',
+                    ],
+                    quality: 'auto',
+                }),
+            actor,
+        );
+
+        const media = curated('grok-imagine-image-2.0').costs.media_input;
+        expect(held).toBe((7 + media * 2) * 1_000_000);
+        expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual([
+            {
+                usageType: 'xai:grok-imagine-image-2.0:output:1k:medium',
+                usageAmount: 1,
+                costOverride: 7_000_000,
+            },
+            {
+                usageType: 'xai:grok-imagine-image-2.0:media_input',
+                usageAmount: 2,
+                costOverride: media * 2 * 1_000_000,
+            },
+        ]);
+    });
+
+    it('never bills from image_price', async () => {
+        serve({
+            models: liveCatalog.models.map(({ pricing: _, ...model }) => ({
+                ...model,
+                image_price: 999_999_999,
+            })),
+        });
+        expect(await makeProvider().models()).toEqual(
+            XAI_IMAGE_GENERATION_MODELS,
+        );
+    });
+
+    it('accepts a zero price and identical duplicate tiers', async () => {
+        serve(
+            catalogWith([
+                ...matrix({ 'low 1k': 0, 'low 2k': 6, 'medium 1k': 6 }),
+                ...matrix({ 'medium 2k': 8, 'low 1k': 0 }),
+            ]),
+        );
+        expect(await v2Costs(makeProvider())).toEqual({
+            ...curated('grok-imagine-image-2.0').costs,
+            'output:1k:low': 0,
+        });
+    });
+
+    const tier = (
+        price_per_image: unknown,
+        quality = 'low',
+        resolution = '1k',
+    ) => ({
+        quality,
+        resolution,
+        price_per_image,
+    });
+    const withLow1k = (bad: unknown) => [
+        bad,
+        ...repriced.filter(
+            (entry) => !(entry.quality === 'low' && entry.resolution === '1k'),
+        ),
+    ];
+    it.each([
+        ['a string price', withLow1k(tier('400000000'))],
+        ['a negative price', withLow1k(tier(-1))],
+        ['a fractional price', withLow1k(tier(400000000.5))],
+        ['an unsafe integer price', withLow1k(tier(2 ** 53))],
+        ['a missing price', withLow1k({ quality: 'low', resolution: '1k' })],
+        ['an unknown quality', [...repriced, tier(1, 'ultra')]],
+        ['a malformed resolution', [...repriced, tier(1, 'low', '1024x1024')]],
+        ['a non-object tier', [...repriced, null]],
+        [
+            'a missing billed tier',
+            repriced.filter((t) => t.resolution !== '2k'),
+        ],
+        ['a conflicting duplicate tier', [...repriced, tier(1)]],
+        ['a non-array matrix', { 'low 1k': 400000000 }],
+    ])('keeps the previous 2.0 rates on %s', async (_label, pricing) => {
+        serve(catalogWith(pricing));
+        expect(await v2Costs(makeProvider())).toEqual(
+            curated('grok-imagine-image-2.0').costs,
+        );
+    });
+
+    it('ignores records that only share an alias or repeat the model id', async () => {
+        serve({
+            models: [
+                ...liveCatalog.models.filter(
+                    (m) => m.id !== 'grok-imagine-image-2.0',
+                ),
+                {
+                    id: 'x-ai/grok-imagine-image-2.0',
+                    aliases: ['grok-imagine-image-2.0'],
+                    pricing: repriced,
+                },
+            ],
+        });
+        expect(await v2Costs(makeProvider())).toEqual(
+            curated('grok-imagine-image-2.0').costs,
+        );
+
+        serve({
+            models: [
+                ...liveCatalog.models,
+                { id: 'grok-imagine-image-2.0', pricing: repriced },
+            ],
+        });
+        expect(await v2Costs(makeProvider())).toEqual(
+            curated('grok-imagine-image-2.0').costs,
+        );
+    });
+
+    it('keeps the last good rates through failures, empty lists and omissions', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const provider = makeProvider();
+        serve(catalogWith(repriced));
+        const good = await v2Costs(provider);
+        expect(good['output:1k:low']).toBe(4.5);
+
+        for (const next of [
+            () => axiosGetMock.mockRejectedValueOnce(new Error('down')),
+            () => serve({ models: [] }),
+            () => serve({ data: liveCatalog.models }),
+            () => serve('<html>'),
+            () =>
+                serve({
+                    models: liveCatalog.models.filter(
+                        (m) => m.id !== 'grok-imagine-image-2.0',
+                    ),
+                }),
+            () => serve(catalogWith([tier(-1)])),
+        ]) {
+            expire();
+            const before = axiosGetMock.mock.calls.length;
+            next();
+            expect(await v2Costs(provider)).toEqual(good);
+            expect(axiosGetMock.mock.calls.length).toBe(before + 1);
+        }
+
+        // A later valid matrix replaces it.
+        expire();
+        serve(liveCatalog);
+        expect((await v2Costs(provider))['output:1k:low']).toBe(4);
+    });
+
+    it('bills a request at the rates captured when it started', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const provider = makeProvider();
+        serve(catalogWith(repriced));
+        await provider.models();
+        let finish: () => void = () => {};
+        generateMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finish = () =>
+                        resolve({ data: [{ url: 'https://x.ai/image.png' }] });
+                }),
+        );
+
+        const pending = withTestActor(
+            () =>
+                provider.generate({
+                    model: 'grok-imagine-image-2.0',
+                    prompt: 'a landscape',
+                    quality: 'medium',
+                    resolution: '2k',
+                }),
+            pricedActor(),
+        );
+        await vi.waitFor(() => expect(generateMock).toHaveBeenCalled());
+        expire();
+        serve(liveCatalog);
+        expect((await v2Costs(provider))['output:2k:medium']).toBe(8);
+        finish();
+        await pending;
+
+        expect(batchIncrementUsagesSpy.mock.calls[0][1][0].costOverride).toBe(
+            9_000_000,
+        );
+    });
+
+    it('bills from the catalog last handed out, not a fetch of its own', async () => {
+        serve(catalogWith(repriced));
+        generateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://x.ai/image.png' }],
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'grok-imagine-image-2.0',
+                prompt: 'a landscape',
+            }),
+        );
+        expect(axiosGetMock).not.toHaveBeenCalled();
+        expect(batchIncrementUsagesSpy.mock.calls[0][1][0].costOverride).toBe(
+            curated('grok-imagine-image-2.0').costs['output:1k:low'] *
+                1_000_000,
+        );
+    });
+});

@@ -2788,6 +2788,19 @@ describe('PuterAIController model details', () => {
         expect(body.models.map((m) => m.id)).toEqual(['gpt-test', 'gpt-other']);
     });
 
+    it('filters model details by provider when requested', async () => {
+        const handler = captureGetHandler('/puterai/chat/models/details');
+        vi.spyOn(server.drivers.aiChat, 'models').mockResolvedValueOnce([
+            { id: 'gpt-test', provider: 'openai' },
+            { id: 'fake', provider: 'openai' },
+            { id: 'claude-test', provider: 'claude' },
+        ] as never);
+        const { res, captured } = makeRes();
+        const req = makeReq({ query: { provider: 'openai' } });
+        await handler(req, res);
+        expect(captured.body).toEqual({ models: [{ id: 'gpt-test', provider: 'openai' }] });
+    });
+
     it('501s when the driver lacks .models()', async () => {
         const handler = captureGetHandler('/puterai/chat/models/details');
         const driver = server.drivers.aiChat as unknown as Record<

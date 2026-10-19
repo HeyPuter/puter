@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for TTSDriver.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) with API credentials for every TTS provider so the driver
- * registers and indexes them all. Then drives `server.drivers.aiTts`
- * directly. Provider SDKs and global `fetch` are mocked at their
- * network boundaries so the driver's routing and dispatch logic runs
- * without real egress. Aligns with AGENTS.md: "Prefer test server
- * over mocking deps."
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) with
+ * API credentials for every TTS provider so the driver registers and indexes
+ * them all. Then drives `server.drivers.aiTts` directly. Provider SDKs and
+ * global `fetch` are mocked at their network boundaries so the driver's routing
+ * and dispatch logic runs without real egress. Aligns with AGENTS.md: "Prefer
+ * test server over mocking deps."
  */
 
 import {
@@ -46,6 +45,7 @@ import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { TTSDriver } from './TTSDriver.js';
+import pollyPriceList from './providers/awsPolly/fixtures/us-west-2.json';
 
 // ── SDK mocks ──────────────────────────────────────────────────────
 //
@@ -94,10 +94,9 @@ const { pollySendMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@aws-sdk/client-polly', async () => {
-    const actual =
-        await vi.importActual<typeof import('@aws-sdk/client-polly')>(
-            '@aws-sdk/client-polly',
-        );
+    const actual = await vi.importActual<
+        typeof import('@aws-sdk/client-polly')
+    >('@aws-sdk/client-polly');
     return {
         ...actual,
         PollyClient: vi.fn().mockImplementation(function (
@@ -127,7 +126,9 @@ beforeAll(async () => {
                 },
             },
             gemini: { apiKey: 'gem-key' },
-            xai: { apiKey: 'xai-key' },
+            // The field the image and speech-to-text drivers read xAI's key
+            // from; TTS reads the same ones.
+            xai: { secret_key: 'xai-key' },
             speechify: { apiKey: 'speechify-key' },
         },
     } as never);
@@ -142,7 +143,15 @@ beforeEach(() => {
     openaiSpeechCreateMock.mockReset();
     geminiGenerateContentMock.mockReset();
     pollySendMock.mockReset();
-    fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
+    // Polly loads its public price list through fetch; serve the recording.
+    const realFetch = globalThis.fetch;
+    fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input, init) =>
+            String(input).startsWith('https://pricing.us-east-1.amazonaws.com/')
+                ? Promise.resolve(Response.json(pollyPriceList))
+                : realFetch(input, init),
+        ) as MockInstance<typeof fetch>;
 });
 
 afterEach(() => {
@@ -155,10 +164,8 @@ const withActor = <T>(fn: () => T | Promise<T>): Promise<T> =>
 const withDriverName = <T>(driverName: string, fn: () => T | Promise<T>) =>
     Promise.resolve(runWithContext({ actor: SYSTEM_ACTOR, driverName }, fn));
 
-const openaiAudioResponse = () => ({
-    arrayBuffer: async () =>
-        new Uint8Array(Buffer.from('mp3-bytes')).buffer as ArrayBuffer,
-});
+// The SDK resolves `audio.speech.create` with the raw fetch Response.
+const openaiAudioResponse = () => new Response('mp3-bytes');
 
 // Polly's DescribeVoices needs a non-empty Voices list so the
 // engine-default-voice resolver finds something.
@@ -175,12 +182,14 @@ const pollyDescribeVoices = {
 };
 
 const pollyDispatch = () =>
-    pollySendMock.mockImplementation((cmd: { constructor: { name: string } }) => {
-        if (cmd.constructor.name === 'DescribeVoicesCommand') {
-            return Promise.resolve(pollyDescribeVoices);
-        }
-        return Promise.resolve({ AudioStream: 'audio-bytes' });
-    });
+    pollySendMock.mockImplementation(
+        (cmd: { constructor: { name: string } }) => {
+            if (cmd.constructor.name === 'DescribeVoicesCommand') {
+                return Promise.resolve(pollyDescribeVoices);
+            }
+            return Promise.resolve({ AudioStream: 'audio-bytes' });
+        },
+    );
 
 // ── Provider registration & list ────────────────────────────────────
 
@@ -252,7 +261,10 @@ describe('TTSDriver.synthesize provider routing', () => {
                     audio_data: Buffer.from('audio').toString('base64'),
                     audio_format: 'mp3',
                 }),
-                { status: 200, headers: { 'content-type': 'application/json' } },
+                {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                },
             ),
         );
 
@@ -339,7 +351,9 @@ describe('TTSDriver.synthesize provider routing', () => {
     it('treats an engine that names a provider as the provider', async () => {
         openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
 
-        await withActor(() => driver.synthesize({ text: 'hi', engine: 'openai' }));
+        await withActor(() =>
+            driver.synthesize({ text: 'hi', engine: 'openai' }),
+        );
 
         expect(openaiSpeechCreateMock).toHaveBeenCalledTimes(1);
         // The alias selected the provider; it is not carried on as a model.
@@ -352,7 +366,11 @@ describe('TTSDriver.synthesize provider routing', () => {
         openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
 
         await withActor(() =>
-            driver.synthesize({ text: 'hi', provider: 'openai', engine: 'tts-1' }),
+            driver.synthesize({
+                text: 'hi',
+                provider: 'openai',
+                engine: 'tts-1',
+            }),
         );
 
         expect(openaiSpeechCreateMock.mock.calls[0][0].model).toBe('tts-1');
@@ -368,6 +386,143 @@ describe('TTSDriver.synthesize provider routing', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+});
+
+// -- Text length cap --
+
+describe('TTSDriver.synthesize text length cap', () => {
+    it('leaves text length to the provider', async () => {
+        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+        const text = 'x'.repeat(3001);
+
+        await withActor(() => driver.synthesize({ text, provider: 'openai' }));
+
+        expect(openaiSpeechCreateMock.mock.calls[0][0].input).toBe(text);
+    });
+});
+
+// -- Gemini behind a custom apiBaseUrl --
+
+describe('TTSDriver Gemini registration with a custom apiBaseUrl', () => {
+    const PROXY = 'https://gemini-proxy.test/v1beta/openai/';
+    const GOOGLE = 'https://generativelanguage.googleapis.com/';
+
+    const wav = Buffer.alloc(64, 7);
+    wav.write('RIFF', 0, 'latin1');
+    wav.write('WAVE', 8, 'latin1');
+    const geminiReply = {
+        status: 'completed',
+        steps: [
+            {
+                type: 'model_output',
+                content: [
+                    {
+                        type: 'audio',
+                        mime_type: 'audio/wav',
+                        data: wav.toString('base64'),
+                    },
+                ],
+            },
+        ],
+        usage: { total_input_tokens: 1, total_output_tokens: 25 },
+    };
+
+    /** Boots a server with `providers`, answering Gemini calls with audio. */
+    const withServer = async (
+        providers: Record<string, unknown>,
+        fn: (tts: TTSDriver) => Promise<void>,
+    ) => {
+        const booted = await setupTestServer({ providers } as never);
+        try {
+            const passthrough = fetchSpy.getMockImplementation()!;
+            fetchSpy.mockImplementation((input, init) =>
+                String(input).startsWith(GOOGLE)
+                    ? Promise.resolve(Response.json(geminiReply))
+                    : passthrough(input, init),
+            );
+            await fn(booted.drivers.aiTts as unknown as TTSDriver);
+        } finally {
+            await booted.shutdown();
+        }
+    };
+
+    const googleCalls = () =>
+        fetchSpy.mock.calls.filter(([url]) => String(url).startsWith(GOOGLE));
+
+    it('leaves Gemini out and answers an explicit request with a config error, without calling Google', async () => {
+        await withServer(
+            { gemini: { apiKey: 'proxy-key', apiBaseUrl: PROXY } },
+            async (tts) => {
+                expect(await tts.list()).not.toContain('gemini');
+
+                const notConfigured = {
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                    message: expect.stringContaining(
+                        'TTS provider not configured: gemini',
+                    ),
+                };
+                await expect(
+                    withActor(() =>
+                        tts.synthesize({ text: 'hi', provider: 'gemini' }),
+                    ),
+                ).rejects.toMatchObject(notConfigured);
+                await expect(
+                    withActor(() =>
+                        tts.synthesize({ text: 'hi', engine: 'google' }),
+                    ),
+                ).rejects.toMatchObject(notConfigured);
+                await expect(
+                    withDriverName('gemini-tts', () =>
+                        tts.synthesize({ text: 'hi' }),
+                    ),
+                ).rejects.toMatchObject(notConfigured);
+                expect(googleCalls()).toHaveLength(0);
+            },
+        );
+    });
+
+    it('sends Google a gemini-tts key, never the proxied gemini key', async () => {
+        await withServer(
+            {
+                gemini: { apiKey: 'proxy-key', apiBaseUrl: PROXY },
+                'gemini-tts': { apiKey: 'tts-key' },
+            },
+            async (tts) => {
+                await withActor(() =>
+                    tts.synthesize({ text: 'hi', provider: 'gemini' }),
+                );
+                const calls = googleCalls();
+                expect(calls).toHaveLength(1);
+                const headers = calls[0]![1]!.headers as Record<string, string>;
+                expect(headers['x-goog-api-key']).toBe('tts-key');
+            },
+        );
+    });
+
+    it.each([
+        'https://generativelanguage.googleapis.com/v1beta/openai/',
+        'https://generativelanguage.googleapis.com/v1beta/openai',
+    ])(
+        'keeps Gemini on the shared key when apiBaseUrl is Google’s own %s',
+        async (apiBaseUrl) => {
+            await withServer(
+                { gemini: { apiKey: 'gem-key', apiBaseUrl } },
+                async (tts) => {
+                    await withActor(() =>
+                        tts.synthesize({ text: 'hi', provider: 'gemini' }),
+                    );
+                    const calls = googleCalls();
+                    expect(calls).toHaveLength(1);
+                    const headers = calls[0]![1]!.headers as Record<
+                        string,
+                        string
+                    >;
+                    expect(headers['x-goog-api-key']).toBe('gem-key');
+                },
+            );
+        },
+    );
 });
 
 // ── list_voices / list_engines aggregation ─────────────────────────
@@ -401,9 +556,9 @@ describe('TTSDriver list_voices / list_engines', () => {
     });
 
     it('list_voices({ provider }) throws 400 when the provider is unknown', async () => {
-        await expect(driver.list_voices({ provider: 'nope' })).rejects.toMatchObject(
-            { statusCode: 400 },
-        );
+        await expect(
+            driver.list_voices({ provider: 'nope' }),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('list_voices() defaults to aws-polly', async () => {
@@ -481,7 +636,9 @@ describe('TTSDriver.synthesize error mapping', () => {
             server.services.metering,
             'incrementUsage',
         );
-        openaiSpeechCreateMock.mockRejectedValueOnce(new Error('upstream blew up'));
+        openaiSpeechCreateMock.mockRejectedValueOnce(
+            new Error('upstream blew up'),
+        );
 
         await expect(
             withActor(() =>

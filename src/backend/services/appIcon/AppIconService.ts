@@ -20,6 +20,7 @@
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
 import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     APP_ICONS_SUBDOMAIN,
     ensureSystemSite,
@@ -177,13 +178,19 @@ export class AppIconService extends PuterService {
         if (!base) return null;
         const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
         const sizedPath = `${APP_ICONS_PATH_PREFIX}/${SIZED_ICON_FILENAME(normalized, size)}`;
-        const sizedExists = await this.stores.fsEntry.getEntryByPath(sizedPath);
-        if (sizedExists)
-            return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
         const originalPath = `${APP_ICONS_PATH_PREFIX}/${ORIGINAL_ICON_FILENAME(normalized)}`;
-        const originalExists =
-            await this.stores.fsEntry.getEntryByPath(originalPath);
-        if (originalExists)
+        // Both probed at once; the sized one still decides first. Icons are
+        // only ever written with a path, so a missing original skips the
+        // legacy lineage walk.
+        const sizedLookup = this.stores.fsEntry.getEntryByPath(sizedPath);
+        const originalLookup = awaitLater(
+            this.stores.fsEntry.getEntryByPath(originalPath, {
+                lineage: false,
+            }),
+        );
+        if (await sizedLookup)
+            return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
+        if (await originalLookup)
             return `${base}/${ORIGINAL_ICON_FILENAME(normalized)}`;
         return null;
     }
@@ -326,11 +333,10 @@ export class AppIconService extends PuterService {
             '',
         );
         if (apiBase) {
-            await this.clients.db.write(
-                "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",
-                [`${apiBase}/app-icon/${appUid}`, appUid],
+            await this.stores.app.replaceDataUrlIcon(
+                appUid,
+                `${apiBase}/app-icon/${appUid}`,
             );
-            await this.stores.app.invalidateByUid(appUid);
             this.clients.event.emit(
                 'app.changed',
                 {

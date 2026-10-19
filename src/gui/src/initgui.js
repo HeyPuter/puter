@@ -85,7 +85,13 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenAtBoot, relationshipIsConsent, runsUserAppTokenExchange } from './util/popupAuth.js';
+import {
+    deliversTokenAtBoot,
+    relationshipIsConsent,
+    relaysTokenAtBoot,
+    resolveOpenerOrigin,
+    runsUserAppTokenExchange,
+} from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 /**
@@ -351,8 +357,10 @@ const postAuthActions = async (action) => {
         // rule as the postMessage hand-off below — otherwise adding one query
         // parameter to a `request-permission` URL turns the permission prompt
         // into a token grant, and skips the prompt entirely.
-        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
-            && deliversTokenAtBoot(action);
+        let isolated = relaysTokenAtBoot(
+            action,
+            window.url_query_params.get('cross_origin_isolated') === 'true',
+        );
         let session = window.url_query_params.get('signin_session');
 
         // Signing the opener in is something the user has to have asked for.
@@ -527,6 +535,15 @@ const postAuthActions = async (action) => {
         };
         window.deliverPopupTokenToOpener = deliver_token_with_answer;
 
+        // The Cancel button closes the popup before on_close runs, so pickers
+        // report through onDialogCancel too. Escape only reaches on_close.
+        const tell_opener_cancelled = (msg) => {
+            window.opener?.postMessage({
+                msg,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
         if ( action === 'show-open-file-picker' ) {
             let options = window.url_query_params.get('options');
             options = JSON.parse(options ?? '{}');
@@ -550,12 +567,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'fileOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('fileOpenCancelled'),
+                on_close: () => tell_opener_cancelled('fileOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -580,12 +593,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'directoryOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('directoryOpenCancelled'),
+                on_close: () => tell_opener_cancelled('directoryOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -624,12 +633,8 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                        on_close: function () {
-                        window.opener.postMessage({
-                            msg: 'fileSaveCanceled',
-                            original_msg_id: msg_id,
-                        }, '*');
-                    },
+                    onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
+                    on_close: () => tell_opener_cancelled('fileSaveCancelled'),
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                         let busy_init_ts = Date.now();
@@ -1355,7 +1360,7 @@ window.initgui = async function (options) {
     // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
     $('head').append(
-        '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">',
     );
 
     // will hold the result of the whoami API call
@@ -1487,14 +1492,19 @@ window.initgui = async function (options) {
             window.url_query_params.get('msg_id'),
             action,
         );
-        window.openerOrigin =
-            window.oidcPopupReturn?.opener_origin || document.referrer;
-        if (!window.openerOrigin) {
-            try {
-                window.openerOrigin = await requestOpenerOrigin();
-            } catch (e) {
-                throw new Error('No referrer found');
-            }
+        try {
+            window.openerOrigin = await resolveOpenerOrigin({
+                relaysToken: relaysTokenAtBoot(
+                    action,
+                    window.url_query_params.get('cross_origin_isolated') ===
+                        'true',
+                ),
+                oidcOpenerOrigin: window.oidcPopupReturn?.opener_origin,
+                referrer: document.referrer,
+                askOpener: requestOpenerOrigin,
+            });
+        } catch (e) {
+            throw new Error('No referrer found');
         }
 
         // Everything below needs an origin to identify the opener by.

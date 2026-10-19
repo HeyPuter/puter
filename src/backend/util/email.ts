@@ -18,8 +18,8 @@
  */
 
 /**
- * Email normalization + block-list check. Stateless — used by AuthController
- * (signup / change-email / save-account).
+ * Email normalization + block-list check. Stateless; every path that matches,
+ * keys or blocks on an address uses these rules.
  *
  * CleanEmail('foo.bar+tag@gmail.com') === 'foobar@gmail.com'
  * isBlockedEmail('temp@mailinator.com', ['mailinator.com']) === true
@@ -147,6 +147,20 @@ export function cleanEmail(email: string): string {
     return `${parts.local}@${parts.domain}`;
 }
 
+/**
+ * Whether a stored address is the one looked up, ignoring case. Re-check SQL
+ * email matches with this: the MySQL collations also fold accents (`á` = `a`).
+ */
+export function isSameAddress(
+    stored: string | null | undefined,
+    lookedUp: string,
+): boolean {
+    return (
+        typeof stored === 'string' &&
+        stored.trim().toLowerCase() === lookedUp.trim().toLowerCase()
+    );
+}
+
 /** Storage gate; `isEmail` alone throws on non-strings and passes quoted parts. */
 export function isStorableEmail(email: unknown): boolean {
     return (
@@ -170,7 +184,8 @@ export function isProviderCanonicalized(email: string): boolean {
 
 /**
  * Returns true when the (cleaned) email matches any of the blocked domain
- * suffixes. Suffix-match so `mailinator.com` blocks `foo@bar.mailinator.com`.
+ * suffixes. Suffix-match so `mailinator.com` blocks `foo@bar.mailinator.com`;
+ * case-insensitive on both sides.
  */
 export function isBlockedEmail(
     email: string,
@@ -178,5 +193,7 @@ export function isBlockedEmail(
 ): boolean {
     if (!blockedDomains || blockedDomains.length === 0) return false;
     const clean = cleanEmail(email);
-    return blockedDomains.some((suffix) => clean.endsWith(suffix));
+    return blockedDomains.some((suffix) =>
+        clean.endsWith(suffix.toLowerCase()),
+    );
 }

@@ -640,6 +640,115 @@ describe('UserStore batched and uncached lookups', () => {
     });
 });
 
+describe('UserStore address lookups under a folding collation', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    /**
+     * Have the database match `typed` to rows holding `stored`, the way MySQL's
+     * accent- and case-insensitive collations do. sqlite compares bytes.
+     */
+    const foldOnto = (typed: string, stored: string) => {
+        const db = server.clients.db;
+        const fold = (params: unknown[] = []) =>
+            params.map((p) => (p === typed ? stored : p));
+        const realRead = db.read.bind(db);
+        const realWrite = db.write.bind(db);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation((q, p) => realRead(q, fold(p)));
+        const write = vi
+            .spyOn(db, 'write')
+            .mockImplementation((q, p) => realWrite(q, fold(p)));
+        return () => {
+            read.mockRestore();
+            write.mockRestore();
+        };
+    };
+
+    const makeOwner = async (email: string) =>
+        server.stores.user.create({
+            username: `ua-${Math.random().toString(36).slice(2, 10)}`,
+            uuid: uuidv4(),
+            password: 'hashed',
+            email,
+            clean_email: cleanEmail(email),
+            email_confirmed: true,
+        });
+
+    it('does not resolve an address to an accent variant of it', async () => {
+        const local = `x${Math.random().toString(36).slice(2, 10)}`;
+        await makeOwner(`${local}@exámple.org`);
+        const typed = `${local}@example.org`;
+
+        const restore = foldOnto(typed, `${local}@exámple.org`);
+        try {
+            expect(
+                await server.stores.user.getByEmail(typed, { cached: false }),
+            ).toBeNull();
+            expect(await server.stores.user.findEmailOwner(typed)).toBeNull();
+            expect(await server.stores.user.getByCleanEmail(typed)).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    it('still resolves an address typed in another case', async () => {
+        const local = `x${Math.random().toString(36).slice(2, 10)}`;
+        const owner = await makeOwner(`${local}@exámple.org`);
+        const typed = `${local.toUpperCase()}@EXÁMPLE.ORG`;
+
+        const restore = foldOnto(typed, `${local}@exámple.org`);
+        try {
+            expect(
+                (await server.stores.user.getByEmail(typed, { cached: false }))
+                    ?.id,
+            ).toBe(owner.id);
+            expect((await server.stores.user.findEmailOwner(typed))?.id).toBe(
+                owner.id,
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('leaves an accent variant alone when an address is taken', async () => {
+        const local = `x${Math.random().toString(36).slice(2, 10)}`;
+        const twin = await makeOwner(`${local}@exámple.org`);
+        const taker = await server.stores.user.create({
+            username: `ut-${Math.random().toString(36).slice(2, 10)}`,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+        });
+        const typed = `${local}@example.org`;
+
+        const restore = foldOnto(typed, `${local}@exámple.org`);
+        try {
+            await server.stores.user.unconfirmOthersByEmail(
+                taker.id,
+                typed,
+                typed,
+            );
+        } finally {
+            restore();
+        }
+
+        const after = await server.stores.user.getById(twin.id, {
+            force: true,
+        });
+        expect(after?.email).toBe(`${local}@exámple.org`);
+        expect(after?.email_confirmed).toBe(true);
+    });
+});
+
 describe('UserStore deleted-row tombstones', () => {
     let server: PuterServer;
 

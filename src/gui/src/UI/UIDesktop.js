@@ -49,6 +49,7 @@ import { notificationTarget } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
+import { resolve_default_app } from '../helpers/defaultApp.js';
 
 async function UIDesktop (options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -721,7 +722,15 @@ async function UIDesktop (options) {
 
     // load window sidebar items from KV
     puter.kv.get('sidebar_items').then(async (val) => {
-        window.sidebar_items = val;
+        // UIWindow parses this and reads `item.path` while building every
+        // explorer window, so a malformed value is dropped for the defaults.
+        let items = null;
+        try {
+            items = JSON.parse(val);
+        } catch { /* keep the defaults */ }
+        if ( Array.isArray(items) && items.every(item => typeof item?.path === 'string') ) {
+            window.sidebar_items = val;
+        }
     // Catch on the chain rather than the read, so a failure leaves whatever is
     // already there instead of overwriting it with a fallback.
     }).catch(err => console.warn('Could not load sidebar_items:', err));
@@ -1785,12 +1794,11 @@ async function UIDesktop (options) {
                 return;
             }
 
-            const ext_pref =
-                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
-
-            if ( ext_pref ) {
+            const default_app = await resolve_default_app({ uid: stat.uid, path: item_path });
+            if ( default_app ) {
                 launch_app({
-                    name: ext_pref,
+                    name: default_app.name,
+                    app_obj: default_app,
                     file_path: item_path,
                 });
                 return;

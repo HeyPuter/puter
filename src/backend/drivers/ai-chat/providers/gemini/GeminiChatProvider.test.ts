@@ -48,9 +48,12 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { normalize_messages } from '../../utils/Messages.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { GEMINI_MODELS } from './models.js';
 import { GeminiChatProvider } from './GeminiChatProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
+import { costsForRequest, listedCosts } from '../../utils/pricing.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 //
@@ -97,9 +100,10 @@ afterAll(async () => {
 });
 
 const makeProvider = () => {
-    const provider = new GeminiChatProvider(server.services.metering, {
-        apiKey: 'test-key',
-    });
+    const provider = new GeminiChatProvider(
+        { apiKey: 'test-key' },
+        server.services.metering,
+    );
     return { provider };
 };
 
@@ -150,6 +154,8 @@ describe('GeminiChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -170,7 +176,7 @@ describe('GeminiChatProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of GEMINI_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -190,7 +196,7 @@ describe('GeminiChatProvider model catalog', () => {
     // flattening the catalog itself.
     it('list() emits every id exactly once', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         expect(ids).toHaveLength(new Set(ids).size);
     });
 });
@@ -281,6 +287,46 @@ describe('GeminiChatProvider.complete request shape', () => {
 
         const [args] = createMock.mock.calls[0]!;
         expect('cache_control' in args.messages[0]).toBe(false);
+    });
+
+    it('replays a tool call with its thought signature', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: normalize_messages([
+                    { role: 'user', content: 'Weather in Paris?' },
+                    {
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: [
+                            {
+                                id: 'fc_1',
+                                type: 'function',
+                                function: {
+                                    name: 'get_weather',
+                                    arguments: '{"city":"Paris"}',
+                                },
+                                extra_content: {
+                                    google: { thought_signature: 'c2lnLTE=' },
+                                },
+                            },
+                        ],
+                    },
+                    { role: 'tool', tool_call_id: 'fc_1', content: '18C' },
+                ]),
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.messages[1].tool_calls).toEqual([
+            expect.objectContaining({
+                id: 'fc_1',
+                extra_content: { google: { thought_signature: 'c2lnLTE=' } },
+            }),
+        ]);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -391,57 +437,199 @@ describe('GeminiChatProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe('gemini-2.5-flash');
-    });
-
-    it.each([
-        'gemini-3.1-flash-lite',
-        'gemini-3.1-flash-lite-preview',
-        'gemini-3-flash-preview',
-    ])('drops the deprecated %s instead of redirecting it', async (model) => {
-        const { provider } = makeProvider();
-        const ids = await provider.list();
-        expect(ids).not.toContain(model);
-        expect(ids).not.toContain(`google/${model}`);
-    });
-
-    it.each([
-        ['gemini-3.1-pro-preview-customtools', 200, 1200, 20],
-        ['gemini-robotics-er-2-preview', 100, 500, 10],
-    ])(
-        'sends %s under its own id and prices it at list rates',
-        async (model, input, output, cached) => {
-            const { provider } = makeProvider();
-            createMock.mockResolvedValueOnce(baseCompletion);
-
-            await withTestActor(() =>
+        await expect(
+            withTestActor(() =>
                 provider.complete({
-                    model,
+                    model: 'totally-not-a-real-model',
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
-            );
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
+    });
 
-            expect(createMock.mock.calls[0]![0].model).toBe(model);
-            expect(
-                GEMINI_MODELS.find((m) => m.id === model)?.costs,
-            ).toMatchObject({
-                prompt_tokens: input,
-                completion_tokens: output,
-                cached_tokens: cached,
+    it('drops the deprecated gemini-3.1-flash-lite-preview instead of redirecting it', async () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(await provider.models());
+        expect(ids).not.toContain('gemini-3.1-flash-lite-preview');
+        expect(ids).not.toContain('google/gemini-3.1-flash-lite-preview');
+    });
+});
+
+// -- Scheduled and prompt-size pricing -------------------------------
+
+describe('GeminiChatProvider pricing tiers', () => {
+    const completion = (usage: Record<string, unknown>) => ({
+        choices: [
+            {
+                message: { content: 'ok', role: 'assistant' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage,
+    });
+
+    const settle = async (
+        model: string,
+        usage: Record<string, unknown>,
+        pricingTime: Date,
+    ) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(completion(usage));
+        await withTestActor(() =>
+            provider.complete(
+                { model, messages: [{ role: 'user', content: 'hi' }] },
+                undefined,
+                pricingTime,
+            ),
+        );
+        expect(createMock.mock.calls[0]![0].model).toBe(model);
+        return recordSpy.mock.calls[0]![3];
+    };
+
+    // gemini-3.5-flash and gemini-3.7-flash are served by 3.6 and 3.8 Flash.
+    const SCHEDULED = [
+        'gemini-3.5-flash',
+        'gemini-3.6-flash',
+        'gemini-3.7-flash',
+        'gemini-3.8-flash',
+    ].flatMap((model) => [
+        [model, '2026-12-31T23:59:59.999Z', 75, 375, 7.5] as const,
+        [model, '2027-01-01T00:00:00.000Z', 150, 750, 15] as const,
+    ]);
+
+    it.each([
+        ...SCHEDULED,
+        ['gemini-robotics-er-2-preview', '2026-12-31T23:59:59.999Z', 100, 500, 10] as const,
+        ['gemini-robotics-er-2-preview', '2027-01-01T00:00:00.000Z', 200, 1000, 20] as const,
+    ])(
+        'settles %s started at %s at its rates in force',
+        async (model, iso, input, output, cached) => {
+            const overrides = await settle(
+                model,
+                {
+                    prompt_tokens: 1000,
+                    completion_tokens: 60,
+                    completion_tokens_details: { reasoning_tokens: 20 },
+                    prompt_tokens_details: { cached_tokens: 400 },
+                },
+                new Date(iso),
+            );
+            expect(overrides).toEqual({
+                prompt_tokens: 600 * input,
+                completion_tokens: 40 * output,
+                cached_tokens: 400 * cached,
+                thinking_tokens: 20 * output,
+                grounding_requests: 0,
             });
         },
     );
+
+    it.each(['gemini-3.6-flash', 'gemini-robotics-er-2-preview'])(
+        'lists %s at launch rates before the cutoff and doubled from it',
+        (id) => {
+            const model = GEMINI_MODELS.find((m) => m.id === id)!;
+            const before = listedCosts(
+                model,
+                new Date('2026-12-31T23:59:59.999Z'),
+            );
+            const after = listedCosts(model, new Date('2027-01-01T00:00:00Z'));
+            for (const key of [
+                'prompt_tokens',
+                'completion_tokens',
+                'thinking_tokens',
+                'cached_tokens',
+            ]) {
+                expect(after[key]).toBe(before[key]! * 2);
+            }
+            expect(after.grounding_requests).toBe(1_400_000);
+        },
+    );
+
+    describe.each([
+        'gemini-3.1-pro-preview',
+        'gemini-3.1-pro-preview-customtools',
+    ])('%s long-context tier', (model) => {
+        const NOW = new Date('2026-10-14T12:00:00Z');
+
+        it('bills a 200,000-token prompt, cached tokens included, at base rates', async () => {
+            const overrides = await settle(
+                model,
+                {
+                    prompt_tokens: 200_000,
+                    completion_tokens: 100,
+                    completion_tokens_details: { reasoning_tokens: 40 },
+                    prompt_tokens_details: { cached_tokens: 150_000 },
+                },
+                NOW,
+            );
+            expect(overrides).toEqual({
+                prompt_tokens: 50_000 * 200,
+                completion_tokens: 60 * 1200,
+                cached_tokens: 150_000 * 20,
+                thinking_tokens: 40 * 1200,
+                grounding_requests: 0,
+            });
+        });
+
+        it('bills every token of a longer prompt at the long-context rates once', async () => {
+            const overrides = await settle(
+                model,
+                {
+                    prompt_tokens: 200_001,
+                    completion_tokens: 100,
+                    completion_tokens_details: { reasoning_tokens: 40 },
+                    prompt_tokens_details: { cached_tokens: 150_000 },
+                },
+                NOW,
+            );
+            expect(overrides).toEqual({
+                prompt_tokens: 50_001 * 400,
+                completion_tokens: 60 * 1800,
+                cached_tokens: 150_000 * 40,
+                thinking_tokens: 40 * 1800,
+                grounding_requests: 0,
+            });
+        });
+
+        it('holds and lists by the same tier the request settles at', () => {
+            const entry = GEMINI_MODELS.find((m) => m.id === model)!;
+            expect(costsForRequest(entry, 200_000, NOW)).toMatchObject({
+                prompt_tokens: 200,
+                completion_tokens: 1200,
+                cached_tokens: 20,
+            });
+            expect(costsForRequest(entry, 200_001, NOW)).toMatchObject({
+                prompt_tokens: 400,
+                completion_tokens: 1800,
+                thinking_tokens: 1800,
+                cached_tokens: 40,
+                grounding_requests: 1_400_000,
+            });
+            expect(listedCosts(entry, NOW)).toBe(entry.costs);
+        });
+    });
+
+    it('prices gemini-2.5-pro at its list rates on both sides of 200,000 tokens', () => {
+        const entry = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-pro')!;
+        const now = new Date('2026-10-14T12:00:00Z');
+        expect(costsForRequest(entry, 200_000, now)).toMatchObject({
+            prompt_tokens: 125,
+            completion_tokens: 1000,
+            thinking_tokens: 1000,
+            cached_tokens: 12.5,
+        });
+        expect(costsForRequest(entry, 200_001, now)).toMatchObject({
+            prompt_tokens: 250,
+            completion_tokens: 1500,
+            thinking_tokens: 1500,
+            cached_tokens: 25,
+            grounding_requests: 3_500_000,
+        });
+    });
 });
 
 // ── Non-stream completion ───────────────────────────────────────────
@@ -866,11 +1054,10 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
 // ── Error mapping ───────────────────────────────────────────────────
 
 describe('GeminiChatProvider.complete error mapping', () => {
-    it('logs and rethrows errors raised by the OpenAI client unchanged', async () => {
+    it('rethrows errors raised by the OpenAI client unchanged', async () => {
         const { provider } = makeProvider();
         const apiError = new Error('Gemini exploded');
         createMock.mockRejectedValueOnce(apiError);
-        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -881,7 +1068,6 @@ describe('GeminiChatProvider.complete error mapping', () => {
             ),
         ).rejects.toBe(apiError);
 
-        expect(errSpy).toHaveBeenCalled();
         expect(recordSpy).not.toHaveBeenCalled();
     });
 });
@@ -892,7 +1078,7 @@ describe('GeminiChatProvider.checkModeration', () => {
     it('throws — Gemini provider does not implement moderation', () => {
         const { provider } = makeProvider();
         expect(() => provider.checkModeration('anything')).toThrow(
-            /no moderation/i,
+            /not implemented/i,
         );
     });
 });

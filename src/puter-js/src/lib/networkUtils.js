@@ -644,7 +644,16 @@ function sendOnce(spec, readSafe = false) {
                     while (lines.length > 0) {
                         const line = lines.shift();
                         if (line.trim() === '') continue;
-                        yield JSON.parse(line);
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(line);
+                        } catch {
+                            throw {
+                                message: 'Invalid or truncated stream response.',
+                                code: 'invalid_stream_response',
+                            };
+                        }
+                        yield parsed;
                         if (streamError) throw streamError;
                     }
                     if (responseComplete) break;
@@ -1159,7 +1168,10 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
             try {
                 const encoder = new TextEncoder();
                 for await (const part of stream) {
-                    controller.enqueue(encoder.encode(part));
+                    const text = (part.type === 'text' || !part.type) && typeof part.text === 'string'
+                        ? part.text
+                        : `${JSON.stringify(part)}\n`;
+                    controller.enqueue(encoder.encode(text));
                 }
                 controller.close();
             } catch (error) {
@@ -1185,6 +1197,7 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
  *     onError?: (error: unknown) => void;
  *     upgradePrompt?: UpgradePromptContext;
  *     timeout?: number;
+ *     signal?: AbortSignal;
  * }} [opts]
  *   `readonly` marks the method retry-safe on transient failures (a
  *   rate/concurrency 429 replays either way — see GATE_REJECT_STATUS),
@@ -1203,6 +1216,7 @@ async function driverCall(call, opts = {}) {
         onError,
         upgradePrompt,
         timeout,
+        signal,
     } = opts;
     const puter = callInstance(call);
     const promptContext = {
@@ -1238,6 +1252,7 @@ async function driverCall(call, opts = {}) {
         // Rebuilt per attempt, so a reauth replay carries the fresh token.
         buildBody: () => callBody(call, puter),
         timeout,
+        signal,
     };
 
     return await sendWithRetry(spec, {

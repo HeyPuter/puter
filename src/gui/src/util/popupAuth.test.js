@@ -25,6 +25,8 @@ import {
     deliversTokenToOpener,
     offersFederatedSignInInPopup,
     relationshipIsConsent,
+    relaysTokenAtBoot,
+    resolveOpenerOrigin,
     runsUserAppTokenExchange,
 } from './popupAuth.js';
 
@@ -198,6 +200,81 @@ describe('relationshipIsConsent', () => {
             expect(defersTokenToOpener(action)).toBe(true);
             expect(runsUserAppTokenExchange(action)).toBe(true);
         }
+    });
+});
+
+describe('relaysTokenAtBoot', () => {
+    it('relays only for an isolated popup that hands over a token at boot', () => {
+        expect(relaysTokenAtBoot('sign-in', true)).toBe(true);
+        expect(relaysTokenAtBoot(undefined, true)).toBe(true);
+        expect(relaysTokenAtBoot('sign-in', false)).toBe(false);
+        expect(relaysTokenAtBoot('request-permission', true)).toBe(false);
+        expect(relaysTokenAtBoot('show-open-file-picker', true)).toBe(false);
+    });
+});
+
+describe('resolveOpenerOrigin', () => {
+    const OPENER = 'https://opener.example';
+    const OTHER_APP = 'https://other-app.example';
+    // What a page running puter.js answers the handshake with: its own origin,
+    // whichever app the opener window has navigated to by then.
+    const answeredBy = (origin) => async () => origin;
+
+    it('never asks the opener when the token goes to the relay', async () => {
+        let asked = false;
+        const origin = await resolveOpenerOrigin({
+            relaysToken: true,
+            oidcOpenerOrigin: undefined,
+            referrer: '',
+            askOpener: async () => {
+                asked = true;
+                return OTHER_APP;
+            },
+        });
+        expect(asked).toBe(false);
+        expect(origin).toBe('');
+    });
+
+    it('uses the referrer for a relay popup', async () => {
+        const origin = await resolveOpenerOrigin({
+            relaysToken: true,
+            oidcOpenerOrigin: undefined,
+            referrer: OPENER,
+            askOpener: answeredBy(OTHER_APP),
+        });
+        expect(origin).toBe(OPENER);
+    });
+
+    it('ignores an OIDC proof for a relay popup', async () => {
+        // The proof's origin may itself have come from the handshake.
+        const origin = await resolveOpenerOrigin({
+            relaysToken: true,
+            oidcOpenerOrigin: OTHER_APP,
+            referrer: OPENER,
+            askOpener: answeredBy(OTHER_APP),
+        });
+        expect(origin).toBe(OPENER);
+    });
+
+    it('prefers the OIDC proof, then the referrer, then the handshake otherwise', async () => {
+        const base = { relaysToken: false, askOpener: answeredBy(OTHER_APP) };
+        expect(await resolveOpenerOrigin({ ...base, oidcOpenerOrigin: OPENER, referrer: 'https://idp.example' }))
+            .toBe(OPENER);
+        expect(await resolveOpenerOrigin({ ...base, oidcOpenerOrigin: null, referrer: OPENER }))
+            .toBe(OPENER);
+        expect(await resolveOpenerOrigin({ ...base, oidcOpenerOrigin: null, referrer: '' }))
+            .toBe(OTHER_APP);
+    });
+
+    it('surfaces a failed handshake', async () => {
+        await expect(resolveOpenerOrigin({
+            relaysToken: false,
+            oidcOpenerOrigin: null,
+            referrer: '',
+            askOpener: async () => {
+                throw new Error('No window.opener available');
+            },
+        })).rejects.toThrow('No window.opener available');
     });
 });
 

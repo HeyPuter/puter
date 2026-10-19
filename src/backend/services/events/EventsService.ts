@@ -102,6 +102,7 @@ import {
     KV_GLOBAL_APP_KEY,
     parseKvNamespace,
 } from '../../stores/systemKv/SystemKVStore.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     openCursor,
     sealCursor,
@@ -2197,9 +2198,9 @@ export class EventsService extends PuterService {
     ): Promise<PublishedHandlerView> {
         await this.#spendHandlerBudget(actor);
         const appUid = await this.#handlerApp(actor, request?.appUid);
-        const before = await this.stores.eventHandler.countForApp(appUid);
-        const result = await this.#publishOne(appUid, request);
-        await this.#maybeAnnounceWorkerCreate(appUid, before);
+        const before = awaitLater(this.stores.eventHandler.countForApp(appUid));
+        const result = await this.#publishOne(appUid, request, before);
+        await this.#maybeAnnounceWorkerCreate(appUid, await before);
         return result;
     }
 
@@ -2227,19 +2228,24 @@ export class EventsService extends PuterService {
                 'bad_request',
             );
 
-        const before = await this.stores.eventHandler.countForApp(appUid);
+        const before = awaitLater(this.stores.eventHandler.countForApp(appUid));
         const published: PublishedHandlerView[] = [];
         try {
             for (const item of handlers) {
-                if (!item || typeof item !== 'object' || Array.isArray(item))
+                if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                    // The count is read ahead of every item, so its failure
+                    // is the one to surface.
+                    await before;
                     throw badRequest(
                         'each handler must be an object',
                         'bad_request',
                     );
+                }
                 published.push(
                     await this.#publishOne(
                         appUid,
                         item as PublishHandlerRequest,
+                        before,
                     ),
                 );
             }
@@ -2247,7 +2253,7 @@ export class EventsService extends PuterService {
             // A refused item stops the pass but leaves the ones before it
             // published, and those are what stood the worker up.
             if (published.length > 0)
-                await this.#maybeAnnounceWorkerCreate(appUid, before);
+                await this.#maybeAnnounceWorkerCreate(appUid, await before);
         }
         return published;
     }
@@ -3133,14 +3139,23 @@ export class EventsService extends PuterService {
         if (!ok) throw tooManyCalls();
     }
 
-    /** One publish, and whatever it releases. */
+    /**
+     * One publish, and whatever it releases. `before` is the request's handler
+     * count, read alongside this publish's own reads and settled before it
+     * writes.
+     */
     async #publishOne(
         appUid: string,
         item: PublishHandlerRequest,
+        before: Promise<number>,
     ): Promise<PublishedHandlerView> {
         const name = String(item?.name ?? '');
         const source = typeof item?.source === 'string' ? item.source : '';
-        await this.#assertHandlerSetSize(appUid, name, source);
+        const sizeChecked = awaitLater(
+            this.#assertHandlerSetSize(appUid, name, source),
+        );
+        await before;
+        await sizeChecked;
 
         const { handler, outcome } = await this.stores.eventHandler.publish({
             appUid,
@@ -4753,11 +4768,18 @@ export class EventsService extends PuterService {
         if (background.length === 0) return [];
 
         const deps = this.#aclDeps();
+        // Rows of one holder and app stand on one consent: ask it once.
+        const consent = new Map<string, Promise<boolean>>();
+        const consented = async (row: DurableSubscription) => {
+            const actor = await resolveGrantActor(row, deps);
+            return actor !== null && (await this.#hasBackgroundConsent(actor));
+        };
         const settling: DurableSubscription[] = [];
         for (const row of background) {
-            const actor = await resolveGrantActor(row, deps);
-            if (actor && (await this.#hasBackgroundConsent(actor))) continue;
-            settling.push(row);
+            const key = `${row.holderUserId}|${row.appUid ?? ''}`;
+            const asked = consent.get(key) ?? consented(row);
+            consent.set(key, asked);
+            if (!(await asked)) settling.push(row);
         }
         return settling;
     }
@@ -6091,7 +6113,7 @@ export class EventsService extends PuterService {
 
     /**
      * Whether this user has anything subscribed at all. Warm, a `Map` read;
-     * cold, one `EXISTS` — behind, at most once per warm window, the table read
+     * cold, one pipeline — behind, at most once per warm window, the table read
      * that teaches this region about durable rows it has never seen. Without
      * that, an empty watched set is ambiguous: it means "nobody is listening"
      * in a region that has looked, and nothing at all in one that has not.
@@ -6123,9 +6145,12 @@ export class EventsService extends PuterService {
 
     async #lookUpHasAny(userId: number, epoch: number): Promise<boolean> {
         try {
-            await this.stores.durableSubscription.warmRegion(userId);
-            const hasAny =
-                await this.stores.eventSubscription.userHasAny(userId);
+            let hasAny =
+                await this.stores.eventSubscription.userHasAnyIfWarm(userId);
+            if (hasAny === null) {
+                await this.stores.durableSubscription.warmRegion(userId);
+                hasAny = await this.stores.eventSubscription.userHasAny(userId);
+            }
             this.#cache.write(userId, epoch, hasAny);
             return hasAny;
         } catch {
@@ -6230,7 +6255,8 @@ export class EventsService extends PuterService {
     #anchorDeps(): FsAnchorDeps {
         return {
             resolveNode: (ref) => resolveNode(this.stores.fsEntry, ref),
-            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getAncestorChain: (path) =>
+                this.stores.fsEntry.getAncestorChain(path),
         };
     }
 
@@ -6254,7 +6280,8 @@ export class EventsService extends PuterService {
     #aclDeps(): EventAclDeps {
         return {
             acl: this.services.acl,
-            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getAncestorChain: (path) =>
+                this.stores.fsEntry.getAncestorChain(path),
             getUser: (userId) => this.stores.user.getById(userId),
             getApp: (uid) => this.stores.app.getByUid(uid),
             getCacheGeneration: (uid) =>

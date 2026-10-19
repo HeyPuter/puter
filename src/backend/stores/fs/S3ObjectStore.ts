@@ -649,6 +649,15 @@ export class S3ObjectStore extends PuterStore {
                 : Readable.fromWeb(
                       body as unknown as import('node:stream/web').ReadableStream,
                   );
+        // The body can fail before its consumer attaches (the connection drops
+        // while the caller is still awaiting something else), and an 'error'
+        // with no listener exits the process. Consumers still get the error
+        // through their own listener, pipeline or iterator.
+        stream.on('error', (err) => {
+            if (stream.listenerCount('error') === 1) {
+                console.warn('[s3] object stream failed with no reader', err);
+            }
+        });
 
         return {
             body: stream,

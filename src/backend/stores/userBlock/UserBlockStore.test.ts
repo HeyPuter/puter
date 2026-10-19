@@ -64,6 +64,25 @@ describe('UserBlockStore', () => {
         expect(await store.isBlocked(blocker.id, blocked.id)).toBe(false);
     });
 
+    it('says which of many users block one sender', async () => {
+        const sender = await makeUser();
+        const [a, b, c] = [
+            await makeUser(),
+            await makeUser(),
+            await makeUser(),
+        ];
+        const store = server.stores.userBlock;
+        await store.create(a.id, sender.id);
+        await store.create(c.id, b.id);
+
+        const blockers = await store.blockersAmong(
+            [a.id, b.id, c.id],
+            sender.id,
+        );
+        expect([...blockers]).toEqual([a.id]);
+        expect(await store.blockersAmong([], sender.id)).toEqual(new Set());
+    });
+
     it('lists a blocker’s own rows, most recent first', async () => {
         const blocker = await makeUser();
         const other = await makeUser();

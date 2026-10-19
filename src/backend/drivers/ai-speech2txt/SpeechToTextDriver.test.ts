@@ -194,10 +194,10 @@ describe('SpeechToTextDriver.getReportedCosts', () => {
     it('mirrors every entry in costs.ts as a per-second line item', () => {
         const reported = driver.getReportedCosts();
 
-        // One extra line item comes from the xAI provider, which the
-        // driver aggregates alongside OpenAI's catalogue.
+        // The driver aggregates the xAI line item and Gemini's two token
+        // rates alongside OpenAI's catalogue.
         expect(reported).toHaveLength(
-            Object.keys(SPEECH_TO_TEXT_COSTS).length + 1,
+            Object.keys(SPEECH_TO_TEXT_COSTS).length + 3,
         );
         for (const [usageType, ucentsPerUnit] of Object.entries(
             SPEECH_TO_TEXT_COSTS,
@@ -520,6 +520,24 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
 
         const sent = transcriptionsCreateMock.mock.calls[0]![0];
         expect(sent.timestamp_granularities).toBeUndefined();
+    });
+
+    it('accepts but does not forward chunking or known-speaker options', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                chunking_strategy: 'auto',
+                known_speaker_names: ['agent'],
+            }),
+        );
+
+        expect(result).toEqual({ text: 'x' });
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.chunking_strategy).toBeUndefined();
+        expect(sent.known_speaker_names).toBeUndefined();
     });
 
     it('passes extra_body through verbatim', async () => {

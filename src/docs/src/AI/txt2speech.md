@@ -20,7 +20,7 @@ puter.ai.txt2speech(text, language, voice, engine, testMode = false)
 
 #### `text` (String) (required)
 
-A string containing the text you want to convert to speech. The text must be less than 3000 characters long. Defaults to AWS Polly provider when no options are provided.
+A string containing the text you want to convert to speech. The text can be up to 3,000 characters long. Longer text is rejected with an `input_too_large` error. Defaults to AWS Polly provider when no options are provided.
 
 #### `testMode` (Boolean) (optional)
 
@@ -68,9 +68,11 @@ Available when `provider: 'elevenlabs'`:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_v4'`, `'eleven_v4_turbo'`, `'eleven_v3'`, `'eleven_v3_conversational'`, `'eleven_flash_v2_5'`, `'eleven_flash_v2'` |
-| `voice` | `String` | Voice ID. Defaults to `'21m00Tcm4TlvDq8ikWAM'` (Rachel sample voice) |
-| `output_format` | `String` | Output format. Defaults to `'mp3_44100_128'` |
+| `voice` | `String` | Voice ID, or a case-sensitive voice name from `listVoices({ provider: 'elevenlabs' })`. Premade voices also match their short name, so `'Bella'` selects `'Bella - Professional, Bright, Warm'`. Defaults to `'21m00Tcm4TlvDq8ikWAM'` |
+| `output_format` | `String` | Output format as `codec_samplerate[_bitrate]`: `'mp3_22050_32'`, `'mp3_24000_48'`, `'mp3_44100_32'`, `'mp3_44100_64'`, `'mp3_44100_96'`, `'mp3_44100_128'` (default), `'mp3_44100_192'`, `'opus_48000_32'` through `'opus_48000_192'`, `'pcm_8000'` through `'pcm_48000'`, `'wav_8000'` through `'wav_48000'`, `'ulaw_8000'`, or `'alaw_8000'`. `response_format` is accepted as a fallback; the short names `'mp3'`, `'opus'`, `'pcm'`, and `'wav'` map to `'mp3_44100_128'`, `'opus_48000_128'`, `'pcm_24000'`, and `'wav_24000'`. See [ElevenLabs output formats](https://elevenlabs.io/docs/api-reference/text-to-speech/convert). |
 | `voice_settings` | `Object` | Voice tuning options (stability, similarity boost, speed) |
+
+Unknown voices and names matching multiple voices are rejected with HTTP 400 (`field_invalid`). Use a voice ID when names are ambiguous. An unsupported `output_format` is also rejected with HTTP 400 (`field_invalid`) before any credits are reserved.
 
 For more details about each option, see the [ElevenLabs API reference](https://elevenlabs.io/docs/api-reference/text-to-speech).
 
@@ -82,9 +84,13 @@ Available when `provider: 'gemini'`:
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'gemini-3.8-flash-tts'` (default), `'gemini-3.8-flash-lite-tts'` |
 | `voice` | `String` | Voice name. Defaults to `'Kore'`. Available: `'Zephyr'`, `'Puck'`, `'Charon'`, `'Kore'`, `'Fenrir'`, `'Leda'`, `'Orus'`, `'Aoede'`, `'Callirrhoe'`, `'Autonoe'`, `'Enceladus'`, `'Iapetus'`, `'Umbriel'`, `'Algieba'`, `'Despina'`, `'Erinome'`, `'Algenib'`, `'Rasalgethi'`, `'Laomedeia'`, `'Achernar'`, `'Alnilam'`, `'Schedar'`, `'Gacrux'`, `'Pulcherrima'`, `'Achird'`, `'Zubenelgenubi'`, `'Vindemiatrix'`, `'Sadachbia'`, `'Sadaltager'`, `'Sulafat'` |
-| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.) |
+| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.), up to 3,000 characters |
 
-For more details about Gemini TTS, see the [Google Gemini TTS documentation](https://ai.google.dev/gemini-api/docs/text-to-speech).
+Gemini generates speech from the `text` field. The `instructions` string isn't included in the generated audio. It guides delivery (tone, pacing, accent, emotion). Instructions count toward input tokens. Longer instructions are rejected with an `input_too_large` error. Audio is returned as WAV.
+
+A Gemini request is charged for the tokens Gemini reports, even when it fails or returns no audio. If Gemini returns audio without reporting its token usage, the request fails with an `upstream_failed` error.
+
+For more details about Gemini TTS, see the [Google Gemini speech generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation).
 
 #### xAI (Grok) Options
 

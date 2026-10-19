@@ -39,7 +39,16 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
-import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
+import {
+    type LoadedFile,
+    type ResolvedFileInput,
+    resolveFileInput,
+} from '../util/fileInput.js';
+import {
+    type ProviderCatalog,
+    ProviderRegistry,
+    readProviderKey,
+} from '../util/providerRegistry.js';
 import { OCR_COSTS } from './costs.js';
 import {
     DEFAULT_OCR_MODEL,
@@ -51,6 +60,7 @@ import {
     type OcrProviderId,
 } from './models.js';
 import { countPdfPages } from './pdfPages.js';
+import { textractRates } from './textractPricing.js';
 
 /**
  * Driver implementing `puter-ocr` — document OCR. Two providers: •
@@ -110,24 +120,38 @@ interface MistralOcrClient {
     };
 }
 
-const OCR_PROVIDERS = ['aws-textract', 'mistral'] as const;
-
 // Aliases callers may use in place of a canonical provider id. Resolved here
 // rather than in the SDK so a new alias reaches every caller at once.
-const PROVIDER_BY_ALIAS: Record<string, OcrProviderId> = {
-    aws: 'aws-textract',
-    'aws-textract': 'aws-textract',
-    textract: 'aws-textract',
-    mistral: 'mistral',
-    'mistral-ocr': 'mistral',
+const OCR_CATALOG: ProviderCatalog = {
+    label: 'OCR',
+    ids: ['aws-textract', 'mistral'],
+    defaultId: 'aws-textract',
+    aliases: {
+        aws: 'aws-textract',
+        'aws-textract': 'aws-textract',
+        textract: 'aws-textract',
+        mistral: 'mistral',
+        'mistral-ocr': 'mistral',
+    },
 };
 
-const normalizeOcrProvider = (value: unknown): OcrProviderId | undefined =>
-    typeof value === 'string'
-        ? PROVIDER_BY_ALIAS[value.trim().toLowerCase()]
-        : undefined;
+/** Recognizes one input with one provider's model. */
+type OcrRecognizer = (
+    input: ResolvedFileInput,
+    args: RecognizeArgs,
+    model: OcrModel,
+    actor: Actor,
+) => Promise<unknown>;
+
+const NOT_CONFIGURED: Record<OcrProviderId, string> = {
+    'aws-textract': 'AWS credentials not configured',
+    mistral: 'Mistral OCR not configured',
+};
 
 const TABLE_FORMATS = new Set(['markdown', 'html']);
+
+const DEFAULT_TEXTRACT_REGION = 'us-west-2';
+const TEXTRACT_PAGE_USAGE_TYPE = 'aws-textract:detect-document-text:page';
 
 const badRequest = (message: string) =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
@@ -195,20 +219,23 @@ const isDocumentInput = (loaded: LoadedFile): boolean => {
 /**
  * The most pages a call can bill, known before the provider runs: a PDF's page
  * count, or a size-based guess for other documents, capped by a `pages`
- * selection and by what the provider reads in one call.
+ * selection and by what the provider reads in one call. Reads the input only
+ * for a provider that takes more than one page.
  */
-const estimateOcrPages = (
-    loaded: LoadedFile,
+const estimateOcrPages = async (
+    input: ResolvedFileInput,
     provider: OcrProviderId,
     selection?: unknown,
-): number => {
+): Promise<number> => {
     const maxPages = OCR_MAX_PAGES[provider];
-    if (maxPages <= 1 || !isDocumentInput(loaded)) return 1;
+    if (maxPages <= 1) return 1;
+    const loaded = await input.load();
+    if (!isDocumentInput(loaded)) return 1;
     // A document we can't count is billed in proportion to its size, reaching
     // the provider's page limit at its size limit (20 pages per MB for
     // Mistral). Small files stay cheap; a large one can't pass as one page.
     const documentPages =
-        countPdfPages(loaded.buffer, maxPages) ??
+        (await countPdfPages(loaded.buffer, maxPages)) ??
         Math.ceil(
             (loaded.buffer.length * maxPages) / OCR_MAX_INPUT_BYTES[provider],
         );
@@ -239,10 +266,20 @@ export class OCRDriver extends PuterDriver {
         );
     }
 
+    /**
+     * Textract is reported at the configured region's first-tier rate. A call
+     * that reads its file from a bucket in another region is billed at that
+     * region's rate instead, which this per-usage-type report can't show.
+     */
     override getReportedCosts() {
+        const textractRegion =
+            this.#awsConfig?.region ?? DEFAULT_TEXTRACT_REGION;
         return Object.entries(OCR_COSTS).map(([usageType, ucentsPerUnit]) => ({
             usageType,
-            ucentsPerUnit,
+            ucentsPerUnit:
+                usageType === TEXTRACT_PAGE_USAGE_TYPE
+                    ? this.#textractRates.peek(textractRegion)
+                    : ucentsPerUnit,
             unit: 'page',
             source: 'driver:aiOcr',
         }));
@@ -251,7 +288,7 @@ export class OCRDriver extends PuterDriver {
     // Older SDK bundles name the provider in the driver slot instead of
     // passing `{ provider }`; `#resolveModel` reads the requested alias
     // back off the Context.
-    readonly driverAliases = [...OCR_PROVIDERS];
+    readonly driverAliases = [...OCR_CATALOG.ids];
     readonly isDefault = true;
 
     // Textract state — one client per region.
@@ -261,9 +298,14 @@ export class OCRDriver extends PuterDriver {
         secretAccessKey?: string;
         region?: string;
     } | null = null;
+    /** DetectDocumentText rates per region, from AWS's public price list. */
+    #textractRates = textractRates(OCR_COSTS[TEXTRACT_PAGE_USAGE_TYPE]);
 
     // Mistral state.
     #mistral: MistralOcrClient | null = null;
+
+    /** Configured providers, each a recognizer bound to its state above. */
+    #providers = new ProviderRegistry<OcrRecognizer>(OCR_CATALOG);
 
     override onServerStart() {
         const providers = this.config.providers ?? {};
@@ -277,23 +319,33 @@ export class OCRDriver extends PuterDriver {
         const textractRegion =
             (textractAws?.region as string | undefined) ??
             (textract?.region as string | undefined) ??
-            'us-west-2';
+            DEFAULT_TEXTRACT_REGION;
         if (textractAccessKey && textractSecretKey) {
             this.#awsConfig = {
                 accessKeyId: textractAccessKey,
                 secretAccessKey: textractSecretKey,
                 region: textractRegion,
             };
+            // Warm the configured region so the cost report has its rate.
+            void this.#textractRates.rate(textractRegion);
+            this.#providers.register(
+                'aws-textract',
+                (input, _args, model, actor) =>
+                    this.#textractRecognize(input, model, actor),
+            );
         }
 
-        const mistral = providers['mistral-ocr'];
-        if (mistral?.apiKey) {
+        const mistralKey = readProviderKey(providers['mistral-ocr']);
+        if (mistralKey) {
             try {
-                // Lazy import so we don't pay the cost when Mistral is unused.
-
                 this.#mistral = new Mistral({
-                    apiKey: mistral.apiKey,
+                    apiKey: mistralKey,
                 }) as unknown as MistralOcrClient;
+                this.#providers.register(
+                    'mistral',
+                    (input, args, model, actor) =>
+                        this.#mistralRecognize(input, args, model, actor),
+                );
             } catch (e) {
                 console.warn(
                     '[OCRDriver] Failed to init Mistral:',
@@ -317,12 +369,9 @@ export class OCRDriver extends PuterDriver {
         const input = args.source ?? args.file;
         if (!input) throw badRequest('`source` is required');
 
-        if (model.provider === 'aws-textract' && !this.#awsConfig)
-            throw new HttpError(500, 'AWS credentials not configured', {
-                legacyCode: 'internal_error',
-            });
-        if (model.provider === 'mistral' && !this.#mistral)
-            throw new HttpError(500, 'Mistral OCR not configured', {
+        const recognize = this.#providers.get(model.provider);
+        if (!recognize)
+            throw new HttpError(500, NOT_CONFIGURED[model.provider], {
                 legacyCode: 'internal_error',
             });
 
@@ -331,7 +380,9 @@ export class OCRDriver extends PuterDriver {
         // reject anyway once it runs.
         await assertActorHasCredits(this.services.metering, actor, this.config);
 
-        const loaded = await loadFileInput(
+        // A Puter file is resolved and access-checked here but read only if
+        // the provider needs its bytes; Textract reads it straight from S3.
+        const resolved = await resolveFileInput(
             this.stores,
             this.services.fs,
             actor,
@@ -342,9 +393,7 @@ export class OCRDriver extends PuterDriver {
             },
         );
 
-        return model.provider === 'aws-textract'
-            ? this.#textractRecognize(loaded, model, actor)
-            : this.#mistralRecognize(loaded, args, model, actor);
+        return recognize(resolved, args, model, actor);
     }
 
     /**
@@ -354,15 +403,9 @@ export class OCRDriver extends PuterDriver {
      * default model.
      */
     #resolveModel(args: RecognizeArgs): OcrModel {
-        let provider: OcrProviderId | undefined;
-        if (args.provider) {
-            provider = normalizeOcrProvider(args.provider);
-            if (!provider) {
-                throw badRequest(
-                    `Unknown OCR provider: ${args.provider}. Available: ${OCR_PROVIDERS.join(', ')}`,
-                );
-            }
-        }
+        const provider = args.provider
+            ? (this.#providers.resolve(args.provider) as OcrProviderId)
+            : undefined;
 
         if (args.model !== undefined) {
             if (typeof args.model !== 'string' || !args.model.trim())
@@ -381,20 +424,14 @@ export class OCRDriver extends PuterDriver {
             return model;
         }
 
-        provider ??=
-            normalizeOcrProvider(Context.get('driverName')) ??
-            this.#defaultProvider();
-        if (!provider)
+        const hinted =
+            provider ?? this.#providers.normalize(Context.get('driverName'));
+        if (!hinted && this.#providers.names().length === 0)
             throw new HttpError(500, 'No OCR provider configured', {
                 legacyCode: 'internal_error',
             });
-        return findOcrModel(DEFAULT_OCR_MODEL[provider])!;
-    }
-
-    #defaultProvider(): OcrProviderId | null {
-        if (this.#awsConfig) return 'aws-textract';
-        if (this.#mistral) return 'mistral';
-        return null;
+        const chosen = (hinted ?? this.#providers.defaultId()) as OcrProviderId;
+        return findOcrModel(DEFAULT_OCR_MODEL[chosen])!;
     }
 
     /**
@@ -434,52 +471,62 @@ export class OCRDriver extends PuterDriver {
     }
 
     async #textractRecognize(
-        loaded: LoadedFile,
+        input: ResolvedFileInput,
         model: OcrModel,
         actor: Actor,
     ) {
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
+        const { fsEntry } = input;
         const s3Info =
-            loaded.fsEntry &&
-            loaded.fsEntry.bucket &&
-            loaded.fsEntry.bucketRegion
+            fsEntry && fsEntry.bucket && fsEntry.bucketRegion
                 ? {
-                      bucket: loaded.fsEntry.bucket,
-                      bucketRegion: loaded.fsEntry.bucketRegion,
-                      key: loaded.fsEntry.uuid,
+                      bucket: fsEntry.bucket,
+                      bucketRegion: fsEntry.bucketRegion,
+                      key: fsEntry.uuid,
                   }
                 : null;
 
+        const configuredRegion =
+            this.#awsConfig!.region ?? DEFAULT_TEXTRACT_REGION;
+
+        // Both regions the call may run in are priced up front, so the hold
+        // covers either and a refresh mid-call can't change the charge.
+        const [configuredRate, s3Rate] = await Promise.all([
+            this.#textractRates.rate(configuredRegion),
+            s3Info ? this.#textractRates.rate(s3Info.bucketRegion) : undefined,
+        ]);
+
         const tryRun = async (useS3: boolean) => {
             const region =
-                s3Info && useS3
-                    ? s3Info.bucketRegion
-                    : (this.#awsConfig!.region ?? 'us-west-2');
+                s3Info && useS3 ? s3Info.bucketRegion : configuredRegion;
             const client = this.#textractClientFor(region);
             const document =
                 s3Info && useS3
                     ? { S3Object: { Bucket: s3Info.bucket, Name: s3Info.key } }
-                    : { Bytes: loaded.buffer };
+                    : { Bytes: (await input.load()).buffer };
             return client.send(
                 new DetectDocumentTextCommand({ Document: document }),
             );
         };
 
-        const costPerPage = OCR_COSTS[model.pageUsageType];
         const hold = await this.#holdCredits(
             actor,
             model.pageUsageType,
-            costPerPage * estimateOcrPages(loaded, model.provider),
+            Math.max(configuredRate, s3Rate ?? 0) *
+                (await estimateOcrPages(input, model.provider)),
         );
         try {
             let response;
+            let costPerPage: number;
             try {
                 try {
                     response = await tryRun(Boolean(s3Info));
+                    costPerPage = s3Rate ?? configuredRate;
                 } catch (err) {
                     if (!(s3Info && err instanceof InvalidS3ObjectException))
                         throw err;
                     response = await tryRun(false);
+                    costPerPage = configuredRate;
                 }
             } catch (err) {
                 if (err instanceof UnsupportedDocumentException)
@@ -525,11 +572,12 @@ export class OCRDriver extends PuterDriver {
     // -- Mistral OCR --------------------------------------------------
 
     async #mistralRecognize(
-        loaded: LoadedFile,
+        input: ResolvedFileInput,
         args: RecognizeArgs,
         model: OcrModel,
         actor: Actor,
     ) {
+        const loaded = await input.load();
         const payload: Record<string, unknown> = {
             model: model.id,
             document: this.#mistralBuildChunk(loaded),
@@ -574,7 +622,8 @@ export class OCRDriver extends PuterDriver {
         const hold = await this.#holdCredits(
             actor,
             model.pageUsageType,
-            costPerPage * estimateOcrPages(loaded, model.provider, args.pages),
+            costPerPage *
+                (await estimateOcrPages(input, model.provider, args.pages)),
         );
 
         try {

@@ -459,7 +459,11 @@ export type EventMap = {
             [key: string]: unknown;
         };
     };
-    'storage.quota.bonus': { userId: number; extra: number };
+    /**
+     * Bytes to add to a user's storage allowance. Listeners run concurrently:
+     * add to `extra` after your own awaits, never `extra += await x`.
+     */
+    'storage.quota.bonus': { userId: number; userUuid?: string; extra: number };
 
     // ---- Key-value ----
     /**
@@ -633,6 +637,12 @@ export type EventMap = {
         userId: number;
         generation: number;
     };
+    /**
+     * Someone's entry was just shared, so every process must drop its cached
+     * "this owner has nothing shared" answer. `outer.pubsub.*` for the same
+     * reason as the events generation bump: a per-process cache.
+     */
+    'outer.pubsub.share.ownerShared': { ownerUserId: number };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries
@@ -913,10 +923,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

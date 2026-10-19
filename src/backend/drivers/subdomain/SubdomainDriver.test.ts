@@ -1129,6 +1129,177 @@ describe('SubdomainDriver associated_app derivation', () => {
     });
 });
 
+// -- Row hydration ordering --
+
+describe('SubdomainDriver row hydration', () => {
+    const DERIVE_SQL = '`index_url` IN';
+
+    const seedRow = async () => {
+        const { actor } = await makeUser();
+        const created = (await withActor(actor, () =>
+            driver.create({
+                object: {
+                    subdomain: uniqueSubdomain('hydrate'),
+                    root_dir: `/${actor.user!.username}/Public`,
+                },
+            }),
+        )) as Record<string, unknown>;
+        return { actor, uid: created.uid };
+    };
+
+    it('loads owners and root dirs while the app derive is still running', async () => {
+        const { actor, uid } = await seedRow();
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let deriveStarted = false;
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, ...rest) => {
+                if (String(sql).includes(DERIVE_SQL)) {
+                    deriveStarted = true;
+                    await gate;
+                }
+                return realRead(sql, ...rest);
+            });
+        const users = vi.spyOn(server.stores.user, 'getByIds');
+        const entries = vi.spyOn(server.stores.fsEntry, 'getEntriesByIds');
+        try {
+            const pending = withActor(actor, () => driver.read({ uid }));
+            await vi.waitFor(() => expect(deriveStarted).toBe(true));
+            expect(users).toHaveBeenCalled();
+            expect(entries).toHaveBeenCalled();
+            release();
+            const row = (await pending) as Record<string, unknown>;
+            expect((row.owner as { username: string }).username).toBe(
+                actor.user!.username,
+            );
+            expect((row.root_dir as { path: string }).path).toBe(
+                `/${actor.user!.username}/Public`,
+            );
+        } finally {
+            release();
+            read.mockRestore();
+            users.mockRestore();
+            entries.mockRestore();
+        }
+    });
+
+    it('surfaces a failed derive over failed owner and root dir lookups, with no unhandled rejection', async () => {
+        const { actor, uid } = await seedRow();
+        const db = server.clients.db;
+        const realRead = db.read.bind(db);
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, ...rest) => {
+                if (String(sql).includes(DERIVE_SQL)) {
+                    // Settles after the lookups below have already failed.
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                    throw new Error('derive failed');
+                }
+                return realRead(sql, ...rest);
+            });
+        const users = vi
+            .spyOn(server.stores.user, 'getByIds')
+            .mockRejectedValue(new Error('users failed'));
+        const entries = vi
+            .spyOn(server.stores.fsEntry, 'getEntriesByIds')
+            .mockRejectedValue(new Error('entries failed'));
+        try {
+            await expect(
+                withActor(actor, () => driver.read({ uid })),
+            ).rejects.toThrow('derive failed');
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+            read.mockRestore();
+            users.mockRestore();
+            entries.mockRestore();
+        }
+    });
+});
+
+// -- Embedded apps get the launch gates a direct app read applies --
+
+describe('SubdomainDriver embedded app launch gates', () => {
+    const readRow = async (actor: Actor, uuid: string) =>
+        (await withActor(actor, () => driver.read({ uid: uuid }))) as Record<
+            string,
+            Record<string, unknown> | null
+        >;
+
+    it("withholds a private app_owner's index_url from a viewer without access", async () => {
+        const viewer = await makeUser();
+        const developer = await makeUser();
+        const indexUrl = `https://${uniqueSubdomain('priv')}.example.test/`;
+        const app = await createAppWithIndexUrl(developer.userId, indexUrl, {
+            isPrivate: true,
+        });
+        const row = await server.stores.subdomain.create({
+            userId: viewer.userId,
+            subdomain: uniqueSubdomain('embed-priv'),
+            appOwner: app.id,
+        });
+
+        const read = await readRow(viewer.actor, String(row.uuid));
+
+        expect(read.app_owner?.uid).toBe(app.uid);
+        expect(read.app_owner).not.toHaveProperty('index_url');
+        expect(read.app_owner?.privateAccess).toMatchObject({
+            hasAccess: false,
+        });
+    });
+
+    it('keeps index_url on a private app embedded for its own owner', async () => {
+        const { actor, userId } = await makeUser();
+        const indexUrl = `https://${uniqueSubdomain('own')}.example.test/`;
+        const app = await createAppWithIndexUrl(userId, indexUrl, {
+            isPrivate: true,
+        });
+        const row = await server.stores.subdomain.create({
+            userId,
+            subdomain: uniqueSubdomain('embed-own'),
+            appOwner: app.id,
+        });
+
+        const read = await readRow(actor, String(row.uuid));
+
+        expect(read.app_owner?.index_url).toBe(indexUrl);
+        expect(read.app_owner?.privateAccess).toMatchObject({
+            hasAccess: true,
+        });
+    });
+
+    it("withholds a hosted app_owner's index_url once its subdomain is gone", async () => {
+        const viewer = await makeUser();
+        const developer = await makeUser();
+        const gone = uniqueSubdomain('gone');
+        const app = await createAppWithIndexUrl(
+            developer.userId,
+            `https://${gone}.site.puter.localhost/`,
+        );
+        const row = await server.stores.subdomain.create({
+            userId: viewer.userId,
+            subdomain: uniqueSubdomain('embed-gone'),
+            appOwner: app.id,
+        });
+
+        const read = await readRow(viewer.actor, String(row.uuid));
+
+        expect(read.app_owner).not.toHaveProperty('index_url');
+        expect(read.app_owner?.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+});
+
 // -- associated_app derivation at scale --
 //
 // ~24 index_url candidates per subdomain: a page this size must be chunked

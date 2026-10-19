@@ -1,3 +1,9 @@
+import { trace } from '@opentelemetry/api';
+import {
+    BasicTracerProvider,
+    InMemorySpanExporter,
+    SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
 import {
     afterAll,
     afterEach,
@@ -136,6 +142,30 @@ describe('EventClient', () => {
         });
     });
 
+    describe('repeat emits', () => {
+        it('reaches listeners added after the key was first emitted', () => {
+            target.emit(`${key}.a.b`, {}, {});
+            const wildcard = vi.fn();
+            const exact = vi.fn();
+            target.on(`${key}.a.*`, wildcard);
+            target.on(`${key}.a.b`, exact);
+            target.emit(`${key}.a.b`, {}, {});
+            expect(wildcard).toHaveBeenCalledTimes(1);
+            expect(exact).toHaveBeenCalledTimes(1);
+            expect(target.hasListeners(`${key}.a.b`)).toBe(true);
+        });
+
+        it('does not skip a listener when an earlier one unsubscribes mid-dispatch', () => {
+            const second = vi.fn();
+            const first = vi.fn(() => target.off(key, first));
+            target.on(key, first);
+            target.on(key, second);
+            target.emit(key, {}, {});
+            expect(first).toHaveBeenCalledTimes(1);
+            expect(second).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('emitAndWait', () => {
         it('awaits async listeners before resolving', async () => {
             let resolved = false;
@@ -182,6 +212,122 @@ describe('EventClient', () => {
             });
             await target.emitAndWait(`${key}.child`, {}, {});
             expect(resolved).toBe(true);
+        });
+
+        describe('tracing', () => {
+            const exporter = new InMemorySpanExporter();
+            const provider = new BasicTracerProvider({
+                spanProcessors: [new SimpleSpanProcessor(exporter)],
+            });
+            const spansFor = (eventKey: string) =>
+                exporter
+                    .getFinishedSpans()
+                    .filter(
+                        (s) =>
+                            s.name === 'event.emitAndWait' &&
+                            s.attributes['event.key'] === eventKey,
+                    );
+
+            beforeAll(() => {
+                trace.setGlobalTracerProvider(provider);
+            });
+
+            afterAll(async () => {
+                await provider.shutdown();
+                trace.disable();
+            });
+
+            it('resolves without a span when nothing listens', async () => {
+                const meta: { listener_failed?: boolean } = {};
+                await expect(
+                    target.emitAndWait(`${key}.child`, {}, meta),
+                ).resolves.toBeUndefined();
+                expect(meta).toEqual({});
+                expect(spansFor(`${key}.child`)).toHaveLength(0);
+            });
+
+            it('spans the wait whenever a listener matches, wildcards included', async () => {
+                target.on(`${key}.*`, vi.fn());
+                await expect(
+                    target.emitAndWait(`${key}.child`, {}, {}),
+                ).resolves.toBeUndefined();
+                expect(spansFor(`${key}.child`)).toHaveLength(1);
+
+                extensionStore.events[`${key}.ext`] = [vi.fn()];
+                try {
+                    await target.emitAndWait(`${key}.ext`, {}, {});
+                } finally {
+                    delete extensionStore.events[`${key}.ext`];
+                }
+                expect(spansFor(`${key}.ext`)).toHaveLength(1);
+            });
+        });
+    });
+
+    describe('emitAndWaitConcurrently', () => {
+        it('runs every listener at once, wildcards included, and awaits them all', async () => {
+            let inFlight = 0;
+            let peak = 0;
+            const contribute =
+                (share: number) => async (_k: string, data: unknown) => {
+                    inFlight++;
+                    peak = Math.max(peak, inFlight);
+                    await new Promise((r) => setTimeout(r, 10));
+                    inFlight--;
+                    (data as { total: number }).total += share;
+                };
+            target.on(`${key}.*`, contribute(1));
+            target.on(`${key}.child`, contribute(10));
+            target.on(`${key}.child`, contribute(100));
+
+            const data = { total: 0 };
+            await target.emitAndWaitConcurrently(`${key}.child`, data, {});
+
+            expect(peak).toBe(3);
+            expect(data.total).toBe(111);
+        });
+
+        it('flags a failed exact-key listener and still awaits the rest', async () => {
+            const errSpy = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            let finished = false;
+            target.on(key, () => {
+                throw new Error('boom');
+            });
+            target.on(key, async () => {
+                await new Promise((r) => setTimeout(r, 5));
+                finished = true;
+            });
+            const meta: Record<string, unknown> = {};
+            await target.emitAndWaitConcurrently(key, {}, meta);
+            expect(finished).toBe(true);
+            expect(meta.listener_failed).toBe(true);
+            expect(errSpy).toHaveBeenCalledWith(
+                'Error in event listener for event',
+                key,
+                expect.any(Error),
+            );
+            errSpy.mockRestore();
+        });
+
+        it('leaves the flag alone when only a wildcard listener fails', async () => {
+            const errSpy = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            target.on(`${key}.*`, () => {
+                throw new Error('observer');
+            });
+            const meta: Record<string, unknown> = {};
+            await target.emitAndWaitConcurrently(`${key}.child`, {}, meta);
+            expect(meta.listener_failed).toBeUndefined();
+            errSpy.mockRestore();
+        });
+
+        it('resolves at once with nobody listening', async () => {
+            await expect(
+                target.emitAndWaitConcurrently(`${key}.nobody`, {}, {}),
+            ).resolves.toBeUndefined();
         });
     });
 

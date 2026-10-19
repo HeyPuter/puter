@@ -12,21 +12,7 @@ Every change is backward compatible unless a maintainer has explicitly agreed to
 
 ## Core or extension?
 
-The first decision is where the API lives.
-
-If the API is **not crucial to core functionality — nothing in core will call it — prefer an extension** over wiring it into core. Extensions live in [extensions/](../extensions/), parallel the core layered stack, and reach core through `extension.import(...)`:
-
-```js
-const services = extension.import('service');
-const stores = extension.import('store');
-
-extension.registerDriver('myFeature', MyFeatureDriver);  // first-class driver
-extension.post('/my-feature/frobnicate', opts, handler); // or plain routes
-```
-
-Follow the same layered structure inside the extension (driver/controller → service → store) unless it genuinely only needs a couple of route handlers — then the lightweight `extension.get/post/...` helpers are enough on their own.
-
-The test is the direction of dependency: Puter must still work with the extension removed. The moment core needs to call your API, it belongs in core — see [whoami](../extensions/whoami.ts) for the cautionary example of a load-bearing "extension".
+The first decision is where the API lives. If **nothing in core will call it, prefer an extension** over wiring it into core. [AGENTS.md](../AGENTS.md#extensions) has the rule and its test; [architecture.md](architecture.md#extension-api) documents the `extension` API.
 
 ## Adding a new API
 
@@ -35,13 +21,13 @@ Work through all seven steps; the PR is complete when every one is.
 ### 1. Design the surface first
 
 - Sketch the signature, options, return shape, and error cases before writing code. Find the two or three most similar existing APIs and match their conventions.
-- New parameter and field names are `camelCase`. (Existing `snake_case` names stay where they already exist.)
+- New parameter and field names follow the [naming rule](../AGENTS.md#language--files) (`camelCase`).
 - Anything returning a list follows the [pagination convention](pagination.md): `limit`/`cursor` in, `{ items, cursor, total }` envelope out.
 - Prefer an options object over a growing list of positional parameters, but keep the common case callable with a single argument where siblings do.
 
 ### 2. Backend
 
-Follow the layered stack ([architecture.md](architecture.md)): a controller or driver at the edge, business logic in a service, persistence in a store. The edge parses and validates input and applies gates; services assume the caller is already authorized. Return exactly what the caller needs and no more — every response field you ship is permanent — and use stable `snake_case` error codes.
+Follow the layered stack ([architecture.md](architecture.md), [layer rules](../AGENTS.md#backend)): a controller or driver at the edge, business logic in a service, persistence in a store. Return exactly what the caller needs and no more — every response field you ship is permanent — and use stable `snake_case` error codes.
 
 #### Controller or driver?
 
@@ -54,10 +40,10 @@ Both are supported ways to define an API. **Prefer a controller when you need fi
 
 - **Controller routes** (and extension routes — same options) take [`RouteOptions`](../src/backend/core/http/types.ts): auth gates (`requireAuth`, `requireUserActor`, `noUserSession`, `adminOnly`, `allowedAppIds`, and the access-token controls), `subdomain` routing, per-route `rateLimit`, body parsers, and arbitrary extra `middleware`. The auth flavors are subtle and default-deny — read the JSDoc on each field before picking.
 - **Driver methods** get their policies from the `@Driver` options: per-method `rateLimit` (limit/window/backend), `concurrent` in-flight caps (optionally `bySubscription`), `requireSubscription`, `requireReputation`, and `noUserSession`. The `/drivers/call` surface enforces them.
-- **A surface only paying accounts should reach** declares `requireSubscription` — the route option on a controller endpoint, the per-method `@Driver({ requireSubscription })` block on a driver (`/drivers/call` is one shared route, so a driver's requirement can't live in route options). `true` accepts any plan that isn't free, so a plan registered by an extension counts without core naming it; an array of policy ids (`['business', 'pro']`) accepts only those; `false` is "no requirement", the same as leaving it out. An empty array is a boot error rather than a silent no-op — it reads as subscribers-only while admitting everyone. Off unless asked for, and answered from the metering service's cached per-actor subscription, so it costs a map lookup. Distinct from `requireCredits`: this asks which plan the account is on, not whether it has budget left. Deployments with no paid plans (self-hosted installs) turn the whole thing off with `meteringEnforcement.subscriptions: false`.
-- **A surface only a trusted-enough account should reach** declares `requireReputation` — the route option on a controller endpoint, the per-method `@Driver({ requireReputation })` block on a driver. The value names a tier; what that tier takes is `reputationGate.tiers` in config, so the score a surface is worth is a deployment call and can be retuned without editing the surface. A tier the running config doesn't define is inert and everyone passes — an install that doesn't score its accounts must not start turning traffic away on a score it never computed — and `reputationGate.enabled: false` stops every declared gate at once. Opt-in, implies `requireAuth`, and denies with a bare 403 `reputation_required` that names neither the score nor the tier. Nothing in the tree declares one yet: the mechanism ships ahead of the enrollment.
-- **An account must have verified a specific factor** — `requireVerified` (email, and only under `strict_email_verification_required`), `requirePhoneVerified`, `requireCardVerified`. These are opt-in and require the factor to have actually been verified, unlike the default-on gate that turns away accounts still carrying a pending verification the abuse harness asked for. `requireAnyVerified: ['phone', 'card']` is the OR of the last two: any listed factor verified at any point passes, as does a paid plan where `card` is listed (a paying account has a card on file already); otherwise only the factors the deployment can verify are asked for (an SMS provider configured, a card gate an extension reports on), and with none verifiable the gate is inert rather than locking the route on a self-hosted install. It denies with the first verifiable factor's code plus `factors`, the verifiable ones in the route's order, so a client can lead with one flow and offer the other. `verifiedFactorGate.enabled: false` in config stops every declared gate at once, for an SMS-provider outage.
-- **An endpoint that spends metered resources** on the caller's behalf — moving file content, making object-store requests, anything else the account is billed for — also declares `requireCredits: true`, which turns an account with nothing left of its budget away with a 402 before the handler runs. Endpoints that only describe or delete things deliberately don't: an account that has run out still has to be able to see what it has, clear it, and reach its billing pages. Drivers have no route options to declare this on, so they call `assertActorHasCredits` themselves ([src/backend/services/metering/enforcement.ts](../src/backend/services/metering/enforcement.ts)) — see `KVStoreDriver`, which does it once for every method.
+- **Paying accounts only:** `requireSubscription`, as a route option on a controller endpoint or in the per-method `@Driver({ requireSubscription })` block on a driver (`/drivers/call` is one shared route, so a driver's requirement can't live in route options). `true` accepts any plan that isn't free, so a plan an extension registers counts without core naming it; an array of policy ids (`['business', 'pro']`) accepts only those; `false` or leaving it out means no requirement. An empty array is a boot error, since it would read as subscribers-only while admitting everyone. The check is a map lookup on the metering service's cached per-actor subscription. It asks which plan the account is on; `requireCredits` asks whether it has budget left. Deployments with no paid plans (self-hosted installs) turn it off with `meteringEnforcement.subscriptions: false`.
+- **Trusted-enough accounts only:** `requireReputation`, as a route option or in the per-method `@Driver({ requireReputation })` block. Opt-in; implies `requireAuth`. The value names a tier, and `reputationGate.tiers` in config sets the score that tier takes, so a deployment can retune it without editing the surface. A tier the running config doesn't define is inert and everyone passes, so an install that doesn't score its accounts never turns traffic away on a score it never computed. `reputationGate.enabled: false` stops every declared gate at once. Denials are a bare 403 `reputation_required` that names neither the score nor the tier. Nothing in the tree declares one yet.
+- **A specific verified factor:** `requireVerified` (email, and only under `strict_email_verification_required`), `requirePhoneVerified`, `requireCardVerified`. Opt-in, and the factor must actually have been verified, unlike the default-on gate that turns away accounts still carrying a pending verification the abuse harness asked for. `requireAnyVerified: ['phone', 'card']` is the OR of the last two: any listed factor verified at any point passes, as does a paid plan when `card` is listed (a paying account already has a card on file). Otherwise only the factors the deployment can verify are asked for (an SMS provider configured, a card gate an extension reports on); with none verifiable the gate is inert rather than locking the route on a self-hosted install. A denial carries the first verifiable factor's code plus `factors` (the verifiable ones, in the route's order), so a client can lead with one flow and offer the other. `verifiedFactorGate.enabled: false` in config stops every declared gate at once, e.g. during an SMS-provider outage.
+- **Metered spend:** an endpoint that spends metered resources on the caller's behalf (moving file content, object-store requests, anything else the account is billed for) declares `requireCredits: true`, which turns an account with no budget left away with a 402 before the handler runs. Endpoints that only describe or delete things deliberately don't: an account that has run out still has to see what it has, clear it, and reach its billing pages. Drivers have no route options, so they call `assertActorHasCredits` themselves ([src/backend/services/metering/enforcement.ts](../src/backend/services/metering/enforcement.ts)) — see `KVStoreDriver`, which does it once for every method.
 
 ### 3. puter.js
 
@@ -66,33 +52,32 @@ Both are supported ways to define an API. **Prefer a controller when you need fi
 
 ### 4. Types
 
-- Type the method where you wrote it, in JSDoc: `@param`/`@returns` on the implementation, one `@overload` block per accepted call form, and `@typedef {Object}` + `@property` for any new shape. The JSDoc is the source of truth — declarations are generated from it, so there is nothing to keep in sync by hand.
-- Put a shape more than one file needs in the module's `types.js` (e.g. [src/puter-js/src/modules/kv/types.js](../src/puter-js/src/modules/kv/types.js)); anything shared across modules goes in [src/puter-js/src/lib/types.js](../src/puter-js/src/lib/types.js). A shape with one consumer can stay next to it.
-- Run `npm run check:puterjs:types` — it generates the declarations and type-checks the published surface without `skipLibCheck`. **Never edit anything under `src/puter-js/types/`**: it is gitignored build output, produced by the SDK build and shipped in the npm tarball, and the next build overwrites it.
-- Name the new type in [src/puter-js/index.d.ts](../src/puter-js/index.d.ts) if consumers should be able to import it. That file is the one hand-written declaration in the package: it decides what is public and re-exports nothing else.
+Type the method in JSDoc on the implementation, following the [puter.js type rules](../AGENTS.md#types) (overloads, where shapes live, `index.d.ts`), then run `npm run check:puterjs:types`. Declarations are generated from the JSDoc, so there is nothing to keep in sync by hand.
 
 ### 5. Docs
 
 - Add the method page at [src/docs/src/](../src/docs/src/)`<Area>/<method>.md` — frontmatter (`title`, `description`, `platforms`), syntax, parameters, return value, and at least one runnable example — and update the area overview (`<Area>.md`). Copy the structure of an existing page.
+- The docs are the contract users code against: signatures, defaults, and return shapes match the implementation exactly.
 
 ### 6. Tests
 
-- **Backend:** colocated Vitest tests; prefer the in-memory test server (`setupPuterTestEnv` in [src/backend/testUtil.ts](../src/backend/testUtil.ts)) over mocking.
-- **SDK:** add cases to [src/puter-js/tests/api/suites/](../src/puter-js/tests/api/suites/)`<area>.suite.ts` (register new suites in `suites/index.ts`). One suite runs on node, browser, and workerd via `npm run test:puterjs` — never write per-platform tests, and rebuild first with `npm run build:workerLib` since the runners execute the built bundle.
+- **Backend:** see [backend tests](../AGENTS.md#backend-tests).
+- **SDK:** add cases to [src/puter-js/tests/api/suites/](../src/puter-js/tests/api/suites/)`<area>.suite.ts` (register new suites in `suites/index.ts`; there is no globbing). One suite runs on node, browser, and workerd via `npm run test:puterjs`; never write per-platform tests. The runners execute the built bundle, so run `npm run build:workerLib` first or the suite silently tests stale code.
 - **Desktop-rendered UI** (`puter.ui.*`): add a Playwright spec per [src/puter-js/TESTING.md](../src/puter-js/TESTING.md).
 
 ### 7. Security pass
 
-Scan the diff before opening the PR: no internals leaked in errors or logs, no over-broad responses, auth gates present. Flag anything auth-, permission-, or data-export-related in the PR description.
+Run the [security & privacy](../AGENTS.md#security--privacy) check on the diff, and confirm the auth gates are present.
 
 ## Maintaining an existing API
 
 Changes are **additive by default**:
 
+- Existing call signatures keep working, including both positional and options-object forms where a method supports them. Say in the PR how existing callers are unaffected.
 - New parameters are optional, with defaults that reproduce the old behavior exactly.
 - Never rename, repurpose, or remove existing parameters, response fields, or error codes. Don't change types, ordering guarantees, or which fields are present when.
 - New behavior that could surprise existing callers goes behind an opt-in flag.
-- Docs, types, and tests move in the same PR as the behavior. A signature change with stale docs is a bug — the docs are the contract users code against.
+- Docs, types, and tests move in the same PR as the behavior; a signature change with stale docs is a bug.
 - Bug fixes come with a regression test that fails before the fix. Be suspicious of fixes that change observable behavior: someone may depend on the bug. When in doubt, ask a maintainer.
 
 ### Breaking changes

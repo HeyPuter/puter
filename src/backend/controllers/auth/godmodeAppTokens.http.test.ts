@@ -179,7 +179,8 @@ describe('godmode app tokens', () => {
         expect(decode(second.token!).token_uid).toBe(
             decode(first.token!).token_uid,
         );
-        expect(second.expires_at).toBeGreaterThanOrEqual(first.expires_at!);
+        // Asked again within the hour: the row keeps the expiry it has.
+        expect(second.expires_at).toBe(first.expires_at);
         // A copy taken at launch keeps working after the desktop renews.
         expect(await live(first.token!)).toBe(true);
 
@@ -191,6 +192,26 @@ describe('godmode app tokens', () => {
             app_uid: DEV_CENTER,
             expires_at: second.expires_at,
         });
+    });
+
+    it('is extended once the desktop asks with under eleven hours left', async () => {
+        const desktop = await newDesktopSession();
+        const first = await mint(desktop.gui_token);
+        const sessionUid = decode(first.token!).session_uid!;
+        await setRow(sessionUid, {
+            expires_at: Math.floor(Date.now() / 1000) + 2 * 60 * 60,
+        });
+
+        const before = Math.floor(Date.now() / 1000);
+        const renewed = await mint(desktop.gui_token);
+        expect(decode(renewed.token!).token_uid).toBe(
+            decode(first.token!).token_uid,
+        );
+        expect(renewed.expires_at).toBeGreaterThanOrEqual(
+            before + TWELVE_HOURS,
+        );
+        const row = await env.server.stores.session.getByUuidAny(sessionUid);
+        expect(row?.expires_at).toBe(renewed.expires_at);
     });
 
     it('is never extended by being used', async () => {

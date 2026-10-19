@@ -19,12 +19,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    decodeCursor,
-    encodeCursor,
-    openCursor,
-    sealCursor,
-} from '../../util/pagination';
+import { isSameAddress } from '../../util/email';
+import { decodeCursor, keysetPage, openIdCursor } from '../../util/pagination';
+import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
 
 /** Default page size for the keyset listings. */
@@ -53,28 +50,14 @@ const SHARED_IDS_CHUNK_SIZE = 1000;
 export class ShareStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUid(uid) {
-        const rows = await this.clients.db.read(
+    /** Pass `primary` to read back a row just written; a replica may lag. */
+    async getByUid(uid, { primary = false } = {}) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `uid` = ? LIMIT 1',
             [uid],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
-    }
-
-    async listByRecipientEmail(email) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `recipient_email` = ? ORDER BY `created_at` DESC',
-            [email],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    async listByIssuer(issuerUserId) {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `issuer_user_id` = ? ORDER BY `created_at` DESC',
-            [issuerUserId],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
     }
 
     /**
@@ -110,17 +93,10 @@ export class ShareStore extends PuterStore {
             [...holderParams, afterId, size + 1],
         );
 
-        const hasMore = rows.length > size;
-        const items = (hasMore ? rows.slice(0, size) : rows).map((r) =>
-            this.#normalizeRow(r),
-        );
-        const last = items[items.length - 1];
+        const page = keysetPage(rows, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((r) => this.#normalizeRow(r)),
+            cursor: page.cursor,
         };
     }
 
@@ -184,15 +160,10 @@ export class ShareStore extends PuterStore {
         const merged = [...issued, ...delegated, ...unrecorded].sort(
             (a, b) => Number(a.id) - Number(b.id),
         );
-        const hasMore = merged.length > size;
-        const items = merged.slice(0, size).map((r) => this.#normalizeRow(r));
-        const last = items[items.length - 1];
+        const page = keysetPage(merged, size, this.config.jwt_secret_v2);
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? sealCursor({ id: last.id }, this.config.jwt_secret_v2)
-                    : undefined,
+            items: page.rows.map((r) => this.#normalizeRow(r)),
+            cursor: page.cursor,
         };
     }
 
@@ -277,18 +248,16 @@ export class ShareStore extends PuterStore {
             ],
         );
 
-        const hasMore = rows.length > size;
-        const items = rows.slice(0, size).map((row) => ({
-            appUid: row.app_uid === '' ? null : String(row.app_uid),
-            count: Number(row.count),
+        // An app uid rather than a sequence position, so it needn't be sealed.
+        const page = keysetPage(rows, size, undefined, (last) => ({
+            appUid: String(last.app_uid),
         }));
-        const last = items[items.length - 1];
         return {
-            items,
-            cursor:
-                hasMore && last
-                    ? encodeCursor({ appUid: last.appUid ?? '' })
-                    : undefined,
+            items: page.rows.map((row) => ({
+                appUid: row.app_uid === '' ? null : String(row.app_uid),
+                count: Number(row.count),
+            })),
+            cursor: page.cursor,
         };
     }
 
@@ -305,32 +274,27 @@ export class ShareStore extends PuterStore {
 
     /** Everyone with an active share on one node, whoever issued it. */
     async listByFsentry(fsentryId) {
-        return this.listByFsentries([fsentryId]);
+        return this.listReaching([fsentryId]);
     }
 
-    /** As above, across several nodes in one query. */
-    async listByFsentries(fsentryIds) {
+    /**
+     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
+     * the caller has already resolved to row ids.
+     *
+     * This sits behind every file-write event, so it must stay on
+     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
+     * OR-ing a path match does not, and the optimizer falls back to a scan of
+     * `share`.
+     *
+     * @param {number[]} fsentryIds
+     */
+    async listReaching(fsentryIds) {
         if (fsentryIds.length === 0) return [];
         const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
             `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
                 'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
             fsentryIds,
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    /**
-     * Every active share the holder has on any of `fsentryIds`. Used to find
-     * which shared root an entry was reached through, in one round trip.
-     */
-    async listByHolderAndFsentries(holderUserId, fsentryIds) {
-        if (fsentryIds.length === 0) return [];
-        const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`share\` WHERE \`holder_user_id\` = ? AND ` +
-                `\`fsentry_id\` IN (${placeholders}) ORDER BY \`id\``,
-            [holderUserId, ...fsentryIds],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -392,28 +356,6 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
-     * the caller has already resolved to row ids.
-     *
-     * This sits behind every file-write event, so it must stay on
-     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
-     * OR-ing a path match does not, and the optimizer falls back to a scan of
-     * `share`.
-     *
-     * @param {number[]} fsentryIds
-     */
-    async listReaching(fsentryIds) {
-        if (fsentryIds.length === 0) return [];
-        const placeholders = fsentryIds.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
-                'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
-            fsentryIds,
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
-    /**
      * Team shares reaching these nodes, one row per member. Members hold
      * through the group, so without this a shared folder never pushes them a
      * change and goes stale until they refresh.
@@ -441,6 +383,33 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * Whether any share row sits on one of `userId`'s entries. A write to an
+     * owner with none has no audience to look for, and nearly every owner has
+     * none. Rows from before `entry_owner_user_id` existed are matched through
+     * their entry, as `listOutbound` does.
+     *
+     * @param {number} userId
+     * @returns {Promise<boolean>}
+     */
+    async ownerHasShares(userId) {
+        const [recorded, unrecorded] = await Promise.all([
+            this.clients.db.read(
+                'SELECT 1 AS `found` FROM `share` WHERE ' +
+                    '`entry_owner_user_id` = ? LIMIT 1',
+                [userId],
+            ),
+            this.clients.db.read(
+                'SELECT 1 AS `found` FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`share`.`entry_owner_user_id` IS NULL AND ' +
+                    '`fsentries`.`user_id` = ? LIMIT 1',
+                [userId],
+            ),
+        ]);
+        return recorded.length > 0 || unrecorded.length > 0;
+    }
+
+    /**
      * Everyone who issued any share row (active, pending or team-held) on a
      * directory or anything beneath it.
      *
@@ -458,31 +427,33 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Which of `fsentryIds` carry a share, pending invites included. Link
-     * shares count unless `includeAnyone` is false — what the caller passes
-     * while the owner's plan has them switched off.
+     * Which of `fsentryIds` carry a share, pending invites included, each
+     * mapped to whether it has a row other than a link share — a link alone
+     * counts only while the owner's plan covers link sharing.
      *
      * @param {number[]} fsentryIds
-     * @param {{ includeAnyone?: boolean }} [opts]
-     * @returns {Promise<Set<number>>}
+     * @returns {Promise<Map<number, boolean>>}
      */
-    async getSharedFsentryIds(fsentryIds, { includeAnyone = true } = {}) {
+    async getSharedFsentryIds(fsentryIds) {
         const ids = [
             ...new Set(
                 fsentryIds.map(Number).filter((id) => Number.isFinite(id)),
             ),
         ];
-        const shared = new Set();
+        const shared = new Map();
         for (let i = 0; i < ids.length; i += SHARED_IDS_CHUNK_SIZE) {
             const chunk = ids.slice(i, i + SHARED_IDS_CHUNK_SIZE);
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
-                'SELECT DISTINCT `fsentry_id` FROM `share` ' +
-                    `WHERE \`fsentry_id\` IN (${placeholders})` +
-                    (includeAnyone ? '' : ' AND `anyone` IS NULL'),
+                'SELECT `fsentry_id`, ' +
+                    'MAX(CASE WHEN `anyone` IS NULL THEN 1 ELSE 0 END) AS `direct` ' +
+                    `FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
+                    'GROUP BY `fsentry_id`',
                 chunk,
             );
-            for (const row of rows) shared.add(Number(row.fsentry_id));
+            for (const row of rows) {
+                shared.set(Number(row.fsentry_id), Number(row.direct) === 1);
+            }
         }
         return shared;
     }
@@ -522,24 +493,29 @@ export class ShareStore extends PuterStore {
                 'ORDER BY `id`',
             [recipientEmail],
         );
-        return rows.map((r) => this.#normalizeRow(r));
+        // The collation also matches accent variants, which are other addresses.
+        return rows
+            .filter((r) => isSameAddress(r.recipient_email, recipientEmail))
+            .map((r) => this.#normalizeRow(r));
     }
 
     /**
-     * Team shares on one node. Neither `listByFsentry` (holder rows) nor the
+     * Team shares on these nodes. Neither `listByFsentry` (holder rows) nor the
      * invite feed matches them, so without this the share dialog shows nothing
      * for a file shared with a team.
      *
-     * @param {number} fsentryId
+     * @param {number[]} fsentryIds
      */
-    async listGroupOnFsentry(fsentryId) {
+    async listGroupOnFsentries(fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
             'SELECT `share`.* FROM `share` ' +
                 'JOIN `group` `g` ON `g`.`id` = `share`.`holder_group_id` ' +
-                'WHERE `share`.`fsentry_id` = ? ' +
+                `WHERE \`share\`.\`fsentry_id\` IN (${placeholders}) ` +
                 'AND `share`.`holder_group_id` IS NOT NULL ' +
                 'AND `g`.`deleted_at` IS NULL ORDER BY `share`.`id`',
-            [fsentryId],
+            fsentryIds,
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -600,7 +576,7 @@ export class ShareStore extends PuterStore {
         }
 
         const existing = await this.clients.db.read(
-            'SELECT `uid`, `data` FROM `share` WHERE `recipient_email` = ? AND ' +
+            'SELECT * FROM `share` WHERE `recipient_email` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? AND ' +
                 '`holder_user_id` IS NULL LIMIT 1',
             [recipientEmail, fsentryId, issuerUserId],
@@ -618,14 +594,16 @@ export class ShareStore extends PuterStore {
                 : {}),
         });
         if (existing[0]?.uid) {
-            await this.clients.db.write(
+            const updated = await this.clients.db.write(
                 'UPDATE `share` SET `mode` = ?, `data` = ? WHERE `uid` = ?',
                 [mode, data, existing[0].uid],
             );
-            return {
-                row: await this.getByUid(existing[0].uid),
-                created: false,
-            };
+            // The rest of the row is the replica's copy; a pending row's other
+            // columns only change when it is claimed or its node changes hands.
+            const row = updated.anyRowsAffected
+                ? this.#normalizeRow({ ...existing[0], mode, data })
+                : await this.getByUid(existing[0].uid, { primary: true });
+            return { row, created: false };
         }
 
         const uid = uuidv4();
@@ -644,7 +622,11 @@ export class ShareStore extends PuterStore {
                 fsentryId,
             ],
         );
-        return { row: await this.getByUid(uid), created: true };
+        // `entry_owner_user_id` came from a subquery only the primary has run.
+        return {
+            row: await this.getByUid(uid, { primary: true }),
+            created: true,
+        };
     }
 
     async create({ issuerUserId, recipientEmail, data }) {
@@ -653,14 +635,33 @@ export class ShareStore extends PuterStore {
                 'create: issuerUserId and recipientEmail are required',
             );
         }
+        const db = this.clients.db;
         const uid = uuidv4();
         const serialized =
             typeof data === 'string' ? data : JSON.stringify(data ?? {});
-        await this.clients.db.write(
-            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `data`) VALUES (?, ?, ?, ?)',
-            [uid, issuerUserId, recipientEmail, serialized],
+        // Stamped rather than defaulted, so the row is known without a read.
+        const createdAt = Math.floor(Date.now() / 1000);
+        const { insertId } = await db.write(
+            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
+                '`data`, `created_at`) VALUES (?, ?, ?, ?, ' +
+                `${db.timestampFromUnixSql()})${db.returningIdClause()}`,
+            [uid, issuerUserId, recipientEmail, serialized, createdAt],
         );
-        return this.getByUid(uid);
+        return this.#normalizeRow({
+            id: Number(insertId),
+            uid,
+            issuer_user_id: issuerUserId,
+            recipient_email: recipientEmail,
+            data: serialized,
+            created_at: db.timestampValue(createdAt),
+            holder_user_id: null,
+            fsentry_id: null,
+            mode: null,
+            applied_at: null,
+            holder_group_id: null,
+            anyone: null,
+            entry_owner_user_id: null,
+        });
     }
 
     /**
@@ -731,7 +732,12 @@ export class ShareStore extends PuterStore {
                 data,
             ],
         );
-        return this.getActive({ holderUserId, fsentryId, issuerUserId });
+        // The upsert may have kept an existing row's uid and created_at, and
+        // `entry_owner_user_id` is a subquery's; only the primary knows them.
+        return this.getActive(
+            { holderUserId, fsentryId, issuerUserId },
+            { primary: true },
+        );
     }
 
     /**
@@ -797,7 +803,11 @@ export class ShareStore extends PuterStore {
                 data,
             ],
         );
-        return this.getActiveGroup({ holderGroupId, fsentryId, issuerUserId });
+        // As `upsertActive`: only the primary knows the row this settled on.
+        return this.getActiveGroup(
+            { holderGroupId, fsentryId, issuerUserId },
+            { primary: true },
+        );
     }
 
     /**
@@ -805,12 +815,17 @@ export class ShareStore extends PuterStore {
      * @param {number} input.holderGroupId
      * @param {number} input.fsentryId
      * @param {number} input.issuerUserId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async getActiveGroup({ holderGroupId, fsentryId, issuerUserId }) {
-        const rows = await this.clients.db.read(
+    async getActiveGroup(
+        { holderGroupId, fsentryId, issuerUserId },
+        { primary = false } = {},
+    ) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `holder_group_id` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
             [holderGroupId, fsentryId, issuerUserId],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -847,12 +862,17 @@ export class ShareStore extends PuterStore {
      * @param {number} input.holderUserId
      * @param {number} input.fsentryId
      * @param {number} input.issuerUserId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async getActive({ holderUserId, fsentryId, issuerUserId }) {
-        const rows = await this.clients.db.read(
+    async getActive(
+        { holderUserId, fsentryId, issuerUserId },
+        { primary = false } = {},
+    ) {
+        const rows = await this.#select(
             'SELECT * FROM `share` WHERE `holder_user_id` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
             [holderUserId, fsentryId, issuerUserId],
+            primary,
         );
         return this.#normalizeRow(rows[0]) ?? null;
     }
@@ -875,7 +895,7 @@ export class ShareStore extends PuterStore {
                 ? [holderUserId, fsentryId, issuerUserId]
                 : [holderUserId, fsentryId],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     /**
@@ -905,7 +925,8 @@ export class ShareStore extends PuterStore {
             ],
         );
         if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
-        return this.getByUid(uid);
+        // Only the uid is known here; the caller holds the replica's copy.
+        return this.getByUid(uid, { primary: true });
     }
 
     /**
@@ -922,7 +943,7 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders})`,
             fsentryIds,
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     /**
@@ -943,12 +964,11 @@ export class ShareStore extends PuterStore {
      * @param {number} newOwnerId @param {string} path
      */
     async reassignEntryOwnerUnder(newOwnerId, path) {
-        const escaped = path.replace(/([!%_])/g, '!$1');
         await this.clients.db.write(
             'UPDATE `share` SET `entry_owner_user_id` = ? WHERE `fsentry_id` ' +
                 'IN (SELECT `id` FROM `fsentries` WHERE `path` = ? OR ' +
                 "`path` LIKE ? ESCAPE '!')",
-            [newOwnerId, path, `${escaped}/%`],
+            [newOwnerId, path, `${escapeLike(path)}/%`],
         );
     }
 
@@ -987,7 +1007,7 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`uid\` IN (${placeholders})`,
             retired.map((row) => row.uid),
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     async deleteByUid(uid) {
@@ -995,15 +1015,7 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `uid` = ?',
             [uid],
         );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
-    }
-
-    async deleteByRecipientEmail(email) {
-        const result = await this.clients.db.write(
-            'DELETE FROM `share` WHERE `recipient_email` = ?',
-            [email],
-        );
-        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        return result.anyRowsAffected;
     }
 
     // -- Anyone with the link -----------------------------------------
@@ -1037,11 +1049,12 @@ export class ShareStore extends PuterStore {
             : this.clients.db.read(sql, params);
     }
 
-    async getAnyone(fsentryId) {
-        const rows = await this.#readAnyone(
-            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1',
-            [fsentryId],
-        );
+    async getAnyone(fsentryId, { primary = false } = {}) {
+        const sql =
+            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1';
+        const rows = primary
+            ? await this.clients.db.pread(sql, [fsentryId])
+            : await this.#readAnyone(sql, [fsentryId]);
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -1140,7 +1153,8 @@ export class ShareStore extends PuterStore {
                 issuerUserId,
             ],
         );
-        return this.getAnyone(fsentryId);
+        // As `upsertActive`: only the primary knows the row this settled on.
+        return this.getAnyone(fsentryId, { primary: true });
     }
 
     /**
@@ -1153,7 +1167,7 @@ export class ShareStore extends PuterStore {
             'DELETE FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
             [fsentryId],
         );
-        const removed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const removed = result.anyRowsAffected;
         if (removed) await this.#markLinkRevoked();
         return removed;
     }
@@ -1175,15 +1189,6 @@ export class ShareStore extends PuterStore {
     // -- Daily quota --------------------------------------------------
     // Counted in KV, not by querying `share`: the ceiling is on shares
     // *created*, so a COUNT of live rows would let a revoke recycle the slot.
-
-    /** @param {number} userId */
-    async getDailyShareCount(userId) {
-        const { res } = await this.stores.kv.get({
-            key: this.#dailyQuotaKey(userId),
-        });
-        const count = /** @type {{ count?: unknown } | null} */ (res)?.count;
-        return typeof count === 'number' ? count : 0;
-    }
 
     /**
      * @param {number} userId
@@ -1231,6 +1236,12 @@ export class ShareStore extends PuterStore {
 
     // -- Internals ----------------------------------------------------
 
+    #select(sql, params, primary) {
+        return primary
+            ? this.clients.db.pread(sql, params)
+            : this.clients.db.read(sql, params);
+    }
+
     /** The recursive walk of a directory's row ids, by parent linkage. */
     #subtreeCte() {
         return (
@@ -1252,25 +1263,17 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * The id a keyset page resumes after; 0 for the first page. A cursor that
-     * decodes but names no usable id — another endpoint's cursor, say — is
-     * refused rather than read as page one, which would silently restart a
-     * client's iteration from the top.
+     * The id a keyset page resumes after; 0 for the first page. A cursor
+     * without a usable id is refused rather than read as page one, which would
+     * silently restart a client's iteration from the top.
      */
     #afterId(cursor) {
-        const decoded = openCursor(
-            cursor,
-            this.config.jwt_secret_v2,
-            'share cursor',
+        return (
+            openIdCursor(cursor, this.config.jwt_secret_v2, {
+                label: 'share cursor',
+                strict: true,
+            }) ?? 0
         );
-        if (decoded === undefined) return 0;
-        const id = Number(decoded.id);
-        if (!Number.isInteger(id) || id < 0) {
-            throw new HttpError(400, 'invalid share cursor', {
-                legacyCode: 'bad_request',
-            });
-        }
-        return id;
     }
 
     /**

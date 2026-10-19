@@ -20,7 +20,10 @@
 import type { Request, Response } from 'express';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { ProfileService } from '../../services/profile/ProfileService.js';
+import type {
+    ProfileService,
+    UserProfile,
+} from '../../services/profile/ProfileService.js';
 import { PuterController } from '../types.js';
 
 // Shape only; the store decides whether the account exists.
@@ -56,13 +59,21 @@ export class ProfileController extends PuterController {
         const username = req.query.username;
 
         let target;
+        let ownProfile: PromiseSettledResult<UserProfile> | undefined;
         if (username === undefined) {
             if (!caller?.uuid) {
                 throw new HttpError(401, 'Sign in, or pass a username', {
                     legacyCode: 'unauthorized',
                 });
             }
-            target = await this.stores.user.getByUuid(caller.uuid);
+            // Read alongside the account; discarded if there's no account.
+            const [found, profile] = await Promise.allSettled([
+                this.stores.user.getByUuid(caller.uuid),
+                service.getProfile({ uuid: caller.uuid }),
+            ]);
+            if (found.status === 'rejected') throw found.reason;
+            target = found.value;
+            ownProfile = profile;
         } else {
             if (
                 typeof username !== 'string' ||
@@ -79,6 +90,11 @@ export class ProfileController extends PuterController {
         const isOwner = caller?.uuid === target.uuid;
         if (!isOwner && !(await service.isPubliclyVisible(target))) {
             throw notFound();
+        }
+        if (ownProfile && isOwner) {
+            if (ownProfile.status === 'rejected') throw ownProfile.reason;
+            res.json(ownProfile.value);
+            return;
         }
         res.json(await service.getProfile(target));
     }

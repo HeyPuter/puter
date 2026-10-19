@@ -26,15 +26,24 @@ import {
     type VoiceId,
 } from '@aws-sdk/client-polly';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
-import { TTSProvider } from '../TTSProvider.js';
+import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import type {
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+    ITTSProvider,
+} from '../../types.js';
+import { cachedRemoteCatalog } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
+import { characterCostReport, meterPerCharacter } from '../common.js';
 import { AWS_POLLY_COSTS } from './costs.js';
-
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
+import {
+    fetchPollyPriceList,
+    isPollyPriceRegion,
+    type PollyRates,
+} from './pricing.js';
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
@@ -56,31 +65,50 @@ interface PollyVoicesResponse {
  * audio as a DriverStreamResult. Includes voice caching and engine-aware voice
  * selection.
  */
-export class AWSPollyTTSProvider extends TTSProvider {
+export class AWSPollyTTSProvider implements ITTSProvider {
     readonly providerName = 'aws-polly';
 
     private clients: Record<string, PollyClient> = {};
     private voicesCache: { data: PollyVoicesResponse; expires: number } | null =
         null;
 
+    /** The region every synthesis call goes to, and so the one it's priced in. */
+    private readonly region: string;
+
+    /** The rates the latest price-list load produced, for the sync cost report. */
+    private currentRates: PollyRates = AWS_POLLY_COSTS;
+
+    private readonly rates: () => Promise<PollyRates>;
+
     constructor(
-        meteringService: AiMeteringService,
-        config: {
+        private readonly meteringService: AiMeteringService,
+        private readonly config: {
             access_key: string;
             secret_key: string;
             region?: string;
         },
     ) {
-        super(meteringService, config);
+        this.region = config.region ?? 'us-west-2';
+        const region = this.region;
+        // Rates the feed omits or can't vouch for keep their last known value.
+        this.rates = isPollyPriceRegion(region)
+            ? cachedRemoteCatalog<PollyRates>({
+                  name: `AWS Polly ${region} price list`,
+                  fallback: AWS_POLLY_COSTS,
+                  fetch: async (signal, previous) => {
+                      this.currentRates = {
+                          ...(previous ?? AWS_POLLY_COSTS),
+                          ...(await fetchPollyPriceList(region, signal)),
+                      };
+                      return this.currentRates;
+                  },
+              })
+            : async () => AWS_POLLY_COSTS;
     }
 
     private getClient(region?: string): PollyClient {
-        const cfg = this.providerConfig as {
-            access_key: string;
-            secret_key: string;
-            region?: string;
-        };
-        const resolvedRegion = region ?? cfg.region ?? 'us-west-2';
+        const cfg = this.config;
+        const resolvedRegion = region ?? this.region;
 
         if (this.clients[resolvedRegion]) {
             return this.clients[resolvedRegion];
@@ -199,23 +227,17 @@ export class AWSPollyTTSProvider extends TTSProvider {
     }
 
     async listEngines(): Promise<ITTSEngine[]> {
+        const rates = await this.rates();
         return VALID_ENGINES.map((engine) => ({
             id: engine,
             name: engine.charAt(0).toUpperCase() + engine.slice(1),
             provider: 'aws-polly',
-            pricing_per_million_chars: AWS_POLLY_COSTS[engine] / 100, // microcents to dollars
+            pricing_per_million_chars: rates[engine] / 100, // microcents to dollars
         }));
     }
 
-    override getReportedCosts(): Record<string, unknown>[] {
-        return Object.entries(AWS_POLLY_COSTS).map(
-            ([engine, ucentsPerUnit]) => ({
-                usageType: `aws-polly:${engine}:character`,
-                ucentsPerUnit,
-                unit: 'character',
-                source: 'driver:aiTts/aws-polly',
-            }),
-        );
+    getReportedCosts(): Record<string, unknown>[] {
+        return characterCostReport('aws-polly', this.currentRates);
     }
 
     async synthesize(
@@ -252,65 +274,53 @@ export class AWSPollyTTSProvider extends TTSProvider {
             });
         }
 
-        const actor = Context.get('actor')!;
-        const usageType = `aws-polly:${engine}:character`;
-        const ucentsPerChar = AWS_POLLY_COSTS[engine] ?? 0;
-        const totalCost = ucentsPerChar * text.length;
+        // One rate per request: the hold and the charge both use it even if
+        // the price list refreshes mid-synthesis.
+        const ucentsPerChar = (await this.rates())[engine];
 
-        const hold = await this.meteringService.reserveAiCredits(
-            actor,
-            usageType,
-            totalCost,
+        return meterPerCharacter(
+            this.meteringService,
+            Context.get('actor')!,
+            `aws-polly:${engine}:character`,
+            ucentsPerChar,
+            text,
+            async () => {
+                // Resolve voice
+                let voice = voiceArg ?? undefined;
+
+                if (!voice && language) {
+                    voice =
+                        (await this.getLanguageAppropriateVoice(
+                            language,
+                            engine,
+                        )) ?? undefined;
+                }
+
+                if (!voice) {
+                    voice = await this.getDefaultVoiceForEngine(engine);
+                }
+
+                const client = this.getClient();
+
+                const params = {
+                    Engine: engine as Engine,
+                    OutputFormat: 'mp3' as const,
+                    Text: text,
+                    VoiceId: voice as VoiceId,
+                    LanguageCode: (language ?? 'en-US') as LanguageCode,
+                    TextType: (ssml ? 'ssml' : 'text') as 'ssml' | 'text',
+                };
+
+                const command = new SynthesizeSpeechCommand(params);
+                const response = await client.send(command);
+
+                return {
+                    dataType: 'stream',
+                    content_type: 'audio/mpeg',
+                    chunked: true,
+                    stream: response.AudioStream as unknown as import('node:stream').Readable,
+                };
+            },
         );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            // Resolve voice
-            let voice = voiceArg ?? undefined;
-
-            if (!voice && language) {
-                voice =
-                    (await this.getLanguageAppropriateVoice(
-                        language,
-                        engine,
-                    )) ?? undefined;
-            }
-
-            if (!voice) {
-                voice = await this.getDefaultVoiceForEngine(engine);
-            }
-
-            const client = this.getClient();
-
-            const params = {
-                Engine: engine as Engine,
-                OutputFormat: 'mp3' as const,
-                Text: text,
-                VoiceId: voice as VoiceId,
-                LanguageCode: (language ?? 'en-US') as LanguageCode,
-                TextType: (ssml ? 'ssml' : 'text') as 'ssml' | 'text',
-            };
-
-            const command = new SynthesizeSpeechCommand(params);
-            const response = await client.send(command);
-
-            this.meteringService.incrementUsage(
-                actor,
-                usageType,
-                text.length,
-                totalCost,
-            );
-
-            return {
-                dataType: 'stream',
-                content_type: 'audio/mpeg',
-                chunked: true,
-                stream: response.AudioStream as unknown as import('node:stream').Readable,
-            };
-        } finally {
-            await hold.release();
-        }
     }
 }
