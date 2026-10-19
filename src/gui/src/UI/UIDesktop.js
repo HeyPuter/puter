@@ -2236,15 +2236,18 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
     // -------------------------------------------
     // Load available languages
     // -------------------------------------------
-    const supportedLanguagesItems = window.listSupportedLanguages().map(lang => {
-        return {
-            html: lang.name,
-            icon: window.locale === lang.code ? '✓' : '',
-            onClick: async function () {
-                changeLanguage(lang.code);
-            },
-        };
-    });
+    const supportedLanguagesItems = window.listSupportedLanguages()
+        .slice()
+        .sort((a, b) => a.english_name.localeCompare(b.english_name, 'en'))
+        .map(lang => {
+            return {
+                html: lang.name,
+                icon: window.locale === lang.code ? '✓' : '',
+                onClick: async function () {
+                    await changeLanguage(lang.code);
+                },
+            };
+        });
 
     UIContextMenu({
         id: 'user-options-menu',
@@ -2252,6 +2255,13 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
         position: { top: pos.top + 28, left: pos.left + pos.width - 15 },
         items: [
             ...items,
+            //--------------------------------------------------
+            // Change Language
+            //--------------------------------------------------
+            {
+                html: i18n('change_language'),
+                items: supportedLanguagesItems,
+            },
             //--------------------------------------------------
             // Settings
             //--------------------------------------------------

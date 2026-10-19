@@ -23,4 +23,12 @@ describe('i18n keys', () => {
         }
         expect(missing).toEqual([]);
     });
+
+    it('filipino dictionary keys exist in en.js', async () => {
+        const fil = (await import('./translations/fil.js')).default;
+        const missing = Object.keys(fil.dictionary).filter(key => !Object.hasOwn(en.dictionary, key));
+        expect(fil.code).toBe('fil');
+        expect(fil.name).toBe('Filipino');
+        expect(missing).toEqual([]);
+    });
 });
