@@ -286,6 +286,14 @@ const pipError = (name, message) => {
     return err;
 };
 
+const getGUIOrigin = (origin) => {
+    try {
+        return new URL(origin).origin;
+    } catch {
+        return null;
+    }
+};
+
 const MAX_REQUESTED_PERMISSIONS = 16;
 
 // Short on purpose: a request usually spends a user gesture while it waits.
@@ -355,12 +363,13 @@ export class AppConnection extends EventListener {
             target,
         }).info(`AppConnection created to ${target}`, this);
 
-        // TODO: Set this.#puterOrigin to the puter origin
+        this.#puterOrigin = getGUIOrigin(puter.defaultGUIOrigin);
 
         const onMessage = event => {
             // Relayed by the host environment; a window that guessed an
             // appInstanceID must not be able to forge one directly.
-            if ( event.source !== this.messageTarget ) return;
+            if ( event.source !== this.messageTarget ||
+                ! this.#puterOrigin || event.origin !== this.#puterOrigin ) return;
             if ( ! event.data ) return;
 
             if ( event.data.msg === 'messageToApp' ) {
@@ -552,19 +561,6 @@ export class UIModule extends EventListener {
     // these windows, so a repeated picker reuses one entry.
     #pickerPopups = new Set();
 
-    // Canonical origin of the GUI we open popups on. The popup's messages
-    // arrive tagged with the browser's serialization of its origin, while
-    // `defaultGUIOrigin` is configuration-supplied text that may carry a
-    // trailing slash, an explicit default port or a stray path. Null when it
-    // can't be parsed, which no popup reply can then match.
-    #guiOrigin () {
-        try {
-            return new URL(puter.defaultGUIOrigin).origin;
-        } catch (e) {
-            return null;
-        }
-    }
-
     #trackPickerPopup (popup) {
         // Also shared with the SDK, whose token handler pins on the same set.
         puter.trackOpenedWindow_?.(popup);
@@ -574,11 +570,10 @@ export class UIModule extends EventListener {
 
     // Whether a message on the window may drive this module.
     #isTrustedMessageSource (e) {
-        // `app` env: the host frame relays everything. Its origin is whatever
-        // the deployment is served from, so pin the window instead — that
-        // keeps locally-hosted and self-hosted GUIs working while still
-        // rejecting a sibling app iframe or a third-party page that framed us.
-        if ( this.messageTarget ) return e.source === this.messageTarget;
+        if ( this.messageTarget ) {
+            return e.source === this.messageTarget &&
+                e.origin === getGUIOrigin(puter.defaultGUIOrigin);
+        }
 
         // `web` env (a third-party site): there is no host frame to pin. The
         // picker popups we opened post back directly, and always from the GUI
@@ -586,7 +581,7 @@ export class UIModule extends EventListener {
         // window too when we can still see it: the picker calls
         // window.close() right after posting, and a discarded browsing
         // context can leave `event.source` null.
-        const guiOrigin = this.#guiOrigin();
+        const guiOrigin = getGUIOrigin(puter.defaultGUIOrigin);
         if ( ! guiOrigin || e.origin !== guiOrigin ) return false;
         if ( ! e.source ) return this.#pickerPopups.size > 0;
         return this.#pickerPopups.has(e.source);
@@ -638,6 +633,7 @@ export class UIModule extends EventListener {
     #postMessageWithObject (name, value) {
         const dehydrator = this.util.rpc.getDehydrator({
             target: this.messageTarget,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
         });
         this.messageTarget?.postMessage({
             msg: name,
@@ -659,7 +655,10 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, { once: true });
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, {
+            once: true,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
+        });
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,

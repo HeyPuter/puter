@@ -590,11 +590,26 @@ export class UserStore extends PuterStore {
      * names for ergonomic call sites. Never take column names from request
      * bodies.
      */
+    async update(userId: number, patch: Record<string, unknown>): Promise<void>;
     async update(
         userId: number,
         patch: Record<string, unknown>,
-    ): Promise<void> {
-        await this.#write(userId, patch);
+        options: { expectedRecoveryToken: string },
+    ): Promise<boolean>;
+    async update(
+        userId: number,
+        patch: Record<string, unknown>,
+        { expectedRecoveryToken }: { expectedRecoveryToken?: string } = {},
+    ): Promise<boolean | void> {
+        const updated = await this.#write(
+            userId,
+            patch,
+            expectedRecoveryToken === undefined
+                ? undefined
+                : '`pass_recovery_token` = ?',
+            expectedRecoveryToken === undefined ? [] : [expectedRecoveryToken],
+        );
+        if (expectedRecoveryToken !== undefined) return updated;
     }
 
     /**
@@ -678,6 +693,7 @@ export class UserStore extends PuterStore {
         userId: number,
         patch: Record<string, unknown>,
         guard?: string,
+        guardValues: unknown[] = [],
     ): Promise<boolean> {
         const dbPatch: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(patch)) {
@@ -706,6 +722,17 @@ export class UserStore extends PuterStore {
         const touchesIdentity = keys.some((k) =>
             (USER_ID_PROPERTIES as readonly string[]).includes(k),
         );
+        const touchesSecurity =
+            touchesIdentity ||
+            keys.some((key) =>
+                [
+                    'password',
+                    'suspended',
+                    'email_confirmed',
+                    'requires_password_change',
+                    'temp_password_expires_at',
+                ].includes(key),
+            );
         const before = touchesIdentity
             ? await this.getByProperty('id', userId, { force: true })
             : null;
@@ -713,7 +740,7 @@ export class UserStore extends PuterStore {
         const result = await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?` +
                 (guard ? ` AND ${guard}` : ''),
-            [...values, userId],
+            [...values, userId, ...guardValues],
         );
 
         // Nothing was written, so there are no cache keys to retire.
@@ -735,7 +762,15 @@ export class UserStore extends PuterStore {
             }
         }
 
-        if (fresh) {
+        if (touchesSecurity) {
+            await this.tombstoneCacheKeys([
+                ...new Set([
+                    this.#cache.key('id', userId),
+                    ...(before ? this.#cacheKeysToWrite(before) : []),
+                    ...(fresh ? this.#cacheKeysToWrite(fresh) : []),
+                ]),
+            ]);
+        } else if (fresh) {
             await this.#cache.refresh(fresh);
         } else {
             await this.invalidateById(userId);

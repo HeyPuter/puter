@@ -99,6 +99,23 @@ describe('xdrpc callback source binding', () => {
         expect(calls).toEqual([['ok']]);
     });
 
+    it('pins dehydrated callbacks to the configured origin as well as source', () => {
+        const gui = {};
+        const manager = new CallbackManager();
+        const listener = fakeWindow();
+        manager.attach_to_source(listener);
+        const calls = [];
+        const dehydrator = new Dehydrator({
+            callbackManager: manager, source: gui, origin: 'https://gui.test',
+        });
+        const { id } = dehydrator.dehydrate((value) => calls.push(value));
+        const data = { $SCOPE, id, args: ['ok'] };
+        listener.deliver({ source: gui, origin: 'https://other.test', data });
+        expect(calls).toEqual([]);
+        listener.deliver({ source: gui, origin: 'https://gui.test', data });
+        expect(calls).toEqual(['ok']);
+    });
+
     it('ignores the same message from another window', () => {
         const gui = {};
         const { calls, id, listener } = register({ source: gui });

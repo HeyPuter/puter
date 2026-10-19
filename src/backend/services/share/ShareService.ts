@@ -3123,7 +3123,10 @@ export class ShareService extends PuterService {
 
         let issuers: number[];
         if (onlyIssuer !== undefined) issuers = [onlyIssuer];
-        else if (actingApp) issuers = await indexedIssuers();
+        else if (actingApp)
+            issuers = (await indexedIssuers()).filter(
+                (id) => isOwner || id === issuerId,
+            );
         else if (isOwner) issuers = [...(await indexedIssuers()), issuerId];
         else issuers = [issuerId];
         // Nothing of the app's own to withdraw, so nothing downstream either.

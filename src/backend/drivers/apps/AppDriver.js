@@ -612,6 +612,7 @@ export class AppDriver extends PuterDriver {
                 required: isCreate,
                 protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
+            if (out.index_url) out.index_url = new URL(out.index_url).href;
             // Only enforce on new/changed values so rows that already
             // carry a reserved host (migration-seeded builtins) can still
             // have their other fields updated.

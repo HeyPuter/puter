@@ -4939,9 +4939,14 @@ export class FSService extends PuterService {
         }
 
         // Authorized without write there, so a collision must not answer.
+        const actor = Context.get('actor') as Actor | undefined;
         const intoSomeoneElsesTrash =
             isOwnersTrash(source, destinationParent) &&
             destinationParent.userId !== userId;
+        const intoRestrictedTrash =
+            isOwnersTrash(source, destinationParent) &&
+            (intoSomeoneElsesTrash ||
+                (actor !== undefined && !isAccountContext(actor)));
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
@@ -4973,7 +4978,7 @@ export class FSService extends PuterService {
                 destinationParent,
                 name,
                 input,
-                { intoSomeoneElsesTrash },
+                { intoRestrictedTrash },
             );
         }
 
@@ -5025,7 +5030,7 @@ export class FSService extends PuterService {
                     destinationParent,
                     name,
                     input,
-                    { intoSomeoneElsesTrash },
+                    { intoRestrictedTrash },
                 );
             }
             updated = await applyMove(name);
@@ -5087,10 +5092,10 @@ export class FSService extends PuterService {
         destinationParent: FSEntry,
         name: string,
         input: { overwrite?: boolean; dedupeName?: boolean },
-        opts: { intoSomeoneElsesTrash?: boolean } = {},
+        opts: { intoRestrictedTrash?: boolean } = {},
     ): Promise<string> {
         // Ahead of `overwrite`: no write here, so a collision destroys nothing.
-        if (opts.intoSomeoneElsesTrash) {
+        if (opts.intoRestrictedTrash) {
             return this.#findDedupedName(destinationParent, name);
         }
         if (input.overwrite) {
