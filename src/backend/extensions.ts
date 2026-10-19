@@ -353,7 +353,8 @@ export const extension = {
      * Serve `<name>.<config.domain>` in place of the 404 an unclaimed subdomain
      * gets. `authorize` runs first, before CORS, body parsing and auth; when it
      * returns true, routes declared with `subdomain: name` answer. Anything
-     * else gets that same 404.
+     * else gets that same 404. `{ mainPipeline: true }` instead serves the host
+     * like core's own subdomains, with ordinary routes.
      */
     claimSubdomain: (name: string, claim: SubdomainClaim) => {
         addClaimedSubdomain(extensionStore.claimedSubdomains, name, claim);

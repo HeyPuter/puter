@@ -781,6 +781,93 @@ describe('PuterServer claimed subdomains', () => {
     });
 });
 
+/**
+ * A main-pipeline claim is served like a reserved subdomain, with ordinary
+ * routes.
+ */
+describe('PuterServer main-pipeline claims', () => {
+    let server: PuterServer;
+    let port: number;
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        extension.claimSubdomain('mainclaim', { mainPipeline: true });
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get(
+            '/hello',
+            { subdomain: 'mainclaim' },
+            (_req: Request, res: Response) => {
+                res.send('main hello');
+            },
+        );
+        extension.get(
+            '/signed-in',
+            {
+                subdomain: 'mainclaim',
+                requireAuth: true,
+                rateLimit: { limit: 5, window: 1000, key: 'user' },
+            },
+            (_req: Request, res: Response) => {
+                res.send('signed in');
+            },
+        );
+        extension.get('/everywhere', { subdomain: '*' }, (_req, res) => {
+            res.send('everywhere');
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.claimedSubdomains.delete('mainclaim');
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    it('serves its routes and the main app on the claimed host', async () => {
+        const host = 'mainclaim.puter.localhost';
+        expect((await rawRequest(port, '/hello', { host })).body).toBe(
+            'main hello',
+        );
+        const everywhere = await rawRequest(port, '/everywhere', {
+            host,
+            origin: 'https://elsewhere.example',
+        });
+        const reserved = await rawRequest(port, '/everywhere', {
+            host: 'api.puter.localhost',
+            origin: 'https://elsewhere.example',
+        });
+        expect(everywhere.body).toBe('everywhere');
+        for (const res of [everywhere, reserved]) {
+            expect(res.headers['access-control-allow-origin']).toBe(
+                'https://elsewhere.example',
+            );
+        }
+    });
+
+    it('runs auth for its routes', async () => {
+        const res = await rawRequest(port, '/signed-in', {
+            host: 'mainclaim.puter.localhost',
+        });
+        expect(res.status).toBe(401);
+    });
+
+    it('keeps its routes off other hosts', async () => {
+        for (const host of ['api.puter.localhost', 'other.puter.localhost']) {
+            const res = await rawRequest(port, '/hello', { host });
+            expect(res.status, host).toBe(404);
+        }
+    });
+});
+
 describe('PuterServer claimed subdomain route options', () => {
     const noop = ((_req: Request, res: Response) =>
         res.end()) as unknown as RequestHandler;

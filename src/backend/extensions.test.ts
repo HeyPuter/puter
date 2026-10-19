@@ -161,6 +161,13 @@ describe('extension.claimSubdomain', () => {
         expect(extensionStore.claimedSubdomains.get('portal')).toEqual(claim);
     });
 
+    it('records a main-pipeline claim', () => {
+        extension.claimSubdomain('onlyoffice', { mainPipeline: true });
+        expect(extensionStore.claimedSubdomains.get('onlyoffice')).toEqual({
+            mainPipeline: true,
+        });
+    });
+
     it('refuses a second claim, a reserved name, an invalid label and no authorize', () => {
         extension.claimSubdomain('portal', claim);
         expect(() => extension.claimSubdomain('portal', claim)).toThrow(
