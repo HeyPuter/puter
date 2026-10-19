@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import {
@@ -31,7 +32,9 @@ import {
     CONCURRENT_SLOT_TTL_MS,
     acquireConcurrent,
 } from '../../core/http/middleware/rateLimit.js';
+import { SPEECH_TO_TEXT_COSTS } from '../../drivers/ai-speech2txt/costs.js';
 import { readProviderKey } from '../../drivers/util/providerRegistry.js';
+import { kv } from '../../util/kvSingleton.js';
 import type { UsageInput } from '../metering/types.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
@@ -98,6 +101,29 @@ export interface RealtimeUsage {
     output_token_details?: { text_tokens?: number; audio_tokens?: number };
 }
 
+/** Micro-cents per token for input transcription billed in tokens. */
+const TRANSCRIPTION_TOKEN_PRICES: Record<
+    string,
+    { textIn: number; audioIn: number; textOut: number }
+> = {
+    'gpt-4o-transcribe': { textIn: 250, audioIn: 600, textOut: 1000 },
+    'gpt-4o-mini-transcribe': { textIn: 125, audioIn: 300, textOut: 500 },
+};
+/** Micro-cents per second for input transcription billed by duration. */
+const TRANSCRIPTION_SECOND_PRICES: Record<string, number> = {
+    'whisper-1': 10_000,
+    'gpt-transcribe': SPEECH_TO_TEXT_COSTS['openai:gpt-transcribe:second'],
+};
+
+/** The `usage` on `conversation.item.input_audio_transcription.completed`. */
+export interface RealtimeTranscriptionUsage {
+    type?: 'tokens' | 'duration';
+    input_tokens?: number;
+    output_tokens?: number;
+    input_token_details?: { text_tokens?: number; audio_tokens?: number };
+    seconds?: number;
+}
+
 const OPENAI_KEY_PROTOCOL = 'openai-insecure-api-key.';
 const MAX_CLIENT_PAYLOAD = 16 * 1024 * 1024;
 // Client reads pause past this much buffered before the upstream opens.
@@ -112,6 +138,16 @@ const HEARTBEAT_MS = 30_000;
 const UPSTREAM_HANDSHAKE_MS = 10_000;
 const STATS_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_PER_USER = 20;
+// Credentials are re-authenticated once their kv entry expires.
+const AUTH_RECHECK_SEC = 60;
+const AUTH_SWEEP_MS = 15_000;
+// At shutdown, how long a session may finish its in-flight response.
+const DRAIN_RESPONSE_MS = 5_000;
+// RFC 6455 "Service Restart": the client should reconnect.
+const CLOSE_RESTART = 1012;
+const TYPE_PREFIX = /^\{\s*"type"\s*:\s*"([^"]+)"/;
+const TRANSCRIPTION_DONE =
+    'conversation.item.input_audio_transcription.completed';
 
 /**
  * The credential a realtime client presents, in the places OpenAI's own clients
@@ -179,6 +215,74 @@ export const realtimeUsageRows = (
         }));
 };
 
+/**
+ * Usage rows for one completed input transcription. A model missing from the
+ * tables is billed at the highest known rate, so it is never free.
+ */
+export const realtimeTranscriptionRows = (
+    model: string | undefined,
+    usage: RealtimeTranscriptionUsage | undefined,
+): UsageInput[] => {
+    if (!usage) return [];
+    const n = (v: number | undefined) =>
+        typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+    const known =
+        model &&
+        (TRANSCRIPTION_TOKEN_PRICES[model] ||
+            TRANSCRIPTION_SECOND_PRICES[model])
+            ? model
+            : 'unknown';
+    const usageType = (kind: string) =>
+        `openai:${known}:realtime:transcription_${kind}`;
+    if (usage.type === 'duration') {
+        const seconds = n(usage.seconds);
+        const ucents =
+            TRANSCRIPTION_SECOND_PRICES[known] ??
+            Math.max(...Object.values(TRANSCRIPTION_SECOND_PRICES));
+        if (seconds === 0) return [];
+        return [
+            {
+                usageType: usageType('seconds'),
+                usageAmount: seconds,
+                costOverride: Math.ceil(seconds * ucents),
+            },
+        ];
+    }
+    const price =
+        TRANSCRIPTION_TOKEN_PRICES[known] ??
+        TRANSCRIPTION_TOKEN_PRICES['gpt-4o-transcribe'];
+    const details = usage.input_token_details;
+    const audioIn = details ? n(details.audio_tokens) : n(usage.input_tokens);
+    const counts: [string, number, number][] = [
+        ['text_input', n(details?.text_tokens), price.textIn],
+        ['audio_input', audioIn, price.audioIn],
+        ['text_output', n(usage.output_tokens), price.textOut],
+    ];
+    return counts
+        .filter(([, amount]) => amount > 0)
+        .map(([kind, amount, ucents]) => ({
+            usageType: usageType(kind),
+            usageAmount: amount,
+            costOverride: amount * ucents,
+        }));
+};
+
+/** The transcription model a `session.created`/`session.updated` configures. */
+const transcriptionModelOf = (session: unknown): string | undefined => {
+    const s = session as {
+        audio?: { input?: { transcription?: { model?: unknown } | null } };
+        input_audio_transcription?: { model?: unknown } | null;
+    } | null;
+    const model =
+        s?.audio?.input?.transcription?.model ??
+        s?.input_audio_transcription?.model;
+    return typeof model === 'string' ? model : undefined;
+};
+
+/** The kv key whose presence means `token` was verified recently. */
+export const realtimeAuthKey = (token: string): string =>
+    `realtime:auth:${createHash('sha256').update(token).digest('base64url')}`;
+
 /** An error event in OpenAI's realtime shape. */
 const errorEvent = (code: string, message: string): string =>
     JSON.stringify({
@@ -212,8 +316,14 @@ export class OpenAIRealtimeRelayService extends PuterService {
     #sessions = new Set<{
         close: (code: number, reason: string) => void;
         heartbeat: () => void;
+        recheck: () => Promise<void>;
+        drain: () => Promise<void>;
     }>();
     #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    #authTimer: ReturnType<typeof setInterval> | null = null;
+    // One re-authentication per token at a time, shared by its sessions.
+    #authChecks = new Map<string, Promise<Actor | null>>();
+    #draining = false;
     #stats = {
         opened: 0,
         closed: 0,
@@ -270,15 +380,37 @@ export class OpenAIRealtimeRelayService extends PuterService {
             for (const session of this.#sessions) session.heartbeat();
         }, HEARTBEAT_MS);
         this.#heartbeatTimer.unref?.();
+        this.#authTimer = setInterval(
+            () => void this.recheckSessions(),
+            AUTH_SWEEP_MS,
+        );
+        this.#authTimer.unref?.();
     }
 
-    override onServerPrepareShutdown(): void {
+    /** Re-authenticates every session whose token's kv entry has expired. */
+    async recheckSessions(): Promise<void> {
+        await Promise.all([...this.#sessions].map((s) => s.recheck()));
+    }
+
+    /** New sessions are refused; open ones keep running through the drain. */
+    override onServerDrainStart(): void {
+        this.#draining = true;
+        console.info(
+            `[realtime] draining; ${this.#sessions.size} sessions stay open`,
+        );
+    }
+
+    /**
+     * Each session gets a moment to finish its in-flight response, then closes
+     * with 1012 so the client reconnects to another node.
+     */
+    override async onServerPrepareShutdown(): Promise<void> {
+        this.#draining = true;
         if (this.#statsTimer) clearInterval(this.#statsTimer);
         if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
+        if (this.#authTimer) clearInterval(this.#authTimer);
         this.#loopDelay?.disable();
-        for (const session of this.#sessions) {
-            session.close(1001, 'server shutting down');
-        }
+        await Promise.all([...this.#sessions].map((s) => s.drain()));
         this.#wss?.close();
     }
 
@@ -336,6 +468,14 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let renewTimer: ReturnType<typeof setInterval> | null = null;
         let budgetTimer: ReturnType<typeof setTimeout> | null = null;
         let stallTimer: ReturnType<typeof setTimeout> | null = null;
+        const token = realtimeTokenFrom(req, url);
+        let actor: Actor | null = null;
+        let rechecking = false;
+        // Responses started upstream and not yet done, for the drain.
+        let inFlight = 0;
+        let onIdle: (() => void) | null = null;
+        // Decoded upstream state the meter needs.
+        const decoded: { transcriptionModel?: string } = {};
 
         // Client reads stay paused while any reason holds.
         const holds = new Set<'pending' | 'upstream' | 'budget'>();
@@ -358,6 +498,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 if (renewTimer) clearInterval(renewTimer);
                 if (budgetTimer) clearTimeout(budgetTimer);
                 if (stallTimer) clearTimeout(stallTimer);
+                onIdle?.();
                 void Promise.all(slots.map((s) => s.release()));
                 if (client.readyState === WebSocket.OPEN) {
                     client.close(code, reason);
@@ -380,18 +521,62 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 alive = false;
                 if (client.readyState === WebSocket.OPEN) client.ping();
             },
+            // Called every AUTH_SWEEP_MS; re-authenticates once the token's kv
+            // entry has expired. A failed lookup is retried on the next sweep.
+            recheck: async () => {
+                if (!actor || !token || closed || rechecking) return;
+                if (kv.get(realtimeAuthKey(token)) !== undefined) return;
+                rechecking = true;
+                try {
+                    const next = await this.#authenticateCached(token, req);
+                    if (closed) return;
+                    if (!next || next.user?.uuid !== actor.user?.uuid) {
+                        reject(
+                            'invalid_api_key',
+                            'Credentials are no longer valid',
+                        );
+                        return;
+                    }
+                    actor = next;
+                } catch (err) {
+                    console.warn('[realtime] credential recheck failed', err);
+                } finally {
+                    rechecking = false;
+                }
+            },
+            drain: async () => {
+                if (inFlight > 0 && !closed) {
+                    await new Promise<void>((resolve) => {
+                        const timer = setTimeout(resolve, DRAIN_RESPONSE_MS);
+                        onIdle = () => {
+                            clearTimeout(timer);
+                            resolve();
+                        };
+                    });
+                }
+                session.close(CLOSE_RESTART, 'server restarting');
+            },
         };
         this.#sessions.add(session);
         this.#stats.opened++;
         client.on('pong', () => (alive = true));
 
-        const reject = (code: string, message: string) => {
+        const reject = (code: string, message: string, closeCode = 1008) => {
             this.#stats.rejected++;
             if (client.readyState === WebSocket.OPEN) {
                 client.send(errorEvent(code, message));
             }
-            session.close(1008, code);
+            session.close(closeCode, code);
         };
+
+        if (this.#draining) {
+            reject(
+                'server_restarting',
+                'Server is restarting; reconnect',
+                CLOSE_RESTART,
+            );
+            return;
+        }
 
         // Token bucket over client bytes: one max-size frame of burst, then
         // reads pause until the sustained rate catches up.
@@ -457,9 +642,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
 
-        const actor = await this.#authenticate(req, url).catch(
-            (): null => null,
-        );
+        try {
+            actor = token ? await this.#authenticateCached(token, req) : null;
+        } catch {
+            actor = null;
+        }
         if (closed) return;
         if (!actor) {
             reject('invalid_api_key', 'Authentication failed');
@@ -558,9 +745,31 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     SLOW_CLIENT_MS,
                 );
             }
-            if (!isBinary && buf.subarray(0, 64).includes('"response.done"')) {
-                this.#meter(actor, model, buf, () =>
-                    reject('insufficient_funds', 'No usage left for request'),
+            if (isBinary) return;
+            // Audio deltas dominate; only the type prefix is read per frame.
+            const type = TYPE_PREFIX.exec(
+                buf.subarray(0, 96).toString('latin1'),
+            )?.[1];
+            if (type === 'response.created') inFlight++;
+            if (type === 'response.done') {
+                inFlight = Math.max(0, inFlight - 1);
+                if (inFlight === 0) onIdle?.();
+            }
+            if (
+                type === 'response.done' ||
+                type === TRANSCRIPTION_DONE ||
+                type === 'session.created' ||
+                type === 'session.updated'
+            ) {
+                // Parsed and billed after the frame is forwarded, in arrival
+                // order, so metering never holds up the relay.
+                setImmediate(() =>
+                    this.#decode(type, buf, model, decoded, actor!, () =>
+                        reject(
+                            'insufficient_funds',
+                            'No usage left for request',
+                        ),
+                    ),
                 );
             }
         });
@@ -594,34 +803,78 @@ export class OpenAIRealtimeRelayService extends PuterService {
         });
     }
 
-    #meter(
-        actor: Actor,
-        model: string,
+    async #decode(
+        type: string,
         buf: Buffer,
+        model: string,
+        decoded: { transcriptionModel?: string },
+        actor: Actor,
         onExhausted: () => void,
-    ): void {
-        let usage: RealtimeUsage | undefined;
+    ): Promise<void> {
+        let event: {
+            session?: unknown;
+            response?: { usage?: RealtimeUsage };
+            usage?: RealtimeTranscriptionUsage;
+        };
         try {
-            usage = JSON.parse(buf.toString('utf8'))?.response?.usage;
+            event = JSON.parse(buf.toString('utf8'));
         } catch {
             return;
         }
-        const rows = realtimeUsageRows(model, usage);
+        if (type === 'session.created' || type === 'session.updated') {
+            decoded.transcriptionModel = transcriptionModelOf(event?.session);
+            return;
+        }
+        const rows =
+            type === 'response.done'
+                ? realtimeUsageRows(model, event?.response?.usage)
+                : realtimeTranscriptionRows(
+                      decoded.transcriptionModel,
+                      event?.usage,
+                  );
         if (rows.length === 0) return;
-        void this.services.metering
-            .batchIncrementUsages(actor, rows)
-            .then(() => this.services.metering.hasEnoughCredits(actor, 1))
-            .then((ok) => {
-                if (!ok) onExhausted();
-            })
-            .catch((err: unknown) =>
-                console.warn('[realtime] metering failed', err),
-            );
+        try {
+            await this.services.metering.batchIncrementUsages(actor, rows);
+            if (!(await this.services.metering.hasEnoughCredits(actor, 1))) {
+                onExhausted();
+            }
+        } catch (err) {
+            console.warn('[realtime] metering failed', err);
+        }
     }
 
-    async #authenticate(req: IncomingMessage, url: URL): Promise<Actor | null> {
-        const token = realtimeTokenFrom(req, url);
-        if (!token) return null;
+    /**
+     * Authenticates `token`, caching success in kv for AUTH_RECHECK_SEC so
+     * sessions sharing a token re-check it once per expiry. Throws on lookup
+     * errors, which callers treat as "unknown" rather than "revoked".
+     */
+    #authenticateCached(
+        token: string,
+        req: IncomingMessage,
+    ): Promise<Actor | null> {
+        const key = realtimeAuthKey(token);
+        let check = this.#authChecks.get(key);
+        if (!check) {
+            check = (async () => {
+                try {
+                    const actor = await this.#authenticate(token, req);
+                    if (actor) {
+                        kv.set(key, actor.user!.uuid, { EX: AUTH_RECHECK_SEC });
+                    }
+                    return actor;
+                } finally {
+                    this.#authChecks.delete(key);
+                }
+            })();
+            this.#authChecks.set(key, check);
+        }
+        return check;
+    }
+
+    async #authenticate(
+        token: string,
+        req: IncomingMessage,
+    ): Promise<Actor | null> {
         const ua = req.headers['user-agent'];
         const result = await this.services.auth.authenticate(token, {
             ip: req.socket.remoteAddress,

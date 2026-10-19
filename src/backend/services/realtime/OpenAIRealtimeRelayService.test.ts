@@ -9,9 +9,12 @@ import {
     setupTestServer,
     type TestUserCredentials,
 } from '../../testUtil';
+import { kv } from '../../util/kvSingleton';
 import {
     REALTIME_PATH,
+    realtimeAuthKey,
     realtimeTokenFrom,
+    realtimeTranscriptionRows,
     realtimeUsageRows,
 } from './OpenAIRealtimeRelayService';
 
@@ -87,6 +90,58 @@ describe('realtimeUsageRows', () => {
     });
 });
 
+describe('realtimeTranscriptionRows', () => {
+    it('prices token usage by transcription model', () => {
+        const rows = realtimeTranscriptionRows('gpt-4o-mini-transcribe', {
+            type: 'tokens',
+            input_tokens: 30,
+            input_token_details: { text_tokens: 10, audio_tokens: 20 },
+            output_tokens: 5,
+        });
+        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
+            [
+                'openai:gpt-4o-mini-transcribe:realtime:transcription_text_input',
+                10 * 125,
+            ],
+            [
+                'openai:gpt-4o-mini-transcribe:realtime:transcription_audio_input',
+                20 * 300,
+            ],
+            [
+                'openai:gpt-4o-mini-transcribe:realtime:transcription_text_output',
+                5 * 500,
+            ],
+        ]);
+    });
+
+    it('prices duration usage per second', () => {
+        expect(
+            realtimeTranscriptionRows('whisper-1', {
+                type: 'duration',
+                seconds: 2.5,
+            }),
+        ).toEqual([
+            {
+                usageType: 'openai:whisper-1:realtime:transcription_seconds',
+                usageAmount: 2.5,
+                costOverride: 25_000,
+            },
+        ]);
+    });
+
+    it('bills an unknown model at the highest known rate', () => {
+        const [row] = realtimeTranscriptionRows(undefined, {
+            type: 'tokens',
+            input_tokens: 10,
+        });
+        expect(row).toEqual({
+            usageType: 'openai:unknown:realtime:transcription_audio_input',
+            usageAmount: 10,
+            costOverride: 10 * 600,
+        });
+    });
+});
+
 describe('OpenAIRealtimeRelayService relay', () => {
     let server: PuterServer;
     let upstream: WebSocketServer;
@@ -116,6 +171,47 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 }
                 const event = JSON.parse(data.toString());
                 ws.send(JSON.stringify({ type: 'echo', event }));
+                if (event.type === 'transcribe') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'session.updated',
+                            session: {
+                                audio: {
+                                    input: {
+                                        transcription: {
+                                            model: 'gpt-4o-transcribe',
+                                        },
+                                    },
+                                },
+                            },
+                        }),
+                    );
+                    ws.send(
+                        JSON.stringify({
+                            type: 'conversation.item.input_audio_transcription.completed',
+                            usage: {
+                                type: 'tokens',
+                                input_tokens: 4,
+                                input_token_details: { audio_tokens: 4 },
+                                output_tokens: 2,
+                            },
+                        }),
+                    );
+                }
+                // Holds a response open so the drain has one in flight.
+                if (event.type === 'slow.response') {
+                    ws.send(JSON.stringify({ type: 'response.created' }));
+                    setTimeout(
+                        () =>
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'response.done',
+                                    response: {},
+                                }),
+                            ),
+                        300,
+                    );
+                }
                 if (event.type === 'response.create') {
                     ws.send(
                         JSON.stringify({
@@ -279,6 +375,70 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect(relay.stats().upstreamFailed).toBe(before + 1);
     });
 
+    it('meters input transcription at the session transcription model', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        spy.mockClear();
+        const { ws, waitFor } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await new Promise((r) => ws.once('open', r));
+        ws.send(JSON.stringify({ type: 'transcribe' }));
+        await waitFor('conversation.item.input_audio_transcription.completed');
+        await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+        const [, rows] = spy.mock.calls.at(-1)!;
+        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
+            [
+                'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
+                4 * 600,
+            ],
+            [
+                'openai:gpt-4o-transcribe:realtime:transcription_text_output',
+                2 * 1000,
+            ],
+        ]);
+        ws.close();
+    });
+
+    it('closes a session whose credential stops authenticating', async () => {
+        const relay = server.services.openaiRealtime;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const { ws, closed, waitFor } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await waitFor('session.created');
+
+        // Within the cache window nothing is re-checked.
+        auth.mockClear();
+        await relay.recheckSessions();
+        expect(auth).not.toHaveBeenCalled();
+        expect(ws.readyState).toBe(WebSocket.OPEN);
+
+        auth.mockResolvedValue({ invalid: true } as never);
+        kv.del(realtimeAuthKey(user.token));
+        await relay.recheckSessions();
+        const error = (await waitFor('error')) as {
+            error: { code: string };
+        };
+        expect(error.error.code).toBe('invalid_api_key');
+        expect((await closed).code).toBe(1008);
+        auth.mockRestore();
+    });
+
+    it('keeps a session when the re-check lookup itself fails', async () => {
+        const relay = server.services.openaiRealtime;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const { ws, waitFor } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await waitFor('session.created');
+        auth.mockRejectedValue(new Error('db down'));
+        kv.del(realtimeAuthKey(user.token));
+        await relay.recheckSessions();
+        expect(ws.readyState).toBe(WebSocket.OPEN);
+        auth.mockRestore();
+        ws.close();
+    });
+
     it('reports counters, event-loop delay and memory', async () => {
         const relay = server.services.openaiRealtime;
         await vi.waitFor(() => expect(relay.stats().active).toBe(0));
@@ -294,5 +454,31 @@ describe('OpenAIRealtimeRelayService relay', () => {
         ] as const) {
             expect(Number.isFinite(stats[key])).toBe(true);
         }
+    });
+
+    // Last: the relay stays in drain mode afterwards.
+    it('drains: refuses new sessions, finishes in-flight responses, then closes with 1012', async () => {
+        const relay = server.services.openaiRealtime;
+        const live = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await live.waitFor('session.created');
+        live.ws.send(JSON.stringify({ type: 'slow.response' }));
+        await live.waitFor('response.created');
+
+        relay.onServerDrainStart();
+        const late = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        const error = (await late.waitFor('error')) as {
+            error: { code: string };
+        };
+        expect(error.error.code).toBe('server_restarting');
+        expect((await late.closed).code).toBe(1012);
+        expect(live.ws.readyState).toBe(WebSocket.OPEN);
+
+        await relay.onServerPrepareShutdown();
+        expect((await live.closed).code).toBe(1012);
+        expect(live.events.some((e) => e.type === 'response.done')).toBe(true);
     });
 });

@@ -166,7 +166,7 @@ client ──ws──▶ api.<domain>/puterai/openai/v1/realtime?model=…
 2. The client socket is **accepted before authenticating** (see [Quirks](#quirks)).
 3. The relay checks the model, then the credential, then that the account has at least 1 cent of usage left, then takes a per-user concurrency slot. Any failure sends an OpenAI-shaped `error` event and closes with `1008`.
 4. It dials OpenAI with the server key. Client frames sent while that is in flight are buffered and replayed in order, keeping their text/binary type.
-5. From then on frames pass through untouched in both directions. Only `response.done` is parsed, to meter its `usage`.
+5. From then on frames pass through untouched in both directions. Only `response.done`, input transcription completions and `session.created`/`session.updated` are parsed, after forwarding, to meter usage.
 6. Either side closing tears down the other.
 
 ### Credentials
@@ -190,6 +190,8 @@ The token is a Puter token, never an OpenAI key. Users, app-under-user actors an
 Prices are per 1M tokens, taken from OpenAI's pricing page on 2026-10-15. `REALTIME_MODELS` stores them in micro-cents per token (100 µ¢ = $1/M). `gpt-realtime-translate` and `gpt-realtime-whisper` are billed per minute and are not supported.
 
 Each `response.done` records usage rows `openai:<model>:realtime:<kind>`, where `kind` is one of `text_input`, `text_cached`, `audio_input`, `audio_cached`, `image_input`, `image_cached`, `text_output` or `audio_output`. Each row carries a `costOverride`. Cached tokens are subtracted from their modality's input count, so nothing is billed twice.
+
+Each `conversation.item.input_audio_transcription.completed` records `openai:<transcription model>:realtime:transcription_<kind>` rows (`text_input`, `audio_input`, `text_output`, or `seconds` for duration-billed models). The transcription model is read from the session's `session.created`/`session.updated`. Token prices: `gpt-4o-transcribe` $2.50 / $6 / $10, `gpt-4o-mini-transcribe` $1.25 / $3 / $5 (text in / audio in / text out per 1M); `whisper-1` $0.006/min. A model not in these tables is billed as `unknown` at the highest known rate.
 
 ## Configuration
 
@@ -221,6 +223,8 @@ Each `response.done` records usage rows `openai:<model>:realtime:<kind>`, where 
 | Client missing a ping                         | 30–60 s | socket terminated, upstream closed         |
 | Upstream handshake                            | 10 s   | close `1011`                                |
 | Credit needed to open a session               | 1 ¢    | `insufficient_funds` error event, `1008`    |
+| Credential re-check                           | every 60 s (kv.js cache, swept every 15 s) | `invalid_api_key` error event, `1008`; a failed lookup is retried, not fatal |
+| New sessions while the node drains            | refused | `server_restarting` error event, `1012`     |
 | Session length                                | none here | OpenAI ends sessions at 60 min           |
 
 The per-user cap is published in `src/docs/src/rate-limits-and-quotas.md`; keep the two in step.
@@ -234,15 +238,15 @@ The per-user cap is published in `src/docs/src/rate-limits-and-quotas.md`; keep 
 
 **The model is checked before the credential.** An unauthenticated caller can learn which model names are valid. The keyless puter.js API test relies on this order (`ai.suite.ts`, "assistant.connect surfaces relay errors…").
 
-**Metering depends on OpenAI's field order.** To avoid parsing every audio delta, the relay only parses frames whose first 64 bytes contain `"response.done"`. OpenAI currently serialises `type` first. If that changes, usage silently stops being recorded. Check for that before trusting billing numbers.
+**Metering depends on OpenAI's field order.** To avoid parsing every audio delta, the relay only reads the `type` from each frame's first 96 bytes. OpenAI currently serialises `type` first. If that changes, usage silently stops being recorded. Check for that before trusting billing numbers.
 
-**Billing happens after the fact.** No credit is held while a response runs. A response is charged when it finishes, and only then does the relay check for a positive balance, closing the session (`insufficient_funds`) if there is none. An account can therefore go negative by one response's worth. Responses cancelled before `response.done`, and anything OpenAI bills outside `response.done` (for example input transcription), are not metered.
+**Billing happens after the fact.** No credit is held while a response runs. A response is charged when it finishes, and only then does the relay check for a positive balance, closing the session (`insufficient_funds`) if there is none. An account can therefore go negative by one response's worth. Responses cancelled before `response.done` are not metered.
 
 **It skips the shared AI gates.** Sessions don't count against `AI_RATE_LIMIT`/`AI_CONCURRENT` (`drivers/util/aiLimits.ts`), only against their own per-user cap. They also bypass the AI cost-factor hook (`withAiCostFactor`), so `ai.cost.factor.*` listeners don't apply.
 
 **It isn't paid-only.** Every other `/puterai/openai/v1/*` route requires a subscription and a full-access token. This one accepts session and app tokens on any plan. The docs say so.
 
-**The credential is never re-checked.** Unlike `SocketService`, there is no periodic re-auth sweep. A revoked session or newly suspended account keeps an open session until it ends (60 min at most, OpenAI's cap). A team's 2FA requirement is not enforced either (`teamRequires2fa` isn't passed).
+**The credential is re-checked every 60 s.** A successful auth is cached in the process kv.js singleton under a hash of the token for 60 s; a sweep every 15 s re-authenticates sessions whose entry expired (one lookup per token, shared by its sessions). A revoked token or suspended account is closed within about 75 s. A lookup that throws keeps the session and retries next sweep. A team's 2FA requirement is still not enforced (`teamRequires2fa` isn't passed).
 
 **Tokens can end up in logs.** The subprotocol header and `?auth_token=` query both carry the Puter token. Proxies or access logs that record them will capture it, so prefer the `Authorization` header from servers.
 
@@ -256,7 +260,7 @@ The per-user cap is published in `src/docs/src/rate-limits-and-quotas.md`; keep 
 
 **It lives in the service layer.** Only services receive the raw `http.Server` (`attachHttpServer`), so this edge component, which applies auth gates, sits in `services/` instead of `controllers/`. Move it if the relay outlives the experiment.
 
-**Shutdown closes sessions immediately.** `onServerPrepareShutdown` closes every session with `1001`. They are not drained, so a deploy drops live conversations.
+**Shutdown drains.** On `SIGTERM` (`onServerDrainStart`) new sessions are refused with `1012` and open ones keep running for the drain window (90 s with a `serverId`). At `onServerPrepareShutdown` each session gets up to 5 s to finish an in-flight response, then closes with `1012` (Service Restart) so the client reconnects elsewhere. Conversation state lives upstream and is lost on reconnect.
 
 ## Observing it
 
