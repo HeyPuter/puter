@@ -545,6 +545,22 @@
  * @property {boolean} [enableLogging] camelCase alias of `enable_logging`.
  */
 
+/**
+ * Options for `puter.ai.assistant.connect`.
+ *
+ * @typedef {Object} RealtimeConnectOptions
+ * @property {string} [model] OpenAI realtime model, e.g. `gpt-realtime-2.1-mini` (the default),
+ * `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime` or `gpt-realtime-mini`.
+ */
+
+/**
+ * A server event from OpenAI's Realtime API, passed through unchanged. `type` names the event
+ * (`session.created`, `response.output_text.delta`, `error`, ...); the synthetic `close` event
+ * carries `code` and `reason`.
+ *
+ * @typedef {{ type: string } & Record<string, unknown>} RealtimeServerEvent
+ */
+
 export {};
 
 

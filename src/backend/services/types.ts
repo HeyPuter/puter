@@ -62,7 +62,10 @@ export const PuterService = class PuterService implements WithLifecycle {
     public onServerStart() {
         return;
     }
-    public onServerPrepareShutdown() {
+    public onServerDrainStart(): Promise<void> | void {
+        return;
+    }
+    public onServerPrepareShutdown(): Promise<void> | void {
         return;
     }
     public onServerShutdown() {
