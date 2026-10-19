@@ -34,8 +34,28 @@ import { kv } from '../../../util/kvSingleton.js';
 /** How long a route stays marked after a route-level failure. */
 export const UNHEALTHY_TTL_SEC = 10 * 60;
 
+/** Gateway provider prefixes that wrap upstream model ids. */
+const GATEWAY_PREFIXES = [
+    'openrouter:',
+    'togetherai:',
+    'infron:',
+    'neuralwatt:',
+    'hoonify:',
+    'azure:',
+] as const;
+
+/** Strip gateway provider prefix to get the bare upstream model id. */
+const bareModelId = (modelId: string): string => {
+    for (const prefix of GATEWAY_PREFIXES) {
+        if (modelId.startsWith(prefix)) {
+            return modelId.slice(prefix.length);
+        }
+    }
+    return modelId;
+};
+
 const routeKey = (provider: string, modelId: string) =>
-    `aiChat:unhealthyRoute:${provider}:${modelId}`;
+    `aiChat:unhealthyRoute:${provider}:${bareModelId(modelId)}`;
 
 /**
  * Mark `modelId` as currently unserveable by `provider`.
