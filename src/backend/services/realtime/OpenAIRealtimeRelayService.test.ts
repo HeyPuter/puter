@@ -226,6 +226,43 @@ describe('OpenAIRealtimeRelayService relay', () => {
         ws.close();
     });
 
+    it('slows a client that sends past its byte budget instead of buffering', async () => {
+        const { ws, waitFor, events } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await new Promise((r) => ws.once('open', r));
+        await waitFor('session.created');
+        const frame = (type: string, mb: number) =>
+            JSON.stringify({ type, pad: 'x'.repeat(mb * 1024 * 1024) });
+        // 15.5 + 1.5 MiB overdraws the 16 MiB burst by 1 MiB, which at the
+        // default 1 MiB/s pauses reads for about a second. Frames already
+        // read when the pause lands still go through, so `c` is sent after.
+        ws.send(frame('a', 15.5));
+        ws.send(frame('b', 1.5));
+        const echoedAt = async (type: string) => {
+            await vi.waitFor(
+                () => {
+                    if (
+                        !events.some(
+                            (e) =>
+                                e.type === 'echo' &&
+                                (e.event as { type: string }).type === type,
+                        )
+                    ) {
+                        throw new Error(`no echo of ${type}`);
+                    }
+                },
+                { timeout: 10_000, interval: 20 },
+            );
+            return Date.now();
+        };
+        const b = await echoedAt('b');
+        ws.send(JSON.stringify({ type: 'c' }));
+        const c = await echoedAt('c');
+        expect(c - b).toBeGreaterThanOrEqual(700);
+        ws.close();
+    }, 20_000);
+
     it('counts a refused upstream handshake once and reports it to the client', async () => {
         const relay = server.services.openaiRealtime;
         const before = relay.stats().upstreamFailed;

@@ -1049,6 +1049,11 @@ interface IConfigOptional {
         /** Concurrent realtime sessions per user. Default 20. */
         maxConnectionsPerUser?: number;
         /**
+         * Sustained bytes per second one session may send upstream; bursts up
+         * to one 16 MiB frame. Default 1 MiB.
+         */
+        maxClientBytesPerSecond?: number;
+        /**
          * Upstream WebSocket URL. Default OpenAI's; point at a mock to
          * load-test.
          */

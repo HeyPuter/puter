@@ -214,8 +214,11 @@ Each `response.done` records usage rows `openai:<model>:realtime:<kind>`, where 
 | --------------------------------------------- | ------ | ------------------------------------------- |
 | Concurrent sessions per user (Redis, cluster-wide) | 20 | `rate_limit_exceeded` error event, `1008`   |
 | Single client frame                           | 16 MiB | `ws` closes with `1009`                     |
-| Client data buffered before upstream opens    | 32 MiB | `buffer_exceeded` error event, `1008`       |
-| Unsent data queued to a slow client           | 64 MiB | close `1008` "client too slow" (no event)   |
+| Client data buffered before upstream opens    | 1 MiB  | client reads pause until upstream opens     |
+| Client → upstream rate                        | 1 MiB/s sustained, 16 MiB burst (`realtime.maxClientBytesPerSecond`) | client reads pause until the budget refills |
+| Data queued toward either side                | 1 MiB  | the other side's reads pause until it drains |
+| Upstream paused by a client not reading       | 30 s   | close `1008` "client too slow" (no event)   |
+| Client missing a ping                         | 30–60 s | socket terminated, upstream closed         |
 | Upstream handshake                            | 10 s   | close `1011`                                |
 | Credit needed to open a session               | 1 ¢    | `insufficient_funds` error event, `1008`    |
 | Session length                                | none here | OpenAI ends sessions at 60 min           |
@@ -247,7 +250,7 @@ The per-user cap is published in `src/docs/src/rate-limits-and-quotas.md`; keep 
 
 **Close codes aren't passed through.** If the client closes, the upstream is `terminate()`d, which drops it without a close frame. If the upstream closes with no code (`1005`/`1006`), the client gets `1011`; its reason is cut to 120 characters.
 
-**Slow clients are cut off, not slowed.** There is no backpressure. Upstream frames keep flowing until the client's queue passes 64 MiB, and then the session is closed.
+**Backpressure, not buffering.** The relay never queues more than about 1 MiB toward either side: when one side backs up, it stops reading the other, so the excess waits in TCP buffers and at the sender. A client that leaves OpenAI's side paused for 30 s is closed. Client uploads are also budgeted per session (1 MiB/s sustained), which keeps a few clients streaming 16 MiB frames from saturating the node's event loop; legitimate voice input is about 64 KB/s.
 
 **It isn't in the catalog.** Realtime models are absent from `puter.ai.listModels()` and can't be reached through `/drivers/call`.
 
@@ -260,11 +263,12 @@ The per-user cap is published in `src/docs/src/rate-limits-and-quotas.md`; keep 
 Each node logs one line every 30 s once it has seen a session:
 
 ```
-[realtime] active=… opened=… closed=… rejected=… upstreamFailed=… avgUpstreamConnectMs=… framesUp=… framesDown=… bytesUp=… bytesDown=… loopP50Ms=… loopP99Ms=… loopMaxMs=… rssMb=… heapMb=…
+[realtime] active=… opened=… closed=… rejected=… upstreamFailed=… avgUpstreamConnectMs=… framesUp=… framesDown=… bytesUp=… bytesDown=… loopP50Ms=… loopP99Ms=… loopMaxMs=… elu=… rssMb=… heapMb=…
 ```
 
 - The counters are per process and cumulative since boot (never reset). `stats()` returns the same numbers.
-- `loopP50Ms`/`loopP99Ms`/`loopMaxMs` are event-loop delay over the last interval only (reset after each line). Sustained `loopP99Ms` above ~50 ms means the node is CPU-bound and every session on it (and every other request) is getting slower.
+- `loopP50Ms`/`loopP99Ms`/`loopMaxMs` are event-loop delay over the last interval only (reset after each line). Sustained `loopP99Ms` above ~50 ms means the node is CPU-bound and every session on it (and every other request) is getting slower. The histogram's 10 ms resolution puts an idle node at about 11–13 ms.
+- `elu` is event-loop utilization over the same interval (0–1). It rises linearly with relayed bytes long before delay moves, so it is the capacity signal; delay only tells you when you've run out.
 - `rssMb`/`heapMb` are the whole process, not just the relay. Compare against the same numbers with zero sessions.
 - `active` can briefly lag a close.
 - `avgUpstreamConnectMs` covers the TLS and WebSocket handshake to OpenAI. It averaged about 800 ms from a dev machine, which dominates time-to-first-event.

@@ -5,6 +5,7 @@ Tools for load-testing the OpenAI Realtime relay (`/puterai/openai/v1/realtime`,
 | File               | What it is                                                                                                   |
 | ------------------ | ------------------------------------------------------------------------------------------------------------ |
 | `mockUpstream.mjs` | A fake OpenAI Realtime server. It speaks the events the relay and clients use, paces audio in real time, and can inject latency and failures. It costs nothing. |
+| `abuse.mjs`        | Misbehaving clients: `big-frames` (16 MiB frames back to back), `slow-reader` (stops reading its socket), `preauth-flood` (bad token, sends before rejection). Uses the repo's `ws`. |
 | `loadtest.mjs`     | A load generator. It opens sessions the way puter.js does, runs scripted text or audio turns, and prints a JSON report. It exits `1` below `--min-success`. |
 
 Both need Node 22+ and run from a repo checkout; `mockUpstream.mjs` uses the repo's `ws` package, so run `npm ci` first. `--help` lists every flag.
@@ -38,7 +39,8 @@ Each Puter node logs a `[realtime]` line every 30 s, described in the relay READ
 
 - **`active`**: sessions open on this node. It must return to `0` after a run; if it doesn't, sessions leaked.
 - **`upstreamFailed`**: handshakes to OpenAI (or the mock) that failed.
-- **`loopP99Ms`/`loopMaxMs`**: event-loop delay over the last 30 s. This is the CPU-saturation signal.
+- **`elu`**: event-loop utilization over the last 30 s. Rises linearly with relayed bytes; this is the capacity signal.
+- **`loopP99Ms`/`loopMaxMs`**: event-loop delay over the last 30 s. Flat (~12 ms, the histogram floor) until `elu` nears 1, so it tells you when you've run out, not how close you are.
 - **`rssMb`/`heapMb`**: memory for the whole process.
 
 ```sh
@@ -155,13 +157,32 @@ At 70 % of the breaking point, run `--mode audio --mic-ms 2000 --turns 60 --thin
 
 Repeat the passing step just below the breaking point while also running the `/version` latency loop. Compare its p50 and p99 with the baseline. This says whether realtime load hurts the rest of the API on the same node, which is the key input for the worker-vs-load-balance decision.
 
+### Phase 5b: event-loop abuse
+
+Run 200 normal audio sessions (`--turns 20`) and, 10 s in, one abuse mode from a separate process. Repeat per mode:
+
+```sh
+node tools/realtime-stress/abuse.mjs --url <url> --mode big-frames --sockets 10 --frame-mb 15 --duration-s 60
+node tools/realtime-stress/abuse.mjs --url <url> --mode slow-reader --sockets 20 --duration-s 60
+node tools/realtime-stress/abuse.mjs --url <url> --mode preauth-flood --sockets 50 --frame-mb 4 --duration-s 30
+```
+
+Pass criteria, compared with the same 200 sessions alone:
+
+- normal sessions' `firstDelta.p99` within 1.5× and `successRate` ≥ 0.99
+- `elu` below 0.7 and `loopMaxMs` below 100
+- `rssMb` rises by less than 100 MB during the mode and comes back after it
+- `slow-reader` sockets are closed by the relay about 30 s after they stop reading
+
+Reference, laptop core, mock upstream: before backpressure and the upload budget, `big-frames` with 10 sockets pinned `elu` at 1.0, raised RSS from 106 MB to 1.27 GB and the normal sessions' `firstDelta.p99` from 305 to 857 ms. With them, `elu` stayed near 0.22, RSS peaked at 278 MB and `firstDelta.p99` was 319 ms.
+
 ### Phase 6: per-session cost
 
 From the steps, derive per-session costs:
 
 - **Memory:** (`rssMb` at peak − baseline) / `peakOpen`
 - **File descriptors:** fds per session
-- **CPU:** CPU % per 100 active audio sessions
+- **CPU:** `elu` per 100 active audio sessions, and per MB/s relayed (`bytesUp` + `bytesDown` deltas). On a laptop core `elu` was about 0.0045 per MB/s; expect a Fargate vCPU to cost more.
 
 Then project the sessions per node at 70 % CPU, at 70 % memory and at the fd limit. The lowest of the three is the capacity.
 
