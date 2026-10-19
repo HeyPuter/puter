@@ -309,7 +309,7 @@ export class GeminiVideoProvider extends VideoProvider {
         const signal = Context.get('abortSignal');
         const media =
             request.inputVideo !== undefined
-                ? await this.#loadVideo(actor, request.inputVideo)
+                ? await this.#loadVideo(actor, request.inputVideo, signal)
                 : request.inputReference !== undefined
                   ? await this.#loadImage(actor, request.inputReference, signal)
                   : undefined;
@@ -557,7 +557,11 @@ export class GeminiVideoProvider extends VideoProvider {
     }
 
     /** The source video to edit, read within the caller's access and size cap. */
-    async #loadVideo(actor: Actor, input: string): Promise<InlineMedia> {
+    async #loadVideo(
+        actor: Actor,
+        input: string,
+        signal: AbortSignal | undefined,
+    ): Promise<InlineMedia> {
         const { buffer } = await loadFileInput(
             this.#deps.stores,
             this.#deps.fs,
@@ -567,6 +571,7 @@ export class GeminiVideoProvider extends VideoProvider {
                 maxBytes: GEMINI_OMNI_MAX_VIDEO_BYTES,
                 acceptWebInput: true,
                 timeoutMs: GEMINI_OMNI_VIDEO_FETCH_TIMEOUT_MS,
+                signal,
             },
         );
         const mimeType = sniffVideoMime(buffer);

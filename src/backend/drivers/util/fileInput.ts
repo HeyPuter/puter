@@ -96,6 +96,8 @@ interface FileInputOptions {
     acceptWebInput?: true;
     /** Bounds fetching a web URL, body included. */
     timeoutMs?: number;
+    /** Cancels fetching a web URL, body included. */
+    signal?: AbortSignal;
 }
 
 export async function loadFileInput(
@@ -157,14 +159,20 @@ export async function resolveFileInput(
         (input.startsWith('https://') || input.startsWith('http://')) &&
         options.acceptWebInput
     ) {
-        const { timeoutMs } = options;
+        const { timeoutMs, signal } = options;
+        signal?.throwIfAborted();
+        const timeoutSignal = timeoutMs
+            ? AbortSignal.timeout(timeoutMs)
+            : undefined;
+        const fetchSignal =
+            signal && timeoutSignal
+                ? AbortSignal.any([signal, timeoutSignal])
+                : (signal ?? timeoutSignal);
         let response: Response;
         let buffer: Buffer;
         try {
-            response = timeoutMs
-                ? await secureFetch(input, {
-                      signal: AbortSignal.timeout(timeoutMs),
-                  })
+            response = fetchSignal
+                ? await secureFetch(input, { signal: fetchSignal })
                 : await secureFetch(input);
             if (!response.ok) {
                 await response.body?.cancel();
@@ -176,6 +184,9 @@ export async function resolveFileInput(
             }
             buffer = await readBoundedBody(response, options.maxBytes);
         } catch (err) {
+            if (signal?.aborted && fetchSignal?.reason === signal.reason) {
+                throw signal.reason;
+            }
             if (timeoutMs && isUpstreamTimeoutError(err)) {
                 throw new HttpError(
                     400,

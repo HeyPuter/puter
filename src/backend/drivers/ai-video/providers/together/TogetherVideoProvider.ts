@@ -223,7 +223,10 @@ export class TogetherVideoProvider extends VideoProvider {
                 usageType: usageKey,
                 perSecondMicroCents: perSecondCents * 1_000_000,
                 requestedSeconds: normalizedSeconds ?? DEFAULT_DURATION_SECONDS,
-                allowedSeconds: selectedModel?.durationSeconds,
+                allowedSeconds: hasInputVideo
+                    ? (selectedModel?.videoInputDurationSeconds ??
+                      selectedModel?.durationSeconds)
+                    : selectedModel?.durationSeconds,
             });
             normalizedSeconds = capped.seconds;
             hold = capped.hold;

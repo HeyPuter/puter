@@ -938,6 +938,40 @@ describe('GeminiVideoProvider source video', () => {
         );
     });
 
+    it.each([false, true])(
+        'cancels source-video loading before token counting (pre-aborted %s)',
+        async (preAborted) => {
+            const { actor } = await makeUser();
+            const { held } = trackHolds();
+            const abort = new AbortController();
+            if (preAborted) abort.abort();
+            secureFetchMock.mockImplementationOnce(
+                (_url: string, init: { signal: AbortSignal }) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal.addEventListener(
+                            'abort',
+                            () => reject(init.signal.reason),
+                            { once: true },
+                        );
+                        abort.abort();
+                    }),
+            );
+
+            await expect(
+                withActor(actor, () => {
+                    Context.set('abortSignal', abort.signal);
+                    return generate({
+                        input_video: 'https://example.com/dog.mp4',
+                    });
+                }),
+            ).rejects.toMatchObject({ name: 'AbortError' });
+            expect(secureFetchMock).toHaveBeenCalledTimes(preAborted ? 0 : 1);
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(held).toHaveLength(0);
+            expect(batchSpy).not.toHaveBeenCalled();
+        },
+    );
+
     it("fetches a video URL and reads the caller's own Puter file", async () => {
         const { actor, userId } = await makeUser();
         const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');

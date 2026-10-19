@@ -33,6 +33,8 @@ export interface ITogetherVideoModel extends IVideoModel {
     model: string;
     organization: string;
     durationSeconds: number[] | null;
+    /** Output durations when editing a source video. */
+    videoInputDurationSeconds?: number[];
     /**
      * Pixel sizes the model takes as width/height, or resolution tiers ('720p')
      * it takes as `resolution`. The first entry is the default.
@@ -511,6 +513,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptLength: null,
         promptSupported: true,
         videoInput: true,
+        videoInputDurationSeconds: seconds(6, 5, 20),
     },
     // MiniMax H3: $0.1391/s at 2k, the only rate Together publishes.
     {

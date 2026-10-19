@@ -1178,6 +1178,85 @@ describe('TogetherVideoProvider.generate input_video', () => {
         expect(cost).toBe(54 * 6 * 1_000_000);
     });
 
+    it.each([1, 2, 3, 4, 4.99])(
+        'rejects an editing balance covering only %s seconds before creating a job',
+        async (affordableSeconds) => {
+            remainingUsageSpy.mockResolvedValueOnce(
+                affordableSeconds * 54 * 1_000_000,
+            );
+
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        prompt: 'Make this dog a dinosaur.',
+                        model: FLUX,
+                        seconds: 10,
+                        input_video: 'https://example.com/dog.mp4',
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 402,
+                legacyCode: 'insufficient_funds',
+            });
+            expect(videosCreateMock).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([
+        [10, 5, 5],
+        [10, 7.5, 7],
+        [2, 30, 5],
+        [25, 30, 20],
+    ])(
+        'bounds a %s-second edit with credit for %s seconds to %s seconds',
+        async (requestedSeconds, affordableSeconds, expectedSeconds) => {
+            remainingUsageSpy.mockResolvedValueOnce(
+                affordableSeconds * 54 * 1_000_000,
+            );
+            completeJob();
+
+            await withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: FLUX,
+                    seconds: requestedSeconds,
+                    input_video: 'https://example.com/dog.mp4',
+                }),
+            );
+
+            expect(videosCreateMock.mock.calls[0]![0].seconds).toBe(
+                String(expectedSeconds),
+            );
+            const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(count).toBe(expectedSeconds);
+            expect(cost).toBe(expectedSeconds * 54 * 1_000_000);
+        },
+    );
+
+    it.each([2, 25])(
+        'keeps the text-only duration behavior for %s seconds',
+        async (seconds) => {
+            remainingUsageSpy.mockResolvedValueOnce(seconds * 29 * 1_000_000);
+            completeJob();
+
+            await withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'A dinosaur.',
+                    model: FLUX,
+                    seconds,
+                }),
+            );
+
+            const sent = videosCreateMock.mock.calls[0]![0];
+            expect(sent.seconds).toBe(String(seconds));
+            expect(sent.media).toBeUndefined();
+            const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(count).toBe(seconds);
+            expect(cost).toBe(seconds * 29 * 1_000_000);
+        },
+    );
+
     it("sends a data URI and the caller's own Puter file inline", async () => {
         const provider = makeFileProvider();
         const { actor, userId } = await makeUser();
