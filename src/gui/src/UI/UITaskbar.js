@@ -68,15 +68,6 @@ async function UITaskbar (options) {
             contentType: 'application/json',
             timeout: 30000,
             headers: { 'Authorization': `Bearer ${window.auth_token}` },
-            xhr: function () {
-                const xhr = $.ajaxSettings.xhr();
-                xhr.addEventListener('progress', event => {
-                    if ( event.loaded > 1048576 ) {
-                        xhr.abort();
-                    }
-                });
-                return xhr;
-            },
         });
         return pendingLaunchApps;
     };
