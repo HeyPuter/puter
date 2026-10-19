@@ -56,6 +56,11 @@ async function UIWindowChangeEmail (options) {
     h += '<p class="change-email-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
     h += '</div>';
 
+    h += '<div class="change-email-otp-wrap" style="display:none; margin-bottom:30px;">';
+    h += `<label for="change-email-code-${internal_id}">${i18n('confirm_code_2fa_instruction')}</label>`;
+    h += `<input id="change-email-code-${internal_id}" class="change-email-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />`;
+    h += '</div>';
+
     // Change Email
     h += `<button class="change-email-btn button button-primary button-block button-normal">${i18n('change_email')}</button>`;
     h += '</div>';
@@ -83,6 +88,7 @@ async function UIWindowChangeEmail (options) {
         show_in_taskbar: false,
         onAppend: function (this_window) {
             $(this_window).find('.new-email').get(0)?.focus({ preventScroll: true });
+            if ( window.user?.otp ) $(this_window).find('.change-email-otp-wrap').show();
             const oidc_only = !!(window.user && window.user.oidc_only);
             const authRow = $(this_window).find('.change-email-auth-row');
             if ( oidc_only ) {
@@ -145,7 +151,7 @@ async function UIWindowChangeEmail (options) {
             const data = await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
             else if ( isSessionAuthError(res, data) ) onReauthRequired(data);
-            else onError(data.message || 'Request failed');
+            else onError(data.message || 'Request failed', data);
             return;
         }
         $(el_window).find('.form-error-msg').hide();
@@ -172,10 +178,10 @@ async function UIWindowChangeEmail (options) {
             }
             const d = await r.json().catch(() => ({}));
             if ( isSessionAuthError(r, d) ) onReauthRequired(d);
-            else onError(d.message || 'Request failed');
+            else onError(d.message || 'Request failed', d);
             return;
         }
-        onError(data.message || 'Request failed');
+        onError(data.message || 'Request failed', data);
     });
 
     function doSubmit ({ new_email, password } = {}) {
@@ -188,13 +194,18 @@ async function UIWindowChangeEmail (options) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 new_email,
+                code: $(el_window).find('.change-email-code').val() || undefined,
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });
         return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
     }
 
-    function onError (message) {
+    function onError (message, data) {
+        if ( data?.factor === 'otp' ) {
+            $(el_window).find('.change-email-otp-wrap').show();
+            $(el_window).find('.change-email-code').get(0)?.focus();
+        }
         $(el_window).find('.form-error-msg').html(html_encode(message));
         $(el_window).find('.form-error-msg').fadeIn();
         $(el_window).find('.change-email-btn').removeClass('disabled');

@@ -21,6 +21,7 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
+import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
@@ -31,11 +32,13 @@ const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 function buildRecentAppsHTML() {
     let h = '';
 
-    if (window.launch_apps?.recent?.length > 0) {
+    // Show up to 6 recent apps (2 columns x 3 rows); drop entries the backend
+    // marks unlaunchable so a deleted or reclaimed app leaves the panel.
+    const recentApps = filterLaunchableApps(window.launch_apps?.recent).slice(0, 6);
+
+    if (recentApps.length > 0) {
         h += '<div class="bento-recent-apps-grid">';
 
-        // Show up to 6 recent apps (2 columns x 3 rows)
-        const recentApps = window.launch_apps.recent.slice(0, 6);
         for (const app_info of recentApps) {
             // External apps (not owned by a Puter user) can report an opaque
             // app-… id as their title (uid === name === title); in that case show

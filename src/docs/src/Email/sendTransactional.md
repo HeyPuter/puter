@@ -37,7 +37,7 @@ A plain-text body. Shorthand for `text`; use the options form for anything else.
 - `html` (String) - HTML body. An inline image is shown with `<img src="cid:...">` — see `cid` under `attachments`.
 - `cc` (String | Array) - Carbon-copy recipient(s).
 - `bcc` (String | Array) - Blind-copy recipient(s). At most **10** recipients across `to`, `cc` and `bcc`.
-- `replyTo` (String) - Where replies go. Defaults to the confirmed account email of the worker's owner. While that address is unconfirmed, the message goes out without a Reply-To and replies bounce.
+- `replyTo` (String) - Where replies go. Defaults to the confirmed account email of the worker's owner when the worker has no app binding or its owner owns the bound app. Otherwise, or while the address is unconfirmed, the message goes out without a Reply-To.
 - `emailAccessToken` (String) - A worker's auth token — inside a worker, `me.puter.authToken`. Required when the caller is not itself a worker. The caller stays the billed and rate-limited identity.
 - `attachments` (Array) - Up to **10** attachments, **25 MB** in total. Each is an object:
   - `filename` (String) - Required with `content`; defaults to the file's name for a `path`/`uid` attachment.
@@ -74,7 +74,7 @@ A recipient at a Puter address, `<username>@puter.email`, is a Puter user, and t
 
 ## From address and replies
 
-Mail goes out from a Puter-controlled address minted for your app — `<app-name>-no-reply@apps.puter.email`, labelled with your app's title — so you never configure a sending domain, and a recipient's filters can tell your app's mail from every other app's. You cannot set `from`: the address is what proves the mail came through Puter, and the app is where the name and identity come from.
+Mail goes out from a Puter-controlled address minted for your app — `<app-name>-<app-uid>-no-reply@apps.puter.email`, with the name shortened to fit the address limit and labelled with your app's title — so you never configure a sending domain, and a recipient's filters can tell your app's mail from every other app's. You cannot set `from`: the address is what proves the mail came through Puter, and the app is where the name and identity come from.
 
 The app is the one the worker runs under, or else the one the caller is signed in through. It's used only when the worker's owner also owns that app. Otherwise the mail goes out from `no-reply@apps.puter.email` with no app name.
 
