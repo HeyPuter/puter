@@ -30,6 +30,8 @@ import { toVideoElement } from './lib/media.js';
  *   txt2vid(prompt, options)
  *   txt2vid({ prompt, duration | seconds, ... }, [testMode])
  *
+ * With `inputVideo` on a model that edits video, the prompt describes the edit.
+ *
  * @this {import('./index.js').AIModule}
  * @param {string | Txt2VidOptions} [promptOrOptions]
  * @param {Txt2VidOptions | boolean} [optionsOrTestMode]
@@ -69,6 +71,11 @@ export async function txt2vid (promptOrOptions, optionsOrTestMode) {
 
     if ( options.test_mode === true ) {
         testMode = true;
+    }
+
+    if ( options.inputVideo !== undefined ) {
+        options.input_video = options.inputVideo;
+        delete options.inputVideo;
     }
 
     const driverHint = typeof options.driver === 'string' ? options.driver : undefined;

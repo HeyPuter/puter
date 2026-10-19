@@ -48,12 +48,20 @@ const SAMPLE_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 
 export const GEMINI_OMNI_MAX_PROMPT_CHARS = 4000;
 export const GEMINI_OMNI_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Goes inline, and as a data URI it must fit the 50 MB JSON body limit. */
+export const GEMINI_OMNI_MAX_VIDEO_BYTES = 32 * 1024 * 1024;
+export const GEMINI_OMNI_VIDEO_FETCH_TIMEOUT_MS = 60_000;
 /** Uses the lower input limit returned by the model metadata. */
 export const GEMINI_OMNI_MAX_INPUT_TOKENS = 131_072;
 /** Requested output cap; video generation can exceed it. */
 export const GEMINI_OMNI_MAX_OUTPUT_TOKENS = 65_536;
 const VIDEO_RESERVATION_ALLOWANCE = 173_760;
 const TEXT_RESERVATION_ALLOWANCE = 65_536;
+/**
+ * Gemini's countTokens undercounts a source video, which is billed at about
+ * 1,500 tokens a second; this covers the longest clip Gemini edits (10 s).
+ */
+const VIDEO_INPUT_RESERVATION_ALLOWANCE = 16_000;
 export const GEMINI_OMNI_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 /** Covers the generation and reading the reply. */
 export const GEMINI_OMNI_TIMEOUT_MS = 10 * 60 * 1000;
@@ -74,6 +82,11 @@ const LANDSCAPE_SIZES: Record<OmniResolution, [number, number]> = {
 };
 
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const VIDEO_MIME_TYPES = new Set([
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+]);
 
 /** Options other providers take; any value but null is refused. */
 const UNSUPPORTED_OPTIONS = [
@@ -100,9 +113,11 @@ interface OmniSize {
 interface OmniRequest extends OmniSize {
     prompt: string;
     inputReference?: string;
+    inputVideo?: string;
 }
 
-interface InlineImage {
+interface InlineMedia {
+    type: 'image' | 'video';
     mimeType: string;
     data: string;
 }
@@ -116,7 +131,7 @@ export interface GeminiVideoDeps {
 // -- Gemini wire shapes --
 
 type InteractionInput =
-    | { type: 'image'; mime_type: string; data: string }
+    | { type: 'image' | 'video'; mime_type: string; data: string }
     | { type: 'text'; text: string };
 
 interface InteractionRequest {
@@ -292,14 +307,16 @@ export class GeminiVideoProvider extends VideoProvider {
             });
         }
         const signal = Context.get('abortSignal');
-        const image =
-            request.inputReference === undefined
-                ? undefined
-                : await this.#loadImage(actor, request.inputReference, signal);
+        const media =
+            request.inputVideo !== undefined
+                ? await this.#loadVideo(actor, request.inputVideo)
+                : request.inputReference !== undefined
+                  ? await this.#loadImage(actor, request.inputReference, signal)
+                  : undefined;
 
         const inputTokens = await this.#countTokens(
             request.prompt,
-            image,
+            media,
             signal,
         );
         if (inputTokens > GEMINI_OMNI_MAX_INPUT_TOKENS) {
@@ -313,8 +330,10 @@ export class GeminiVideoProvider extends VideoProvider {
         // The video allowance covers verified 4K usage, with a separate text
         // and thinking allowance. Neither is a guaranteed spending bound.
         const costs = GEMINI_OMNI_COSTS;
+        const videoInputAllowance =
+            media?.type === 'video' ? VIDEO_INPUT_RESERVATION_ALLOWANCE : 0;
         const holdAmount =
-            inputTokens * costs.input +
+            (inputTokens + videoInputAllowance) * costs.input +
             VIDEO_RESERVATION_ALLOWANCE * costs.outputVideo +
             TEXT_RESERVATION_ALLOWANCE * costs.outputText;
         const metering = this.#deps.metering;
@@ -331,7 +350,7 @@ export class GeminiVideoProvider extends VideoProvider {
             const interaction = await postGeminiJson<Interaction>(
                 this.#apiKey,
                 'interactions',
-                this.#interactionRequest(request, image),
+                this.#interactionRequest(request, media),
                 {
                     label: 'Gemini video generation',
                     maxBytes: GEMINI_OMNI_MAX_RESPONSE_BYTES,
@@ -422,12 +441,27 @@ export class GeminiVideoProvider extends VideoProvider {
                 'input_reference must be an image URL, data URI, base64 string or Puter file path',
             );
         }
+        const inputVideo = params.input_video;
+        if (
+            isSet(inputVideo) &&
+            (typeof inputVideo !== 'string' || !inputVideo.trim())
+        ) {
+            throw badRequest(
+                'input_video must be a video URL, data URI or Puter file path',
+            );
+        }
+        if (isSet(inputReference) && isSet(inputVideo)) {
+            throw badRequest(
+                'input_reference cannot be combined with input_video',
+            );
+        }
         return {
             prompt,
             ...this.#readSize(params),
             ...(isSet(inputReference)
                 ? { inputReference: inputReference as string }
                 : {}),
+            ...(isSet(inputVideo) ? { inputVideo: inputVideo as string } : {}),
         };
     }
 
@@ -496,7 +530,7 @@ export class GeminiVideoProvider extends VideoProvider {
         actor: Actor,
         input: string,
         signal: AbortSignal | undefined,
-    ): Promise<InlineImage> {
+    ): Promise<InlineMedia> {
         const bytes = isHttpUrl(input)
             ? (
                   await fetchImageBytes(input, {
@@ -519,17 +553,47 @@ export class GeminiVideoProvider extends VideoProvider {
                 'input_reference must be a PNG, JPEG or WebP image',
             );
         }
-        return { mimeType, data: bytes.toString('base64') };
+        return { type: 'image', mimeType, data: bytes.toString('base64') };
     }
 
-    /** Input tokens for the prompt and image, counted as they will be sent. */
+    /** The source video to edit, read within the caller's access and size cap. */
+    async #loadVideo(actor: Actor, input: string): Promise<InlineMedia> {
+        const { buffer } = await loadFileInput(
+            this.#deps.stores,
+            this.#deps.fs,
+            actor,
+            input,
+            {
+                maxBytes: GEMINI_OMNI_MAX_VIDEO_BYTES,
+                acceptWebInput: true,
+                timeoutMs: GEMINI_OMNI_VIDEO_FETCH_TIMEOUT_MS,
+            },
+        );
+        const mimeType = sniffVideoMime(buffer);
+        if (!mimeType || !VIDEO_MIME_TYPES.has(mimeType)) {
+            throw badRequest(
+                'input_video must be an MP4, QuickTime or WebM video',
+            );
+        }
+        return { type: 'video', mimeType, data: buffer.toString('base64') };
+    }
+
+    /** Input tokens for the prompt and media, counted as they will be sent. */
     async #countTokens(
         prompt: string,
-        image: InlineImage | undefined,
+        media: InlineMedia | undefined,
         signal: AbortSignal | undefined,
     ): Promise<number> {
-        const parts: CountTokensPart[] = image
-            ? [{ inlineData: image }, { text: prompt }]
+        const parts: CountTokensPart[] = media
+            ? [
+                  {
+                      inlineData: {
+                          mimeType: media.mimeType,
+                          data: media.data,
+                      },
+                  },
+                  { text: prompt },
+              ]
             : [{ text: prompt }];
         const request: CountTokensRequest = { contents: [{ parts }] };
         const reply = await postGeminiJson<CountTokensReply>(
@@ -554,16 +618,16 @@ export class GeminiVideoProvider extends VideoProvider {
 
     #interactionRequest(
         request: OmniRequest,
-        image: InlineImage | undefined,
+        media: InlineMedia | undefined,
     ): InteractionRequest {
         const body: InteractionRequest = {
             model: GEMINI_OMNI_MODEL,
-            input: image
+            input: media
                 ? [
                       {
-                          type: 'image',
-                          mime_type: image.mimeType,
-                          data: image.data,
+                          type: media.type,
+                          mime_type: media.mimeType,
+                          data: media.data,
                       },
                       { type: 'text', text: request.prompt },
                   ]
@@ -580,7 +644,9 @@ export class GeminiVideoProvider extends VideoProvider {
             background: false,
             stream: false,
         };
-        if (image) {
+        // A source video gets no task: the prompt says whether to edit or
+        // extend it.
+        if (media?.type === 'image') {
             body.generation_config.video_config = { task: 'image_to_video' };
         }
         return body;

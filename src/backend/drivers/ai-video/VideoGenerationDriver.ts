@@ -74,8 +74,8 @@ const tierForPixels = ({
 /**
  * Driver implementing the `puter-video-generation` interface.
  *
- * Manages multiple upstream providers (Together, BytePlus/Seedance, Gemini)
- * and handles model resolution, provider routing, and parameter normalisation. Each
+ * Manages multiple upstream providers (Together, BytePlus/Seedance, Gemini) and
+ * handles model resolution, provider routing, and parameter normalisation. Each
  * provider is a plain `IVideoProvider` -- the driver instantiates them from
  * config on boot.
  *
@@ -194,9 +194,13 @@ export class VideoGenerationDriver extends PuterDriver {
 
         if (intendedProvider && !this.#providers[intendedProvider]) {
             if (intendedProvider === 'gemini-video-generation') {
-                throw new HttpError(400, 'Gemini video generation is not configured', {
-                    legacyCode: 'bad_request',
-                });
+                throw new HttpError(
+                    400,
+                    'Gemini video generation is not configured',
+                    {
+                        legacyCode: 'bad_request',
+                    },
+                );
             }
             intendedProvider = fallbackProvider;
         }
@@ -221,6 +225,16 @@ export class VideoGenerationDriver extends PuterDriver {
                 500,
                 `No provider found for model ${model.id}`,
                 { legacyCode: 'internal_error' },
+            );
+        }
+
+        // Providers ignore options they don't know, so a source video sent to
+        // a model that can't edit would be dropped and the clip still billed.
+        if (request.input_video != null && !model.videoInput) {
+            throw new HttpError(
+                400,
+                `${model.id} does not accept a source video`,
+                { legacyCode: 'bad_request' },
             );
         }
 
@@ -477,7 +491,9 @@ export class VideoGenerationDriver extends PuterDriver {
         );
         if (exactPuterIdMatch) return exactPuterIdMatch;
 
-        return models.find((m) => m.provider === provider) ??
-            (provider === 'gemini-video-generation' ? null : models[0]);
+        return (
+            models.find((m) => m.provider === provider) ??
+            (provider === 'gemini-video-generation' ? null : models[0])
+        );
     }
 }

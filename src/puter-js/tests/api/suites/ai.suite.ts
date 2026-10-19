@@ -1250,6 +1250,34 @@ export default suite('ai', {
         },
     },
 
+    'txt2vid takes a source video on gemini omni': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            // Test mode checks the input's shape without loading it.
+            const inputVideo = TINY_MP4;
+            const video = await t.puter.ai.txt2vid(
+                'Make this dog a dinosaur.',
+                { model: 'gemini-omni-1.1-flash', inputVideo, test_mode: true },
+            );
+            t.assert.equal(String(video), SAMPLE_VIDEO_URL);
+
+            const combined = await errorOf(t, () =>
+                t.puter.ai.txt2vid('Make this dog a dinosaur.', {
+                    model: 'gemini-omni-1.1-flash',
+                    inputVideo,
+                    input_reference: TINY_PNG,
+                    test_mode: true,
+                }),
+            );
+            t.assert.equal(combined.code, 'bad_request');
+            t.assert.equal(
+                combined.message,
+                'input_reference cannot be combined with input_video',
+            );
+        },
+    },
+
     'txt2vid reaches gemini omni through its model aliases and driver name': {
         requires: ['ai.gemini'],
         fn: async (t) => {

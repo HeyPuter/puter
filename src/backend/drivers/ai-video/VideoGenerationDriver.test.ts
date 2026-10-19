@@ -165,6 +165,23 @@ describe('VideoGenerationDriver.generate argument validation', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it('refuses a source video for a model without video input before calling it', async () => {
+        await expect(
+            withActor(() =>
+                driver.generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: DEFAULT_MODEL,
+                    input_video: 'https://example.com/dog.mp4',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: `${DEFAULT_MODEL} does not accept a source video`,
+        });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        expect(secureFetchMock).not.toHaveBeenCalled();
+    });
 });
 
 // ── Catalog & list ──────────────────────────────────────────────────

@@ -22,7 +22,7 @@ import type { IVideoModel } from '../../types.js';
 export const GEMINI_OMNI_MODEL = 'gemini-omni-1.1-flash';
 
 /**
- * µ¢ per token (USD-cents per 1M tokens). Input of every modality shares one
+ * Μ¢ per token (USD-cents per 1M tokens). Input of every modality shares one
  * rate; thinking and non-video output are billed as text.
  */
 export interface GeminiOmniCosts {
@@ -53,6 +53,7 @@ export const GEMINI_VIDEO_GENERATION_MODELS: IVideoModel[] = [
             'output:video': GEMINI_OMNI_COSTS.outputVideo / 1_000_000,
         },
         promptLength: { min: 1, max: 4000 },
+        videoInput: true,
         defaultUsageKey: `gemini-video-generation:${GEMINI_OMNI_MODEL}:output:video`,
     },
 ];

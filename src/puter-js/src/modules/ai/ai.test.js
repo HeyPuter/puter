@@ -726,6 +726,12 @@ describe('ai.txt2vid driver payloads', () => {
         expect(lastBody().args).toEqual({ prompt: 'a sunset', duration: 6, seconds: 6 });
     });
 
+    it('txt2vid sends inputVideo as input_video', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/video.mp4' });
+        await ai.txt2vid('make this dog a dinosaur', { inputVideo: '~/dog.mp4' });
+        expect(lastBody().args).toEqual({ prompt: 'make this dog a dinosaur', input_video: '~/dog.mp4' });
+    });
+
     it('txt2vid resolves to a video object exposing the URL', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/video.mp4' });
         const video = await ai.txt2vid('a sunset');

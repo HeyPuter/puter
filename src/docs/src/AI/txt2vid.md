@@ -1,10 +1,10 @@
 ---
 title: puter.ai.txt2vid()
-description: Generate short video clips from text or reference images with Wan, Seedance, Veo, Gemini Omni and other models through Puter.js.
+description: Generate short video clips from text or reference images, or edit a video you supply, with Wan, Seedance, Veo, Gemini Omni and other models through Puter.js.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Given a prompt, generate a short video clip using AI. Puter routes the request to one of three upstream providers (Together AI, BytePlus Seedance, Google Gemini) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers.
+Given a prompt, generate a short video clip using AI. Puter routes the request to one of three upstream providers (Together AI, BytePlus Seedance, Google Gemini) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers. Gemini Omni can also edit or extend a video you supply.
 
 ## Syntax
 
@@ -41,6 +41,7 @@ Additional settings for the generation request.
 | `input_reference` | `String` | Image the clip starts from (image-to-video): a public URL, a `data:` URI or raw base64, on every provider |
 | `last_frame` | `String` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
 | `reference_images` | `Array<String>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame` |
+| `inputVideo` | `String` | Video to edit or extend, with the prompt describing the change. Only Gemini Omni accepts it. See [Video input](#video-input) |
 | `negative_prompt` | `String` | Text describing what to avoid in the video (Together AI) |
 | `seed` | `Number` | Random seed for reproducible results (Together AI and Seedance 1.x) |
 | `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio) |
@@ -66,6 +67,21 @@ On Together AI and Seedance, `seconds` and `size` are normalized rather than rej
 | Together AI | Models with a `first` keyframe | Models with a `last` keyframe | Model-dependent (Seedance 2.5: up to 30) |
 | BytePlus Seedance | Yes | Yes, with `input_reference` | Seedance 2.0: up to 9; Seedance 2.5: up to 30; cannot be combined with frames |
 | Google Gemini | Yes, one PNG, JPEG or WebP image up to 5 MiB | No | No |
+
+#### Video input
+
+Gemini Omni (`gemini-omni-1.1-flash`) can change a video you supply. Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The prompt can also ask the model to continue the clip past its end. The result is a new clip, and the model decides its length.
+
+```js
+const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
+    model: "gemini-omni-1.1-flash",
+    inputVideo: "~/Videos/dog.mp4"
+});
+```
+
+The video can be a public URL, a `data:` URI, or the path of a file in the user's Puter filesystem. It must be an MP4, QuickTime or WebM file of at most 32 MiB and 10 seconds. Puter checks the size and format before generating. Google checks the length, so a longer video fails with `upstream_bad_request` and isn't charged.
+
+Every other model rejects `inputVideo` with `bad_request`. Gemini Omni rejects it together with `input_reference`.
 
 #### Together AI options
 
@@ -160,7 +176,7 @@ For more details, see the [BytePlus ModelArk video generation reference](https:/
 
 #### Gemini Omni options
 
-Available when using `gemini-omni-1.1-flash` (provider `'gemini-video-generation'`), which also answers to `google/gemini-omni-1.1-flash`. It's offered when the Puter deployment has Gemini configured. It generates a clip from a prompt, or from a prompt and one starting image. The model picks the clip length and renders at 24 frames per second.
+Available when using `gemini-omni-1.1-flash` (provider `'gemini-video-generation'`), which also answers to `google/gemini-omni-1.1-flash`. It's offered when the Puter deployment has Gemini configured. It generates a clip from a prompt, from a prompt and one starting image, or from a prompt and a video to edit. The model picks the clip length and renders at 24 frames per second.
 
 | `size` | 16:9 (default) | 9:16 |
 |--------|----------------|------|
@@ -177,11 +193,12 @@ Google produces 1080p and 4K by upscaling. Pass the resolution on its own for 16
 | `size` | `String` | A resolution or exact size from the table above, case-insensitive. Defaults to `'720p'` at 16:9. `resolution` is an alias, and must match `size` when you pass both |
 | `width`, `height` | `Number` | Together, an exact size from the table above. They must match `size` when you pass it |
 | `input_reference` | `String` | The image the clip starts from: a public URL, a `data:` URI, raw base64, or the path of a file in the user's Puter filesystem. PNG, JPEG or WebP, up to 5 MiB |
+| `inputVideo` | `String` | The video to edit or extend: a public URL, a `data:` URI, or the path of a file in the user's Puter filesystem. MP4, QuickTime or WebM, up to 32 MiB and 10 seconds. See [Video input](#video-input) |
 | `output_format` | `String` | Only `'video/mp4'` |
 
 Gemini Omni rejects `seconds`, `duration`, `fps`, `steps`, `guidance_scale`, `seed`, `negative_prompt`, `output_quality`, `generate_audio`, `frame_images`, `last_frame`, `reference_images` and `metadata` with `bad_request`, test mode included, since it has no matching control.
 
-Gemini Omni is priced per token. Input costs $1.50 per million tokens. Video output costs $17.50 per million tokens. Other output and the model's thinking cost $9 per million tokens. The prompt and image together are limited to 131,072 input tokens. Other limits are listed in [Rate limits and quotas](/rate-limits-and-quotas/#video-generation).
+Gemini Omni is priced per token. Input costs $1.50 per million tokens. Video output costs $17.50 per million tokens. Other output and the model's thinking cost $9 per million tokens. The prompt and image or video together are limited to 131,072 input tokens. A source video costs about 1,500 input tokens per second, so a 10-second video adds about $0.02. Other limits are listed in [Rate limits and quotas](/rate-limits-and-quotas/#video-generation).
 
 ```html;ai-txt2vid-gemini
 <script src="https://js.puter.com/v2/"></script>
@@ -215,7 +232,7 @@ Every successful generation is charged to the user's AI credits according to the
 
 - **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
 - **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and the final charge is the amount Together AI reports for the job.
-- **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
+- **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. A request with `inputVideo` holds another 16,000 input tokens, about $0.02, because Google charges more tokens for a video than its count before generating reports. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
 
 Apart from that Gemini Omni case, a request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).
 
@@ -254,7 +271,8 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | Code | Meaning |
 | --- | --- |
 | `prompt_required` | Raised by the SDK before any request is made: the call had no prompt. |
-| `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, or an image URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
+| `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, `inputVideo` on a model that can't take it, or an image or video URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
+| `input_too_large` | An `input_reference` or `inputVideo` file is over its size limit on Gemini Omni (5 MiB for an image, 32 MiB for a video). Arrives as HTTP 413, before any credits are spent. |
 | `access_denied` | `puter_output_path` points somewhere the caller may not write. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
 | `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
 | `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |

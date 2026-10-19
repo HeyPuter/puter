@@ -30,6 +30,7 @@ import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { dataUriBytes, parseDataUri } from './dataUri.js';
+import { isUpstreamTimeoutError } from './upstreamErrors.js';
 
 /**
  * Resolve a file-like input sent through the drivers API into a Buffer.
@@ -77,8 +78,7 @@ export interface ResolvedFileInput {
  * uuid? }`.
  */
 export type FileInputRef =
-    | string
-    | { path?: string; uid?: string; uuid?: string };
+    string | { path?: string; uid?: string; uuid?: string };
 
 export interface OpenedFileInput {
     body: Readable;
@@ -91,12 +91,19 @@ export interface OpenedFileInput {
 
 type FileInputStores = { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
+interface FileInputOptions {
+    maxBytes?: number;
+    acceptWebInput?: true;
+    /** Bounds fetching a web URL, body included. */
+    timeoutMs?: number;
+}
+
 export async function loadFileInput(
     stores: FileInputStores,
     fsService: FSService,
     actor: Actor,
     input: unknown,
-    options: { maxBytes?: number; acceptWebInput?: true } = {},
+    options: FileInputOptions = {},
 ): Promise<LoadedFile> {
     const resolved = await resolveFileInput(
         stores,
@@ -118,7 +125,7 @@ export async function resolveFileInput(
     fsService: FSService,
     actor: Actor,
     input: unknown,
-    options: { maxBytes?: number; acceptWebInput?: true } = {},
+    options: FileInputOptions = {},
 ): Promise<ResolvedFileInput> {
     if (!input) {
         throw new HttpError(400, 'Missing file input', {
@@ -150,15 +157,34 @@ export async function resolveFileInput(
         (input.startsWith('https://') || input.startsWith('http://')) &&
         options.acceptWebInput
     ) {
-        const response = await secureFetch(input);
-        if (!response.ok) {
-            throw new HttpError(
-                400,
-                `Failed to fetch URL (status ${response.status})`,
-                { legacyCode: 'bad_request' },
-            );
+        const { timeoutMs } = options;
+        let response: Response;
+        let buffer: Buffer;
+        try {
+            response = timeoutMs
+                ? await secureFetch(input, {
+                      signal: AbortSignal.timeout(timeoutMs),
+                  })
+                : await secureFetch(input);
+            if (!response.ok) {
+                await response.body?.cancel();
+                throw new HttpError(
+                    400,
+                    `Failed to fetch URL (status ${response.status})`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            buffer = await readBoundedBody(response, options.maxBytes);
+        } catch (err) {
+            if (timeoutMs && isUpstreamTimeoutError(err)) {
+                throw new HttpError(
+                    400,
+                    `Timed out fetching URL after ${timeoutMs} ms`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            throw err;
         }
-        const buffer = await readBoundedBody(response, options.maxBytes);
         const contentType = response.headers.get('content-type');
         const mime =
             contentType?.split(';')[0]?.trim() ||

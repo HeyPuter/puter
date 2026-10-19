@@ -599,4 +599,44 @@ describe('loadFileInput web URL', () => {
         expect(state.cancelled).toBe(true);
         expect(state.pulls).toBeLessThan(chunks.length);
     });
+
+    it('fails a fetch that outlives timeoutMs as a 400', async () => {
+        const { actor } = await makeUser();
+        secureFetchMock.mockImplementationOnce(
+            (_url: string, init: { signal: AbortSignal }) =>
+                new Promise((_resolve, reject) => {
+                    init.signal.addEventListener('abort', () =>
+                        reject(init.signal.reason),
+                    );
+                }),
+        );
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/slow.mp4', {
+                acceptWebInput: true,
+                timeoutMs: 10,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Timed out fetching URL after 10 ms',
+        });
+    });
+
+    it('cancels the body of a failed response', async () => {
+        const { actor } = await makeUser();
+        const { body, state } = chunkedBody([Buffer.alloc(32)]);
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(body, { status: 404 }),
+        );
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/missing.mp4', {
+                acceptWebInput: true,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Failed to fetch URL (status 404)',
+        });
+        expect(state.cancelled).toBe(true);
+    });
 });

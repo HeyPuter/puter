@@ -56,6 +56,7 @@ import {
     GEMINI_OMNI_COUNT_TOKENS_MAX_RESPONSE_BYTES,
     GEMINI_OMNI_MAX_IMAGE_BYTES,
     GEMINI_OMNI_MAX_RESPONSE_BYTES,
+    GEMINI_OMNI_MAX_VIDEO_BYTES,
 } from './GeminiVideoProvider.js';
 
 const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
@@ -880,6 +881,125 @@ describe('GeminiVideoProvider request shape', () => {
         await withActor(actor, () => generate());
         expect(timeoutSpy).toHaveBeenCalledWith(30_000);
         expect(timeoutSpy).toHaveBeenCalledWith(600_000);
+    });
+});
+
+// -- Source video --
+
+describe('GeminiVideoProvider source video', () => {
+    const mp4DataUri = `data:video/mp4;base64,${MP4.toString('base64')}`;
+    const VIDEO_INPUT_ALLOWANCE = 16000;
+
+    it('validates the video input shape in test mode without loading it', async () => {
+        expect(await testMode({ input_video: mp4DataUri })).toBe(SAMPLE_URL);
+        expect(secureFetchMock).not.toHaveBeenCalled();
+        for (const input_video of [42, ' ']) {
+            await expect(testMode({ input_video })).rejects.toMatchObject({
+                statusCode: 400,
+                message:
+                    'input_video must be a video URL, data URI or Puter file path',
+            });
+        }
+        await expect(
+            testMode({ input_video: mp4DataUri, input_reference: pngDataUri }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'input_reference cannot be combined with input_video',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('sends the video inline with no task and holds the video input allowance', async () => {
+        const { actor } = await makeUser();
+        const { held } = trackHolds();
+        reply();
+        await withActor(actor, () =>
+            generate({ input_video: mp4DataUri, size: '360x640' }),
+        );
+        const data = MP4.toString('base64');
+        expect(sent(0).body).toEqual({
+            contents: [
+                {
+                    parts: [
+                        { inlineData: { mimeType: 'video/mp4', data } },
+                        { text: PROMPT },
+                    ],
+                },
+            ],
+        });
+        const body = sent(1).body;
+        expect(body.input).toEqual([
+            { type: 'video', mime_type: 'video/mp4', data },
+            { type: 'text', text: PROMPT },
+        ]);
+        expect(body.generation_config).toEqual({ max_output_tokens: 65536 });
+        expect(held[0]?.amount).toBe(
+            holdFor(COUNTED_TOKENS + VIDEO_INPUT_ALLOWANCE),
+        );
+    });
+
+    it("fetches a video URL and reads the caller's own Puter file", async () => {
+        const { actor, userId } = await makeUser();
+        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+        const data = MP4.toString('base64');
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(MP4, { headers: { 'content-type': 'video/mp4' } }),
+        );
+        reply();
+        await withActor(actor, () =>
+            generate({ input_video: 'https://example.com/dog.mp4' }),
+        );
+        expect(secureFetchMock).toHaveBeenCalledWith(
+            'https://example.com/dog.mp4',
+            { signal: expect.any(AbortSignal) },
+        );
+        expect(timeoutSpy).toHaveBeenCalledWith(60_000);
+        expect(sent(1).body.input[0].data).toBe(data);
+
+        const path = `/${actor.user.username}/dog.mp4`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'video/mp4',
+            },
+            fileContent: MP4,
+        });
+        reply();
+        await withActor(actor, () => generate({ input_video: path }));
+        expect(sent(3).body.input[0]).toEqual({
+            type: 'video',
+            mime_type: 'video/mp4',
+            data,
+        });
+    });
+
+    it('refuses an image as the source video before calling Gemini', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () => generate({ input_video: pngDataUri })),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'input_video must be an MP4, QuickTime or WebM video',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses a video over 32 MiB with 413 before any call', async () => {
+        const { actor } = await makeUser();
+        const big = Buffer.alloc(GEMINI_OMNI_MAX_VIDEO_BYTES + 1);
+        MP4.copy(big);
+        await expect(
+            withActor(actor, () =>
+                generate({
+                    input_video: `data:video/mp4;base64,${big.toString('base64')}`,
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 413,
+            legacyCode: 'input_too_large',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
 
