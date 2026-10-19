@@ -949,13 +949,23 @@ export class AuthService extends PuterService {
         appUid: string,
     ): Promise<void> {
         if (!userId || !appUid) return;
-        await this.#deleteWorkerSessions({ userId, appUid });
+        const descendants = await this.stores.app.listOwnedDescendantUids(
+            userId,
+            appUid,
+        );
+        const appUids = [...new Set<string>([appUid, ...descendants])];
+        for (let offset = 0; offset < appUids.length; offset += 200) {
+            await this.#deleteWorkerSessions({
+                userId,
+                appUids: appUids.slice(offset, offset + 200),
+            });
+        }
     }
 
     async #deleteWorkerSessions(filter: {
         workerName?: string;
         userId?: number;
-        appUid?: string;
+        appUids?: string[];
     }): Promise<void> {
         const deleted = (await this.stores.session.deleteWorkerSessions(
             filter,
