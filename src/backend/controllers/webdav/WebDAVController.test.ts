@@ -1006,7 +1006,7 @@ describe('WebDAVController', () => {
     });
 
     describe('DELETE', () => {
-        it('rejects delete when ACL denies write access', async () => {
+        it('refuses a delete outside the caller’s tree as not found', async () => {
             const { res, captured } = makeRes();
             await dispatchMiddleware(
                 makeReq({
@@ -1023,7 +1023,7 @@ describe('WebDAVController', () => {
                 res,
                 noop,
             );
-            expect(captured.statusCode).toBe(403);
+            expect(captured.statusCode).toBe(404);
         });
     });
 
@@ -1593,7 +1593,7 @@ describe('WebDAVController verbs', () => {
             expect(captured.body).toBe('Cannot GET a directory');
         });
 
-        it("denies reading another user's file with 403", async () => {
+        it("hides another user's file as not found", async () => {
             const owner = await makeUser();
             const stranger = await makeUser();
             const path = `/${owner.username}/Documents/private.txt`;
@@ -1604,8 +1604,8 @@ describe('WebDAVController verbs', () => {
                 path,
                 actor: stranger.actor,
             });
-            expect(captured.statusCode).toBe(403);
-            expect(captured.body).toBe('Permission denied');
+            expect(captured.statusCode).toBe(404);
+            expect(captured.body).toBe('Not Found');
         });
     });
 
@@ -1936,7 +1936,8 @@ describe('WebDAVController verbs', () => {
                 path: `/${owner.username}/Documents/intruder`,
                 actor: stranger.actor,
             });
-            expect(captured.statusCode).toBe(403);
+            // The parent is out of sight, so the refusal doesn't confirm it.
+            expect(captured.statusCode).toBe(404);
         });
     });
 
@@ -2147,7 +2148,7 @@ describe('WebDAVController verbs', () => {
                 },
             });
             expect(captured.statusCode).toBe(404);
-            expect(captured.body).toBe('Source not found');
+            expect(captured.body).toBe('Not Found');
         });
 
         it('returns 409 when the destination parent is not a directory', async () => {
@@ -2273,7 +2274,7 @@ describe('WebDAVController verbs', () => {
                 },
             });
             expect(captured.statusCode).toBe(404);
-            expect(captured.body).toBe('Source not found');
+            expect(captured.body).toBe('Not Found');
         });
 
         it("denies moving into another user's home", async () => {
@@ -2291,7 +2292,7 @@ describe('WebDAVController verbs', () => {
                     host: 'dav.puter.localhost',
                 },
             });
-            expect(captured.statusCode).toBe(403);
+            expect(captured.statusCode).toBe(404);
         });
     });
 
@@ -2627,7 +2628,7 @@ describe('WebDAVController verbs', () => {
             expect(xml).not.toContain('Documents');
         });
 
-        it('keeps a sharer’s collection a 403 for a caller with no share', async () => {
+        it('keeps a sharer’s collection out of sight for a caller with no share', async () => {
             const owner = await makeUser();
             const stranger = await makeUser();
             await shareFolder(owner, await makeUser());
@@ -2636,7 +2637,8 @@ describe('WebDAVController verbs', () => {
                 `/${owner.username}`,
                 stranger.actor,
             );
-            expect(captured.statusCode).toBe(403);
+            // The same 404 as a name nobody holds, so it confirms no account.
+            expect(captured.statusCode).toBe(404);
         });
     });
 
@@ -2806,9 +2808,9 @@ describe('WebDAVController verbs', () => {
 
             const root = await propfind('/', holder.actor);
             expect(String(root.body)).not.toContain(`/${owner.username}/`);
-            // And the level it used to stand in for is a plain 403 again.
+            // And the level it used to stand in for is out of sight again.
             const owned = await propfind(`/${owner.username}`, holder.actor);
-            expect(owned.statusCode).toBe(403);
+            expect(owned.statusCode).toBe(404);
         });
 
         it('refuses writes and reads aimed at the invented levels', async () => {
@@ -2855,6 +2857,259 @@ describe('WebDAVController verbs', () => {
                     `/${owner.username}/intruder`,
                 ),
             ).toBeFalsy();
+        });
+    });
+
+    // Every check runs on the path the entry is stored under, and a refusal of
+    // something the caller can't see reads exactly like a path with nothing
+    // at it.
+    describe('authorization against the stored entry', () => {
+        it('answers a stranger alike for a missing path and a private file', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            await putFile(
+                owner.actor,
+                `/${owner.username}/Documents/private.txt`,
+                'secret',
+            );
+
+            const answers = [];
+            for (const [method, path] of [
+                ['GET', `/${owner.username}/Documents/private.txt`],
+                ['GET', `/${owner.username}/Documents/missing.txt`],
+                // A directory too: refused before the "is a directory" 400.
+                ['GET', `/${owner.username}/Documents`],
+                ['PROPFIND', `/${owner.username}`],
+                ['PROPFIND', `/no-such-user-${uuidv4()}`],
+                ['DELETE', `/${owner.username}/Documents/private.txt`],
+                ['DELETE', `/${owner.username}/Documents/missing.txt`],
+            ] as const) {
+                const captured = await dispatch({
+                    method,
+                    path,
+                    actor: stranger.actor,
+                });
+                answers.push([captured.statusCode, captured.body]);
+            }
+            for (const answer of answers) {
+                expect(answer).toEqual([404, 'Not Found']);
+            }
+        });
+
+        // MySQL collates `fsentries.path` case-insensitively, so a request for
+        // `/<owner>/Public/...` can resolve a private `/<owner>/public/...`.
+        // The test databases compare exactly, so the lookup is made to answer
+        // the way MySQL would; everything past it — the ancestor chain, the
+        // ACL — runs for real.
+        it('does not pass a case variant of Public off as the public folder', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            await server.stores.user.update(owner.userId, {
+                email_confirmed: 1,
+            });
+            const privateDir = `/${owner.username}/public`;
+            const mkcol = await dispatch({
+                method: 'MKCOL',
+                path: privateDir,
+                actor: owner.actor,
+            });
+            expect(mkcol.statusCode).toBe(201);
+            await putFile(owner.actor, `${privateDir}/secret.txt`, 'secret');
+            await putFile(
+                owner.actor,
+                `/${owner.username}/Public/open.txt`,
+                'open',
+            );
+
+            const acl = server.services.acl as unknown as {
+                config: { enable_public_folders?: boolean };
+            };
+            const wasEnabled = acl.config.enable_public_folders;
+            acl.config.enable_public_folders = true;
+            try {
+                // The real Public folder is open to the stranger.
+                const open = await dispatch({
+                    method: 'GET',
+                    path: `/${owner.username}/Public/open.txt`,
+                    actor: stranger.actor,
+                });
+                expect(open.statusCode).toBe(200);
+
+                const store = server.stores.fsEntry;
+                const realLookup = store.getEntryByPath.bind(store);
+                const asked = `/${owner.username}/Public`;
+                vi.spyOn(store, 'getEntryByPath').mockImplementation(
+                    (path: string) =>
+                        realLookup(
+                            path === asked || path.startsWith(`${asked}/`)
+                                ? privateDir + path.slice(asked.length)
+                                : path,
+                        ),
+                );
+
+                const { res, captured } = makeStreamRes();
+                await dispatchMiddleware(
+                    makeReq({
+                        method: 'GET',
+                        path: `${asked}/secret.txt`,
+                        actor: stranger.actor,
+                    }),
+                    res,
+                    noop,
+                );
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                expect(captured.statusCode).toBe(404);
+                expect(captured.text()).toBe('');
+
+                const listing = await dispatch({
+                    method: 'PROPFIND',
+                    path: asked,
+                    actor: stranger.actor,
+                });
+                expect(listing.statusCode).toBe(404);
+                expect(String(listing.body)).not.toContain('secret.txt');
+
+                const copied = await dispatch({
+                    method: 'COPY',
+                    path: `${asked}/secret.txt`,
+                    actor: stranger.actor,
+                    headers: {
+                        destination: `/${stranger.username}/Documents/loot.txt`,
+                        host: 'dav.puter.localhost',
+                    },
+                });
+                expect(copied.statusCode).toBe(404);
+            } finally {
+                vi.restoreAllMocks();
+                acl.config.enable_public_folders = wasEnabled;
+            }
+            expect(
+                await server.stores.fsEntry.getEntryByPath(
+                    `/${stranger.username}/Documents/loot.txt`,
+                ),
+            ).toBeFalsy();
+        });
+    });
+
+    // A scoped token writes over DAV wherever its grant reaches, and nowhere
+    // else — the same reach it has over the `/fs` write routes.
+    describe('scoped access tokens', () => {
+        const mintFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            return server.services.auth.createAccessToken(makeActor({ user }), [
+                [permission],
+            ]);
+        };
+        // Own address, so the per-IP auth failure bucket can't refuse these.
+        const asToken = (token: string, init: Parameters<typeof dispatch>[0]) =>
+            dispatch({
+                ...init,
+                ip: '203.0.113.58',
+                headers: {
+                    ...init.headers,
+                    authorization: basicAuth('-token', token),
+                },
+            });
+
+        it('writes inside its grant and is refused outside it', async () => {
+            const { userId, username, actor } = await makeUser();
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const token = await mintFor(userId, `fs:${documents.uuid}:write`);
+            const inside = `/${username}/Documents/tok`;
+
+            expect(
+                (await asToken(token, { method: 'MKCOL', path: inside }))
+                    .statusCode,
+            ).toBe(201);
+            expect(
+                (
+                    await asToken(token, {
+                        method: 'PUT',
+                        path: `${inside}/a.txt`,
+                        headers: { 'content-length': '3' },
+                        content: 'abc',
+                    })
+                ).statusCode,
+            ).toBe(201);
+            expect(
+                (
+                    await asToken(token, {
+                        method: 'MOVE',
+                        path: `${inside}/a.txt`,
+                        headers: {
+                            destination: `${inside}/b.txt`,
+                            host: 'dav.puter.localhost',
+                        },
+                    })
+                ).statusCode,
+            ).toBe(201);
+            expect(
+                (
+                    await asToken(token, {
+                        method: 'DELETE',
+                        path: `${inside}/b.txt`,
+                    })
+                ).statusCode,
+            ).toBe(204);
+
+            await putFile(actor, `/${username}/Desktop/kept.txt`, 'kept');
+            for (const init of [
+                { method: 'MKCOL', path: `/${username}/Desktop/intruder` },
+                {
+                    method: 'PUT',
+                    path: `/${username}/Desktop/kept.txt`,
+                    headers: { 'content-length': '1' },
+                    content: 'x',
+                },
+                { method: 'DELETE', path: `/${username}/Desktop/kept.txt` },
+                {
+                    method: 'COPY',
+                    path: `/${username}/Desktop/kept.txt`,
+                    headers: {
+                        destination: `${inside}/kept.txt`,
+                        host: 'dav.puter.localhost',
+                    },
+                },
+                { method: 'DELETE', path: `/${username}` },
+            ]) {
+                const captured = await asToken(token, init);
+                // Outside the grant is out of sight, so it reads as missing.
+                expect(captured.statusCode, init.method).toBe(404);
+            }
+            expect(
+                await server.stores.fsEntry.getEntryByPath(
+                    `/${username}/Desktop/intruder`,
+                ),
+            ).toBeFalsy();
+            expect(
+                await server.stores.fsEntry.getEntryByPath(
+                    `/${username}/Desktop/kept.txt`,
+                ),
+            ).toMatchObject({ size: 4 });
+        });
+
+        it('refuses every write to a read-only token', async () => {
+            const { userId, username } = await makeUser();
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const token = await mintFor(userId, `fs:${documents.uuid}:read`);
+
+            for (const init of [
+                { method: 'MKCOL', path: `/${username}/Documents/ro` },
+                {
+                    method: 'PUT',
+                    path: `/${username}/Documents/ro.txt`,
+                    headers: { 'content-length': '1' },
+                    content: 'x',
+                },
+                { method: 'DELETE', path: `/${username}/Documents` },
+            ]) {
+                const captured = await asToken(token, init);
+                expect(captured.statusCode, init.method).toBe(403);
+            }
         });
     });
 });
