@@ -3732,6 +3732,63 @@ describe('LegacyFSController.read file streaming', () => {
         );
         expect(captured.headers['Content-Type']).toMatch(/text\/html/);
     });
+
+    it('honors offset and byte_count query params on /read', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('0123456789abcdef');
+        const target = `/${username}/Documents/range-test.txt`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: target,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+
+        const { res, captured } = makeStreamingRes();
+        await withActor(actor, () =>
+            controller.read(
+                makeReq({
+                    query: { file: target, offset: '4', byte_count: '6' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(captured.statusCode).toBe(206);
+        expect(Buffer.concat(captured.bodyChunks).toString()).toBe('456789');
+    });
+
+    it('rejects invalid offset query param with 400', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('test');
+        const target = `/${username}/Documents/invalid-offset.txt`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: target,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+
+        const { res } = makeStreamingRes();
+        await expect(
+            withActor(actor, () =>
+                controller.read(
+                    makeReq({
+                        query: { file: target, offset: '-1' },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
 });
 
 // ── /file directory listing ─────────────────────────────────────────

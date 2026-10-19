@@ -102,6 +102,7 @@ import {
     type GuiItemEventName,
     loadLegacyAssociatedApps,
     replacedByMove,
+    resolveReadRange,
     resolveV1Selector,
     signEntry,
     signingConfigFromAppConfig,
@@ -930,9 +931,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
@@ -1287,10 +1286,7 @@ export class LegacyFSController extends PuterController {
             });
         }
 
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = resolveReadRange(req.headers.range, query);
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -1406,8 +1402,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1803,10 +1798,7 @@ export class LegacyFSController extends PuterController {
         }
 
         // File: stream bytes with Range support.
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = resolveReadRange(req.headers.range, query);
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -2001,10 +1993,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

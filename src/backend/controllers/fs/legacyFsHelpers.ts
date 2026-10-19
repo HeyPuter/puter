@@ -99,6 +99,59 @@ export function getBoolean(
     return undefined;
 }
 
+/**
+ * Resolves an HTTP Range header string from explicit `headersRange` or fallback
+ * `offset` / `byte_count` query parameters.
+ */
+export function resolveReadRange(
+    headersRange: unknown,
+    query: Record<string, unknown>,
+): string | undefined {
+    if (typeof headersRange === 'string' && headersRange.length > 0) {
+        return headersRange;
+    }
+    const rawOffset = query.offset;
+    const rawByteCount = query.byte_count;
+    if (rawOffset === undefined && rawByteCount === undefined) {
+        return undefined;
+    }
+
+    let offset: number | undefined;
+    if (rawOffset !== undefined && rawOffset !== null && rawOffset !== '') {
+        offset = Number(rawOffset);
+        if (!Number.isInteger(offset) || offset < 0) {
+            throw new HttpError(400, 'Invalid offset', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
+    let byteCount: number | undefined;
+    if (
+        rawByteCount !== undefined &&
+        rawByteCount !== null &&
+        rawByteCount !== ''
+    ) {
+        byteCount = Number(rawByteCount);
+        if (!Number.isInteger(byteCount) || byteCount <= 0) {
+            throw new HttpError(400, 'Invalid byte_count', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
+    if (offset !== undefined && byteCount !== undefined) {
+        return `bytes=${offset}-${offset + byteCount - 1}`;
+    }
+    if (offset !== undefined) {
+        return `bytes=${offset}-`;
+    }
+    if (byteCount !== undefined) {
+        return `bytes=0-${byteCount - 1}`;
+    }
+    return undefined;
+}
+
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
 // from a legacy body field. Returns a resolved entry (throwing 404 if not
 // found or 400 if no usable ref is present).

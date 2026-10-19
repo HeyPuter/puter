@@ -331,6 +331,17 @@ describe('read', () => {
         expect(lastRequest().url).toBe('https://api.test/read?file=%2Fa%2Ffile.txt&offset=4&byte_count=8');
     });
 
+    it('read(path, options) forwards offset 0', async () => {
+        await fs.read('/a/file.txt', { offset: 0, byte_count: 8 });
+        expect(lastRequest().url).toBe('https://api.test/read?file=%2Fa%2Ffile.txt&offset=0&byte_count=8');
+    });
+
+    it('handles 206 Partial Content responses', async () => {
+        FakeXHR.status = 206;
+        const blob = await fs.read('/a/file.txt', { offset: 0, byte_count: 8 });
+        expect(await blob.text()).toBe('contents');
+    });
+
     it('reads by uid, and by path when a UID-shaped name has a ./ prefix', async () => {
         const uid = '0f8fad5b-d9cb-469f-a165-70867728950e';
         await fs.read(uid);

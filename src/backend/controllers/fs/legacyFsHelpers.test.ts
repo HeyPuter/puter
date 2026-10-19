@@ -26,6 +26,7 @@ import {
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
+    resolveReadRange,
     signEntry,
     signEntryThumbnail,
     signingConfigFromAppConfig,
@@ -618,3 +619,70 @@ describe('toLegacyEntry is_empty against stored children', () => {
         expect((await shape()).is_empty).toBe(false);
     });
 });
+
+describe('resolveReadRange', () => {
+    it('returns the explicit headersRange when provided', () => {
+        expect(
+            resolveReadRange('bytes=10-20', { offset: 0, byte_count: 5 }),
+        ).toBe('bytes=10-20');
+    });
+
+    it('returns undefined when neither headersRange nor range query params are present', () => {
+        expect(resolveReadRange(undefined, {})).toBeUndefined();
+        expect(resolveReadRange('', {})).toBeUndefined();
+    });
+
+    it('derives a byte range from offset and byte_count', () => {
+        expect(resolveReadRange(undefined, { offset: 0, byte_count: 5 })).toBe(
+            'bytes=0-4',
+        );
+        expect(
+            resolveReadRange(undefined, { offset: 10, byte_count: 20 }),
+        ).toBe('bytes=10-29');
+        expect(
+            resolveReadRange(undefined, { offset: '4', byte_count: '6' }),
+        ).toBe('bytes=4-9');
+    });
+
+    it('derives an open range when only offset is provided', () => {
+        expect(resolveReadRange(undefined, { offset: 10 })).toBe('bytes=10-');
+        expect(resolveReadRange(undefined, { offset: '0' })).toBe('bytes=0-');
+    });
+
+    it('derives a prefix range when only byte_count is provided', () => {
+        expect(resolveReadRange(undefined, { byte_count: 15 })).toBe(
+            'bytes=0-14',
+        );
+        expect(resolveReadRange(undefined, { byte_count: '1' })).toBe(
+            'bytes=0-0',
+        );
+    });
+
+    it('throws 400 on invalid or negative offset', () => {
+        expect(() =>
+            resolveReadRange(undefined, { offset: -1, byte_count: 10 }),
+        ).toThrow('Invalid offset');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 1.5, byte_count: 10 }),
+        ).toThrow('Invalid offset');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 'abc', byte_count: 10 }),
+        ).toThrow('Invalid offset');
+    });
+
+    it('throws 400 on non-positive or invalid byte_count', () => {
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: 0 }),
+        ).toThrow('Invalid byte_count');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: -5 }),
+        ).toThrow('Invalid byte_count');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: 2.5 }),
+        ).toThrow('Invalid byte_count');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: 'xyz' }),
+        ).toThrow('Invalid byte_count');
+    });
+});
+

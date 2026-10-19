@@ -83,6 +83,7 @@ import {
     loadLegacyAssociatedApps,
     replacedByMove,
     resolveOrNotFound,
+    resolveReadRange,
     signEntryThumbnail,
 } from './legacyFsHelpers.js';
 import type {
@@ -1495,10 +1496,7 @@ export class FSController extends PuterController {
             );
         }
 
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = resolveReadRange(req.headers.range, query);
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -2273,8 +2271,7 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
