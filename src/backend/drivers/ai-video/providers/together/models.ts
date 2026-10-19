@@ -24,8 +24,8 @@ import { IVideoModel } from '../../types.js';
  * ones per second of output (`per-second`, plus `per-second-<tier>` where a
  * cheaper resolution tier exists, and `per-second-video-input` for editing a
  * source video). Per-second rates are the highest rate Together publishes for
- * the model so the pre-flight estimate never undershoots; the provider then
- * bills the amount Together reports on the finished job.
+ * the model so the estimate never undershoots. Together's jobs report no cost,
+ * so the estimate is what gets billed; a reported cost replaces it.
  * `default-duration-per-video` is the estimated cents for a 5s clip and only
  * feeds cross-provider cost sorting.
  */
@@ -77,6 +77,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptLength: { min: 2, max: 3000 },
         promptSupported: true,
     },
+    // Together quotes $0.56 for a 10s 768p clip.
     {
         id: 'togetherai:minimax/hailuo-02',
         puterId: 'togetherai:minimax/hailuo-02',
@@ -84,7 +85,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         name: 'MiniMax Hailuo 02',
         model: 'minimax/hailuo-02',
         costs_currency: 'usd-cents',
-        costs: { 'per-video': 49 },
+        costs: { 'per-video': 56 },
         output_cost_key: 'per-video',
         durationSeconds: [10],
         dimensions: ['1366x768', '1920x1080'],
@@ -489,8 +490,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptSupported: true,
     },
     // FLUX 3 text-to-video: $0.17/s at 720p, $0.29/s at 1080p. Editing a
-    // source video: $0.43/s at 720p, $0.54/s at 1080p. Its jobs report no
-    // cost, so these estimates are what gets billed.
+    // source video: $0.43/s at 720p, $0.54/s at 1080p.
     {
         id: 'togetherai:black-forest-labs/FLUX-3',
         puterId: 'togetherai:black-forest-labs/flux-3',
