@@ -1902,7 +1902,8 @@ describe('WebDAVController verbs', () => {
                 path: `/${owner.username}/Documents`,
                 actor: other.actor,
             });
-            expect(captured.statusCode).toBe(403);
+            // Out of sight, so refused like a path with nothing at it.
+            expect(captured.statusCode).toBe(404);
         });
     });
 

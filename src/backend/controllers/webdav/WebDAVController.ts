@@ -751,7 +751,9 @@ export class WebDAVController extends PuterController {
         ) {
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
         }
-        await this.#assertWrite(actor, davPath);
+        const target = await this.stores.fsEntry.getEntryByPath(davPath);
+        if (target) await this.#assertAccess(actor, target.path, 'write');
+        else await this.#assertCreate(actor, davPath);
         res.status(207)
             .set({ 'Content-Type': 'application/xml; charset=utf-8' })
             .send(

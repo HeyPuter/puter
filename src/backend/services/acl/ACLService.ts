@@ -244,12 +244,11 @@ export class ACLService extends PuterService {
             (PUBLIC_READ_MODES as AclMode[]).includes(mode) &&
             components.length > 1 &&
             components[1] === 'Public' &&
-            ancestors.some(
+            // Read ahead of the owner, so a failing chain read still fails first.
+            (await ancestors()).some(
                 (ancestor) => ancestor.path === `/${components[0]}/Public`,
             )
         ) {
-            // Read ahead of the owner, so a failing chain read still fails first.
-            await ancestors();
             const ownerUsername = components[0];
             const owner = await this.stores.user.getByUsername(ownerUsername);
             if (owner) {
