@@ -3812,7 +3812,18 @@ export class FSEntryStore extends PuterStore {
             primary: true,
         });
         let affected = 0;
+        let remaining = REBASED_INVALIDATION_MAX;
         for (const patterns of groups) {
+            // Read before the rewrite: afterwards the owner's rows under
+            // `newPath` include ones already there, which never moved.
+            const moving =
+                remaining > 0
+                    ? ((await this.clients.db.pread(
+                          `SELECT id, uuid, path FROM fsentries
+                           WHERE user_id = ? AND ${this.#pathLikeAny(patterns)} LIMIT ?`,
+                          [userId, ...patterns, remaining],
+                      )) as Array<{ id: number; uuid: string; path: string }>)
+                    : [];
             const result = await this.clients.db.write(
                 `UPDATE fsentries
                  SET path = ${rewrittenPath},
@@ -3821,8 +3832,16 @@ export class FSEntryStore extends PuterStore {
                 [newPath, oldLen + 1, now, userId, ...patterns],
             );
             affected += this.#affectedRows(result);
+            remaining -= moving.length;
+            await this.#invalidateMovedEntries(
+                moving.map((row) => ({
+                    id: Number(row.id),
+                    uuid: row.uuid,
+                    path: String(row.path),
+                })),
+            );
         }
-        await this.#invalidateRebasedSubtree(oldPath, newPath, groups);
+        if (remaining <= 0) this.#warnRebasedCap(newPath);
         return affected;
     }
 
@@ -3918,23 +3937,35 @@ export class FSEntryStore extends PuterStore {
                 [...patterns, remaining],
             )) as Array<{ id: number; uuid: string; path: string }>;
             remaining -= rows.length;
-            const moved = rows.map((row) => ({
-                id: Number(row.id),
-                uuid: row.uuid,
-                path: oldPrefix + String(row.path).slice(newPrefix.length),
-            }));
-            await runWithConcurrencyLimit(
-                this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
-                DEFAULT_DB_CHUNK_CONCURRENCY,
-                (chunk) => this.#invalidateEntriesCache(chunk),
+            await this.#invalidateMovedEntries(
+                rows.map((row) => ({
+                    id: Number(row.id),
+                    uuid: row.uuid,
+                    path: oldPrefix + String(row.path).slice(newPrefix.length),
+                })),
             );
             if (remaining <= 0) {
-                console.warn(
-                    `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
-                );
+                this.#warnRebasedCap(newPrefix);
                 return;
             }
         }
+    }
+
+    /** Drops moved rows' keys, each listed with the path it moved from. */
+    async #invalidateMovedEntries(
+        moved: Array<Pick<FSEntry, 'id' | 'uuid' | 'path'>>,
+    ): Promise<void> {
+        await runWithConcurrencyLimit(
+            this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            (chunk) => this.#invalidateEntriesCache(chunk),
+        );
+    }
+
+    #warnRebasedCap(newPrefix: string): void {
+        console.warn(
+            `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
+        );
     }
 
     async deleteEntry(entry: FSEntry): Promise<void> {
