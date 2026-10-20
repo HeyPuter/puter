@@ -7307,7 +7307,10 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     width: 100%;
     border: none;
     background: none;
-    font: inherit;
+    /* Family and line height only: font-size and weight come from
+       .dashboard-sidebar-item, so the bell matches its neighbors. */
+    font-family: inherit;
+    line-height: inherit;
     text-align: left;
     margin-bottom: 6px;
     -webkit-tap-highlight-color: transparent;
@@ -7905,6 +7908,12 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 /* -- Bottom sheet below the drawer breakpoint -- */
 
 @media (max-width: 768px) {
+    /* Track the drawer's 20px nav icons */
+    .dashboard-notifications-btn-icon {
+        width: 20px;
+        height: 20px;
+    }
+
     .dashboard-notifications-scrim {
         display: block;
         position: fixed;
