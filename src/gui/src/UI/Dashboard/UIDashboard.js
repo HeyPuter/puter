@@ -155,7 +155,7 @@ async function UIDashboard (options) {
             h += '<div class="dashboard-user-options">';
                 h += '<button type="button" class="dashboard-user-btn" aria-haspopup="menu">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
-                    h += `<span class="dashboard-user-name username">${window.html_encode(window.user?.username || 'User')}</span>`;
+                    h += `<span class="dashboard-user-name username">${window.html_encode(window.user?.username || i18n('user', [], false))}</span>`;
                     h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
                 h += '</button>';
             h += '</div>';
@@ -782,8 +782,8 @@ async function UIDashboard (options) {
             ...items,
             // Developer
             {
-                html: 'Developers<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z"/><path d="m0 0h32v32h-32z" fill="none"/></svg>',
-                html_active: 'Developers<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z" style="fill: rgb(255, 255, 255);"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z" style="fill: rgb(255, 255, 255);"/><path d="m0 0h32v32h-32z" fill="none"/></svg>',
+                html: `${i18n('developers')}<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z"/><path d="m0 0h32v32h-32z" fill="none"/></svg>`,
+                html_active: `${i18n('developers')}<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z" style="fill: rgb(255, 255, 255);"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z" style="fill: rgb(255, 255, 255);"/><path d="m0 0h32v32h-32z" fill="none"/></svg>`,
                 onClick: function () {
                     window.open('https://developer.puter.com', '_blank');
                 },

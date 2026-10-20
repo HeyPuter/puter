@@ -63,7 +63,7 @@ const { html_encode, SelectionArea } = window;
  */
 const TabFiles = {
     id: 'files',
-    label: 'Files',
+    label: i18n('files'),
     icon: icons.files,
 
     /**
