@@ -1215,6 +1215,8 @@ const TabApps = {
             if ( ! $el_window.is(':visible') ) return;
             if ( $el_window.find('.myapps-modal-overlay').length ) return;
             if ( $('.window').not($el_window[0]).filter(':visible').length ) return;
+            // An open context menu owns arrows and Enter (keyboard.js).
+            if ( $('.context-menu').length ) return;
 
             const $panelGrid = $el_window.find('.myapps-group-panel-grid');
             const pageTiles = ($panelGrid.length
