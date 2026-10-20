@@ -335,7 +335,19 @@ const TabHome = {
                 scheduleRefreshAndBroadcast();
         };
         document.addEventListener('visibilitychange', onVisibility);
-        window.addEventListener('focus', scheduleRefreshAndBroadcast);
+        // `focus` also fires whenever focus comes back from an app's iframe,
+        // which never left Puter; only a return from another window counts.
+        let leftPage = false;
+        window.addEventListener('blur', () => {
+            setTimeout(() => {
+                leftPage = !document.hasFocus();
+            }, 0);
+        });
+        window.addEventListener('focus', () => {
+            if (!leftPage) return;
+            leftPage = false;
+            scheduleRefreshAndBroadcast();
+        });
 
         // Handle app clicks
         $el_window.on('click', '.bento-recent-app', function (e) {
