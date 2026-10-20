@@ -562,7 +562,7 @@ const TabHome = {
 
             // A seat cannot change its plan, so name who can.
             if (seat && teamName) {
-                $note.text(i18n('plan_team_managed', [teamName])).show();
+                $note.text(i18n('plan_team_managed', [teamName], false)).show();
             }
 
             // A seat's plan is the team's; the link only reaches a refusal.
