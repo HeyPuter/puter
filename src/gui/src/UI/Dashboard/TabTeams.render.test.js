@@ -238,6 +238,30 @@ describe('loading a team', () => {
     });
 });
 
+describe('keyboard focus across a repaint', () => {
+    it('stays on the control that was used', async () => {
+        const on = { ...team, directoryEnabled: true };
+        const $w = await mount({ teams: [on] });
+        globalThis.puter.teams.update = vi.fn(async () => ({}));
+        globalThis.puter.teams.list = vi.fn(async () => [{ ...team, directoryEnabled: false }]);
+        $w.find('.teams-directory-check')[0].focus();
+        $w.find('.teams-directory-check').prop('checked', false).trigger('change');
+        for ( let i = 0; i < 6; i++ ) await flush();
+        expect(document.activeElement.classList.contains('teams-directory-check')).toBe(true);
+        expect(document.activeElement.isConnected).toBe(true);
+    });
+
+    it('returns to the same account\'s action', async () => {
+        const $w = await mount();
+        globalThis.puter.teams.enableMember = vi.fn(async () => ({}));
+        const $btn = $w.find('.teams-enable[data-username="elliot"]');
+        $btn[0].focus();
+        $btn.trigger('click');
+        for ( let i = 0; i < 6; i++ ) await flush();
+        expect(document.activeElement.getAttribute('data-username')).toBe('elliot');
+    });
+});
+
 describe('states', () => {
     it('shows a picker when there is more than one team', async () => {
         const $w = await mount({ teams: [team, { ...team, uid: 't2', name: 'Other' }] });

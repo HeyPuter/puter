@@ -449,8 +449,32 @@ const renderBody = () => {
     return state.selected?.isOwner ? renderOwnerView() : renderMemberView();
 };
 
+/**
+ * Selectors that find the focused control again in a fresh render, most
+ * specific first: the same control for the same account, then any control
+ * for that account (re-enable becomes suspend), then the same control.
+ */
+const focusSelectors = (el) => {
+    const cls = [...el.classList].find(c => c.startsWith('teams-'));
+    const username = el.getAttribute('data-username');
+    const who = username === null ? '' : `[data-username="${CSS.escape(username)}"]`;
+    return [cls && who && `.${cls}${who}`, who && `button${who}`, cls && `.${cls}`].filter(Boolean);
+};
+
 const paint = ($el_window) => {
-    $el_window.find(`${SECTION} .teams-body`).html(renderBody());
+    const $body = $el_window.find(`${SECTION} .teams-body`);
+    // Every action repaints the panel; without this, keyboard focus would
+    // drop to <body> after each one.
+    const focused = document.activeElement;
+    const selectors = $body[0]?.contains(focused) && focused !== $body[0] ? focusSelectors(focused) : [];
+    $body.html(renderBody());
+    for ( const selector of selectors ) {
+        const target = $body.find(selector)[0];
+        if ( target ) {
+            target.focus({ preventScroll: true });
+            break;
+        }
+    }
 };
 
 // -- Loading --------------------------------------------------------------
