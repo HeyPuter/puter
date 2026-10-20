@@ -39,6 +39,7 @@ import {
     USAGE_DETAIL_SHARD_COUNT,
     V1_CLAIM_THROUGH_MONTH,
     isFreeSubscription,
+    registerFreeSubscription,
 } from './consts';
 import { EGRESS_COSTS } from './costs';
 import type {
@@ -69,7 +70,26 @@ import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 type SubscriptionPolicy = (typeof SUB_POLICIES)[number] & {
     /** Seats a team owned by an account on this plan may provision. */
     teamSeatCap?: number;
+    /** Counts as a free plan wherever `isFreeSubscription` is asked. */
+    free?: boolean;
+    /**
+     * Grants no monthly allowance, so only purchased credit can be spent.
+     * Without it a non-positive allowance means the plan is not metered.
+     */
+    noAllowance?: boolean;
 };
+
+/** What `getActorSubscriptionStatus` answers. */
+export interface ActorSubscriptionStatus {
+    policy: SubscriptionPolicy;
+    /** Somebody subscribed the actor to it; a resolver did not infer it. */
+    paid: boolean;
+    /**
+     * The answer may not be this actor's plan: a lookup behind it failed, or
+     * the actor lacks a field resolvers key on. Cached only briefly.
+     */
+    provisional: boolean;
+}
 
 export type SubscriptionResolver = (
     actor: Actor,
@@ -482,9 +502,15 @@ export class MeteringService extends PuterService {
 
     // -- Extension hooks ----------------------------------------------
 
-    /** Register a policy that should be available to actors. */
+    /**
+     * Register a policy that should be available to actors. `free` is
+     * process-wide, since `isFreeSubscription` is asked by id alone.
+     */
     registerPolicy(policy: SubscriptionPolicy): void {
-        this.extraPolicies.push(policy);
+        if (policy.free) registerFreeSubscription(policy.id);
+        this.extraPolicies.push(
+            policy.noAllowance ? { ...policy, monthUsageAllowance: 0 } : policy,
+        );
     }
 
     /**
@@ -689,7 +715,7 @@ export class MeteringService extends PuterService {
             this.rememberRemainingCredits(
                 userId,
                 settledAllowanceUsed,
-                actorSubscription.monthUsageAllowance,
+                actorSubscription,
                 actorAddons,
                 provisionalUntil,
             );
@@ -1646,6 +1672,11 @@ export class MeteringService extends PuterService {
         );
     }
 
+    /** Nothing to run out of, unless the plan says it grants nothing. */
+    private static isUnmetered(policy: SubscriptionPolicy): boolean {
+        return !policy.noAllowance && !(policy.monthUsageAllowance > 0);
+    }
+
     /**
      * What's left of an actor's budget: what remains of the monthly allowance
      * plus what remains of the lifetime credit pool.
@@ -1789,7 +1820,7 @@ export class MeteringService extends PuterService {
             // A non-positive allowance is how a policy says it isn't metered
             // (the overuse alarm reads it the same way) — no budget to run out
             // of, and no reason to pay for the reads below.
-            if (!(subscription.monthUsageAllowance > 0)) {
+            if (MeteringService.isUnmetered(subscription)) {
                 this.rememberHasCredits(uuid, true, provisionalUntil);
                 return;
             }
@@ -1803,7 +1834,7 @@ export class MeteringService extends PuterService {
                     totals,
                     subscription.monthUsageAllowance,
                 ),
-                subscription.monthUsageAllowance,
+                subscription,
                 addons,
                 provisionalUntil,
             );
@@ -1838,14 +1869,15 @@ export class MeteringService extends PuterService {
     private rememberRemainingCredits(
         userId: string,
         allowanceUsed: number,
-        monthUsageAllowance: number,
+        subscription: SubscriptionPolicy,
         addons: UsageAddons | null | undefined,
         provisionalUntil: number | undefined,
     ): void {
-        if (!(monthUsageAllowance > 0)) {
+        if (MeteringService.isUnmetered(subscription)) {
             this.rememberHasCredits(userId, true, provisionalUntil);
             return;
         }
+        const { monthUsageAllowance } = subscription;
         const remaining = MeteringService.remainingFrom(
             allowanceUsed,
             monthUsageAllowance,
@@ -1971,11 +2003,24 @@ export class MeteringService extends PuterService {
 
     /** On a plan somebody subscribed them to, not one a resolver inferred. */
     async actorHasPaidSubscription(actor: Actor): Promise<boolean> {
-        const { policy, fromDefault } =
+        return (await this.getActorSubscriptionStatus(actor)).paid;
+    }
+
+    /**
+     * The plan with what is known about the answer. A resolver that derives
+     * from another actor's plan can throw on `provisional` rather than cache a
+     * fallback as fact.
+     */
+    async getActorSubscriptionStatus(
+        actor: Actor,
+    ): Promise<ActorSubscriptionStatus> {
+        const { policy, fromDefault, provisionalUntil } =
             await this.#actorSubscriptionWithStatus(actor);
         // A deployment that turned unlimited on means it.
-        if (policy.id === UNLIMITED_SUBSCRIPTION) return true;
-        return !fromDefault && !isFreeSubscription(policy.id);
+        const paid =
+            policy.id === UNLIMITED_SUBSCRIPTION ||
+            (!fromDefault && !isFreeSubscription(policy.id));
+        return { policy, paid, provisional: provisionalUntil !== undefined };
     }
 
     /**
