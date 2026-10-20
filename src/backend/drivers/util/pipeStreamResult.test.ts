@@ -69,6 +69,24 @@ describe('pipeStreamResult', () => {
         expect(result).toEqual({ body: 'ab', outcome: 'end' });
     });
 
+    it('adds one close listener to the response', async () => {
+        let added = -1;
+        server = createServer((_req, res) => {
+            const before = res.listenerCount('close');
+            pipeStreamResult(Readable.from(['a']), res, 'test.run');
+            added = res.listenerCount('close') - before;
+        });
+        await new Promise<void>((resolve) => server!.listen(0, resolve));
+        const { port } = server.address() as AddressInfo;
+        await new Promise<void>((resolve) =>
+            get(`http://127.0.0.1:${port}/`, (res) => {
+                res.resume();
+                res.on('end', resolve);
+            }),
+        );
+        expect(added).toBe(1);
+    });
+
     it('aborts the transfer, logging once and staying up, when the upstream body fails after the first chunk', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const uncaught = vi.fn();

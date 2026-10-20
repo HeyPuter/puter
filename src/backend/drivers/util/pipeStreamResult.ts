@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { pipeline, type Readable } from 'node:stream';
+import type { Readable } from 'node:stream';
 
 // Only what's used here, so callers on another @types/node (or express's
 // Response) still fit.
@@ -38,18 +38,25 @@ export function pipeStreamResult(
     res: ResponseSink,
     label: string,
 ): void {
-    // The caller hung up while the driver ran; `pipeline` throws on a closed
-    // destination, so drop the source instead.
+    // The caller hung up while the driver ran, so drop the source instead.
     if (res.closed || res.destroyed) {
         stream.destroy();
         return;
     }
-    pipeline(stream, res, (err) => {
-        if (!err) return;
+    // `pipe`, not `pipeline`: pipeline adds ~6 'close' listeners to the
+    // response, which with the middleware's own trips Node's
+    // MaxListenersExceededWarning on every streamed driver call.
+    let failed = false;
+    stream.on('error', (err) => {
         if (!res.destroyed) res.destroy();
-        // The client hanging up is not a failure of ours.
-        if ((err as { code?: string }).code === 'ERR_STREAM_PREMATURE_CLOSE')
-            return;
+        if (failed) return;
+        failed = true;
         console.warn(`[drivers] ${label} stream failed mid-response:`, err);
     });
+    // `pipe` unpipes when the response finishes or closes; a source that
+    // hasn't ended by then lost its reader.
+    res.once('unpipe', () => {
+        if (!stream.readableEnded) stream.destroy();
+    });
+    stream.pipe(res);
 }
