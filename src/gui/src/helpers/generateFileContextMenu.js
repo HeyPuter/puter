@@ -100,17 +100,6 @@ const generate_file_context_menu = async function (options) {
     }
 
     // -------------------------------------------
-    // Open With
-    // -------------------------------------------
-    if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
-        const openWithItems = await generateOpenWithItems(el_item, fsentry, options.suggested_apps);
-        menu_items.push({
-            html: i18n('open_with'),
-            items: openWithItems,
-        });
-    }
-
-    // -------------------------------------------
     // Open with AI
     // -------------------------------------------
     if ( !is_trashed && !is_trash ) {
@@ -119,6 +108,17 @@ const generate_file_context_menu = async function (options) {
             onClick: () => {
                 openWithAI(el_item);
             },
+        });
+    }
+
+    // -------------------------------------------
+    // Open With
+    // -------------------------------------------
+    if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
+        const openWithItems = await generateOpenWithItems(el_item, fsentry, options.suggested_apps);
+        menu_items.push({
+            html: i18n('open_with'),
+            items: openWithItems,
         });
     }
 

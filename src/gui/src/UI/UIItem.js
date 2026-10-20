@@ -1105,6 +1105,18 @@ async function UIItem (options) {
                 });
 
                 // -------------------------------------------
+                // Open with AI
+                // -------------------------------------------
+                if ( ! is_trash ) {
+                    menu_items.push({
+                        html: i18n('open_with_ai'),
+                        onClick: function () {
+                            openWithAI(el_item);
+                        },
+                    });
+                }
+
+                // -------------------------------------------
                 // -
                 // -------------------------------------------
                 if ( options.associated_app_name || is_trash )
@@ -1216,18 +1228,6 @@ async function UIItem (options) {
                     menu_items.push('-');
                 }
             }
-            // -------------------------------------------
-            // Open with AI
-            // -------------------------------------------
-            if ( !is_trashed && !is_trash ) {
-                menu_items.push({
-                    html: i18n('open_with_ai'),
-                    onClick: function () {
-                        openWithAI(el_item);
-                    },
-                });
-            }
-
             // -------------------------------------------
             // Publish As Website
             // -------------------------------------------

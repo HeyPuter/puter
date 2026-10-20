@@ -1067,6 +1067,36 @@ export class UIModule extends EventListener {
      * @param {(items: FSItem[]) => void} callback
      * @returns {void}
      */
+    /**
+     * The item the app was launched with, read from the `puter.item.*` URL
+     * params the host appends, or null when there is none.
+     *
+     * @returns {FSItem|null}
+     */
+    #launchItemFromURL () {
+        const URLParams = new URLSearchParams(globalThis.location.search);
+        if ( !URLParams.has('puter.item.name') || !URLParams.has('puter.item.uid') || !URLParams.has('puter.item.read_url') ) {
+            return null;
+        }
+        let fpath = URLParams.get('puter.item.path');
+        if ( !fpath.startsWith('~/') && !fpath.startsWith('/') ) {
+            fpath = `~/${fpath}`;
+        }
+        return new FSItem({
+            name: URLParams.get('puter.item.name'),
+            path: fpath,
+            uid: URLParams.get('puter.item.uid'),
+            is_dir: URLParams.get('puter.item.is_dir') === 'true',
+            readURL: URLParams.get('puter.item.read_url'),
+            writeURL: URLParams.get('puter.item.write_url'),
+            metadataURL: URLParams.get('puter.item.metadata_url'),
+            size: URLParams.get('puter.item.size'),
+            accessed: URLParams.get('puter.item.accessed'),
+            modified: URLParams.get('puter.item.modified'),
+            created: URLParams.get('puter.item.created'),
+        });
+    }
+
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -1076,27 +1106,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onItemsOpened ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
@@ -1132,27 +1144,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onLaunchedWithItems ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
