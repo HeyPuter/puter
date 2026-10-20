@@ -134,7 +134,7 @@ async function UIDashboard (options) {
                 h += '</button>';
             h += '</div>';
             // Navigation items container
-            h += '<div class="dashboard-sidebar-nav">';
+            h += '<div class="dashboard-sidebar-nav hide-scrollbar">';
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
                 if ( tab === '-' ) {

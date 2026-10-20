@@ -466,9 +466,14 @@ body {
 
 .dashboard-sidebar-nav {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    /* Scrolls on short viewports (a landscape phone's drawer) so the lower
+       tabs stay reachable */
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .dashboard-sidebar-separator {
