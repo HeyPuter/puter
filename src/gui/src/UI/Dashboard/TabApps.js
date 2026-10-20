@@ -400,7 +400,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     const displayName = (appTitle || appName || '').trim();
     const $overlay = $(`
         <div class="myapps-modal-overlay">
-            <div class="myapps-modal">
+            <div class="myapps-modal" role="dialog" aria-modal="true" aria-label="${html_encode(`Uninstall ${displayName}?`)}">
                 <h3>Uninstall ${html_encode(displayName)}?</h3>
                 <p>This will revoke all permissions for this app.</p>
                 <div class="myapps-modal-buttons">
@@ -411,14 +411,21 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         </div>
     `);
 
+    // Focus starts on Cancel, the safe answer, and goes back to the app's
+    // tile when the user backs out (on confirm the tile is leaving).
     $el_window.append($overlay);
+    $overlay.find('.myapps-modal-cancel')[0].focus({ preventScroll: true });
 
-    const close = () => {
+    const close = ({ restoreFocus = true } = {}) => {
         $overlay.remove();
         $(document).off('keydown.uninstall-modal');
+        if ( ! restoreFocus ) return;
+        $el_window.find('.myapps-tile').toArray()
+            .find(el => el.dataset.appName === appName)
+            ?.focus({ preventScroll: true });
     };
 
-    $overlay.on('click', '.myapps-modal-cancel', close);
+    $overlay.on('click', '.myapps-modal-cancel', () => close());
     $overlay.on('click', function (e) {
         if ( e.target === $overlay[0] ) close();
     });
@@ -450,7 +457,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         $(`.window[data-app="${html_encode(appName)}"]`).close();
         self._invalidateInFlightLoads();
         self._setAppRemoved(appName, true);
-        close();
+        close({ restoreFocus: false });
 
         // A failed revoke must not roll back mid-animation: finishRemoval
         // splices by a fresh lookup, so a rollback that lands first would
