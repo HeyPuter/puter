@@ -233,7 +233,9 @@ const TabAccount = {
             $(this).trigger('click');
         });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('click', async function (e) {
-            // open dialog
+            // Other pickers (e.g. a web link's Change Icon in the Files tab)
+            // also report to this window, so only listen while ours is open.
+            $el_window.off('file_opened', onAvatarPicked).on('file_opened', onAvatarPicked);
             UIWindow({
                 path: `/${ window.user.username }/Desktop`,
                 // this is the uuid of the window to which this dialog will return
@@ -249,10 +251,13 @@ const TabAccount = {
                 close_on_backdrop_click: true,
                 parent_center: true,
                 stay_on_top: true,
+                on_close: () => $el_window.off('file_opened', onAvatarPicked),
             });
         });
-        $el_window.on('file_opened', function (e) {
+        function onAvatarPicked (e) {
+            $el_window.off('file_opened', onAvatarPicked);
             const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
+            if ( ! selectedFile?.path ) return;
             // Let the user frame the photo before it becomes the avatar.
             UIProfilePictureCropModal({
                 picture: puter.fs.read(selectedFile.path),
@@ -267,7 +272,7 @@ const TabAccount = {
                     update_profile(window.user.username, { picture: dataUrl });
                 },
             });
-        });
+        }
         $el_window.find('.dashboard-section-account .dashboard-profile-remove-picture').on('click', async function () {
             const $btn = $(this);
             const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
