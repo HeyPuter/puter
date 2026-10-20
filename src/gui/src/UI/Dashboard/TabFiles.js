@@ -620,6 +620,8 @@ const TabFiles = {
             // The refresh rebuilds the list, which would destroy an open
             // rename editor along with whatever the user has typed.
             if ( $filesTab.find('.item-name-editor-active').length > 0 ) return;
+            // So would an open menu: its actions are bound to the old rows.
+            if ( $('.context-menu, .context-menu-modal-backdrop').length > 0 ) return;
 
             // The rebuild also wipes selection, the keyboard/shift anchor,
             // and scroll position — state the user expects to survive a quick
