@@ -521,7 +521,9 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             finishRemoval();
         }
 
-        puter.perms.revokeApp(appUid, '*').then(async () => {
+        puter.perms.revokeApp(appUid, '*').then(async (result) => {
+            // revokeApp resolves (never rejects) with `error` set on failure.
+            if ( result?.error ) throw result;
             // Clearing the grants is only half of it. An app the user already
             // opened holds a token that authenticates against a session row,
             // and that row outlives the permission rows — so without this an
