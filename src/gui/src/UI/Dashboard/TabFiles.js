@@ -1811,19 +1811,22 @@ const TabFiles = {
     fitItemNames ($names) {
         const nameWidth = this.columnWidths.name;
         const isList = this.currentView === 'list';
-        const isGrid = this.isGridView();
-        $names.each(function () {
-            const $name = $(this);
-            const fullName = $name.closest('.row').attr('data-name');
+        if ( ! isList && ! this.isGridView() ) return;
+        const names = $names.toArray();
+        // Grid tiles size the room: read every width before writing any
+        // text, or each write forces a layout for the next read.
+        const widths = isList ? null : names.map(el => $(el).width() || 156);
+        names.forEach((el, i) => {
+            const fullName = el.closest('.row')?.getAttribute('data-name');
             if ( ! fullName ) return;
-            if ( isList && nameWidth ) {
+            if ( ! isList ) {
+                el.textContent = truncateFilenameToWidth(fullName, widths[i]);
+            } else if ( nameWidth ) {
                 // 8px padding on each side
-                $name.text(truncateFilenameToWidth(fullName, nameWidth - 16));
-            } else if ( isList ) {
+                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16);
+            } else {
                 // Auto-width column: the full name, clipped by CSS
-                $name.text(fullName);
-            } else if ( isGrid ) {
-                $name.text(truncateFilenameToWidth(fullName, $name.width() || 156));
+                el.textContent = fullName;
             }
         });
     },
