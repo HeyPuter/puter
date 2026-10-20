@@ -321,10 +321,13 @@ export class MeteringService extends PuterService {
         }
     >();
 
-    /** Uuid → the last budget state announced, so a retry loop emits once. */
+    /**
+     * Uuid → the last budget state announced, so a retry loop emits once.
+     * `rearmed`: budget or plan changed since, so the next state is news.
+     */
     private creditAlertState = new Map<
         string,
-        'ok' | 'near-limit' | 'exhausted'
+        'ok' | 'near-limit' | 'exhausted' | 'rearmed'
     >();
 
     /** Uuid → whether the actor had budget left. See CREDIT_CACHE_MS. */
@@ -1793,7 +1796,8 @@ export class MeteringService extends PuterService {
         this.#spentAddons.delete(userUuid);
         this.#spentAddonsDrops++;
         // Added capacity re-arms the alert: the next exhaustion is news again.
-        this.creditAlertState.delete(userUuid);
+        if (this.creditAlertState.has(userUuid))
+            this.creditAlertState.set(userUuid, 'rearmed');
     }
 
     /**
@@ -1826,9 +1830,7 @@ export class MeteringService extends PuterService {
         try {
             const { policy: subscription, provisionalUntil } =
                 await this.#actorSubscriptionWithStatus(actor);
-            // A non-positive allowance is how a policy says it isn't metered
-            // (the overuse alarm reads it the same way) — no budget to run out
-            // of, and no reason to pay for the reads below.
+            // Nothing to run out of, so no reason to pay for the reads below.
             if (MeteringService.isUnmetered(subscription)) {
                 this.rememberHasCredits(uuid, true, provisionalUntil);
                 return;
@@ -1915,8 +1917,8 @@ export class MeteringService extends PuterService {
         // Purchased credits are spendable, so the allowance alone warns early.
         const capacity =
             (monthUsageAllowance || 0) + (addons?.purchasedCredits || 0);
-        // Never had any budget, so there is no crossing to announce.
-        if (!(capacity > 0)) return;
+        // No budget, and none seen before: there is no crossing to announce.
+        if (!(capacity > 0) && !this.creditAlertState.has(userUuid)) return;
         const state =
             remaining <= 0
                 ? 'exhausted'
@@ -2143,7 +2145,6 @@ export class MeteringService extends PuterService {
         const resolvedDefault = defaults.id || fallbackDefault;
         const user = await this.firstResolver(pendingUser);
         const resolvedUser = user.id || resolvedDefault;
-        const resolverFailed = defaults.failed || user.failed;
 
         const availablePolicies: SubscriptionPolicy[] = [
             ...this.extraPolicies,
@@ -2165,6 +2166,8 @@ export class MeteringService extends PuterService {
             availablePolicies.find((p) => p.id === fallbackDefault);
         // Of the policy that applied, not the id that was asked for.
         const fromDefault = !user.id || !explicit;
+        // A default's failure says nothing about an explicit plan that won.
+        const resolverFailed = user.failed || (fromDefault && defaults.failed);
         if (policy) {
             const withAllowance = await this.#withMonthAllowance(
                 actor.user.uuid!,
@@ -2586,18 +2589,14 @@ export class MeteringService extends PuterService {
         let failed = false;
         for (const next of pending) {
             const outcome = await next;
+            if ('provisional' in outcome && outcome.provisional) failed = true;
             if ('error' in outcome) {
                 failed = true;
                 console.warn(
                     '[metering] subscription resolver failed',
                     outcome.error,
                 );
-            } else if (outcome.id) {
-                return {
-                    id: outcome.id,
-                    failed: failed || !!outcome.provisional,
-                };
-            }
+            } else if (outcome.id) return { id: outcome.id, failed };
         }
         return { id: null, failed };
     }

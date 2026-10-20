@@ -845,6 +845,83 @@ describe('MeteringService', () => {
             );
         });
 
+        const pastFallbackWindow = async (run: () => Promise<void>) => {
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                dateNow.mockReturnValue(now + fallbackMs + 1);
+                await run();
+            } finally {
+                dateNow.mockRestore();
+            }
+        };
+
+        for (const [label, defaultAnswer] of [
+            ['throws', () => Promise.reject(new Error('store down'))],
+            [
+                'answers provisionally',
+                async () => ({
+                    id: 'status-default',
+                    provisional: true,
+                }),
+            ],
+        ] as const) {
+            it(`keeps an explicit plan resolved when a default ${label}`, async () => {
+                target.registerPolicy({
+                    id: 'status-default',
+                    monthUsageAllowance: toMicroCents(1),
+                    monthlyStorageAllowance: 1024,
+                });
+                target.registerPolicy({
+                    id: 'status-explicit',
+                    monthUsageAllowance: toMicroCents(5),
+                    monthlyStorageAllowance: 1024,
+                });
+                target.registerDefaultSubscriptionResolver(
+                    defaultAnswer as never,
+                    { priority: 10 },
+                );
+                const explicit = vi.fn(async () => 'status-explicit');
+                target.registerSubscriptionResolver(explicit);
+
+                expect(
+                    await target.getActorSubscriptionStatus(actor),
+                ).toMatchObject({
+                    policy: { id: 'status-explicit' },
+                    paid: true,
+                    provisional: false,
+                });
+                await pastFallbackWindow(async () => {
+                    await target.getActorSubscription(actor);
+                });
+                expect(explicit).toHaveBeenCalledTimes(1);
+            });
+        }
+
+        it('marks a default that wins after another default threw as provisional', async () => {
+            target.registerDefaultSubscriptionResolver(
+                async () => {
+                    throw new Error('store down');
+                },
+                { priority: 10 },
+            );
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status.provisional).toBe(true);
+        });
+
+        it('marks a provisional answer with no plan as provisional', async () => {
+            target.registerSubscriptionResolver(
+                async () => ({ id: null, provisional: true }) as never,
+            );
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status).toMatchObject({
+                policy: { id: DEFAULT_FREE_SUBSCRIPTION },
+                provisional: true,
+            });
+        });
+
         it('marks an answer for an actor missing a keyed field as provisional', async () => {
             const { id: _id, ...partialUser } = actor.user;
             const status = await target.getActorSubscriptionStatus({
@@ -3117,6 +3194,19 @@ describe('MeteringService', () => {
                     await target.incrementUsage(actor, 'kv:read', 1, 1_000);
                     await new Promise((r) => setTimeout(r, 20));
                     expect(states).toEqual([]);
+                } finally {
+                    stop();
+                }
+            });
+
+            it('announces exhaustion when an actor moves onto it from a plan with budget', async () => {
+                await target.incrementUsage(actor, 'kv:read', 1, 1);
+                const { states, stop } = creditStates();
+                try {
+                    onNoAllowancePlan();
+                    target.invalidateActorSubscription(actor.user.uuid!);
+                    await target.incrementUsage(actor, 'kv:read', 1, 1);
+                    await waitFor(() => expect(states).toEqual(['exhausted']));
                 } finally {
                     stop();
                 }
