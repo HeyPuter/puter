@@ -3956,6 +3956,14 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* Keyboard focus on the folder sidebar, crumbs, and nav arrows */
+.dashboard-section-files .directories li:focus-visible,
+.dashboard-section-files .header .path .dirname:focus-visible,
+.dashboard-section-files .header .path-btn:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
+}
+
 .dashboard-section-files .header .path-btn-disabled {
     opacity: 0.1;
     pointer-events: none;

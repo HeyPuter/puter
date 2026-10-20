@@ -79,23 +79,23 @@ const TabFiles = {
                 </form>
                 <div class="directories">
                     <ul>
-                        <li data-folder="Home" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>${i18n('home')}</span></li>
-                        <li data-folder="Desktop" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>${i18n('desktop')}</span></li>
-                        <li data-folder="Documents" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>${i18n('documents')}</span></li>
-                        <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>${i18n('pictures')}</span></li>
-                        <li data-folder="Public" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>${i18n('public')}</span></li>
-                        <li data-folder="Videos" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>${i18n('videos')}</span></li>
-                        <li data-folder="Shared" data-path="${html_encode(window.shared_path)}"><img src="${html_encode(window.icons['folder-shared.svg'])}"/> <span>${i18n('shared')}</span></li>
-                        <li data-folder="Trash" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>${i18n('trash')}</span></li>
+                        <li data-folder="Home" tabindex="0" role="button" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>${i18n('home')}</span></li>
+                        <li data-folder="Desktop" tabindex="0" role="button" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>${i18n('desktop')}</span></li>
+                        <li data-folder="Documents" tabindex="0" role="button" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>${i18n('documents')}</span></li>
+                        <li data-folder="Pictures" tabindex="0" role="button" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>${i18n('pictures')}</span></li>
+                        <li data-folder="Public" tabindex="0" role="button" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>${i18n('public')}</span></li>
+                        <li data-folder="Videos" tabindex="0" role="button" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>${i18n('videos')}</span></li>
+                        <li data-folder="Shared" tabindex="0" role="button" data-path="${html_encode(window.shared_path)}"><img src="${html_encode(window.icons['folder-shared.svg'])}"/> <span>${i18n('shared')}</span></li>
+                        <li data-folder="Trash" tabindex="0" role="button" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>${i18n('trash')}</span></li>
                     </ul>
                 </div>
                 <div class="directory-contents">
                     <div class="header">
                         <div class="path">
                             <div class="path-nav-buttons">
-                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" src="${html_encode(window.icons['arrow-left-thin.svg'])}" title="${i18n('window_click_to_go_back')}">
-                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
-                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
+                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_back')}" src="${html_encode(window.icons['arrow-left-thin.svg'])}" title="${i18n('window_click_to_go_back')}">
+                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_forward')}" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
+                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_up')}" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
                             </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
@@ -710,6 +710,11 @@ const TabFiles = {
             // Skip if user is typing in an input/textarea (except for Escape)
             if ( $(focused_el).is('input, textarea') && e.which !== 27 ) return;
 
+            // A focused control (toolbar button, folder, crumb) takes its own
+            // Enter/Space; the rows' open/preview must not swallow it.
+            if ( (e.which === 13 || e.which === 32)
+                && $(focused_el).is('button, a, select, [role="button"], [role="link"]') ) return;
+
             // When a context menu is open, yield control to keyboard.js
             if ( $('.context-menu').length > 0 ) {
                 if ( (e.which >= 37 && e.which <= 40) || e.which === 13 || e.which === 27 ) {
@@ -1177,6 +1182,15 @@ const TabFiles = {
     createHeaderEventListeners () {
         const _this = this;
         const fileInput = document.querySelector('#upload-file-dialog');
+
+        // The folder sidebar, crumbs, and nav arrows aren't native buttons or
+        // links; give them the keys those would have.
+        this.$el_window.on('keydown', '.files-tab [role="button"]:not(button), .files-tab [role="link"]', function (e) {
+            if ( e.key !== 'Enter' && e.key !== ' ' ) return;
+            e.preventDefault();
+            if ( $(this).attr('aria-disabled') === 'true' ) return;
+            this.click();
+        });
 
         const el_window_navbar_back_btn = document.querySelector(`.path-btn-back`);
         const el_window_navbar_forward_btn = document.querySelector(`.path-btn-forward`);
@@ -4034,24 +4048,14 @@ const TabFiles = {
         const forwardBtn = this.$el_window.find('.path-btn-forward');
         const upBtn = this.$el_window.find('.path-btn-up');
 
-        if ( window.dashboard_nav_history_current_position === 0 ) {
-            backBtn.addClass('path-btn-disabled');
-        } else {
-            backBtn.removeClass('path-btn-disabled');
-        }
+        const setDisabled = ($btn, disabled) => $btn
+            .toggleClass('path-btn-disabled', disabled)
+            .attr('aria-disabled', disabled ? 'true' : 'false');
 
-        if ( window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1 ) {
-            forwardBtn.addClass('path-btn-disabled');
-        } else {
-            forwardBtn.removeClass('path-btn-disabled');
-        }
-
+        setDisabled(backBtn, window.dashboard_nav_history_current_position === 0);
+        setDisabled(forwardBtn, window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1);
         // The Shared view has no parent either — it is a query, not a directory.
-        if ( this.currentPath === '/' || this.currentPath === window.shared_path ) {
-            upBtn.addClass('path-btn-disabled');
-        } else {
-            upBtn.removeClass('path-btn-disabled');
-        }
+        setDisabled(upBtn, this.currentPath === '/' || this.currentPath === window.shared_path);
     },
 
     /**
@@ -5048,15 +5052,15 @@ const TabFiles = {
 
         // The Shared view is a query, not a directory — one crumb, no ancestry.
         if ( abs_path === window.shared_path ) {
-            return `${path_seperator_html}<span class="dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+            return `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
         }
 
         // Someone else's tree is shown from the share down, not from their home.
         const shared = shared_crumbs_for(abs_path);
         if ( shared ) {
-            let str = `${path_seperator_html}<span class="dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+            let str = `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
             for ( const crumb of shared ) {
-                str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
+                str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
             }
             return str;
         }
@@ -5073,10 +5077,10 @@ const TabFiles = {
         // only renders at the root itself, where it's all there is to show.
         // Every crumb keeps its leading caret, including the first.
         let str = abs_path === '/'
-            ? `${path_seperator_html}<span class="dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
+            ? `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
             : '';
         for ( let k = 1; k < dirs.length; k++ ) {
-            str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
+            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
         }
         return str;
     },
