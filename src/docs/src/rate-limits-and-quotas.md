@@ -120,7 +120,7 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 
 ### Video generation
 
-[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 10 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
+[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 14 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
 
 | Limit | Value |
 |-------|-------|
@@ -130,16 +130,16 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 | Input tokens, prompt and image or video together | 131,072 |
 | Requested output tokens | 65,536 |
 | Input token count | 30-second timeout, 64 KiB reply |
-| Generation | 10-minute timeout, reply and clip included. 64 MiB reply |
-| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. A source video isn't counted and adds 16,000 input tokens, about $0.02. Held for up to 11 minutes |
+| Generation | 14-minute timeout, reply and clip included. 64 MiB reply |
+| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. A source video isn't counted and adds 16,000 input tokens, about $0.02. Held for up to 15 minutes |
 
-A longer prompt, a larger image or video, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image over 5 MiB, a video over 32 MiB, or a `data:` URI video over 1 MiB) before generation starts. A source video over 10 seconds fails with `400 upstream_bad_request` from Google. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
+A longer prompt, a larger image or video, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image over 5 MiB, a video over 32 MiB, or a `data:` URI video over 1 MiB) before generation starts. A source video over 10 seconds fails with `400 upstream_bad_request` from Google. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 14 minutes fails with `504 upstream_timeout`. Neither is charged.
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
 Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
 
-FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 15 minutes, and a URL is passed as is. Together AI fetches either one.
+FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 19 minutes, and a URL is passed as is. Together AI fetches either one.
 
 ### Puter file media inputs
 

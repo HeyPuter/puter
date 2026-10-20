@@ -25,8 +25,11 @@ import {
     sanitizeUpstreamMessage,
 } from '../../util/upstreamErrors.js';
 
-/** How long a provider's job may run before we stop waiting for it. */
-export const VIDEO_POLL_WINDOW_MS = 10 * 60 * 1000;
+/**
+ * How long a provider's job may run before we stop waiting for it. Kept under
+ * the SDK's 15-minute idle timeout so the answer reaches the caller.
+ */
+export const VIDEO_POLL_WINDOW_MS = 14 * 60 * 1000;
 
 /** A job's credit hold covers the poll window plus the create call. */
 export const VIDEO_HOLD_TTL_MS = VIDEO_POLL_WINDOW_MS + 5 * 60 * 1000;

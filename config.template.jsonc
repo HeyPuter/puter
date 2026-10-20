@@ -34,7 +34,7 @@
     // Idle keep-alive timeout in ms. Must stay above the idle timeout of any
     // proxy in front, or the proxy reuses connections this server has closed
     // and its clients see 502s.
-    "keep_alive_timeout": 620000,
+    "keep_alive_timeout": 920000,
     "protocol": "http",
     "domain": "puter.localhost",
     // Fully-qualified externally-visible URL. Computed from protocol/domain/

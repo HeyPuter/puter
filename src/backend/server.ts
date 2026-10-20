@@ -120,7 +120,7 @@ import type {
 } from './types';
 
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
-const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 920_000;
 
 /** Route options a claimed subdomain's routes may use. */
 const CLAIMED_ROUTE_OPTIONS = new Set([

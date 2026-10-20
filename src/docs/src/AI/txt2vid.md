@@ -102,7 +102,7 @@ The video can be a public URL, the path of a file in the user's Puter filesystem
 | Output size | `size`, see [Gemini Omni options](#gemini-omni-options) | 1280x704 | `size`, see [Kling options](#kling-options) |
 | Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.43 per second of output | Per second of output, see [Kling options](#kling-options) |
 
-FLUX 3 and Kling get a Puter file as a link that works for 15 minutes, which the provider fetches when the job starts.
+FLUX 3 and Kling get a Puter file as a link that works for 19 minutes, which the provider fetches when the job starts.
 
 Every other model rejects `inputVideo` with `bad_request`. These models reject it together with frame images (`input_reference` and `last_frame`, and on FLUX 3 also `reference_images` and `frame_images`). Kling takes up to 4 `reference_images` with it.
 
@@ -303,7 +303,7 @@ Apart from that Gemini Omni case, a request that fails or times out is not charg
 
 #### How long it takes
 
-Video generation is slow: expect anywhere from tens of seconds to several minutes, growing with duration and resolution. The returned promise stays pending until the clip is ready, so keep the UI responsive with a progress indicator (see the examples below). Puter waits up to ten minutes for a job; one that outlives the window fails with `upstream_timeout`.
+Video generation is slow: expect anywhere from tens of seconds to several minutes, growing with duration and resolution. The returned promise stays pending until the clip is ready, so keep the UI responsive with a progress indicator (see the examples below). Puter waits up to 14 minutes for a job; one that outlives the window fails with `upstream_timeout`.
 
 ## Return value
 
@@ -339,7 +339,7 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, `inputVideo` on a model that can't take it, an image or video URL that could not be fetched, or a Puter file that isn't an accepted image or video format. `message` says which. Arrives as HTTP 400. |
 | `input_too_large` | An image or video input is over its size limit. The limits are 5 MiB for an image on Gemini Omni, 32 MiB for a video, 1 MiB for a video sent as a `data:` URI, and 32 MiB for the Puter file images of one request together. Arrives as HTTP 413, before any credits are spent. |
 | `access_denied` | `puter_output_path` points somewhere the caller may not write, or an image or video input names a Puter file the caller may not read. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
-| `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
+| `upstream_timeout` | The provider did not finish the clip within the 14 minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
 | `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |
 | `upstream_bad_request` | The provider rejected the request itself, for example a duration the model does not support. Arrives as HTTP 400; `message` and `upstreamCode` carry the provider's reason. |
 | `upstream_failed` | The provider accepted the request but generation failed on their side. Arrives as HTTP 502 and is safe to retry. |
