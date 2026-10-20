@@ -80,7 +80,7 @@ describe('the owner view', () => {
         const input = $w.find('.dashboard-switch input.teams-directory-check');
         expect(input).toHaveLength(1);
         expect(input.is(':checked')).toBe(false);
-        expect($w.find('.teams-directory-note').text()).toBe('teams_directory_off_note');
+        expect($w.find('.teams-directory .teams-directory-note').text()).toBe('teams_directory_off_note');
     });
 
     it('lists accounts with a status pill and folds the audit state in', () => {
