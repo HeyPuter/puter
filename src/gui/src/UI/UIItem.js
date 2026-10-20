@@ -35,81 +35,7 @@ import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js'
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
 import { is_default_app } from '../helpers/defaultApp.js';
-
-const AI_APP_NAME = 'ai';
-
-const parseItemMetadataForAI = (metadata) => {
-    if ( ! metadata ) {
-        return undefined;
-    }
-    try {
-        return JSON.parse(metadata);
-    } catch ( error ) {
-        console.warn('Failed to parse item metadata for AI payload.', error);
-        return undefined;
-    }
-};
-
-const buildAIPayloadFromItems = ($elements) => {
-    return $elements.get().map((element) => {
-        const $element = $(element);
-        return {
-            uid: $element.attr('data-uid'),
-            path: $element.attr('data-path'),
-            name: $element.attr('data-name'),
-            is_dir: $element.attr('data-is_dir') === '1',
-            is_shortcut: $element.attr('data-is_shortcut') === '1',
-            shortcut_to: $element.attr('data-shortcut_to') || undefined,
-            shortcut_to_path: $element.attr('data-shortcut_to_path') || undefined,
-            size: $element.attr('data-size') || undefined,
-            type: $element.attr('data-type') || undefined,
-            modified: $element.attr('data-modified') || undefined,
-            metadata: parseItemMetadataForAI($element.attr('data-metadata')),
-        };
-    });
-};
-
-const ensureAIAppIframe = async () => {
-    let $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
-    if ( $aiWindow.length === 0 ) {
-        try {
-            await launch_app({ name: AI_APP_NAME });
-        } catch ( error ) {
-            console.error('Failed to launch AI app.', error);
-            return null;
-        }
-        $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
-    }
-
-    if ( $aiWindow.length === 0 ) {
-        return null;
-    }
-
-    $aiWindow.makeWindowVisible();
-    const iframe = $aiWindow.find('.window-app-iframe').get(0);
-    return iframe ?? null;
-};
-
-const sendSelectionToAIApp = async ($elements) => {
-    const items = buildAIPayloadFromItems($elements);
-    if ( items.length === 0 ) {
-        return;
-    }
-
-    const aiIframe = await ensureAIAppIframe();
-    if ( !aiIframe || !aiIframe.contentWindow ) {
-        await UIAlert({
-            message: i18n('ai_app_unavailable'),
-        });
-        return;
-    }
-
-    aiIframe.contentWindow.postMessage({
-        msg: 'ai:openFsEntries',
-        items,
-        source: 'desktop-context-menu',
-    }, '*');
-};
+import openWithAI from '../helpers/openWithAI.js';
 
 async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
@@ -973,20 +899,6 @@ async function UIItem (options) {
             }
             if ( ! are_trashed ) {
                 // -------------------------------------------
-                // Open in AI
-                // -------------------------------------------
-                menu_items.push({
-                    html: i18n('open_in_ai'),
-                    onClick: async function () {
-                        await sendSelectionToAIApp($selected_items);
-                    },
-                });
-                // -------------------------------------------
-                // -
-                // -------------------------------------------
-                menu_items.push({ is_divider: true });
-
-                // -------------------------------------------
                 // Donwload
                 // -------------------------------------------
                 menu_items.push({
@@ -1305,13 +1217,13 @@ async function UIItem (options) {
                 }
             }
             // -------------------------------------------
-            // Open in AI
+            // Open with AI
             // -------------------------------------------
             if ( !is_trashed && !is_trash ) {
                 menu_items.push({
-                    html: i18n('open_in_ai'),
-                    onClick: async function () {
-                        await sendSelectionToAIApp($(el_item));
+                    html: i18n('open_with_ai'),
+                    onClick: function () {
+                        openWithAI(el_item);
                     },
                 });
             }
