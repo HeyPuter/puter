@@ -38,7 +38,7 @@ const TabSecurity = {
         // Section header
         h += '<div class="dashboard-section-header">';
         h += `<h2>${i18n('security')}</h2>`;
-        h += '<p>Manage your security settings and sessions</p>';
+        h += `<p>${i18n('security_subtitle')}</p>`;
         h += '</div>';
 
         // Security settings cards
@@ -68,7 +68,7 @@ const TabSecurity = {
         h += '</div>';
         h += '<div class="dashboard-settings-card-info">';
         h += `<strong>${i18n('sessions')}</strong>`;
-        h += '<span>Manage active sessions</span>';
+        h += `<span>${i18n('manage_sessions_hint')}</span>`;
         h += '</div>';
         h += '</div>';
         h += `<button class="button manage-sessions">${i18n('manage_sessions')}</button>`;

@@ -38,7 +38,7 @@ const TabAccount = {
         // Profile section header
         h += '<div class="dashboard-section-header">';
         h += `<h2>${ i18n('account') }</h2>`;
-        h += '<p>Manage your account settings and profile</p>';
+        h += `<p>${i18n('account_subtitle')}</p>`;
         h += '</div>';
 
         // Profile picture card
@@ -47,7 +47,7 @@ const TabAccount = {
         h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" role="button" tabindex="0" aria-label="${i18n('change_profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
         h += '</div>';
         h += '<div class="dashboard-profile-info">';
-        h += `<h3 class="username">${html_encode(window.user?.username || 'User')}</h3>`;
+        h += `<h3 class="username">${html_encode(window.user?.username || i18n('user', [], false))}</h3>`;
         h += `<p>${html_encode(window.user?.email || '')}</p>`;
         h += `<span class="dashboard-profile-hint">${i18n('profile_picture_hint')}</span>`;
         // Shown only while there is a picture to remove.
@@ -148,7 +148,7 @@ const TabAccount = {
             h += '<div class="dashboard-danger-card-content">';
             h += '<div class="dashboard-danger-card-info">';
             h += `<strong>${i18n('delete_account')}</strong>`;
-            h += '<span>Permanently delete your account and all associated data. This action cannot be undone.</span>';
+            h += `<span>${i18n('delete_account_description')}</span>`;
             h += '</div>';
             h += '</div>';
             h += `<button class="button button-danger delete-account">${i18n('delete_account')}</button>`;
@@ -243,7 +243,7 @@ const TabAccount = {
                 allowed_file_types: ['.png', '.jpg', '.jpeg'],
                 show_maximize_button: false,
                 show_minimize_button: false,
-                title: 'Open',
+                title: i18n('window_title_open', [], false),
                 is_dir: true,
                 is_openFileDialog: true,
                 selectable_body: false,
