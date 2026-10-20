@@ -229,9 +229,6 @@ window.file_templates = [];
 // default language
 window.locale = 'en';
 
-// the width of the panel
-window.PANEL_WIDTH = 400;
-
 // the transaction class
 window.Transaction = class {
     constructor (name, attributes = {}) {
