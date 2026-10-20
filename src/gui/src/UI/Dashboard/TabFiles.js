@@ -789,6 +789,11 @@ const TabFiles = {
                     // Cancel rename - handled by item's own keyup handler
                     return;
                 }
+                // An open preview closes first; the selection it shows stays.
+                if ( _this.previewOpen ) {
+                    _this.closeImagePreview();
+                    return false;
+                }
                 $selectedRows.removeClass('selected');
                 _this.updateFooterStats();
                 return false;
@@ -1100,8 +1105,11 @@ const TabFiles = {
             return;
         }
 
-        // Get read URL for the actual image
+        // Get read URL for the actual image. A later call, or a close, while
+        // this one waits supersedes it.
+        const seq = this.previewSeq = (this.previewSeq ?? 0) + 1;
         const imageUrl = await puter.fs.getReadURL(filePath);
+        if ( seq !== this.previewSeq ) return;
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
@@ -1148,6 +1156,7 @@ const TabFiles = {
      * @returns {void}
      */
     closeImagePreview () {
+        this.previewSeq = (this.previewSeq ?? 0) + 1;
         $('.image-preview-popover').remove();
         $(document).off('click.imagepreview');
         this.previewOpen = false;
@@ -2239,6 +2248,8 @@ const TabFiles = {
         if ( this.renderingDirectory ) return;
         this.renderingDirectory = true;
         const _this = this;
+        // The preview shows a row of the listing being replaced.
+        if ( this.previewOpen && target !== this.currentPath ) this.closeImagePreview();
 
         // Re-rendering the directory already on screen (after an upload, sort
         // change, undo, …) keeps the current rows visible while the fresh
