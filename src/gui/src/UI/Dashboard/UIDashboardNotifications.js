@@ -586,7 +586,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         $(window).on('resize.dashboard-notifications', position);
         $(document).on('pointerdown.dashboard-notifications', (e) => {
-            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn').length ) return;
+            // The sheet's scrim closes on click, so the tap can't fall through.
+            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn, .dashboard-notifications-scrim').length ) return;
             close({ restoreFocus: false });
         });
         $(document).on('keydown.dashboard-notifications', (e) => {

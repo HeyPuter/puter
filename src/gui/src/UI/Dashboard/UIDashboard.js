@@ -668,10 +668,11 @@ async function UIDashboard (options) {
         $tooltip.removeClass('visible');
     });
 
-    // Close sidebar when clicking outside
+    // Close sidebar when clicking outside. A press on the scrim is left to
+    // its click handler: closing on touchstart drops the scrim's hit area
+    // before the click, which then lands on whatever sits underneath.
     $el_window.on('mousedown touchstart', function (e) {
-        if ( !$(e.target).closest('.dashboard-sidebar').length
-            && !$(e.target).closest('.dashboard-sidebar-toggle').length
+        if ( !$(e.target).closest('.dashboard-sidebar, .dashboard-sidebar-toggle, .dashboard-sidebar-scrim').length
             && $sidebar.hasClass('open') ) {
             setMobileSidebar(false);
         }
