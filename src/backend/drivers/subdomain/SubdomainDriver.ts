@@ -357,6 +357,7 @@ export class SubdomainDriver extends PuterDriver {
 
         // Subdomain name is immutable — strip if provided
         const patch: Record<string, unknown> = {};
+        let claimForAccount = false;
         if (object.root_dir !== undefined) {
             const rootDirPath = expandTildePath(
                 String(object.root_dir),
@@ -371,6 +372,8 @@ export class SubdomainDriver extends PuterDriver {
             }
             if (rootDirId !== (row.root_dir_id ?? null)) {
                 await this.#checkPublishAccess(entry, actor);
+                // Scoped account credentials have proved manage on the new root.
+                claimForAccount = actor.effectiveApp === null;
             }
             patch.root_dir_id = rootDirId;
         }
@@ -381,7 +384,7 @@ export class SubdomainDriver extends PuterDriver {
         const updated = await this.stores.subdomain.update(
             String(row.uuid),
             patch,
-            { userId: row.user_id as number },
+            { userId: row.user_id as number, claimForAccount },
         );
         const [shaped] = await this.#hydrateRows(
             updated ? [updated as Record<string, unknown>] : [],
@@ -561,22 +564,11 @@ export class SubdomainDriver extends PuterDriver {
         throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
-    /**
-     * Gate on pointing a subdomain at a directory. Hosting serves everything
-     * under the root dir with the ACL bypassed, so publishing makes that
-     * subtree world-readable — for good, and including whatever is written
-     * there later. That is the owner's call to make.
-     *
-     * `write` is not it. A shared folder's writer would be exposing the owner's
-     * tree, the row belongs to the writer's account, and nothing the owner can
-     * list would show it. `manage` — "Can edit & share" — is the grant that
-     * delegates the decision.
-     */
+    // Publishing exposes future descendants too, so every actor needs share authority.
     async #checkPublishAccess(entry: FSEntry, actor: Actor): Promise<void> {
         // First, because this is the check that masks a directory the caller
         // cannot see at all as a 404.
         await this.services.fs.checkFSAccess(entry, actor);
-        if (entry.userId === actor.user?.id) return;
         try {
             await this.services.fs.checkFSAccess(
                 entry,

@@ -645,6 +645,102 @@ describe('SubdomainDriver root_dir publishing rights', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
+    it.each(['create', 'update'])(
+        'refuses a same-user write-only app on %s',
+        async (operation) => {
+            const owner = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: uniqueSubdomain('publisher'),
+                    title: 'Publisher',
+                    index_url: 'https://publisher.example.test/',
+                },
+                { ownerUserId: owner.userId },
+            );
+            const actor = makeActor({
+                user: owner.actor.user,
+                app: { id: app.id, uid: app.uid },
+            });
+            const shared = `/${owner.actor.user!.username}/Documents`;
+            const entry = (await server.stores.fsEntry.getEntryByPath(shared))!;
+            await server.services.permission.grantUserAppPermission(
+                owner.actor,
+                app.uid,
+                `fs:${entry.uuid}:write`,
+            );
+            let uid: unknown;
+            if (operation === 'update') {
+                const root = `/${owner.actor.user!.username}/AppData/${app.uid}`;
+                await server.services.fs.mkdir(owner.userId, {
+                    path: root,
+                    createMissingParents: true,
+                });
+                const created = (await withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            subdomain: uniqueSubdomain('app-root'),
+                            root_dir: root,
+                        },
+                    }),
+                )) as Record<string, unknown>;
+                uid = created.uid;
+            }
+            await expect(
+                withActor(actor, () =>
+                    operation === 'create'
+                        ? driver.create({
+                              object: {
+                                  subdomain: uniqueSubdomain('denied-app'),
+                                  root_dir: shared,
+                              },
+                          })
+                        : driver.update({ uid, object: { root_dir: shared } }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        },
+    );
+
+    it('accepts a same-user app with share authority', async () => {
+        const owner = await makeUser();
+        const app = await server.stores.app.create(
+            {
+                name: uniqueSubdomain('manager'),
+                title: 'Manager',
+                index_url: 'https://manager.example.test/',
+            },
+            { ownerUserId: owner.userId },
+        );
+        const root = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.actor.user!.username}/Documents`,
+        ))!;
+        await server.services.permission.grantUserAppPermission(
+            owner.actor,
+            app.uid,
+            `manage:fs:${root.uuid}`,
+        );
+        const actor = makeActor({
+            user: owner.actor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+        const sub = uniqueSubdomain('managed-app');
+        const result = (await withActor(actor, () =>
+            driver.create({ object: { subdomain: sub, root_dir: root.path } }),
+        )) as Record<string, unknown>;
+        expect(result.subdomain).toBe(sub);
+        const nextRoot = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.actor.user!.username}/Public`,
+        ))!;
+        await server.services.permission.grantUserAppPermission(
+            owner.actor, app.uid, `manage:fs:${nextRoot.uuid}`,
+        );
+        await withActor(actor, () => driver.update({
+            uid: result.uid, object: { root_dir: nextRoot.path },
+        }));
+        expect((await server.stores.subdomain.getBySubdomain(sub))!.app_owner)
+            .toBe(app.id);
+
+    });
+
     // "Can edit & share" is the owner delegating the decision.
     it('accepts a directory shared with the actor at manage', async () => {
         const owner = await makeUser();
@@ -687,8 +783,6 @@ describe('SubdomainDriver root_dir publishing rights', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    // The owner's own path still only needs write, so an app hosting a
-    // directory its user gave it keeps working.
     it("still accepts the actor's own directory", async () => {
         const { actor } = await makeUser();
         const sub = uniqueSubdomain('own');

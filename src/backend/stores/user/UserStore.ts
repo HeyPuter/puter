@@ -463,6 +463,36 @@ export class UserStore extends PuterStore {
 
     // -- Writes -------------------------------------------------------
 
+    /** Consume one recovery hash without losing a concurrent code consumption. */
+    async consumeOtpRecoveryCode(
+        userId: number,
+        hash: string,
+    ): Promise<boolean> {
+        // A set contains ten codes. Retry only conflicts, always from the primary.
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const user = await this.getById(userId, { force: true });
+            const previous = user?.otp_recovery_codes;
+            if (typeof previous !== 'string') return false;
+            const codes = previous.split(',').filter(Boolean);
+            const index = codes.indexOf(hash);
+            if (index === -1) return false;
+            codes.splice(index, 1);
+            if (
+                await this.#write(
+                    userId,
+                    { otp_recovery_codes: codes.join(',') },
+                    this.clients.db.case({
+                        mysql: 'BINARY `otp_recovery_codes` = BINARY ?',
+                        otherwise: '`otp_recovery_codes` = ?',
+                    }),
+                    [previous],
+                )
+            )
+                return true;
+        }
+        return false;
+    }
+
     /**
      * Merge-update a user's `metadata` JSON blob. Reads current value, applies
      * `Object.assign` semantics, and writes back. Invalidates every cache key
@@ -684,10 +714,8 @@ export class UserStore extends PuterStore {
     }
 
     /**
-     * Shared write path for `update` / `claimPlaceholder` /
-     * `clearUnconfirmedEmail` / `claimReferralCode`. `guard` is extra SQL ANDed
-     * into the WHERE clause; the write is reported as lost when it matches no
-     * row.
+     * Cache-aware write path. `guard` is extra SQL ANDed into the WHERE clause;
+     * a guarded write reports false when it matches no row.
      */
     async #write(
         userId: number,
@@ -731,6 +759,9 @@ export class UserStore extends PuterStore {
                     'email_confirmed',
                     'requires_password_change',
                     'temp_password_expires_at',
+                    'otp_enabled',
+                    'otp_secret',
+                    'otp_recovery_codes',
                 ].includes(key),
             );
         const before = touchesIdentity

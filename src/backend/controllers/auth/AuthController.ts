@@ -111,6 +111,7 @@ import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import { startWebSession } from './webSession.js';
+import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
@@ -595,6 +596,7 @@ export class AuthController extends PuterController {
                 user_uid: string;
                 purpose: string;
                 auth_id?: string;
+                oidcContinuation?: unknown;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -628,7 +630,7 @@ export class AuthController extends PuterController {
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
     }
 
     // -- Login: recovery code ----------------------------------------
@@ -664,6 +666,7 @@ export class AuthController extends PuterController {
                 user_uid: string;
                 purpose: string;
                 auth_id?: string;
+                oidcContinuation?: unknown;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -688,6 +691,11 @@ export class AuthController extends PuterController {
         }
 
         await this.#assertSecondFactorAttemptsRemain(user.uuid);
+        if (typeof code !== 'string') {
+            throw new HttpError(400, 'code must be a string.', {
+                legacyCode: 'bad_request',
+            });
+        }
         const hashed = hashRecoveryCode(code);
         const codes = ((user.otp_recovery_codes as string) || '')
             .split(',')
@@ -700,15 +708,15 @@ export class AuthController extends PuterController {
         }
         await this.#consumeOtpLoginToken(token);
 
-        // Consume the recovery code
-        codes.splice(idx, 1);
-        await this.stores.user.update(user.id, {
-            otp_recovery_codes: codes.join(','),
-        });
+        if (!(await this.stores.user.consumeOtpRecoveryCode(user.id, hashed))) {
+            await this.#recordSecondFactorFailure(user.uuid);
+            res.json({ proceed: false });
+            return;
+        }
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
     }
 
     // -- Signup ------------------------------------------------------
@@ -4621,7 +4629,15 @@ export class AuthController extends PuterController {
         req: Request,
         res: Response,
         user: UserRow,
+        oidcContinuation?: unknown,
     ): Promise<void> {
+        const redirectUrl =
+            oidcContinuation === undefined
+                ? undefined
+                : completeOidcLoginReturn(res, user, oidcContinuation, {
+                      config: this.config,
+                      oidc: this.services.oidc,
+                  });
         const gui_token = await startWebSession(req, res, user, {
             config: this.config,
             auth: this.services.auth,
@@ -4647,6 +4663,7 @@ export class AuthController extends PuterController {
             next_step: 'complete',
             token: gui_token,
             user: details,
+            ...(redirectUrl ? { redirectUrl } : {}),
         });
     }
 }
