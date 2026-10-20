@@ -96,7 +96,7 @@ export interface ActorSubscriptionStatus {
  * the fallback window, as when a lookup behind it failed.
  */
 export type SubscriptionAnswer =
-    string | { id: string; provisional: boolean } | null | undefined;
+    string | { id: string | null; provisional: boolean } | null | undefined;
 
 export type SubscriptionResolver = (
     actor: Actor,
@@ -2120,7 +2120,7 @@ export class MeteringService extends PuterService {
         };
     }
 
-    /** `lookupFailed`: a resolver or the allowance read threw, so it fell back. */
+    /** `lookupFailed`: the side that applied failed, or the allowance read did. */
     async #resolveActorSubscription(actor: Actor): Promise<{
         policy: SubscriptionPolicy;
         lookupFailed: boolean;
@@ -2579,9 +2579,8 @@ export class MeteringService extends PuterService {
     }
 
     /**
-     * The first non-empty answer in registration order, and whether a resolver
-     * ahead of it threw. Outcomes after the winner are ignored, as if never
-     * asked.
+     * The first non-empty answer in registration order, and whether one at or
+     * ahead of it threw or was provisional. Later outcomes are ignored.
      */
     private async firstResolver(
         pending: Promise<ResolverOutcome>[],

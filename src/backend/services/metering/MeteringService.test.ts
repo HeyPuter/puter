@@ -912,9 +912,10 @@ describe('MeteringService', () => {
         });
 
         it('marks a provisional answer with no plan as provisional', async () => {
-            target.registerSubscriptionResolver(
-                async () => ({ id: null, provisional: true }) as never,
-            );
+            target.registerSubscriptionResolver(async () => ({
+                id: null,
+                provisional: true,
+            }));
             const status = await target.getActorSubscriptionStatus(actor);
             expect(status).toMatchObject({
                 policy: { id: DEFAULT_FREE_SUBSCRIPTION },
