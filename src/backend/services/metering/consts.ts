@@ -65,11 +65,10 @@ export const DETAIL_PATH_COUNTER = 'detailPaths';
 export const OTHER_USAGE_TYPE = 'other';
 
 /**
- * The built-in policies an account holds without paying for anything; an
- * extension's plan joins them by registering as `free`. Everything else — the
- * paid plans registered by an extension, and the unlimited policy a deployment
- * can turn on for itself — counts as a subscription for the purposes of
- * `requireSubscription` (see `assertActorHasSubscription`). Kept as a set of
+ * The policies an account holds without paying for anything. Everything else —
+ * the paid plans registered by an extension, and the unlimited policy a
+ * deployment can turn on for itself — counts as a subscription for the purposes
+ * of `requireSubscription` (see `assertActorHasSubscription`). Kept as a set of
  * free ids rather than a list of paid ones so a plan added by an extension is
  * recognised without touching core.
  */

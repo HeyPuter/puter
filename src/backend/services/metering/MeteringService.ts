@@ -72,10 +72,7 @@ type SubscriptionPolicy = (typeof SUB_POLICIES)[number] & {
     teamSeatCap?: number;
     /** Counts as a free plan wherever `isFreeSubscription` is asked. */
     free?: boolean;
-    /**
-     * Grants no monthly allowance, so only purchased credit can be spent.
-     * Without it a non-positive allowance means the plan is not metered.
-     */
+    /** Grants no allowance; without it, an allowance of 0 means unmetered. */
     noAllowance?: boolean;
 };
 
@@ -84,17 +81,11 @@ export interface ActorSubscriptionStatus {
     policy: SubscriptionPolicy;
     /** Somebody subscribed the actor to it; a resolver did not infer it. */
     paid: boolean;
-    /**
-     * The answer may not be this actor's plan: a lookup behind it failed, or
-     * the actor lacks a field resolvers key on. Cached only briefly.
-     */
+    /** May not be this actor's plan; cached only for the fallback window. */
     provisional: boolean;
 }
 
-/**
- * A resolver's answer. A `provisional` one still wins, but is cached only for
- * the fallback window, as when a lookup behind it failed.
- */
+/** A `provisional` answer wins but is cached only for the fallback window. */
 export type SubscriptionAnswer =
     string | { id: string | null; provisional: boolean } | null | undefined;
 
@@ -321,10 +312,7 @@ export class MeteringService extends PuterService {
         }
     >();
 
-    /**
-     * Uuid → the last budget state announced, so a retry loop emits once.
-     * `rearmed`: budget or plan changed since, so the next state is news.
-     */
+    /** Uuid → last budget state sent; `rearmed` makes the next one news. */
     private creditAlertState = new Map<
         string,
         'ok' | 'near-limit' | 'exhausted' | 'rearmed'
@@ -514,10 +502,7 @@ export class MeteringService extends PuterService {
 
     // -- Extension hooks ----------------------------------------------
 
-    /**
-     * Register a policy that should be available to actors. `free` is
-     * process-wide, since `isFreeSubscription` is asked by id alone.
-     */
+    /** Register a policy for actors; `free` applies process-wide, by id. */
     registerPolicy(policy: SubscriptionPolicy): void {
         if (policy.free) registerFreeSubscription(policy.id);
         this.extraPolicies.push(
@@ -2019,11 +2004,7 @@ export class MeteringService extends PuterService {
         return (await this.getActorSubscriptionStatus(actor)).paid;
     }
 
-    /**
-     * The plan with what is known about the answer. A resolver that derives
-     * from another actor's plan can throw on `provisional` rather than cache a
-     * fallback as fact.
-     */
+    /** The plan, whether it is paid, and whether the answer is provisional. */
     async getActorSubscriptionStatus(
         actor: Actor,
     ): Promise<ActorSubscriptionStatus> {
@@ -2120,7 +2101,7 @@ export class MeteringService extends PuterService {
         };
     }
 
-    /** `lookupFailed`: the side that applied failed, or the allowance read did. */
+    /** `lookupFailed`: the applied side failed, or the allowance read did. */
     async #resolveActorSubscription(actor: Actor): Promise<{
         policy: SubscriptionPolicy;
         lookupFailed: boolean;
@@ -2578,10 +2559,7 @@ export class MeteringService extends PuterService {
         });
     }
 
-    /**
-     * The first non-empty answer in registration order, and whether one at or
-     * ahead of it threw or was provisional. Later outcomes are ignored.
-     */
+    /** First answer; `failed` if one up to it threw or was provisional. */
     private async firstResolver(
         pending: Promise<ResolverOutcome>[],
     ): Promise<{ id: string | null; failed: boolean }> {
