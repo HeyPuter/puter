@@ -46,7 +46,7 @@ const TabUsage = {
                     <h2>${i18n('usage')}</h2>
                     <a href="#" class="billing-plan-btn usage-plan-btn" style="display: none;"></a>
                 </div>
-                <p>Puter resources and AI usage</p>
+                <p>${i18n('usage_subtitle')}</p>
             </div>
             <div class="driver-usage">
                 <div class="driver-usage-header">
@@ -54,9 +54,7 @@ const TabUsage = {
                     <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                         <span id="storage-used-percent"></span>
                         <span> &middot; </span>
-                        <span id="storage-used"></span>
-                        <span> used of </span>
-                        <span id="storage-capacity"></span>
+                        ${i18n('used_of', { used: '<span id="storage-used"></span>', available: '<span id="storage-capacity"></span>' }, false)}
                         <span id="storage-puter-used-w" style="display:none;">&nbsp;(<span id="storage-puter-used"></span> ${i18n('storage_puter_used')})</span>
                     </div>
                 </div>
@@ -70,9 +68,7 @@ const TabUsage = {
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                             <span class="usage-progbar-percent"></span>
                             <span> &middot; </span>
-                            <span id="total-usage"></span>
-                            <span> used of </span>
-                            <span id="total-capacity"></span>
+                            ${i18n('used_of', { used: '<span id="total-usage"></span>', available: '<span id="total-capacity"></span>' }, false)}
                         </div>
                     </div>
                     <div class="usage-progbar-wrapper">
@@ -82,7 +78,7 @@ const TabUsage = {
                         <span class="usage-addon-left"></span>
                         <span class="usage-addon-note">&middot; ${i18n('addon_credits_note')}</span>
                     </p>
-                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">Usage Details</h3>
+                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">${i18n('usage_details')}</h3>
                     <div class="driver-usage-details-content visible">
                     </div>
                 </div>
@@ -182,7 +178,7 @@ function setupPlanButton ($el_window, retryDelay = 250) {
     }
     const hasSubscription = window.user?.subscription?.active;
     $planBtn
-        .text(hasSubscription ? 'Manage Plan' : 'Upgrade')
+        .text(i18n(hasSubscription ? 'manage_plan' : 'billing.upgrade', [], false))
         .toggleClass('manage', !!hasSubscription)
         .toggleClass('upgrade', !hasSubscription)
         .show();
@@ -280,14 +276,14 @@ function renderUsageTable () {
     // Add "Show more" overlay if there are hidden rows
     if ( isCollapsed ) {
         h += `<div class="usage-table-fade-overlay">
-            <button class="usage-table-show-more">Show ${hiddenRowCount} more</button>
+            <button class="usage-table-show-more">${i18n('usage_show_more', { count: hiddenRowCount })}</button>
         </div>`;
     }
 
     // Add "Show less" button when expanded and there are more rows than the initial limit
     if ( usageTableExpanded && hasMoreRows ) {
         h += `<div class="usage-table-show-less-wrapper">
-            <button class="usage-table-show-less">Show less</button>
+            <button class="usage-table-show-less">${i18n('show_less')}</button>
         </div>`;
     }
 
@@ -362,7 +358,7 @@ async function update_usage_details ($el_window) {
         // legitimately empty table.
         if ( ! usageTableRendered ) {
             $('.driver-usage-details-content').html(
-                '<p style="opacity:0.7; font-size:13px;">Usage details are unavailable right now.</p>',
+                `<p style="opacity:0.7; font-size:13px;">${i18n('usage_details_unavailable')}</p>`,
             );
         }
     });
