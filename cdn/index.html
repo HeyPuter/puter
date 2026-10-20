@@ -1,12 +1,22 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>puter cdn</title>
 </head>
 <body>
+  <pre id="out">loading...</pre>
   <script src="./puter.js"></script>
+  <script src="./anon-session.js"></script>
   <script>
-    puter.ai.chat("hello").then(r => document.body.innerText = r);
+    window.addEventListener('load', async () => {
+      try {
+        const r = await puter.ai.chat('say hello in one sentence');
+        document.getElementById('out').innerText = r;
+      } catch(e) {
+        document.getElementById('out').innerText = 'error: ' + e.message;
+      }
+    });
   </script>
 </body>
 </html>
