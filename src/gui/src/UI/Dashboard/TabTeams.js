@@ -37,7 +37,7 @@ import {
 const SECTION = '.dashboard-section-teams';
 
 /** What the console last loaded, so a redraw needs no second round trip. */
-let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], auditPage: 0, plan: null };
+let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], auditPage: 0, plan: null, credential: null };
 
 // Paged for reading, not fetching: member state is derived from the whole
 // record, so it is already loaded.
@@ -268,7 +268,11 @@ const renderAddAccount = () => {
     h += `<button type="submit" class="button button-primary teams-add-btn">${i18n('teams_add_account')}</button>`;
     h += '</form>';
     h += `<p class="teams-field-help">${i18n('teams_add_account_email_hint')}</p>`;
-    h += '<div class="teams-credential" role="status" aria-live="polite" style="display:none;"></div>';
+    // Kept in state, not just the DOM: every refresh repaints this card.
+    const credential = state.credential?.teamUid === state.selected?.uid ? state.credential : null;
+    h += `<div class="teams-credential" role="status" aria-live="polite"${credential ? '' : ' style="display:none;"'}>`;
+    if ( credential ) h += renderCredential(credential);
+    h += '</div>';
     h += '</div>';
     return h;
 };
@@ -589,9 +593,7 @@ const confirm = async ($el_window, message, label, kind = 'danger') => {
     return answer === 'yes';
 };
 
-/** Shown once and never retrievable, so it stays on screen until dismissed. */
-const showCredential = ($el_window, username, temporaryPassword) => {
-    const $box = $el_window.find(`${SECTION} .teams-credential`);
+const renderCredential = ({ username, temporaryPassword }) => {
     let h = '<div class="teams-credential-head">';
     h += `<strong>${i18n('teams_credential_heading', { username })}</strong>`;
     h += `<button type="button" class="teams-credential-dismiss" aria-label="${html_encode(i18n('close', [], false))}">${ICONS.close}</button>`;
@@ -601,7 +603,14 @@ const showCredential = ($el_window, username, temporaryPassword) => {
     h += `<button type="button" class="button button-small teams-credential-copy" data-value="${html_encode(temporaryPassword)}">${ICONS.copy}<span>${i18n('copy')}</span></button>`;
     h += '</div>';
     h += `<span class="teams-credential-note">${i18n('teams_credential_once')}</span>`;
-    $box.html(h).show();
+    return h;
+};
+
+/** Shown once and never retrievable, so it stays on screen until dismissed. */
+const showCredential = ($el_window, username, temporaryPassword) => {
+    state.credential = { teamUid: state.selected?.uid, username, temporaryPassword };
+    const $box = $el_window.find(`${SECTION} .teams-credential`);
+    $box.html(renderCredential(state.credential)).show();
     $box.find('.teams-credential-value').trigger('focus');
 };
 
@@ -849,6 +858,7 @@ const TabTeams = {
             copyCredential($(this));
         });
         $el_window.on('click', `${SECTION} .teams-credential-dismiss`, () => {
+            state.credential = null;
             $el_window.find(`${SECTION} .teams-credential`).hide().empty();
         });
         $el_window.on('click', `${SECTION} .teams-retry`, () => {

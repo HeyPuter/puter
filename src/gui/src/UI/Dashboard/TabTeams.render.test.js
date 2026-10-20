@@ -162,6 +162,29 @@ describe('the member view', () => {
     });
 });
 
+describe('a new account\'s one-time password', () => {
+    it('stays on screen through a refresh until dismissed', async () => {
+        const $w = await mount();
+        globalThis.puter.teams.createMember = vi.fn(async () => ({ username: 'newbie', temporaryPassword: 'pw-123' }));
+        $w.find('.teams-new-username').val('newbie');
+        $w.find('.teams-form').trigger('submit');
+        await flush();
+        await flush();
+        expect($w.find('.teams-credential-value').text()).toBe('pw-123');
+
+        // Coming back to the tab reloads and repaints it.
+        await TabTeams.onActivate($w);
+        await flush();
+        expect($w.find('.teams-credential-value').text()).toBe('pw-123');
+        expect($w.find('.teams-credential').css('display')).not.toBe('none');
+
+        $w.find('.teams-credential-dismiss').trigger('click');
+        await TabTeams.onActivate($w);
+        await flush();
+        expect($w.find('.teams-credential-value')).toHaveLength(0);
+    });
+});
+
 describe('states', () => {
     it('shows a picker when there is more than one team', async () => {
         const $w = await mount({ teams: [team, { ...team, uid: 't2', name: 'Other' }] });
