@@ -35,6 +35,7 @@ import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMen
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { dedupedName } from './dedupedName.js';
+import { middleTruncate } from './middleTruncate.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
@@ -5150,60 +5151,7 @@ function measureTextWidth (text, font = '500 13px system-ui, -apple-system, sans
  * @returns {string} Truncated filename with ellipsis in middle, or original if it fits
  */
 function truncateFilenameToWidth (filename, maxWidth, font = '500 13px system-ui, -apple-system, sans-serif') {
-    const fullWidth = measureTextWidth(filename, font);
-    if ( fullWidth <= maxWidth ) {
-        return filename;
-    }
-
-    // Find extension
-    const lastDot = filename.lastIndexOf('.');
-    const hasExtension = lastDot > 0 && lastDot < filename.length - 1;
-    const extension = hasExtension ? filename.slice(lastDot) : '';
-    const baseName = hasExtension ? filename.slice(0, lastDot) : filename;
-
-    const ellipsis = '…';
-    const ellipsisWidth = measureTextWidth(ellipsis, font);
-    const extensionWidth = measureTextWidth(extension, font);
-
-    // Available width for the base name (before and after ellipsis)
-    const availableWidth = maxWidth - ellipsisWidth - extensionWidth;
-    if ( availableWidth <= 0 ) {
-        return ellipsis + extension;
-    }
-
-    // Binary search to find how many characters fit
-    // We want roughly equal parts before and after the ellipsis
-    const targetHalfWidth = availableWidth / 2;
-
-    let startChars = 0;
-    let endChars = 0;
-
-    // Find characters for start
-    for ( let i = 1; i <= baseName.length; i++ ) {
-        if ( measureTextWidth(baseName.slice(0, i), font) > targetHalfWidth ) {
-            startChars = i - 1;
-            break;
-        }
-        startChars = i;
-    }
-
-    // Find characters for end (before extension)
-    for ( let i = 1; i <= baseName.length - startChars; i++ ) {
-        if ( measureTextWidth(baseName.slice(-i), font) > targetHalfWidth ) {
-            endChars = i - 1;
-            break;
-        }
-        endChars = i;
-    }
-
-    if ( startChars === 0 && endChars === 0 ) {
-        return ellipsis + extension;
-    }
-
-    const start = baseName.slice(0, startChars);
-    const end = endChars > 0 ? baseName.slice(-endChars) : '';
-
-    return start + ellipsis + end + extension;
+    return middleTruncate(filename, maxWidth, text => measureTextWidth(text, font));
 }
 
 export default TabFiles;
