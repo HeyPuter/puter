@@ -5092,6 +5092,23 @@ html.dark-mode .usage-table-show-less:hover {
     background-color: var(--dashboard-shadow-light);
 }
 
+.driver-usage-details-content-table thead th .usage-sort-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.driver-usage-details-content-table thead th .usage-sort-btn:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
 .driver-usage-details-content-table thead th .sort-icon {
     margin-left: 4px;
     display: inline-flex;

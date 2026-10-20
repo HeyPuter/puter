@@ -114,6 +114,8 @@ const TabUsage = {
             }
 
             renderUsageTable();
+            // The header was redrawn; keep keyboard focus on it.
+            $($el_window).find(`.driver-usage-details-content-table th[data-sort="${column}"] .usage-sort-btn`).trigger('focus');
         });
 
         // Click handler for "Show more" to expand the table
@@ -248,11 +250,18 @@ function renderUsageTable () {
     // Build the table
     h += '<table class="driver-usage-details-content-table">';
 
+    // A button in each sortable header puts sorting in the tab order;
+    // aria-sort tells assistive tech which column orders the rows.
+    const sortableTh = (column, label) => {
+        const sorted = usageTableSortState.column === column;
+        const ariaSort = sorted ? (usageTableSortState.direction === 'asc' ? 'ascending' : 'descending') : 'none';
+        return `<th data-sort="${column}" class="sortable-th" aria-sort="${ariaSort}"><button type="button" class="usage-sort-btn">${label} ${getSortIcon(column)}</button></th>`;
+    };
     h += `<thead>
         <tr>
-            <th data-sort="resource" class="sortable-th">Resource ${getSortIcon('resource')}</th>
-            <th>Units</th>
-            <th data-sort="cost" class="sortable-th">${usageShowsCredits ? i18n('credits') : 'Cost'} ${getSortIcon('cost')}</th>
+            ${sortableTh('resource', i18n('resource'))}
+            <th>${i18n('units')}</th>
+            ${sortableTh('cost', i18n(usageShowsCredits ? 'credits' : 'cost'))}
         </tr>
     </thead>`;
 
