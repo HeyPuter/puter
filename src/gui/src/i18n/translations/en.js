@@ -173,6 +173,8 @@ const en = {
         disable_2fa_confirm: 'Are you sure you want to disable 2FA?',
         disable_2fa_instructions: 'Confirm your identity and enter the code from your authenticator app to disable 2FA.',
         disassociate_dir: 'Disassociate Directory',
+        directory: 'Directory',
+        disassociate: 'disassociate',
         disk_storage: 'Disk Storage',
         documents: 'Documents',
         done: 'Done',
