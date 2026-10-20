@@ -175,7 +175,7 @@ describe('createUserSubdomainNotFound', () => {
 
     it('passes through reserved subdomains (api, js, native apps, etc.)', () => {
         // `api`, `js`, `dav`, `docs`, `developer`, `editor`, `pdf`,
-        // `puter-app-icons`, `onlyoffice`, etc. all bypass.
+        // `puter-app-icons`, etc. all pass through.
         for (const sub of ['api', 'js', 'docs', 'editor', 'puter-app-icons']) {
             const { out, next } = run(
                 createUserSubdomainNotFound(config),
@@ -187,6 +187,17 @@ describe('createUserSubdomainNotFound', () => {
             expect(out.redirectArgs).toBeUndefined();
             expect(next).toHaveBeenCalledWith();
         }
+    });
+
+    it('404s an extension-owned subdomain nobody has claimed', () => {
+        const { next } = run(
+            createUserSubdomainNotFound(config),
+            makeReq({
+                subdomains: ['com', 'puter', 'onlyoffice'],
+                host: 'onlyoffice.puter.com',
+            }),
+        );
+        expectNotFound(next);
     });
 
     it('passes through when no subdomain is present (root)', () => {
@@ -640,6 +651,21 @@ describe('createUserSubdomainNotFound with claimed subdomains', () => {
         expect(args).toEqual([]);
     });
 
+    it('hands a main-pipeline claim to the rest of the stack, like a reserved name', async () => {
+        const claims = lookup({ office: { mainPipeline: true } });
+        for (const [host, subdomains] of [
+            ['office.puter.com', ['office']],
+            ['office.puter.com:4100', ['office']],
+            ['office.x.puter.com', ['x', 'office']],
+        ] as const) {
+            const args = await runClaimed(
+                createUserSubdomainNotFound(config, claims),
+                hostReq(host, [...subdomains]),
+            );
+            expect(args, host).toEqual([]);
+        }
+    });
+
     it('looks the claim up on every request', async () => {
         const claims: Record<string, ResolvedClaim> = {};
         const middleware = createUserSubdomainNotFound(config, lookup(claims));
@@ -677,7 +703,7 @@ describe('addClaimedSubdomain', () => {
     });
 
     it('rejects subdomains core already handles', () => {
-        for (const name of ['www', 'api', 'js', 'dav', 'docs', 'onlyoffice']) {
+        for (const name of ['www', 'api', 'js', 'dav', 'docs']) {
             expect(() => addClaimedSubdomain(new Map(), name, claim)).toThrow(
                 /reserved/,
             );
@@ -704,6 +730,26 @@ describe('addClaimedSubdomain', () => {
                 checkRoute: 'no' as unknown as typeof checkRoute,
             }),
         ).toThrow(/invalid checkRoute/);
+    });
+
+    it('records a main-pipeline claim, and refuses one that also carries a gate', () => {
+        const claims = new Map<string, SubdomainClaim>();
+        addClaimedSubdomain(claims, 'onlyoffice', { mainPipeline: true });
+        expect(claims.get('onlyoffice')).toEqual({ mainPipeline: true });
+        expect(() =>
+            addClaimedSubdomain(claims, 'onlyoffice', { mainPipeline: true }),
+        ).toThrow(/already claimed/);
+        for (const gate of [
+            { authorize: () => true },
+            { checkRoute: () => undefined },
+        ]) {
+            expect(() =>
+                addClaimedSubdomain(new Map(), 'portal', {
+                    mainPipeline: true,
+                    ...gate,
+                } as unknown as SubdomainClaim),
+            ).toThrow(/main pipeline with a gate/);
+        }
     });
 
     it('rejects a claim without authorize', () => {
