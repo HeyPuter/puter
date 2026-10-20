@@ -408,12 +408,11 @@ async function UIDashboard (options) {
 
     // Apply initial route from URL - activate the correct tab
     if ( window.dashboard_initial_route ) {
-        const route = window.dashboard_initial_route;
-
-        // Activate the correct tab if not home. An unknown tab id stays on
-        // the Apps default rendered above rather than being redirected.
-        if ( route.tab && route.tab !== 'home' && isKnownTabId(route.tab) ) {
-            const tabId = route.tab;
+        // Activate the tab rendered active above, if not home: an unknown
+        // tab id stays on the Apps default rather than being redirected,
+        // but Apps still needs its activation.
+        if ( initialTabId !== 'home' ) {
+            const tabId = initialTabId;
             const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
 
             // Only switch if the tab exists
