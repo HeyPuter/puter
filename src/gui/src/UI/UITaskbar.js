@@ -547,17 +547,6 @@ window.update_taskbar_position = async function (new_position) {
         window.adjust_taskbar_item_sizes();
     }, 10);
 
-    // adjust position if sidepanel is open
-    if ( window.taskbar_position === 'bottom' ) {
-        if ( $('.window[data-is_panel="1"][data-is_visible="1"]').length > 0 ) {
-            $('.taskbar.taskbar-position-bottom').css('left', `calc(50% - ${window.PANEL_WIDTH / 2}px)`);
-        } else if ( $('.window[data-is_panel="1"][data-is_visible="0"]').length > 0 ) {
-            $('.taskbar.taskbar-position-bottom').css('left', 'calc(50%)');
-        }
-    } else {
-
-    }
-
     // Reinitialize all taskbar item tooltips with new position
     $('.taskbar-item').each(function () {
         const $item = $(this);
