@@ -1329,8 +1329,13 @@ const TabApps = {
     // Central renderer: applies the current search query to _apps and rebuilds
     // the pager (or an empty state). Everything that changes what's shown —
     // load, search, uninstall, re-layout, reorder — funnels through here.
-    renderApps ($el_window, { preservePage = false, instant = false } = {}) {
+    renderApps ($el_window, { preservePage = false, instant = false, duringDrag = false } = {}) {
         if ( ! this._apps ) return;
+        // A render replaces every tile, the dragged one included, which
+        // would strand the drag on a detached node. Anything asking mid-drag
+        // (an uninstall finishing, a rollback) is covered by the render
+        // _endDrag does on the drop; only the drag itself may render now.
+        if ( this._drag?.started && ! duringDrag ) return;
 
         // The reorder toggle only earns its place once there's something to
         // reorder (CSS additionally gates it to touch-primary devices). A
@@ -2313,7 +2318,7 @@ const TabApps = {
         const appName = d.tileEl.dataset.appName;
         if ( ! this._ejectApp(d.$el_window, d.groupId, appName) ) return;
         this._closeGroup(d.$el_window);
-        this.renderApps(d.$el_window, { preservePage: true, instant: true });
+        this.renderApps(d.$el_window, { preservePage: true, instant: true, duringDrag: true });
 
         const tile = d.$el_window.find('.myapps-page .myapps-tile').toArray()
             .find(el => el.dataset.appName === appName);
