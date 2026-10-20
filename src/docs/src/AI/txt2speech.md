@@ -32,7 +32,7 @@ Additional settings for the generation request. Available options depend on the 
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
+| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`, `'kling'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
 | `model` | `String` | Model identifier (provider-specific) |
 | `voice` | `String` | Voice ID used for synthesis (provider-specific) |
 | `test_mode` | `Boolean` | When `true`, returns a sample audio without using credits |
@@ -117,6 +117,19 @@ Available when `provider: 'speechify'`:
 | `output_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'ogg'`, `'aac'` |
 
 For more details, see the [Speechify API documentation](https://docs.speechify.ai/).
+
+#### Kling Options
+
+Available when `provider: 'kling'`. Kling speaks English and Chinese, and each voice speaks one or both. The text can be up to 1,000 characters. Each request costs $0.007, whatever its length, and returns MP3 audio.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | TTS model. Available: `'kling-tts'` (default) |
+| `voice` | `String` | Voice ID. Defaults to `'oversea_male1'`. [`txt2speech.listVoices({ provider: 'kling' })`](/AI/txt2speech.listVoices/) lists every voice, with its first language as `language` and all of its languages in `labels.languages` |
+| `language` | `String` | `'en'` or `'zh'`. A region suffix such as `'en-US'` is ignored. Defaults to the voice's first language. A language the voice doesn't speak is rejected with `field_invalid` |
+| `voice_settings` | `Object` | Only `speed` is read: a number from `0.8` to `2.0`. Defaults to `1.0` |
+
+For more details, see the [Kling TTS API reference](https://kling.ai/document-api/api/video/avatar/text-to-speech).
 
 ## Return value
 

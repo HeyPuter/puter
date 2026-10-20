@@ -983,6 +983,56 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         expect(result).toBe('https://rp/img.png');
         expect(createPredictionMock).toHaveBeenCalledTimes(1);
     });
+
+    it('registers Kling from the shared `kling` key and routes its models there', async () => {
+        const klingDriver = new ImageGenerationDriver(
+            {
+                providers: {
+                    'openai-image-generation': { apiKey: 'oai-key' },
+                    kling: { apiKey: 'kl-key' },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        await klingDriver.onServerStart();
+        const logged = () =>
+            eventEmitSpy.mock.calls.filter(([key]) => key === 'ai.log.image')
+                .at(-1)?.[1];
+
+        await withActor(() =>
+            klingDriver.generate({
+                provider: 'kling',
+                prompt: 'hi',
+                test_mode: true,
+            }),
+        );
+        expect(logged()).toMatchObject({
+            model_used: 'kling-v3',
+            service_used: 'kling-image-generation',
+        });
+
+        await withActor(() =>
+            klingDriver.generate({
+                model: 'kling:kling/kling-v3-omni',
+                prompt: 'hi',
+                test_mode: true,
+            }),
+        );
+        expect(logged()).toMatchObject({
+            model_used: 'kling-v3-omni',
+            service_used: 'kling-image-generation',
+        });
+
+        // Kling registers after OpenAI, so it never becomes the default.
+        await withActor(() =>
+            klingDriver.generate({ prompt: 'hi', test_mode: true }),
+        );
+        expect(logged()).toMatchObject({
+            service_used: 'openai-image-generation',
+        });
+    });
 });
 
 // ── Ratio normalization ────────────────────────────────────────────

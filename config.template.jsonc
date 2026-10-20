@@ -450,6 +450,10 @@
             "apiKey": "",
             "apiBaseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3"
         },
+        // Kling AI. One API key (not the legacy AccessKey/SecretKey pair)
+        // powers video generation, image generation and TTS; `apiBaseUrl`
+        // defaults to https://api-singapore.klingai.com.
+        "kling": { "apiKey": "" },
         "zai": { "apiKey": "" },
         "alibaba": { "apiKey": "" },
         "hoonify": {
