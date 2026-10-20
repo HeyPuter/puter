@@ -30,6 +30,8 @@ import { sanitizeUpstreamMessage } from './upstreamErrors.js';
 export const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
 const REQUEST_TIMEOUT_MS = 60_000;
+/** Kling's 1201 wording for a model or method it doesn't serve. */
+const UNSUPPORTED_MODEL_PATTERN = /\bmodel(_name)?\b.*\bnot supported\b/i;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 /** Kling's envelope: `code` 0 is success, anything else names the failure. */
@@ -62,10 +64,14 @@ const klingError = (
     message: string,
     status: number,
 ) => {
-    // 1202 and 1203 name a method or model Kling doesn't serve. Puter picks
-    // both, so the catalog has drifted from Kling's: our fault, not the
-    // caller's, and worth someone's attention.
-    if (code === 1202 || code === 1203) {
+    // 1202 and 1203 name a method or model Kling doesn't serve, as does a 1201
+    // about the model. Puter picks both, so the catalog has drifted from
+    // Kling's: our fault, not the caller's, and worth someone's attention.
+    if (
+        code === 1202 ||
+        code === 1203 ||
+        (code === 1201 && UNSUPPORTED_MODEL_PATTERN.test(message))
+    ) {
         return new HttpError(
             502,
             'Kling does not support the model Puter requested',
@@ -93,16 +99,22 @@ const klingError = (
             },
         );
     }
-    return Object.assign(new Error(message), {
-        status:
-            code === undefined
-                ? status >= 400
-                    ? status
-                    : 502
-                : statusForCode(code, status),
-        code: code === undefined ? undefined : String(code),
-        provider: 'kling',
-    });
+    // Kling's auth messages point at its own console; the caller can't act on
+    // them.
+    const isAuthFailure = code !== undefined && code >= 1000 && code <= 1004;
+    return Object.assign(
+        new Error(isAuthFailure ? 'Kling rejected the API key' : message),
+        {
+            status:
+                code === undefined
+                    ? status >= 400
+                        ? status
+                        : 502
+                    : statusForCode(code, status),
+            code: code === undefined ? undefined : String(code),
+            provider: 'kling',
+        },
+    );
 };
 
 /**

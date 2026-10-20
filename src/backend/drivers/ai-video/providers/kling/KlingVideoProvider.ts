@@ -69,6 +69,19 @@ const badRequest = (message: string) =>
 const present = (value: unknown): boolean =>
     value !== undefined && value !== null;
 
+/** Kling's wording when it can't decode the source video of an edit. */
+const SOURCE_DECODE_FAILURE_PATTERN = /VideoNormalize|ffmpeg/i;
+
+const sourceUnreadableError = () =>
+    new HttpError(
+        400,
+        "Kling couldn't read the source video. Re-save it as a standard, non-fragmented MP4 and try again",
+        {
+            legacyCode: 'upstream_bad_request',
+            fields: { provider: 'kling' },
+        },
+    );
+
 /**
  * Kling AI video generation (Kling 3.0, 3.0 Omni, O1, 2.6, 2.5 Turbo).
  *
@@ -134,14 +147,18 @@ export class KlingVideoProvider extends VideoProvider {
         }
         const model = this.#getModel(requestedModel);
         const spec = KLING_VIDEO_SPECS[model.id];
-        if (prompt.length > spec.maxPromptChars) {
-            throw badRequest(
-                `${model.id} takes a prompt of at most ${spec.maxPromptChars} characters`,
-            );
-        }
 
         const resolutionKey = this.#resolution(size ?? resolution, model);
         const firstFrame = this.#image(inputReference, 'input_reference');
+        const maxPromptChars =
+            firstFrame && !spec.omniPath && spec.maxImagePromptChars
+                ? spec.maxImagePromptChars
+                : spec.maxPromptChars;
+        if (prompt.length > maxPromptChars) {
+            throw badRequest(
+                `${model.id} takes a prompt of at most ${maxPromptChars} characters${maxPromptChars < spec.maxPromptChars ? ' with input_reference' : ''}`,
+            );
+        }
         const endFrame = this.#image(lastFrame, 'last_frame');
         const references = this.#references(referenceImages);
         const hasVideo = present(inputVideo);
@@ -196,19 +213,23 @@ export class KlingVideoProvider extends VideoProvider {
         }
         const usageType = `kling-video-generation:${model.id}:${costKey}`;
 
-        // An edit is as long as its source, so it must cover the longest one.
+        // An edit is as long as its source, so it must cover the longest one,
+        // in the whole seconds it's billed in.
+        const editSeconds = hasVideo
+            ? Math.ceil(spec.maxSourceSeconds!)
+            : undefined;
         const firstFrameOnly =
             firstFrame !== undefined &&
             endFrame === undefined &&
             references.length === 0 &&
             spec.firstFrameOnlySeconds;
-        const allowedSeconds = hasVideo
-            ? [spec.maxSourceSeconds!]
+        const allowedSeconds = editSeconds
+            ? [editSeconds]
             : firstFrameOnly || model.durationSeconds;
-        const requestedSeconds = hasVideo
-            ? spec.maxSourceSeconds!
-            : (this.#coerceSeconds(seconds ?? duration) ??
-              model.durationSeconds![0]);
+        const requestedSeconds =
+            editSeconds ??
+            this.#coerceSeconds(seconds ?? duration) ??
+            model.durationSeconds![0];
         const { seconds: cappedSeconds, hold } =
             await capSecondsToRemainingCredits({
                 metering: this.#meteringService,
@@ -242,6 +263,13 @@ export class KlingVideoProvider extends VideoProvider {
                 { body, baseUrl: this.#baseUrl },
             );
             const task = await this.#pollUntilComplete(created.id);
+            if (
+                task.status !== 'succeeded' &&
+                sourceVideo &&
+                SOURCE_DECODE_FAILURE_PATTERN.test(task.message ?? '')
+            ) {
+                throw sourceUnreadableError();
+            }
             if (task.status !== 'succeeded') {
                 throw videoJobFailure(
                     'kling',
@@ -408,6 +436,15 @@ export class KlingVideoProvider extends VideoProvider {
         if (hasVideo && (firstFrame || endFrame)) {
             throw badRequest(
                 'input_video cannot be combined with input_reference or last_frame',
+            );
+        }
+        if (
+            spec.framePairExcludesReferences &&
+            endFrame &&
+            references.length > 0
+        ) {
+            throw badRequest(
+                `${modelId} can't combine reference_images with a last_frame`,
             );
         }
         if (references.length > 0) {

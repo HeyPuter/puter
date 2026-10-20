@@ -97,7 +97,7 @@ The video can be a public URL, the path of a file in the user's Puter filesystem
 |---|---|---|---|
 | Formats | MP4, QuickTime or WebM | MP4, QuickTime, WebM or Matroska | MP4 or QuickTime |
 | Size | Up to 32 MiB | Up to 32 MiB for a Puter file. A URL is fetched by Together AI | Up to 200 MiB for a Puter file. A URL is fetched by Kling |
-| Source length | Up to 10 seconds. A longer video fails with `upstream_bad_request` and isn't charged | Any | 3 to 15 seconds on Kling 3.0 Omni, 3 to 10 seconds on Kling O1 |
+| Source length | Up to 10 seconds. A longer video fails with `upstream_bad_request` and isn't charged | Any | 3 to 15.5 seconds on Kling 3.0 Omni, 3 to 10 seconds on Kling O1. A video Kling can't decode fails with `upstream_bad_request` and isn't charged |
 | Output length | The model decides. The prompt can also ask it to continue the clip past its end | `seconds`, from 5 to 20. Defaults to 6 | The length of the source. `seconds` is ignored |
 | Output size | `size`, see [Gemini Omni options](#gemini-omni-options) | 1280x704 | `size`, see [Kling options](#kling-options) |
 | Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.43 per second of output | Per second of output, see [Kling options](#kling-options) |
@@ -260,14 +260,14 @@ The first resolution listed is the default. Prices are per second of output:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | Video model to use, from the table above (full id or alias) |
-| `prompt` | `String` | Up to 3,072 characters on the Kling 3.0 models, 2,500 on the others |
+| `prompt` | `String` | Up to 3,072 characters on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
 | `seconds` | `Number` | Clip length, from the table above. Any other value falls back to `5`. Ignored with `inputVideo` |
 | `size` | `String` | Resolution tier: `'720p'`, `'1080p'` or `'4k'` (case-insensitive), or `'WIDTHxHEIGHT'`. `resolution` is an alias |
 | `width`, `height` | `Number` | Optional. Only their ratio is used, to pick the aspect ratio: `16:9`, `9:16` or `1:1`. Any other ratio gives `16:9`. A clip from `input_reference` or `inputVideo` takes the image's or video's shape |
 | `generate_audio` | `Boolean` | Generate a soundtrack on models with optional audio. Defaults to `false`. With `inputVideo`, the clip keeps the source video's sound unless this is `false` |
 | `input_reference` | `String \| Blob` | Image used as the first frame, in any [image input](#image-inputs) format. JPEG or PNG, at least 300 pixels per side |
 | `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` |
-| `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats |
+| `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats. Kling O1 doesn't take them with `last_frame` |
 | `inputVideo` | `String \| Blob` | Video to edit, described by the prompt. See [Video input](#video-input) |
 
 An option the model lacks, or a combination it doesn't support, is rejected with `bad_request` before any credits are spent. Clips carry no watermark. Kling returns a hosted URL that stays available for 30 days.
@@ -296,7 +296,7 @@ Every successful generation is charged to the user's AI credits according to the
 
 - **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
 - **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and charged at the model's highest published rate per second.
-- **Kling** is priced per second, and clips are shortened like Seedance. An edit of an `inputVideo` is as long as its source, so Puter holds the price of the longest source the model accepts (15 seconds on Kling 3.0 Omni, 10 on Kling O1) and charges for the length of the clip Kling returns.
+- **Kling** is priced per second, and clips are shortened like Seedance. An edit of an `inputVideo` is as long as its source, so Puter holds the price of the longest source the model accepts (16 seconds on Kling 3.0 Omni, 10 on Kling O1) and charges for the length of the clip Kling returns.
 - **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. Puter doesn't count the tokens of an `inputVideo`, so a request with one holds another 16,000 input tokens, about $0.02, which covers a 10-second video. Puter reads the video only after the estimate is held. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
 
 Apart from that Gemini Omni case, a request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).

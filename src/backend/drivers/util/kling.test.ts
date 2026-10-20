@@ -128,6 +128,41 @@ describe('klingRequest', () => {
         },
     );
 
+    it('reports a 1201 about the model as an alerted Puter-side failure', async () => {
+        respond({ code: 1201, message: 'model is not supported' }, 400);
+        const err = await klingRequest('k', 'GET', '/x').catch((e) => e);
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            alarmSeverity: 'warning',
+        });
+    });
+
+    it('keeps other 1201s as bad requests', async () => {
+        respond({ code: 1201, message: 'Voice id not found' }, 400);
+        const err = await klingRequest('k', 'GET', '/x').catch((e) => e);
+        expect(translateProviderError(err)).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+    });
+
+    it("doesn't pass Kling's auth wording through", async () => {
+        respond(
+            {
+                code: 1002,
+                message:
+                    'Authentication error. The current API does not support AK/SK; please go to the console (https://kling.ai/dev/api-key) to create API key.',
+            },
+            401,
+        );
+        await expect(klingRequest('k', 'GET', '/x')).rejects.toMatchObject({
+            status: 401,
+            code: '1002',
+            message: 'Kling rejected the API key',
+        });
+    });
+
     it('turns a content-safety block into moderation_flagged', async () => {
         respond({ code: 1301, message: 'risk' }, 400);
         await expect(klingRequest('k', 'GET', '/x')).rejects.toMatchObject({

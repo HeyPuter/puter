@@ -45,7 +45,11 @@ export interface KlingVideoSpec {
     maxSourceSeconds?: number;
     /** Durations allowed when the only input is a first frame. */
     firstFrameOnlySeconds?: number[];
+    /** Whether a first + last frame pair excludes reference images. */
+    framePairExcludesReferences?: boolean;
     maxPromptChars: number;
+    /** Lower prompt limit on the image-to-video endpoint, where it differs. */
+    maxImagePromptChars?: number;
 }
 
 // Duration ladder for the driver's normalization: element 0 is the fallback
@@ -190,6 +194,7 @@ export const KLING_VIDEO_SPECS: Record<string, KlingVideoSpec> = {
         maxReferenceImages: 0,
         maxReferenceImagesWithVideo: 0,
         maxPromptChars: 3072,
+        maxImagePromptChars: 2500,
     },
     'kling-3.0': {
         textPath: '/text-to-video/kling-3.0',
@@ -206,7 +211,7 @@ export const KLING_VIDEO_SPECS: Record<string, KlingVideoSpec> = {
         lastFrame: true,
         maxReferenceImages: 7,
         maxReferenceImagesWithVideo: 4,
-        maxSourceSeconds: 15,
+        maxSourceSeconds: 15.5,
         maxPromptChars: 3072,
     },
     'kling-o1': {
@@ -217,6 +222,7 @@ export const KLING_VIDEO_SPECS: Record<string, KlingVideoSpec> = {
         maxReferenceImagesWithVideo: 4,
         maxSourceSeconds: 10,
         firstFrameOnlySeconds: [5, 10],
+        framePairExcludesReferences: true,
         maxPromptChars: 2500,
     },
     'kling-2.6': {

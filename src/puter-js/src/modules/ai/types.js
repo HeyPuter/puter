@@ -368,7 +368,7 @@
  * URI over 1 MiB is uploaded to a temporary Puter file for the call and deleted afterwards. Only
  * `'gemini-omni-1.1-flash'` (MP4, QuickTime or WebM, up to 10 seconds),
  * `'togetherai:black-forest-labs/flux-3'`, `'kling-3.0-omni'` and `'kling-o1'` (MP4 or QuickTime,
- * 3 to 15 or 10 seconds, no data URI) accept it. Can't be combined with frame images.
+ * 3 to 15.5 or 10 seconds, no data URI) accept it. Can't be combined with frame images.
  * @property {Array<string | Blob>} [reference_images] Subject/style reference images, same formats as
  * `input_reference`. Seedance 2.0: up to 9; Seedance 2.5: up to 30; Kling Omni and O1: up to 7 (4 with
  * `inputVideo`); Together: model-dependent.

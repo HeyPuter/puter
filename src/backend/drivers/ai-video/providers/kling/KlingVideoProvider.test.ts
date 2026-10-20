@@ -455,6 +455,23 @@ describe('KlingVideoProvider.generate rejects invalid input before calling Kling
             'a prompt over 3072 characters on 3.0',
             { model: 'kling-3.0', prompt: 'x'.repeat(3073) },
         ],
+        [
+            'a prompt over 2500 characters with a first frame on 3.0 Turbo',
+            {
+                model: 'kling-3.0-turbo',
+                prompt: 'x'.repeat(2501),
+                input_reference: 'https://example.com/f.png',
+            },
+        ],
+        [
+            'reference images with a first and last frame on O1',
+            {
+                model: 'kling-o1',
+                input_reference: 'https://example.com/f.png',
+                last_frame: 'https://example.com/l.png',
+                reference_images: ['https://example.com/r.png'],
+            },
+        ],
         ['a blank prompt', { prompt: '  ' }],
     ])('rejects %s', async (_label, params) => {
         await expect(generate(params)).rejects.toMatchObject({
@@ -467,6 +484,15 @@ describe('KlingVideoProvider.generate rejects invalid input before calling Kling
     it('accepts a 3072-character prompt on 3.0', async () => {
         mockTaskFlow(succeededTask());
         await generate({ model: 'kling-3.0', prompt: 'x'.repeat(3072) });
+        expect(fetchSpy).toHaveBeenCalled();
+    });
+
+    it('accepts a 3072-character text-to-video prompt on 3.0 Turbo', async () => {
+        mockTaskFlow(succeededTask());
+        await generate({
+            model: 'kling-3.0-turbo',
+            prompt: 'x'.repeat(3072),
+        });
         expect(fetchSpy).toHaveBeenCalled();
     });
 });
@@ -543,6 +569,18 @@ describe('KlingVideoProvider billing', () => {
         expect(cost).toBeCloseTo(8 * 16.8 * 1_000_000);
     });
 
+    it('holds a 3.0 Omni edit at 16 seconds, covering a 15.5-second source', async () => {
+        const perSecond = rate('kling-3.0-omni', 'per-second:720p:video-input');
+        remainingUsageSpy.mockResolvedValue(15.5 * perSecond * 1_000_000);
+        await expect(
+            generate({
+                model: 'kling-3.0-omni',
+                input_video: 'https://example.com/source.mp4',
+            }),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it('rejects with insufficient_funds before creating a task it cannot afford', async () => {
         remainingUsageSpy.mockResolvedValue(1000);
         await expect(generate({ model: 'kling-3.0' })).rejects.toMatchObject({
@@ -564,6 +602,25 @@ describe('KlingVideoProvider failures', () => {
         await expect(generate({})).rejects.toMatchObject({
             statusCode: 502,
             legacyCode: 'upstream_failed',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it("maps Kling failing to decode an edit's source to a bad request", async () => {
+        mockTaskFlow({
+            id: 'task-1',
+            status: 'failed',
+            message:
+                'VideoNormalize failed, code: 90001, message: ffmpeg error, code 1',
+        });
+        await expect(
+            generate({
+                model: 'kling-3.0-omni',
+                input_video: 'https://example.com/source.mp4',
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
