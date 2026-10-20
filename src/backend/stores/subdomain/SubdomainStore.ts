@@ -45,6 +45,12 @@ export interface SubdomainRow {
     [key: string]: unknown;
 }
 
+/** A row deleted by the database along with an app. */
+export type CascadeRow = Pick<
+    SubdomainRow,
+    'uuid' | 'subdomain' | 'root_dir_id'
+>;
+
 // Columns that may not be set through an `update` patch map. Defence-in-depth
 // against future callers (admin routes, extensions, new REST handlers) that
 // might forward `req.body` straight into the store: the driver's update
@@ -759,7 +765,7 @@ export class SubdomainStore extends PuterStore {
      */
     async listAppCascade(
         apps: { appId: number } | { ownerUserId: number },
-    ): Promise<Array<Pick<SubdomainRow, 'subdomain' | 'root_dir_id'>>> {
+    ): Promise<CascadeRow[]> {
         const [match, param] =
             'appId' in apps
                 ? ['= ?', apps.appId]
@@ -767,17 +773,17 @@ export class SubdomainStore extends PuterStore {
                       'IN (SELECT `id` FROM `apps` WHERE `owner_user_id` = ?)',
                       apps.ownerUserId,
                   ];
-        const out: Array<Pick<SubdomainRow, 'subdomain' | 'root_dir_id'>> = [];
+        const out: CascadeRow[] = [];
         let afterId = 0;
         for (;;) {
             const rows = (await this.clients.db.pread(
-                `SELECT \`id\`, \`subdomain\`, \`root_dir_id\` FROM \`subdomains\`
+                `SELECT \`id\`, \`uuid\`, \`subdomain\`, \`root_dir_id\` FROM \`subdomains\`
                   WHERE (\`app_owner\` ${match} OR \`associated_app_id\` ${match})
                     AND \`id\` > ? ORDER BY \`id\` LIMIT ?`,
                 [param, param, afterId, BULK_QUERY_CHUNK_SIZE],
-            )) as Array<Pick<SubdomainRow, 'id' | 'subdomain' | 'root_dir_id'>>;
-            for (const { subdomain, root_dir_id } of rows) {
-                out.push({ subdomain, root_dir_id });
+            )) as Array<Pick<SubdomainRow, 'id'> & CascadeRow>;
+            for (const { uuid, subdomain, root_dir_id } of rows) {
+                out.push({ uuid, subdomain, root_dir_id });
             }
             if (rows.length < BULK_QUERY_CHUNK_SIZE) return out;
             afterId = Number(rows[rows.length - 1].id);
@@ -786,11 +792,10 @@ export class SubdomainStore extends PuterStore {
 
     /**
      * Drop cached state, here and on peers, for rows deleted outside this
-     * store.
+     * store, and emit `subdomain.delete` for each as the driver does, so CDN
+     * purges, deployed-worker teardown and other site cleanup still run.
      */
-    async forgetCascadeDeleted(
-        rows: Array<Pick<SubdomainRow, 'subdomain' | 'root_dir_id'>>,
-    ): Promise<void> {
+    async forgetCascadeDeleted(rows: CascadeRow[]): Promise<void> {
         if (rows.length === 0) return;
         await this.#publishChanged(
             [],
@@ -804,6 +809,17 @@ export class SubdomainStore extends PuterStore {
         await runWithConcurrencyLimit(rootDirIds, 8, (id) =>
             this.#invalidateRootDirEntry(id),
         );
+        for (const row of rows) {
+            try {
+                this.clients.event.emit(
+                    'subdomain.delete',
+                    { subdomain: row.subdomain, uid: String(row.uuid) },
+                    {},
+                );
+            } catch {
+                // Non-critical.
+            }
+        }
     }
 
     // -- Internals ----------------------------------------------------
