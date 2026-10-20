@@ -564,9 +564,13 @@ async function UIDashboard (options) {
     const $scrim = $el_window.find('.dashboard-sidebar-scrim');
     const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
     const setMobileSidebar = (open) => {
+        // Focus left inside a closing drawer would sit on hidden controls
+        // (and fall to <body>); the toggle that reopens it takes it instead.
+        const focusInside = ! open && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
         $sidebar.toggleClass('open', open);
         $scrim.toggleClass('open', open);
         $sidebar_toggle.toggleClass('open', open).attr('aria-expanded', open ? 'true' : 'false');
+        if ( focusInside ) $sidebar_toggle[0].focus({ preventScroll: true });
     };
 
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {

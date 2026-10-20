@@ -632,6 +632,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             const target = previousFocus && document.contains(previousFocus) ? previousFocus : $trigger[0];
             try {
                 target.focus({ preventScroll: true });
+                // The bell is in the mobile drawer, closed under the sheet;
+                // the drawer's toggle stands in for it.
+                if ( document.activeElement !== target ) {
+                    $('.dashboard-sidebar-toggle:visible')[0]?.focus({ preventScroll: true });
+                }
             } catch { /* best effort */ }
         }
         previousFocus = null;
