@@ -670,6 +670,26 @@ describe('resolveReadRange', () => {
         ).toThrow('Invalid offset');
     });
 
+    it('throws 400 on non-decimal or unsafe numeric strings', () => {
+        for (const offset of [
+            '1e3',
+            '0x10',
+            ' 4',
+            '1e21',
+            '9007199254740993',
+        ]) {
+            expect(() => resolveReadRange(undefined, { offset })).toThrow(
+                'Invalid offset',
+            );
+        }
+        expect(() =>
+            resolveReadRange(undefined, {
+                offset: String(Number.MAX_SAFE_INTEGER),
+                byte_count: '3',
+            }),
+        ).toThrow('Invalid byte_count');
+    });
+
     it('throws 400 on non-positive or invalid byte_count', () => {
         expect(() =>
             resolveReadRange(undefined, { offset: 0, byte_count: 0 }),
@@ -685,4 +705,3 @@ describe('resolveReadRange', () => {
         ).toThrow('Invalid byte_count');
     });
 });
-

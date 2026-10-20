@@ -1944,6 +1944,7 @@ describe('FSController.readEntry (file streaming)', () => {
         );
         // Range presence flips the status to 206 — Content-Range may or
         // may not be set depending on the underlying S3 mock; the status
+        // transition is the wire-level promise this code holds.
         expect(captured.statusCode).toBe(206);
     });
 
