@@ -694,22 +694,29 @@ const reissueCredential = async ($el_window, username) => {
     }
 };
 
+/** Accounts with a suspend/re-enable in flight; re-enable has no confirm to absorb a double click. */
+const togglingMembers = new Set();
+
 const setMemberEnabled = async ($el_window, username, enabled) => {
-    if ( ! enabled ) {
-        const ok = await confirm(
-            $el_window,
-            `<p>${i18n('teams_confirm_disable', { username })}</p>`,
-            i18n('teams_disable_account', [], false),
-        );
-        if ( ! ok ) return;
-    }
+    if ( togglingMembers.has(username) ) return;
+    togglingMembers.add(username);
     try {
+        if ( ! enabled ) {
+            const ok = await confirm(
+                $el_window,
+                `<p>${i18n('teams_confirm_disable', { username })}</p>`,
+                i18n('teams_disable_account', [], false),
+            );
+            if ( ! ok ) return;
+        }
         await (enabled
             ? puter.teams.enableMember(state.selected.uid, username)
             : puter.teams.disableMember(state.selected.uid, username));
         await refresh($el_window);
     } catch (e) {
         await showError($el_window, e);
+    } finally {
+        togglingMembers.delete(username);
     }
 };
 

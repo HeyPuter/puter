@@ -207,6 +207,20 @@ describe('a change made while the tab is loading', () => {
     });
 });
 
+describe('re-enabling an account', () => {
+    it('sends one request for a double click', async () => {
+        const $w = await mount();
+        globalThis.puter.teams.enableMember = vi.fn(async () => ({}));
+        const $btn = $w.find('.teams-enable[data-username="elliot"]');
+        expect($btn).toHaveLength(1);
+        $btn.trigger('click');
+        $btn.trigger('click');
+        await flush();
+        await flush();
+        expect(globalThis.puter.teams.enableMember).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('states', () => {
     it('shows a picker when there is more than one team', async () => {
         const $w = await mount({ teams: [team, { ...team, uid: 't2', name: 'Other' }] });
