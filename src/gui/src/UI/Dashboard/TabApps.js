@@ -341,21 +341,13 @@ function buildGridItemHtml (item) {
         : buildTileHtml(item.app);
 }
 
+// No apps at all, or a search that matched none of the user's apps. Either is
+// a line ABOVE the grid rather than a stand-in for it: the grid still has the
+// add-an-app tile in it, which is the one useful answer to both.
 function buildNoAppsHtml () {
-    let h = '<div class="myapps-empty">';
-    h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">';
-    h += '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>';
-    h += '<rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>';
-    h += '</svg>';
-    h += '<p>No apps installed yet</p>';
-    h += '</div>';
-    return h;
+    return '<div class="myapps-empty myapps-empty-notice"><p>No apps installed yet</p></div>';
 }
 
-// A search that matched none of the user's apps. Unlike buildNoAppsHtml this
-// is a line ABOVE the grid rather than a stand-in for it: the grid still has
-// the add-an-app tile in it, which is the one useful answer to a search for an
-// app you don't have.
 function buildNoMatchesHtml () {
     return '<div class="myapps-empty myapps-empty-notice"><p>No apps match your search</p></div>';
 }
@@ -1375,20 +1367,12 @@ const TabApps = {
             ? list.map(app => ({ type: 'app', app }))
             : buildGridItems(list, this._groups);
 
-        // No apps at all, and nothing typed: there is no grid to page through,
-        // so the empty state stands in for the whole of it.
-        if ( items.length === 0 && ! query ) {
-            this._layout = null;
-            this._page = 0;
-            this._pageCount = 0;
-            $container.html(buildNoAppsHtml());
-            return;
-        }
-
-        // A search that matched nothing still has a grid — the tail tile is in
-        // it (below) — so the "nothing matched" line sits ABOVE that grid
-        // rather than replacing it.
-        const no_matches = query && items.length === 0;
+        // Nothing to show still leaves a grid — the tail tile is in it
+        // (below) — so the empty line sits ABOVE that grid rather than
+        // replacing it.
+        const emptyNotice = items.length === 0
+            ? (query ? buildNoMatchesHtml() : buildNoAppsHtml())
+            : '';
 
         // The add-an-app tile rides at the tail of the grid: after every app,
         // on the last page, and nowhere else — a drag can't place an app past
@@ -1415,8 +1399,7 @@ const TabApps = {
         this._pageCount = Math.ceil(items.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
-        $container.html((no_matches ? buildNoMatchesHtml() : '')
-            + buildPagerHtml(items, layout, instant));
+        $container.html(emptyNotice + buildPagerHtml(items, layout, instant));
         // A tile mid-arrival (a deep-link landing installing its app — see
         // _spliceDeepLinkApp) stays parked invisible across re-renders; the
         // intro's arrival beat, not the render, is what reveals it.
