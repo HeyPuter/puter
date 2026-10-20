@@ -79,14 +79,14 @@ const TabFiles = {
                 </form>
                 <div class="directories">
                     <ul>
-                        <li data-folder="Home" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>Home</span></li>
-                        <li data-folder="Desktop" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
-                        <li data-folder="Documents" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
-                        <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
-                        <li data-folder="Public" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
-                        <li data-folder="Videos" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>Videos</span></li>
+                        <li data-folder="Home" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>${i18n('home')}</span></li>
+                        <li data-folder="Desktop" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>${i18n('desktop')}</span></li>
+                        <li data-folder="Documents" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>${i18n('documents')}</span></li>
+                        <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>${i18n('pictures')}</span></li>
+                        <li data-folder="Public" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>${i18n('public')}</span></li>
+                        <li data-folder="Videos" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>${i18n('videos')}</span></li>
                         <li data-folder="Shared" data-path="${html_encode(window.shared_path)}"><img src="${html_encode(window.icons['folder-shared.svg'])}"/> <span>${i18n('shared')}</span></li>
-                        <li data-folder="Trash" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>Trash</span></li>
+                        <li data-folder="Trash" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>${i18n('trash')}</span></li>
                     </ul>
                 </div>
                 <div class="directory-contents">
@@ -1350,7 +1350,7 @@ const TabFiles = {
                 // start
                 start: async function () {
                     // change upload progress window message to uploading
-                    upload_progress_window.set_status('Uploading');
+                    upload_progress_window.set_status(i18n('uploading'));
                     upload_progress_window.set_progress(0);
                 },
                 // progress
@@ -1399,7 +1399,7 @@ const TabFiles = {
                                 : '';
                             return `- ${failedPath}${failedMessage}`;
                         }).join('\n');
-                        UIAlert(`Some uploads failed:\n${failedSummary}`);
+                        UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
                     }
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
@@ -1873,9 +1873,9 @@ const TabFiles = {
         const _this = this;
 
         const sortOptions = [
-            { column: 'name', label: 'Name' },
-            { column: 'size', label: 'Size' },
-            { column: 'modified', label: 'Date Modified' },
+            { column: 'name', label: i18n('name') },
+            { column: 'size', label: i18n('size') },
+            { column: 'modified', label: i18n('date_modified') },
         ];
 
         const items = sortOptions.map(opt => {
@@ -2038,7 +2038,7 @@ const TabFiles = {
             bottom: 0;
             pointer-events: none;
         ">
-            No files in this directory.
+            ${i18n('folder_empty')}
         </div>`);
     },
 
@@ -2308,7 +2308,7 @@ const TabFiles = {
                 pointer-events: none;
                 text-align: center;
                 padding: 0 16px;
-            ">This folder couldn't be opened.</div>`);
+            ">${i18n('folder_open_failed')}</div>`);
             // The list was emptied above; without this the footer keeps the
             // previous directory's item count over a pane with zero rows.
             this.updateFooterStats();
@@ -3010,10 +3010,10 @@ const TabFiles = {
             // or editable was not even active at all
             if ( old_name === new_name || !new_name || new_name === '.' || new_name === '..' || !$(el_item_name_editor).hasClass('item-name-editor-active') ) {
                 if ( new_name === '.' ) {
-                    UIAlert('The name "." is not allowed, because it is a reserved name. Please choose another name.');
+                    UIAlert(i18n('reserved_name_not_allowed', { name: '.' }, false));
                 }
                 else if ( new_name === '..' ) {
-                    UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
+                    UIAlert(i18n('reserved_name_not_allowed', { name: '..' }, false));
                 }
                 $(el_item_name).show();
                 _this.fitItemNames($(el_item_name));
@@ -3635,7 +3635,7 @@ const TabFiles = {
                     } else {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
-                        UIAlert(`<p>Moving <strong>${html_encode(item_name)}</strong></p>${html_encode(err.message ?? '')}`);
+                        UIAlert(`<p>${i18n('moving_file', [`<strong>${html_encode(item_name)}</strong>`], false)}</p>${html_encode(err.message ?? '')}`);
                     }
                 }
             } while ( retry );
@@ -3701,15 +3701,14 @@ const TabFiles = {
         const totalSize = this.calculateTotalSize(allRows);
         const selectedSize = this.calculateTotalSize(selectedRows);
 
-        const itemText = totalCount === 1 ? 'item' : 'items';
-        $footer.find('.files-footer-item-count').html(
-            `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`,
+        const countText = count => i18n(count === 1 ? 'items_count_one' : 'items_count_other', { count }, false);
+        $footer.find('.files-footer-item-count').text(
+            `${countText(totalCount)} · ${window.byte_format(totalSize)}`,
         );
 
         if ( selectedCount > 0 ) {
-            const selectedItemText = selectedCount === 1 ? 'item' : 'items';
             $footer.find('.files-footer-selected-items')
-                .html(`${selectedCount} ${selectedItemText} selected · ${window.byte_format(selectedSize)}`)
+                .text(`${i18n('items_selected', { items: countText(selectedCount) }, false)} · ${window.byte_format(selectedSize)}`)
                 .css('display', 'inline');
             $footer.find('.files-footer-separator').css('display', 'inline');
         } else {
@@ -3762,9 +3761,9 @@ const TabFiles = {
         const _this = this;
 
         const viewOptions = [
-            { mode: 'list', label: 'List' },
-            { mode: 'grid-sm', label: 'Compact Grid' },
-            { mode: 'grid', label: 'Grid' },
+            { mode: 'list', label: i18n('view_list') },
+            { mode: 'grid-sm', label: i18n('view_compact_grid') },
+            { mode: 'grid', label: i18n('view_grid') },
         ];
 
         const items = viewOptions.map(opt => {
@@ -4834,7 +4833,7 @@ const TabFiles = {
         let opid;
 
         if ( destPath === window.trash_path ) {
-            UIAlert('Uploading to trash is not allowed!');
+            UIAlert(i18n('upload_to_trash_not_allowed', [], false));
             return;
         }
 
@@ -4858,7 +4857,7 @@ const TabFiles = {
                 });
             },
             start: async function () {
-                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_status(i18n('uploading'));
                 upload_progress_window.set_progress(0);
             },
             progress: async function (_operation_id, op_progress) {
@@ -4902,7 +4901,7 @@ const TabFiles = {
                             : '';
                         return `- ${failedPath}${failedMessage}`;
                     }).join('\n');
-                    UIAlert(`Some uploads failed:\n${failedSummary}`);
+                    UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
                 }
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 delete window.active_uploads[opid];
@@ -5100,7 +5099,7 @@ const TabFiles = {
         overlay.innerHTML = `
             <div class="files-loading-container">
                 <div class="files-loading-spinner"></div>
-                <div class="files-loading-text">Working...</div>
+                <div class="files-loading-text">${i18n('working')}</div>
             </div>
         `;
 
