@@ -103,13 +103,14 @@ async function UIDashboard (options) {
     // Home is reached via #home. Fall back to Apps for an unknown/absent route.
     const routeTab = window.dashboard_initial_route?.tab;
     const initialTabId = isKnownTabId(routeTab) ? routeTab : 'apps';
+    const sidebarCollapsed = localStorage.getItem('dashboard-sidebar-collapsed') === '1';
 
     let h = '';
 
     h += '<div class="dashboard">';
 
         // Mobile sidebar toggle
-        h += '<button class="dashboard-sidebar-toggle" aria-label="Open menu" aria-expanded="false">';
+        h += `<button class="dashboard-sidebar-toggle" aria-label="${html_encode(i18n('open_menu', [], false))}" aria-expanded="false">`;
             h += '<span></span><span></span><span></span>';
         h += '</button>';
 
@@ -124,12 +125,12 @@ async function UIDashboard (options) {
                     h += `<div class="dashboard-sidebar-logo"><img class="dashboard-sidebar-logo-light" src="${window.icons['logo.svg']}" alt="Puter"><img class="dashboard-sidebar-logo-dark" src="${window.icons['logo-white.svg']}" alt="Puter"><span>Puter</span></div>`;
                     h += teamBadgeHtml(window.user);
                 h += '</div>';
-                h += '<button class="dashboard-sidebar-collapse-toggle">';
-                    h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}">`;
-                    h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}">`;
+                h += `<button class="dashboard-sidebar-collapse-toggle" aria-label="${html_encode(i18n(sidebarCollapsed ? 'expand_sidebar' : 'collapse_sidebar', [], false))}" aria-expanded="${sidebarCollapsed ? 'false' : 'true'}">`;
+                    h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}" alt="">`;
+                    h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}" alt="">`;
                 h += '</button>';
                 // Mobile-only close button (the collapse toggle is desktop-only)
-                h += '<button class="dashboard-sidebar-close" aria-label="Close menu">';
+                h += `<button class="dashboard-sidebar-close" aria-label="${html_encode(i18n('close_menu', [], false))}">`;
                     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
                 h += '</button>';
             h += '</div>';
@@ -199,7 +200,7 @@ async function UIDashboard (options) {
     }
 
     // Restore sidebar collapsed state
-    if ( localStorage.getItem('dashboard-sidebar-collapsed') === '1' ) {
+    if ( sidebarCollapsed ) {
         $el_window.find('.dashboard-sidebar').addClass('collapsed');
     }
 
@@ -648,7 +649,11 @@ async function UIDashboard (options) {
     $el_window.on('click', '.dashboard-sidebar-collapse-toggle', function () {
         const $sidebar = $el_window.find('.dashboard-sidebar');
         $sidebar.toggleClass('collapsed');
-        localStorage.setItem('dashboard-sidebar-collapsed', $sidebar.hasClass('collapsed') ? '1' : '0');
+        const collapsed = $sidebar.hasClass('collapsed');
+        localStorage.setItem('dashboard-sidebar-collapsed', collapsed ? '1' : '0');
+        $(this)
+            .attr('aria-label', i18n(collapsed ? 'expand_sidebar' : 'collapse_sidebar', [], false))
+            .attr('aria-expanded', collapsed ? 'false' : 'true');
     });
 
     // Sidebar collapsed tooltips
