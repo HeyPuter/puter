@@ -38,10 +38,10 @@ Additional settings for the generation request.
 | `seconds` | `Number` | Target clip length in seconds. Each model supports a fixed set of durations; an unsupported value falls back to the model default instead of failing. Gemini Omni has no length control and rejects this option. `duration` is an alias |
 | `size` | `String` | Output size as `'WIDTHxHEIGHT'` (e.g. `'1280x720'`) on every provider. Models that work in resolution tiers take the tier of the shorter side plus the aspect ratio, and also accept the tier directly (`'720p'`). An unsupported value falls back to the model default, except on Gemini Omni, which rejects it. `resolution` is an alias |
 | `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when you leave them out |
-| `input_reference` | `String` | Image the clip starts from (image-to-video): a public URL, a `data:` URI or raw base64, on every provider |
-| `last_frame` | `String` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
-| `reference_images` | `Array<String>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame` |
-| `inputVideo` | `String` | Video to edit, with the prompt describing the change. Only Gemini Omni and FLUX 3 accept it. See [Video input](#video-input) |
+| `input_reference` | `String \| Blob` | Image the clip starts from (image-to-video), on every provider. See [Image inputs](#image-inputs) for the formats it takes |
+| `last_frame` | `String \| Blob` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
+| `reference_images` | `Array<String \| Blob>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame` |
+| `inputVideo` | `String \| Blob` | Video to edit, with the prompt describing the change. Only Gemini Omni and FLUX 3 accept it. See [Video input](#video-input) |
 | `negative_prompt` | `String` | Text describing what to avoid in the video (Together AI) |
 | `seed` | `Number` | Random seed for reproducible results (Together AI and Seedance 1.x) |
 | `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio) |
@@ -60,7 +60,18 @@ On Together AI and Seedance, `seconds` and `size` are normalized rather than rej
 
 #### Image inputs
 
-`input_reference`, `last_frame` and `reference_images` take the same three formats everywhere: a public image URL, a `data:` URI, or raw base64 (treated as PNG). Providers that need inline bytes fetch URLs server-side, so a URL works on every model. What each provider does with them:
+`input_reference`, `last_frame` and `reference_images` take the same formats everywhere:
+
+- a public image URL
+- a `data:` URI, or raw base64 (treated as PNG)
+- the path of a PNG, JPEG, WebP or GIF file in the user's Puter filesystem
+- a `Blob` or `File`
+
+Providers that need inline bytes fetch URLs server-side, so a URL works on every model. Puter reads a Puter file with the caller's access, so a file the caller can't read fails with `access_denied` before generating. The Puter files one request names can be up to 32 MiB together.
+
+puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary file and sends its path instead of the bytes. The file goes in `~/AppData/<appID>/.tmp/` when called from an app, or `~/.tmp/` otherwise, and counts against the user's storage until puter.js deletes it after the call, whether the call succeeds or fails.
+
+What each provider does with image inputs:
 
 | Provider | First frame | Last frame | Reference images |
 |----------|-------------|------------|------------------|
@@ -79,16 +90,18 @@ const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
 });
 ```
 
-The video can be a public URL, a `data:` URI, or the path of a file in the user's Puter filesystem. Puter checks the size and format of a `data:` URI or Puter file before generating. The two models differ in what they take and return:
+The video can be a public URL, the path of a file in the user's Puter filesystem, a `Blob` or `File`, or a `data:` URI. Puter accepts a `data:` URI of up to 1 MiB, and puter.js uploads a `Blob`, a `File` or a larger `data:` URI to a temporary file, as described in [Image inputs](#image-inputs). Puter checks the size and format of a `data:` URI or Puter file before generating. The two models differ in what they take and return:
 
 | | Gemini Omni | FLUX 3 |
 |---|---|---|
 | Formats | MP4, QuickTime or WebM | MP4, QuickTime, WebM or Matroska |
-| Size | Up to 32 MiB | Up to 32 MiB for a `data:` URI or Puter file. A URL is fetched by Together AI |
+| Size | Up to 32 MiB | Up to 32 MiB for a Puter file. A URL is fetched by Together AI |
 | Source length | Up to 10 seconds. A longer video fails with `upstream_bad_request` and isn't charged | Any |
 | Output length | The model decides. The prompt can also ask it to continue the clip past its end | `seconds`, from 5 to 20. Defaults to 6 |
 | Output size | `size`, see [Gemini Omni options](#gemini-omni-options) | 1280x704 |
-| Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.54 per second of output |
+| Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.43 per second of output |
+
+FLUX 3 gets a Puter file as a link that works for 15 minutes, which Together AI fetches when the job starts.
 
 Every other model rejects `inputVideo` with `bad_request`. Both models reject it together with image inputs (`input_reference`, and on FLUX 3 also `last_frame`, `reference_images` and `frame_images`).
 
@@ -144,10 +157,10 @@ Most models size their output in pixels: pass `size` as `'WIDTHxHEIGHT'` (or `wi
 | `output_quality` | `Number` | Quality level of the output |
 | `negative_prompt` | `String` | Text describing what to avoid in the video |
 | `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio |
-| `input_reference` | `String` | First-frame image (URL, `data:` URI or base64); sent as the model's first keyframe |
-| `last_frame` | `String` | Last-frame image, same formats; sent as the model's last keyframe |
-| `reference_images` | `Array<String>` | Reference images to guide the generation |
-| `frame_images` | `Array<Object>` | Explicit keyframes, overriding `input_reference` and `last_frame`. Each object has `input_image` (`String`) and `frame` (`Number`, the frame position the image anchors; `0` is the first frame). One image is the first frame; two are the first and last |
+| `input_reference` | `String \| Blob` | First-frame image, in any [image input](#image-inputs) format. Sent as the model's first keyframe |
+| `last_frame` | `String \| Blob` | Last-frame image, same formats. Sent as the model's last keyframe |
+| `reference_images` | `Array<String \| Blob>` | Reference images to guide the generation |
+| `frame_images` | `Array<Object>` | Explicit keyframes, overriding `input_reference` and `last_frame`. Each object has `input_image` (`String` or `Blob`) and `frame` (`Number`, the frame position the image anchors; `0` is the first frame). One image is the first frame; two are the first and last |
 | `metadata` | `Object` | Additional metadata for the request |
 
 For more details about each option, see the [Together AI API reference](https://docs.together.ai/reference/create-videos).
@@ -175,9 +188,9 @@ The first resolution listed is the default. Seedance is billed per video token, 
 | `width`, `height` | `Number` | Optional. Only their ratio is used, to pick the output aspect ratio: `16:9`, `4:3`, `1:1`, `3:4`, `9:16` or `21:9`. Any other ratio is ignored and the model chooses |
 | `generate_audio` | `Boolean` | Generate a soundtrack along with the video. Defaults to `true` on models that support audio. Set `false` for a silent clip, which on Seedance 1.5 Pro is also cheaper |
 | `seed` | `Number` | Random seed for reproducible results. Seedance 1.x only |
-| `input_reference` | `String` | Image used as the first frame (image-to-video): a public image URL or a `data:` URI |
-| `last_frame` | `String` | Image used as the last frame, same formats. Requires `input_reference` |
-| `reference_images` | `Array<String>` | Images (URL or `data:` URI) the model uses as subject or style references: up to 9 on the Seedance 2.0 models, up to 30 on Seedance 2.5. Cannot be combined with `input_reference` or `last_frame` |
+| `input_reference` | `String \| Blob` | Image used as the first frame (image-to-video), in any [image input](#image-inputs) format |
+| `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` |
+| `reference_images` | `Array<String \| Blob>` | Images the model uses as subject or style references, same formats. Up to 9 on the Seedance 2.0 models, up to 30 on Seedance 2.5. Cannot be combined with `input_reference` or `last_frame` |
 
 An invalid combination (a last frame without a first frame, reference images together with a first frame, or an option the model lacks) is rejected with `bad_request` before any credits are spent.
 
@@ -201,8 +214,8 @@ Google produces 1080p and 4K by upscaling. Pass the resolution on its own for 16
 | `prompt` | `String` | Up to 4,000 characters |
 | `size` | `String` | A resolution or exact size from the table above, case-insensitive. Defaults to `'720p'` at 16:9. `resolution` is an alias, and must match `size` when you pass both |
 | `width`, `height` | `Number` | Together, an exact size from the table above. They must match `size` when you pass it |
-| `input_reference` | `String` | The image the clip starts from: a public URL, a `data:` URI, raw base64, or the path of a file in the user's Puter filesystem. PNG, JPEG or WebP, up to 5 MiB |
-| `inputVideo` | `String` | The video to edit or extend: a public URL, a `data:` URI, or the path of a file in the user's Puter filesystem. MP4, QuickTime or WebM, up to 32 MiB and 10 seconds. See [Video input](#video-input) |
+| `input_reference` | `String \| Blob` | The image the clip starts from, in any [image input](#image-inputs) format. PNG, JPEG or WebP, up to 5 MiB |
+| `inputVideo` | `String \| Blob` | The video to edit or extend, in any format [Video input](#video-input) lists. MP4, QuickTime or WebM, up to 32 MiB and 10 seconds |
 | `output_format` | `String` | Only `'video/mp4'` |
 
 Gemini Omni rejects `seconds`, `duration`, `fps`, `steps`, `guidance_scale`, `seed`, `negative_prompt`, `output_quality`, `generate_audio`, `frame_images`, `last_frame`, `reference_images` and `metadata` with `bad_request`, test mode included, since it has no matching control.
@@ -241,7 +254,7 @@ Every successful generation is charged to the user's AI credits according to the
 
 - **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
 - **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and charged at the model's highest published rate per second.
-- **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. A request with `inputVideo` holds another 16,000 input tokens, about $0.02, because Google charges more tokens for a video than its count before generating reports. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
+- **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. Puter doesn't count the tokens of an `inputVideo`, so a request with one holds another 16,000 input tokens, about $0.02, which covers a 10-second video. Puter reads the video only after the estimate is held. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
 
 Apart from that Gemini Omni case, a request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).
 
@@ -280,9 +293,9 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | Code | Meaning |
 | --- | --- |
 | `prompt_required` | Raised by the SDK before any request is made: the call had no prompt. |
-| `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, `inputVideo` on a model that can't take it, or an image or video URL that could not be fetched. `message` says which. Arrives as HTTP 400. |
-| `input_too_large` | An `input_reference` or `inputVideo` file is over its size limit (5 MiB for an image on Gemini Omni, 32 MiB for a video). Arrives as HTTP 413, before any credits are spent. |
-| `access_denied` | `puter_output_path` points somewhere the caller may not write. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
+| `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, `inputVideo` on a model that can't take it, an image or video URL that could not be fetched, or a Puter file that isn't an accepted image or video format. `message` says which. Arrives as HTTP 400. |
+| `input_too_large` | An image or video input is over its size limit. The limits are 5 MiB for an image on Gemini Omni, 32 MiB for a video, 1 MiB for a video sent as a `data:` URI, and 32 MiB for the Puter file images of one request together. Arrives as HTTP 413, before any credits are spent. |
+| `access_denied` | `puter_output_path` points somewhere the caller may not write, or an image or video input names a Puter file the caller may not read. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
 | `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
 | `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |
 | `upstream_bad_request` | The provider rejected the request itself, for example a duration the model does not support. Arrives as HTTP 400; `message` and `upstreamCode` carry the provider's reason. |

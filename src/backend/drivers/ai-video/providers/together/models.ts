@@ -492,7 +492,8 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptSupported: true,
     },
     // FLUX 3 text-to-video: $0.17/s at 720p, $0.29/s at 1080p. Editing a
-    // source video: $0.43/s at 720p, $0.54/s at 1080p.
+    // source video: $0.43/s at 720p, $0.54/s at 1080p; edits come back at
+    // 1280x704, so they bill at the 720p rate.
     {
         id: 'togetherai:black-forest-labs/FLUX-3',
         puterId: 'togetherai:black-forest-labs/flux-3',
@@ -502,7 +503,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         costs_currency: 'usd-cents',
         costs: {
             'per-second': 29,
-            'per-second-video-input': 54,
+            'per-second-video-input': 43,
             'default-duration-per-video': 145,
         },
         output_cost_key: 'default-duration-per-video',

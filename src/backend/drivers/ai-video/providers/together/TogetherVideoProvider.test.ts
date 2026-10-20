@@ -108,8 +108,10 @@ const aiMetering = () =>
         'ai-video',
     );
 
+const fileDeps = () => ({ stores: server.stores, fs: server.services.fs });
+
 const makeProvider = () =>
-    new TogetherVideoProvider({ apiKey: 'test-key' }, aiMetering());
+    new TogetherVideoProvider({ apiKey: 'test-key' }, aiMetering(), fileDeps());
 
 beforeEach(() => {
     videosCreateMock.mockReset();
@@ -143,7 +145,12 @@ describe('TogetherVideoProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () => new TogetherVideoProvider({ apiKey: '' }, aiMetering()),
+            () =>
+                new TogetherVideoProvider(
+                    { apiKey: '' },
+                    aiMetering(),
+                    fileDeps(),
+                ),
         ).toThrow(/API key/i);
     });
 });
@@ -1110,12 +1117,6 @@ describe('TogetherVideoProvider.generate input_video', () => {
     ]);
     const mp4DataUri = `data:video/mp4;base64,${MP4.toString('base64')}`;
 
-    const makeFileProvider = () =>
-        new TogetherVideoProvider({ apiKey: 'test-key' }, aiMetering(), {
-            stores: server.stores,
-            fs: server.services.fs,
-        });
-
     const completeJob = () => {
         videosCreateMock.mockResolvedValueOnce({ id: 'job-v2v' });
         videosRetrieveMock.mockResolvedValueOnce({
@@ -1156,7 +1157,7 @@ describe('TogetherVideoProvider.generate input_video', () => {
     };
 
     it('passes a URL through as the source video and bills the editing rate', async () => {
-        const provider = makeFileProvider();
+        const provider = makeProvider();
         completeJob();
 
         await withTestActor(() =>
@@ -1175,14 +1176,14 @@ describe('TogetherVideoProvider.generate input_video', () => {
         });
         const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
         expect(count).toBe(6);
-        expect(cost).toBe(54 * 6 * 1_000_000);
+        expect(cost).toBe(43 * 6 * 1_000_000);
     });
 
     it.each([1, 2, 3, 4, 4.99])(
         'rejects an editing balance covering only %s seconds before creating a job',
         async (affordableSeconds) => {
             remainingUsageSpy.mockResolvedValueOnce(
-                affordableSeconds * 54 * 1_000_000,
+                affordableSeconds * 43 * 1_000_000,
             );
 
             await expect(
@@ -1212,7 +1213,7 @@ describe('TogetherVideoProvider.generate input_video', () => {
         'bounds a %s-second edit with credit for %s seconds to %s seconds',
         async (requestedSeconds, affordableSeconds, expectedSeconds) => {
             remainingUsageSpy.mockResolvedValueOnce(
-                affordableSeconds * 54 * 1_000_000,
+                affordableSeconds * 43 * 1_000_000,
             );
             completeJob();
 
@@ -1230,7 +1231,7 @@ describe('TogetherVideoProvider.generate input_video', () => {
             );
             const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
             expect(count).toBe(expectedSeconds);
-            expect(cost).toBe(expectedSeconds * 54 * 1_000_000);
+            expect(cost).toBe(expectedSeconds * 43 * 1_000_000);
         },
     );
 
@@ -1257,30 +1258,33 @@ describe('TogetherVideoProvider.generate input_video', () => {
         },
     );
 
-    it("sends a data URI and the caller's own Puter file inline", async () => {
-        const provider = makeFileProvider();
-        const { actor, userId } = await makeUser();
-
+    it('sends a small data URI inline, typed by its bytes', async () => {
+        const provider = makeProvider();
+        const { actor } = await makeUser();
         completeJob();
         await withTestActor(
             () =>
                 provider.generate({
                     prompt: 'Make this dog a dinosaur.',
                     model: FLUX,
-                    input_video: mp4DataUri,
+                    input_video: `data:application/octet-stream;base64,${MP4.toString('base64')}`,
                 }),
             actor,
         );
         expect(videosCreateMock.mock.calls[0]![0].media).toEqual({
             source_video: mp4DataUri,
         });
+    });
 
-        const path = `/${actor.user.username}/dog.mp4`;
+    it("hands Together a short-lived signed URL to the caller's own Puter file", async () => {
+        const provider = makeProvider();
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user.username}/dog.tmp`;
         await server.services.fs.write(userId, {
             fileMetadata: {
                 path,
                 size: MP4.byteLength,
-                contentType: 'video/mp4',
+                contentType: 'application/octet-stream',
             },
             fileContent: MP4,
         });
@@ -1294,13 +1298,47 @@ describe('TogetherVideoProvider.generate input_video', () => {
                 }),
             actor,
         );
-        expect(videosCreateMock.mock.calls[1]![0].media).toEqual({
-            source_video: mp4DataUri,
+
+        const url = videosCreateMock.mock.calls[0]![0].media.source_video;
+        const params = new URL(url).searchParams;
+        expect(params.get('X-Amz-Expires')).toBe('900');
+        expect(params.get('response-content-type')).toBe('video/mp4');
+        const fetched = await fetch(url);
+        expect(Buffer.from(await fetched.arrayBuffer())).toEqual(MP4);
+    });
+
+    it('reads a Puter file only once credit is held', async () => {
+        const provider = makeProvider();
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user.username}/dog.mp4`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'video/mp4',
+            },
+            fileContent: MP4,
         });
+        const read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        remainingUsageSpy.mockResolvedValueOnce(0);
+
+        await expect(
+            withTestActor(
+                () =>
+                    provider.generate({
+                        prompt: 'Make this dog a dinosaur.',
+                        model: FLUX,
+                        input_video: path,
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(read).not.toHaveBeenCalled();
+        expect(videosCreateMock).not.toHaveBeenCalled();
     });
 
     it("refuses another user's Puter file before creating a job", async () => {
-        const provider = makeFileProvider();
+        const provider = makeProvider();
         const owner = await makeUser();
         const intruder = await makeUser();
         const path = `/${owner.actor.user.username}/private.mp4`;
@@ -1344,7 +1382,7 @@ describe('TogetherVideoProvider.generate input_video', () => {
             'input_video must be an MP4, QuickTime, WebM or Matroska video',
         ],
     ])('refuses %s before creating a job', async (_label, args, message) => {
-        const provider = makeFileProvider();
+        const provider = makeProvider();
         const { actor } = await makeUser();
         await expect(
             withTestActor(
@@ -1359,21 +1397,5 @@ describe('TogetherVideoProvider.generate input_video', () => {
         ).rejects.toMatchObject({ statusCode: 400, message });
         expect(videosCreateMock).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
-    });
-
-    it('takes only a URL when built without file access', async () => {
-        await expect(
-            withTestActor(() =>
-                makeProvider().generate({
-                    prompt: 'hi',
-                    model: FLUX,
-                    input_video: '/someone/dog.mp4',
-                }),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 400,
-            message: 'input_video must be a video URL',
-        });
-        expect(videosCreateMock).not.toHaveBeenCalled();
     });
 });

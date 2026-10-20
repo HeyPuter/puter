@@ -744,6 +744,131 @@ describe('ai.txt2vid driver payloads', () => {
     });
 });
 
+describe('ai media inputs staged through Puter files', () => {
+    const MiB = 1024 * 1024;
+    const bigDataUri = (type) =>
+        `data:${type};base64,${Buffer.alloc(MiB + 1, 1).toString('base64')}`;
+
+    /** Records the temporary files written and deleted through `puter.fs`. */
+    const stageFs = () => {
+        const fs = {
+            written: [],
+            write: vi.fn(async (path, blob) => {
+                fs.written.push({ path, blob });
+                const n = fs.written.length;
+                return { path: `/user/AppData/app-test/.tmp/staged-${n}.tmp`, uid: `uid-${n}` };
+            }),
+            delete: vi.fn(async () => {}),
+        };
+        fakePuter.fs = fs;
+        return fs;
+    };
+
+    beforeEach(() => {
+        FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/out.mp4' });
+    });
+
+    it('txt2vid writes a Blob source video to a temporary file, sends its path, and deletes it after', async () => {
+        const fs = stageFs();
+        const clip = new Blob(['video bytes'], { type: 'video/mp4' });
+
+        await ai.txt2vid('make this dog a dinosaur', { inputVideo: clip });
+
+        expect(fs.write).toHaveBeenCalledOnce();
+        const [path, blob, options] = fs.write.mock.calls[0];
+        expect(path).toMatch(/^~\/AppData\/app-test\/\.tmp\/[0-9a-f-]{36}\.tmp$/);
+        expect(blob).toBe(clip);
+        expect(options).toEqual({ createMissingParents: true });
+        expect(lastBody().args.input_video).toBe('/user/AppData/app-test/.tmp/staged-1.tmp');
+        expect(fs.delete).toHaveBeenCalledWith(['uid-1']);
+    });
+
+    it('txt2vid stages a data URI over 1 MiB and sends small ones and URLs inline', async () => {
+        const fs = stageFs();
+        const small = `data:video/mp4;base64,${Buffer.from('small').toString('base64')}`;
+
+        await ai.txt2vid('edit', { inputVideo: small, input_reference: 'https://example.com/a.png' });
+        expect(fs.write).not.toHaveBeenCalled();
+        expect(fs.delete).not.toHaveBeenCalled();
+        expect(lastBody().args).toMatchObject({
+            input_video: small,
+            input_reference: 'https://example.com/a.png',
+        });
+
+        await ai.txt2vid('edit', { inputVideo: bigDataUri('video/mp4') });
+        const [, blob] = fs.write.mock.calls[0];
+        expect(blob.type).toBe('video/mp4');
+        expect(blob.size).toBe(MiB + 1);
+        expect(lastBody().args.input_video).toBe('/user/AppData/app-test/.tmp/staged-1.tmp');
+    });
+
+    it("txt2vid stages image inputs, keyframes and references included, without changing the caller's options", async () => {
+        const fs = stageFs();
+        const image = new Blob(['png'], { type: 'image/png' });
+        const references = [image, 'https://example.com/b.png'];
+        const frames = [{ input_image: image, frame: 'first' }];
+
+        await ai.txt2vid('animate', {
+            input_reference: image,
+            last_frame: bigDataUri('image/png'),
+            reference_images: references,
+            frame_images: frames,
+        });
+
+        expect(fs.write).toHaveBeenCalledTimes(4);
+        const args = lastBody().args;
+        expect(args.input_reference).toMatch(/staged-\d\.tmp$/);
+        expect(args.last_frame).toMatch(/staged-\d\.tmp$/);
+        expect(args.reference_images[0]).toMatch(/staged-\d\.tmp$/);
+        expect(args.reference_images[1]).toBe('https://example.com/b.png');
+        expect(args.frame_images[0]).toEqual({ input_image: expect.stringMatching(/staged-\d\.tmp$/), frame: 'first' });
+        expect(references[0]).toBe(image);
+        expect(frames[0].input_image).toBe(image);
+        expect(fs.delete).toHaveBeenCalledOnce();
+        expect(fs.delete.mock.calls[0][0]).toHaveLength(4);
+    });
+
+    it('txt2vid deletes the temporary files when the call fails', async () => {
+        const fs = stageFs();
+        FakeXHR.statusOverride = 400;
+        FakeXHR.respondWith = () => ({ message: 'bad', code: 'bad_request' });
+
+        await expect(
+            ai.txt2vid('edit', { inputVideo: new Blob(['v'], { type: 'video/mp4' }) }),
+        ).rejects.toBeTruthy();
+        expect(fs.delete).toHaveBeenCalledWith(['uid-1']);
+    });
+
+    it('txt2vid still settles when deleting a temporary file fails', async () => {
+        const fs = stageFs();
+        fs.delete.mockRejectedValueOnce(new Error('gone'));
+        await expect(
+            ai.txt2vid('edit', { inputVideo: new Blob(['v'], { type: 'video/mp4' }) }),
+        ).resolves.toBeTruthy();
+    });
+
+    it('txt2img stages Blob input images and the mask', async () => {
+        const fs = stageFs();
+        FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/out.png' });
+        const image = new Blob(['png'], { type: 'image/png' });
+
+        await ai.txt2img({
+            prompt: 'a cat',
+            input_image: image,
+            input_images: [image, 'https://example.com/c.png'],
+            maskImage: image,
+        });
+
+        expect(fs.write).toHaveBeenCalledTimes(3);
+        const args = lastBody().args;
+        expect(args.input_image).toMatch(/staged-\d\.tmp$/);
+        expect(args.input_images[0]).toMatch(/staged-\d\.tmp$/);
+        expect(args.input_images[1]).toBe('https://example.com/c.png');
+        expect(args.maskImage).toMatch(/staged-\d\.tmp$/);
+        expect(fs.delete.mock.calls[0][0]).toHaveLength(3);
+    });
+});
+
 describe('instance isolation', () => {
     it('driver calls use the constructor instance, not globalThis.puter', async () => {
         globalThis.puter = {

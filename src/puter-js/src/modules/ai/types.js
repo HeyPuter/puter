@@ -273,8 +273,10 @@
  * @property {string} [resolution] xAI output resolution: `'1k'` (default) or `'2k'`; model-specific resolution tier on Replicate.
  * On `grok-imagine-image-2.0`, `quality` independently accepts `'low'`, `'medium'`, or `'auto'`.
  * The older xAI models also accept the resolution through `quality` for compatibility.
- * @property {string} [input_image] One reference image: a public URL, data URI, or raw base64.
- * @property {string[]} [input_images] Reference images as URLs, data URIs, or raw base64.
+ * @property {string | Blob} [input_image] One reference image: a public URL, data URI, raw base64,
+ * Puter file path, or Blob or File. A Blob, File or data URI over 1 MiB is uploaded to a temporary
+ * Puter file for the call and deleted afterwards.
+ * @property {Array<string | Blob>} [input_images] Reference images, in any form `input_image` takes.
  * Model support varies. xAI accepts up to 5; Together and Cloudflare accept one.
  * @property {string} [input_image_mime_type] MIME type of the input image(s), e.g. `'image/png'`. Used
  * as a fallback when the type cannot be auto-detected (Gemini).
@@ -299,8 +301,8 @@
  * @property {string} [image_base64] Base64-encoded input image for image-to-image generation (Together; no effect while Together routes are excluded).
  * @property {string} [mask_image_url] URL of a mask image for inpainting (Together; no effect while Together routes are excluded).
  * @property {string} [mask_image_base64] Base64-encoded mask image for inpainting (Together; no effect while Together routes are excluded).
- * @property {string} [maskImage] Mask image URL, data URI, or raw base64 for supported Cloudflare and
- * Replicate inpainting models. Supply an input image as well.
+ * @property {string | Blob} [maskImage] Mask image for supported Cloudflare and Replicate inpainting
+ * models, in any form `input_image` takes. Supply an input image as well.
  * @property {Record<string, unknown>} [providerOptions] Native options for Replicate catalog models,
  * validated against the selected model's API schema. Common options take precedence.
  * @property {number} [strength] Transformation strength for supported Cloudflare and Replicate image editing models.
@@ -355,15 +357,18 @@
  * the exact 16:9 or 9:16 size of one of them (`'640x360'`, `'360x640'`, `'1280x720'`, …), and
  * rejects any other value.
  * @property {string} [resolution] Alias of `size`.
- * @property {string} [input_reference] First-frame image for image-to-video: a URL, data URI or raw
- * base64, on every provider. Gemini Omni also takes a Puter file path, and accepts one PNG, JPEG or
- * WebP image up to 5 MiB.
- * @property {string} [last_frame] Last-frame image, same formats as `input_reference`.
- * @property {string} [inputVideo] Source video to edit, described by the prompt: a URL, data URI or
- * Puter file path of at most 32 MiB. Only `'gemini-omni-1.1-flash'` (MP4, QuickTime or WebM, up to
- * 10 seconds) and `'togetherai:black-forest-labs/flux-3'` accept it. Can't be combined with image inputs.
- * @property {string[]} [reference_images] Subject/style reference images (URL, data URI or base64).
- * Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
+ * @property {string | Blob} [input_reference] First-frame image for image-to-video: a URL, data URI,
+ * raw base64, Puter file path, or Blob or File, on every provider. A Blob, File or data URI over 1 MiB
+ * is uploaded to a temporary Puter file for the call and deleted afterwards. Gemini Omni accepts one
+ * PNG, JPEG or WebP image up to 5 MiB.
+ * @property {string | Blob} [last_frame] Last-frame image, same formats as `input_reference`.
+ * @property {string | Blob} [inputVideo] Source video to edit, described by the prompt: a URL, Puter
+ * file path, Blob or File of at most 32 MiB, or a data URI. A Blob, File or data URI over 1 MiB is
+ * uploaded to a temporary Puter file for the call and deleted afterwards. Only
+ * `'gemini-omni-1.1-flash'` (MP4, QuickTime or WebM, up to 10 seconds) and
+ * `'togetherai:black-forest-labs/flux-3'` accept it. Can't be combined with image inputs.
+ * @property {Array<string | Blob>} [reference_images] Subject/style reference images, same formats as
+ * `input_reference`. Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
  * @property {string} [negative_prompt] What to keep out of the video (Together).
  * @property {boolean} [generate_audio] Generate a soundtrack on models that support audio (Seedance 2.x
  * and Together models with audio). Defaults to `true` on Seedance.
@@ -378,8 +383,8 @@
  * @property {number} [guidance_scale] TogetherAI.
  * @property {string} [output_format] TogetherAI. Gemini Omni accepts only `'video/mp4'`.
  * @property {number} [output_quality] TogetherAI.
- * @property {Array<{ input_image: string, frame: number }>} [frame_images] TogetherAI: keyframe images
- * for image-to-video.
+ * @property {Array<{ input_image: string | Blob, frame: number }>} [frame_images] TogetherAI: keyframe
+ * images for image-to-video, same formats as `input_reference`.
  * @property {Record<string, unknown>} [metadata] TogetherAI.
  * @property {string} [puter_output_path] Save the generated video to this path on the Puter filesystem.
  * Relative paths resolve against the app's data directory (`~/AppData/<appID>/`) when called from an

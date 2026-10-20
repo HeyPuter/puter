@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
@@ -33,9 +34,11 @@ import { loadFileInput } from '../../../util/fileInput.js';
 import {
     geminiUpstreamFailure,
     postGeminiJson,
+    type StreamedBase64,
     geminiTokenCount as tokenCount,
 } from '../../../util/geminiRest.js';
 import { fetchImageBytes, isHttpUrl } from '../../../util/imageInput.js';
+import { openVideoInput } from '../../../util/mediaInput.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { VideoProvider } from '../VideoProvider.js';
 import {
@@ -48,8 +51,12 @@ const SAMPLE_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 
 export const GEMINI_OMNI_MAX_PROMPT_CHARS = 4000;
 export const GEMINI_OMNI_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** Goes inline, and as a data URI it must fit the 50 MB JSON body limit. */
+/**
+ * Streamed into the request; a clip Gemini accepts (10 s at most) is far
+ * smaller.
+ */
 export const GEMINI_OMNI_MAX_VIDEO_BYTES = 32 * 1024 * 1024;
+/** Bounds downloading a source video URL, which streams into the request. */
 export const GEMINI_OMNI_VIDEO_FETCH_TIMEOUT_MS = 60_000;
 /** Uses the lower input limit returned by the model metadata. */
 export const GEMINI_OMNI_MAX_INPUT_TOKENS = 131_072;
@@ -58,8 +65,9 @@ export const GEMINI_OMNI_MAX_OUTPUT_TOKENS = 65_536;
 const VIDEO_RESERVATION_ALLOWANCE = 173_760;
 const TEXT_RESERVATION_ALLOWANCE = 65_536;
 /**
- * Gemini's countTokens undercounts a source video, which is billed at about
- * 1,500 tokens a second; this covers the longest clip Gemini edits (10 s).
+ * A source video isn't counted: countTokens would mean uploading it twice, and
+ * it undercounts video about 8x. It bills at about 1,500 tokens a second, so
+ * this covers the longest clip Gemini edits (10 s).
  */
 const VIDEO_INPUT_RESERVATION_ALLOWANCE = 16_000;
 export const GEMINI_OMNI_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
@@ -116,10 +124,15 @@ interface OmniRequest extends OmniSize {
     inputVideo?: string;
 }
 
-interface InlineMedia {
-    type: 'image' | 'video';
+interface InlineImage {
     mimeType: string;
     data: string;
+}
+
+/** A source video streamed into the request in place of its placeholder. */
+interface SourceVideo {
+    mimeType: string;
+    media: StreamedBase64;
 }
 
 export interface GeminiVideoDeps {
@@ -307,16 +320,14 @@ export class GeminiVideoProvider extends VideoProvider {
             });
         }
         const signal = Context.get('abortSignal');
-        const media =
-            request.inputVideo !== undefined
-                ? await this.#loadVideo(actor, request.inputVideo, signal)
-                : request.inputReference !== undefined
-                  ? await this.#loadImage(actor, request.inputReference, signal)
-                  : undefined;
+        const image =
+            request.inputReference === undefined
+                ? undefined
+                : await this.#loadImage(actor, request.inputReference, signal);
 
         const inputTokens = await this.#countTokens(
             request.prompt,
-            media,
+            image,
             signal,
         );
         if (inputTokens > GEMINI_OMNI_MAX_INPUT_TOKENS) {
@@ -331,7 +342,9 @@ export class GeminiVideoProvider extends VideoProvider {
         // and thinking allowance. Neither is a guaranteed spending bound.
         const costs = GEMINI_OMNI_COSTS;
         const videoInputAllowance =
-            media?.type === 'video' ? VIDEO_INPUT_RESERVATION_ALLOWANCE : 0;
+            request.inputVideo === undefined
+                ? 0
+                : VIDEO_INPUT_RESERVATION_ALLOWANCE;
         const holdAmount =
             (inputTokens + videoInputAllowance) * costs.input +
             VIDEO_RESERVATION_ALLOWANCE * costs.outputVideo +
@@ -347,16 +360,15 @@ export class GeminiVideoProvider extends VideoProvider {
         if (!hold) throw insufficientCreditsError();
 
         try {
-            const interaction = await postGeminiJson<Interaction>(
-                this.#apiKey,
-                'interactions',
-                this.#interactionRequest(request, media),
-                {
-                    label: 'Gemini video generation',
-                    maxBytes: GEMINI_OMNI_MAX_RESPONSE_BYTES,
-                    timeoutMs: GEMINI_OMNI_TIMEOUT_MS,
-                    signal,
-                },
+            // Opened only once credit is held, and streamed, never held whole.
+            const sourceVideo =
+                request.inputVideo === undefined
+                    ? undefined
+                    : await this.#openVideo(actor, request.inputVideo, signal);
+            const interaction = await this.#postInteraction(
+                this.#interactionRequest(request, image, sourceVideo),
+                sourceVideo,
+                signal,
             );
             const videoBlock = this.#findVideo(interaction);
 
@@ -530,7 +542,7 @@ export class GeminiVideoProvider extends VideoProvider {
         actor: Actor,
         input: string,
         signal: AbortSignal | undefined,
-    ): Promise<InlineMedia> {
+    ): Promise<InlineImage> {
         const bytes = isHttpUrl(input)
             ? (
                   await fetchImageBytes(input, {
@@ -553,52 +565,85 @@ export class GeminiVideoProvider extends VideoProvider {
                 'input_reference must be a PNG, JPEG or WebP image',
             );
         }
-        return { type: 'image', mimeType, data: bytes.toString('base64') };
+        return { mimeType, data: bytes.toString('base64') };
     }
 
-    /** The source video to edit, read within the caller's access and size cap. */
-    async #loadVideo(
+    /** The source video, read within the caller's access and size cap. */
+    async #openVideo(
         actor: Actor,
         input: string,
         signal: AbortSignal | undefined,
-    ): Promise<InlineMedia> {
-        const { buffer } = await loadFileInput(
-            this.#deps.stores,
-            this.#deps.fs,
-            actor,
-            input,
-            {
-                maxBytes: GEMINI_OMNI_MAX_VIDEO_BYTES,
-                acceptWebInput: true,
-                timeoutMs: GEMINI_OMNI_VIDEO_FETCH_TIMEOUT_MS,
-                signal,
-            },
-        );
-        const mimeType = sniffVideoMime(buffer);
-        if (!mimeType || !VIDEO_MIME_TYPES.has(mimeType)) {
+    ): Promise<SourceVideo> {
+        const video = await openVideoInput(this.#deps, actor, input, {
+            maxBytes: GEMINI_OMNI_MAX_VIDEO_BYTES,
+            timeoutMs: GEMINI_OMNI_VIDEO_FETCH_TIMEOUT_MS,
+            signal,
+        });
+        if (!video.mimeType || !VIDEO_MIME_TYPES.has(video.mimeType)) {
+            video.cancel();
             throw badRequest(
                 'input_video must be an MP4, QuickTime or WebM video',
             );
         }
-        return { type: 'video', mimeType, data: buffer.toString('base64') };
+        return {
+            mimeType: video.mimeType,
+            media: {
+                placeholder: `\u0000source-video-${randomUUID()}`,
+                chunks: video.chunks,
+                byteLength: video.byteLength,
+            },
+        };
     }
 
-    /** Input tokens for the prompt and media, counted as they will be sent. */
+    /**
+     * Runs the interaction, streaming the source video into the request. A
+     * source that fails while streaming is reported as the caller's input, not
+     * as a Gemini failure.
+     */
+    async #postInteraction(
+        body: InteractionRequest,
+        video: SourceVideo | undefined,
+        signal: AbortSignal | undefined,
+    ): Promise<Interaction> {
+        const post = (media?: StreamedBase64) =>
+            postGeminiJson<Interaction>(this.#apiKey, 'interactions', body, {
+                label: 'Gemini video generation',
+                maxBytes: GEMINI_OMNI_MAX_RESPONSE_BYTES,
+                timeoutMs: GEMINI_OMNI_TIMEOUT_MS,
+                signal,
+                media,
+            });
+        if (!video) return post();
+
+        let sourceFailed = false;
+        const { chunks } = video.media;
+        try {
+            return await post({
+                ...video.media,
+                chunks: (async function* () {
+                    try {
+                        yield* chunks;
+                    } catch (err) {
+                        sourceFailed = true;
+                        throw err;
+                    }
+                })(),
+            });
+        } catch (err) {
+            if (signal?.aborted) throw signal.reason;
+            if (sourceFailed) throw badRequest('Failed to read input_video');
+            throw err;
+        }
+    }
+
+    /** Input tokens for the prompt and image, counted as they will be sent. */
     async #countTokens(
         prompt: string,
-        media: InlineMedia | undefined,
+        image: InlineImage | undefined,
         signal: AbortSignal | undefined,
     ): Promise<number> {
-        const parts: CountTokensPart[] = media
-            ? [
-                  {
-                      inlineData: {
-                          mimeType: media.mimeType,
-                          data: media.data,
-                      },
-                  },
-                  { text: prompt },
-              ]
+        const parts: CountTokensPart[] = image
+            ? [{ inlineData: image }, { text: prompt }]
             : [{ text: prompt }];
         const request: CountTokensRequest = { contents: [{ parts }] };
         const reply = await postGeminiJson<CountTokensReply>(
@@ -623,19 +668,24 @@ export class GeminiVideoProvider extends VideoProvider {
 
     #interactionRequest(
         request: OmniRequest,
-        media: InlineMedia | undefined,
+        image: InlineImage | undefined,
+        video: SourceVideo | undefined,
     ): InteractionRequest {
+        const media: InteractionInput | undefined = video
+            ? {
+                  type: 'video',
+                  mime_type: video.mimeType,
+                  data: video.media.placeholder,
+              }
+            : image && {
+                  type: 'image',
+                  mime_type: image.mimeType,
+                  data: image.data,
+              };
         const body: InteractionRequest = {
             model: GEMINI_OMNI_MODEL,
             input: media
-                ? [
-                      {
-                          type: media.type,
-                          mime_type: media.mimeType,
-                          data: media.data,
-                      },
-                      { type: 'text', text: request.prompt },
-                  ]
+                ? [media, { type: 'text', text: request.prompt }]
                 : request.prompt,
             response_format: {
                 type: 'video',
@@ -651,7 +701,7 @@ export class GeminiVideoProvider extends VideoProvider {
         };
         // A source video gets no task: the prompt says whether to edit or
         // extend it.
-        if (media?.type === 'image') {
+        if (image) {
             body.generation_config.video_config = { task: 'image_to_video' };
         }
         return body;

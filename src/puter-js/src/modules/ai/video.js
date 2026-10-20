@@ -1,6 +1,7 @@
 import * as utils from '../../lib/utils.js';
 import getAbsolutePathForApp from '../FileSystem/utils/getAbsolutePathForApp.js';
 import { toVideoElement } from './lib/media.js';
+import { createMediaStager } from './lib/stage.js';
 
 /** @typedef {import('./types.js').Txt2VidOptions} Txt2VidOptions */
 
@@ -31,6 +32,8 @@ import { toVideoElement } from './lib/media.js';
  *   txt2vid({ prompt, duration | seconds, ... }, [testMode])
  *
  * With `inputVideo` on a model that edits video, the prompt describes the edit.
+ * A Blob, File or data URI over 1 MiB given as a video or image input is
+ * written to a temporary Puter file for the request and deleted afterwards.
  *
  * @this {import('./index.js').AIModule}
  * @param {string | Txt2VidOptions} [promptOrOptions]
@@ -85,14 +88,44 @@ export async function txt2vid (promptOrOptions, optionsOrTestMode) {
         options.puter_output_path = getAbsolutePathForApp(options.puter_output_path, puter);
     }
 
-    return await utils.makeDriverMethod({
-        iface: 'puter-video-generation',
-        driver: videoService,
-        method: 'generate',
-        argNames: ['prompt'],
-        puter,
-        responseType: 'blob',
-        testMode: testMode ?? false,
-        transform: toVideoElement,
-    })(options);
+    const stager = createMediaStager(puter);
+    try {
+        const { stage } = stager;
+        const [inputVideo, inputReference, lastFrame, referenceImages, frameImages] = await Promise.all([
+            stage(options.input_video),
+            stage(options.input_reference),
+            stage(options.last_frame),
+            Array.isArray(options.reference_images)
+                ? Promise.all(options.reference_images.map(stage))
+                : options.reference_images,
+            Array.isArray(options.frame_images)
+                ? Promise.all(options.frame_images.map(async (frame) =>
+                    frame && typeof frame === 'object'
+                        ? { ...frame, input_image: await stage(frame.input_image) }
+                        : frame))
+                : options.frame_images,
+        ]);
+        for ( const [key, value] of Object.entries({
+            input_video: inputVideo,
+            input_reference: inputReference,
+            last_frame: lastFrame,
+            reference_images: referenceImages,
+            frame_images: frameImages,
+        }) ) {
+            if ( value !== undefined ) options[key] = value;
+        }
+
+        return await utils.makeDriverMethod({
+            iface: 'puter-video-generation',
+            driver: videoService,
+            method: 'generate',
+            argNames: ['prompt'],
+            puter,
+            responseType: 'blob',
+            testMode: testMode ?? false,
+            transform: toVideoElement,
+        })(options);
+    } finally {
+        await stager.cleanup();
+    }
 }

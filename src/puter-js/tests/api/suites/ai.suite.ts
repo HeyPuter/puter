@@ -1101,6 +1101,31 @@ export default suite('ai', {
         t.assert.equal(options.providerOptions.outputFormat, 'png');
     },
 
+    'txt2img and txt2vid send Blob inputs through temporary files they delete': async (t) => {
+        useApiToken(t);
+        const bytes = (dataUri: string) =>
+            Uint8Array.from(atob(dataUri.split(',')[1]!), (c) => c.charCodeAt(0));
+        const image = new Blob([bytes(TINY_PNG)], { type: 'image/png' });
+        const clip = new Blob([bytes(TINY_MP4)], { type: 'video/mp4' });
+
+        // Keyless, both fail after the inputs were written, which is enough
+        // to see the temporary files go away whatever the outcome.
+        const imageError = await errorOf(t, () =>
+            t.puter.ai.txt2img('a cat', {
+                model: 'ai-suite-model',
+                input_images: [image],
+                maskImage: image,
+            }),
+        );
+        t.assert.equal(imageError.message, 'Model not found: ai-suite-model');
+        const videoError = await errorOf(t, () =>
+            t.puter.ai.txt2vid('Make this dog a dinosaur.', { inputVideo: clip }),
+        );
+        t.assert.equal(videoError.code, 'internal_error');
+
+        t.assert.deepEqual(await t.puter.fs.readdir('.tmp'), []);
+    },
+
     'txt2img forwards the model from either call form': async (t) => {
         useApiToken(t);
         // Keyless the model can never resolve, and the driver echoes back the

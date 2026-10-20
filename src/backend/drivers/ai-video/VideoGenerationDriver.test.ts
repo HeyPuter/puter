@@ -40,11 +40,13 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { v4 as uuidv4 } from 'uuid';
 import { runWithContext } from '../../core/context.js';
-import { SYSTEM_ACTOR } from '../../core/actor.js';
+import { type Actor, SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './providers/together/models.js';
 import type { VideoGenerationDriver } from './VideoGenerationDriver.js';
 
@@ -181,6 +183,144 @@ describe('VideoGenerationDriver.generate argument validation', () => {
         });
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
         expect(secureFetchMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('VideoGenerationDriver.generate media inputs', () => {
+    const PNG = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64',
+    );
+    const pngDataUri = `data:image/png;base64,${PNG.toString('base64')}`;
+
+    const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
+        const username = `video-media-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            created,
+        );
+        const user = (await server.stores.user.getById(created.id))!;
+        return {
+            userId: user.id,
+            actor: {
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    };
+
+    const writeImage = async (
+        { actor, userId }: { actor: Actor; userId: number },
+        name: string,
+    ) => {
+        const path = `/${actor.user.username}/${name}`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: PNG.byteLength,
+                contentType: 'application/octet-stream',
+            },
+            fileContent: PNG,
+        });
+        return path;
+    };
+
+    const generateAs = (actor: Actor, args: Record<string, unknown>) =>
+        Promise.resolve(
+            runWithContext({ actor }, () =>
+                driver.generate({
+                    prompt: 'A dinosaur.',
+                    model: DEFAULT_MODEL,
+                    ...args,
+                } as never),
+            ),
+        );
+
+    it("sends Puter file image inputs as data URIs without changing the caller's arrays", async () => {
+        const user = await makeUser();
+        const first = await writeImage(user, 'first.tmp');
+        const reference = await writeImage(user, 'reference.tmp');
+        const referenceImages = [reference, 'https://example.com/b.png'];
+        const frameImages = [{ input_image: first, frame: 'first' }];
+
+        completeTogetherJob();
+        await generateAs(user.actor, {
+            reference_images: referenceImages,
+            frame_images: frameImages,
+        });
+        expect(togetherSent().reference_images).toEqual([
+            pngDataUri,
+            'https://example.com/b.png',
+        ]);
+        expect(togetherSent().frame_images).toEqual([
+            { input_image: pngDataUri, frame: 'first' },
+        ]);
+        expect(referenceImages[0]).toBe(reference);
+        expect(frameImages[0]!.input_image).toBe(first);
+
+        completeTogetherJob();
+        await generateAs(user.actor, {
+            input_reference: first,
+            last_frame: 'https://example.com/last.png',
+        });
+        expect(togetherSent(1).frame_images).toEqual([
+            { input_image: pngDataUri, frame: 'first' },
+            { input_image: 'https://example.com/last.png', frame: 'last' },
+        ]);
+        expect(secureFetchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses another user's image before calling the provider", async () => {
+        const owner = await makeUser();
+        const intruder = await makeUser();
+        const path = await writeImage(owner, 'private.png');
+        const status = await generateAs(intruder.actor, {
+            input_reference: path,
+        }).then(
+            () => null,
+            (err: { statusCode?: number }) => err.statusCode,
+        );
+        expect([403, 404]).toContain(status);
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('reads no file in test mode', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            generateAs(actor, {
+                input_reference: '/nobody/missing.png',
+                test_mode: true,
+            }),
+        ).resolves.toBeTruthy();
+    });
+
+    it('refuses a data URI source video over 1 MiB with 413', async () => {
+        const { actor } = await makeUser();
+        const video = Buffer.alloc(1024 * 1024 + 1).toString('base64');
+        await expect(
+            generateAs(actor, {
+                model: 'togetherai:black-forest-labs/flux-3',
+                input_video: `data:video/mp4;base64,${video}`,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 413,
+            legacyCode: 'input_too_large',
+        });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 });
 

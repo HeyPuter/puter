@@ -31,6 +31,11 @@ import {
     saveGeneratedMediaToFS,
 } from '../util/generatedMedia.js';
 import { usesGoogleGeminiEndpoint } from '../util/geminiRest.js';
+import {
+    dataUriByteLength,
+    MAX_INLINE_VIDEO_BYTES,
+    readPuterImageInputs,
+} from '../util/mediaInput.js';
 import { ModelCatalog } from '../util/modelCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
@@ -237,6 +242,19 @@ export class VideoGenerationDriver extends PuterDriver {
                 { legacyCode: 'bad_request' },
             );
         }
+        // A larger video comes as a URL or a Puter file, so it is never
+        // parsed out of the request body or held as one string.
+        if (
+            typeof request.input_video === 'string' &&
+            request.input_video.startsWith('data:') &&
+            dataUriByteLength(request.input_video) > MAX_INLINE_VIDEO_BYTES
+        ) {
+            throw new HttpError(
+                413,
+                `A data URI input_video can be at most ${MAX_INLINE_VIDEO_BYTES} bytes; pass a URL or Puter file path instead`,
+                { legacyCode: 'input_too_large' },
+            );
+        }
 
         // Validate / normalise duration
         if (model.durationSeconds?.length) {
@@ -303,7 +321,9 @@ export class VideoGenerationDriver extends PuterDriver {
         }
 
         const result = await provider.generate({
-            ...request,
+            ...(request.test_mode
+                ? request
+                : await this.#withPuterImagesInlined(actor, request)),
             model: model.id,
             provider: model.provider,
         });
@@ -319,6 +339,57 @@ export class VideoGenerationDriver extends PuterDriver {
         }
 
         return result;
+    }
+
+    /**
+     * `request` with image inputs given as Puter file paths read within the
+     * caller's access and replaced by data URIs. `request` is left as is.
+     */
+    async #withPuterImagesInlined(
+        actor: Actor,
+        request: IGenerateVideoParams,
+    ): Promise<IGenerateVideoParams> {
+        const references = Array.isArray(request.reference_images)
+            ? request.reference_images
+            : undefined;
+        const frames = Array.isArray(request.frame_images)
+            ? request.frame_images
+            : undefined;
+        const frameImage = (frame: object): unknown =>
+            frame && typeof frame === 'object'
+                ? (frame as { input_image?: unknown }).input_image
+                : undefined;
+
+        const inlined = await readPuterImageInputs(
+            { stores: this.stores, fs: this.services.fs },
+            actor,
+            [
+                request.input_reference,
+                request.last_frame,
+                ...(references ?? []),
+                ...(frames ?? []).map(frameImage),
+            ],
+        );
+        if (inlined.size === 0) return request;
+
+        const swap = <T>(value: T): T | string =>
+            (typeof value === 'string' && inlined.get(value)) || value;
+        return {
+            ...request,
+            ...(request.input_reference != null && {
+                input_reference: swap(request.input_reference),
+            }),
+            ...(request.last_frame && { last_frame: swap(request.last_frame) }),
+            ...(references && { reference_images: references.map(swap) }),
+            ...(frames && {
+                frame_images: frames.map((frame) => {
+                    const image = frameImage(frame);
+                    return typeof image === 'string' && inlined.has(image)
+                        ? { ...frame, input_image: inlined.get(image) }
+                        : frame;
+                }),
+            }),
+        };
     }
 
     // -- Provider registration -----------------------------------------------

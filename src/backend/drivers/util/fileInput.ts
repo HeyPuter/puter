@@ -30,7 +30,6 @@ import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { dataUriBytes, parseDataUri } from './dataUri.js';
-import { isUpstreamTimeoutError } from './upstreamErrors.js';
 
 /**
  * Resolve a file-like input sent through the drivers API into a Buffer.
@@ -78,7 +77,8 @@ export interface ResolvedFileInput {
  * uuid? }`.
  */
 export type FileInputRef =
-    string | { path?: string; uid?: string; uuid?: string };
+    | string
+    | { path?: string; uid?: string; uuid?: string };
 
 export interface OpenedFileInput {
     body: Readable;
@@ -94,10 +94,6 @@ type FileInputStores = { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 interface FileInputOptions {
     maxBytes?: number;
     acceptWebInput?: true;
-    /** Bounds fetching a web URL, body included. */
-    timeoutMs?: number;
-    /** Cancels fetching a web URL, body included. */
-    signal?: AbortSignal;
 }
 
 export async function loadFileInput(
@@ -159,43 +155,16 @@ export async function resolveFileInput(
         (input.startsWith('https://') || input.startsWith('http://')) &&
         options.acceptWebInput
     ) {
-        const { timeoutMs, signal } = options;
-        signal?.throwIfAborted();
-        const timeoutSignal = timeoutMs
-            ? AbortSignal.timeout(timeoutMs)
-            : undefined;
-        const fetchSignal =
-            signal && timeoutSignal
-                ? AbortSignal.any([signal, timeoutSignal])
-                : (signal ?? timeoutSignal);
-        let response: Response;
-        let buffer: Buffer;
-        try {
-            response = fetchSignal
-                ? await secureFetch(input, { signal: fetchSignal })
-                : await secureFetch(input);
-            if (!response.ok) {
-                await response.body?.cancel();
-                throw new HttpError(
-                    400,
-                    `Failed to fetch URL (status ${response.status})`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            buffer = await readBoundedBody(response, options.maxBytes);
-        } catch (err) {
-            if (signal?.aborted && fetchSignal?.reason === signal.reason) {
-                throw signal.reason;
-            }
-            if (timeoutMs && isUpstreamTimeoutError(err)) {
-                throw new HttpError(
-                    400,
-                    `Timed out fetching URL after ${timeoutMs} ms`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-            throw err;
+        const response = await secureFetch(input);
+        if (!response.ok) {
+            await response.body?.cancel();
+            throw new HttpError(
+                400,
+                `Failed to fetch URL (status ${response.status})`,
+                { legacyCode: 'bad_request' },
+            );
         }
+        const buffer = await readBoundedBody(response, options.maxBytes);
         const contentType = response.headers.get('content-type');
         const mime =
             contentType?.split(';')[0]?.trim() ||
@@ -217,7 +186,7 @@ export async function resolveFileInput(
         input as FileInputRef,
     );
     if (options.maxBytes && (entry.size ?? 0) > options.maxBytes) {
-        throw tooLarge(options.maxBytes);
+        throw fileInputTooLarge(options.maxBytes);
     }
     let loading: Promise<LoadedFile> | undefined;
     return {
@@ -349,7 +318,7 @@ async function openEntryStream(
         );
     if (contentLength && options.maxBytes && contentLength > options.maxBytes) {
         body.destroy();
-        throw tooLarge(options.maxBytes);
+        throw fileInputTooLarge(options.maxBytes);
     }
     return {
         body,
@@ -367,7 +336,7 @@ async function openEntryStream(
 async function collectStream(
     body: Readable,
     maxBytes: number | undefined,
-    tooLargeError: (maxBytes: number) => Error = tooLarge,
+    tooLargeError: (maxBytes: number) => Error = fileInputTooLarge,
 ): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -392,7 +361,7 @@ async function collectStream(
 export async function readBoundedBody(
     response: Response,
     maxBytes: number | undefined,
-    tooLargeError: (maxBytes: number) => Error = tooLarge,
+    tooLargeError: (maxBytes: number) => Error = fileInputTooLarge,
 ): Promise<Buffer> {
     const declaredLength = Number(response.headers.get('content-length'));
     if (maxBytes && declaredLength > maxBytes) {
@@ -416,7 +385,7 @@ function requireActorUser(actor: Actor): void {
     }
 }
 
-function tooLarge(maxBytes: number): HttpError {
+export function fileInputTooLarge(maxBytes: number): HttpError {
     return new HttpError(413, `File exceeds max size (${maxBytes} bytes)`, {
         legacyCode: 'input_too_large',
     });

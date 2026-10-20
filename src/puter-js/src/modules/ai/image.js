@@ -1,6 +1,7 @@
 import * as utils from '../../lib/utils.js';
 import getAbsolutePathForApp from '../FileSystem/utils/getAbsolutePathForApp.js';
 import { toImageElement } from './lib/media.js';
+import { createMediaStager } from './lib/stage.js';
 
 /** @typedef {import('./types.js').Txt2ImgOptions} Txt2ImgOptions */
 
@@ -29,6 +30,9 @@ import { toImageElement } from './lib/media.js';
  *   txt2img(prompt, [testMode])
  *   txt2img(prompt, options)
  *   txt2img({ prompt, model, input_image, ... }, [testMode])
+ *
+ * A Blob, File or data URI over 1 MiB given as an input or mask image is
+ * written to a temporary Puter file for the request and deleted afterwards.
  *
  * @this {import('./index.js').AIModule}
  * @param {string | Txt2ImgOptions} [promptOrOptions]
@@ -69,14 +73,35 @@ export async function txt2img (promptOrOptions, optionsOrTestMode) {
         options.puter_output_path = getAbsolutePathForApp(options.puter_output_path, puter);
     }
 
-    return await utils.makeDriverMethod({
-        iface: 'puter-image-generation',
-        driver: imageService,
-        method: 'generate',
-        argNames: ['prompt'],
-        puter,
-        responseType: 'blob',
-        testMode: testMode ?? false,
-        transform: toImageElement,
-    })(options);
+    const stager = createMediaStager(puter);
+    try {
+        const { stage } = stager;
+        const [inputImage, inputImages, maskImage] = await Promise.all([
+            stage(options.input_image),
+            Array.isArray(options.input_images)
+                ? Promise.all(options.input_images.map(stage))
+                : options.input_images,
+            stage(options.maskImage),
+        ]);
+        for ( const [key, value] of Object.entries({
+            input_image: inputImage,
+            input_images: inputImages,
+            maskImage,
+        }) ) {
+            if ( value !== undefined ) options[key] = value;
+        }
+
+        return await utils.makeDriverMethod({
+            iface: 'puter-image-generation',
+            driver: imageService,
+            method: 'generate',
+            argNames: ['prompt'],
+            puter,
+            responseType: 'blob',
+            testMode: testMode ?? false,
+            transform: toImageElement,
+        })(options);
+    } finally {
+        await stager.cleanup();
+    }
 }

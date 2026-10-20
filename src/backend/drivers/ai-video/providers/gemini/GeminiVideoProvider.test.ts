@@ -241,23 +241,38 @@ const interaction = (
     ...('usage' in opts ? { usage: opts.usage } : { usage: USAGE_720P }),
 });
 
+/** Request bodies sent as a stream, read as Gemini would read them. */
+const streamedBodies = new WeakMap<object, string>();
+
+/** Answers with `body` once the request body, streamed or not, is read. */
+const answer =
+    (body: unknown) =>
+    async (_url: unknown, init?: RequestInit): Promise<Response> => {
+        if (init?.body instanceof ReadableStream) {
+            streamedBodies.set(init, await new Response(init.body).text());
+        }
+        return Response.json(body);
+    };
+
 /** Queues the countTokens reply, then the Interactions reply. */
 const reply = (
     body: unknown = interaction(),
     count: unknown = { totalTokens: COUNTED_TOKENS },
 ) => {
     fetchSpy
-        .mockResolvedValueOnce(Response.json(count))
-        .mockResolvedValueOnce(Response.json(body));
+        .mockImplementationOnce(answer(count))
+        .mockImplementationOnce(answer(body));
 };
 
 const sent = (call: number) => {
     const [url, init] = fetchSpy.mock.calls[call]!;
+    const text = streamedBodies.get(init!) ?? String(init?.body);
     return {
         url: String(url),
         method: init?.method,
         headers: init?.headers as Record<string, string>,
-        body: JSON.parse(String(init?.body)),
+        text,
+        body: JSON.parse(text),
     };
 };
 
@@ -890,6 +905,29 @@ describe('GeminiVideoProvider source video', () => {
     const mp4DataUri = `data:video/mp4;base64,${MP4.toString('base64')}`;
     const VIDEO_INPUT_ALLOWANCE = 16000;
 
+    /** Queues only the countTokens reply, for calls that stop before generating. */
+    const countOnly = () =>
+        fetchSpy.mockImplementationOnce(
+            answer({ totalTokens: COUNTED_TOKENS }),
+        );
+
+    const writeVideo = async (
+        { actor, userId }: { actor: Actor; userId: number },
+        name: string,
+        bytes: Buffer,
+    ) => {
+        const path = `/${actor.user.username}/${name}`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: bytes.byteLength,
+                contentType: 'application/octet-stream',
+            },
+            fileContent: bytes,
+        });
+        return path;
+    };
+
     it('validates the video input shape in test mode without loading it', async () => {
         expect(await testMode({ input_video: mp4DataUri })).toBe(SAMPLE_URL);
         expect(secureFetchMock).not.toHaveBeenCalled();
@@ -909,40 +947,101 @@ describe('GeminiVideoProvider source video', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('sends the video inline with no task and holds the video input allowance', async () => {
+    it('streams the video with no task, counts only the prompt, and holds the video input allowance', async () => {
         const { actor } = await makeUser();
         const { held } = trackHolds();
         reply();
         await withActor(actor, () =>
             generate({ input_video: mp4DataUri, size: '360x640' }),
         );
-        const data = MP4.toString('base64');
         expect(sent(0).body).toEqual({
-            contents: [
-                {
-                    parts: [
-                        { inlineData: { mimeType: 'video/mp4', data } },
-                        { text: PROMPT },
-                    ],
-                },
-            ],
+            contents: [{ parts: [{ text: PROMPT }] }],
         });
-        const body = sent(1).body;
-        expect(body.input).toEqual([
-            { type: 'video', mime_type: 'video/mp4', data },
+        const request = sent(1);
+        expect(request.body.input).toEqual([
+            {
+                type: 'video',
+                mime_type: 'video/mp4',
+                data: MP4.toString('base64'),
+            },
             { type: 'text', text: PROMPT },
         ]);
-        expect(body.generation_config).toEqual({ max_output_tokens: 65536 });
+        expect(request.body.generation_config).toEqual({
+            max_output_tokens: 65536,
+        });
+        expect(request.headers['Content-Length']).toBe(
+            String(Buffer.byteLength(request.text)),
+        );
         expect(held[0]?.amount).toBe(
             holdFor(COUNTED_TOKENS + VIDEO_INPUT_ALLOWANCE),
         );
     });
 
+    it("streams a video URL and the caller's own Puter file at their exact length", async () => {
+        const user = await makeUser();
+        const clip = Buffer.concat([MP4, Buffer.alloc(4096, 1)]);
+        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(clip, {
+                headers: { 'content-length': String(clip.byteLength) },
+            }),
+        );
+        reply();
+        await withActor(user.actor, () =>
+            generate({ input_video: 'https://example.com/dog.mp4' }),
+        );
+        expect(secureFetchMock).toHaveBeenCalledWith(
+            'https://example.com/dog.mp4',
+            { signal: expect.any(AbortSignal) },
+        );
+        expect(timeoutSpy).toHaveBeenCalledWith(60_000);
+        expect(sent(1).body.input[0].data).toBe(clip.toString('base64'));
+        expect(sent(1).headers['Content-Length']).toBe(
+            String(Buffer.byteLength(sent(1).text)),
+        );
+
+        const path = await writeVideo(user, 'dog.tmp', clip);
+        reply();
+        await withActor(user.actor, () => generate({ input_video: path }));
+        expect(sent(3).body.input[0]).toEqual({
+            type: 'video',
+            mime_type: 'video/mp4',
+            data: clip.toString('base64'),
+        });
+    });
+
+    it('reads the source video only after the credit hold, and not at all without credit', async () => {
+        const user = await makeUser();
+        const order: string[] = [];
+        const { held } = trackHolds(order);
+        secureFetchMock.mockImplementationOnce(async () => {
+            order.push(held.length ? 'fetch after hold' : 'fetch before hold');
+            return new Response(MP4, {
+                headers: { 'content-length': String(MP4.byteLength) },
+            });
+        });
+        reply();
+        await withActor(user.actor, () =>
+            generate({ input_video: 'https://example.com/dog.mp4' }),
+        );
+        expect(order).toEqual(['fetch after hold', 'release']);
+
+        const path = await writeVideo(user, 'dog.mp4', MP4);
+        const read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        hasCreditsSpy.mockResolvedValue(false);
+        countOnly();
+        await expect(
+            withActor(user.actor, () => generate({ input_video: path })),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(read).not.toHaveBeenCalled();
+        expect(secureFetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it.each([false, true])(
-        'cancels source-video loading before token counting (pre-aborted %s)',
+        'releases the hold when the caller cancels while the source loads (pre-aborted %s)',
         async (preAborted) => {
             const { actor } = await makeUser();
-            const { held } = trackHolds();
+            const { held, released } = trackHolds();
             const abort = new AbortController();
             if (preAborted) abort.abort();
             secureFetchMock.mockImplementationOnce(
@@ -956,6 +1055,7 @@ describe('GeminiVideoProvider source video', () => {
                         abort.abort();
                     }),
             );
+            countOnly();
 
             await expect(
                 withActor(actor, () => {
@@ -966,67 +1066,69 @@ describe('GeminiVideoProvider source video', () => {
                 }),
             ).rejects.toMatchObject({ name: 'AbortError' });
             expect(secureFetchMock).toHaveBeenCalledTimes(preAborted ? 0 : 1);
-            expect(fetchSpy).not.toHaveBeenCalled();
-            expect(held).toHaveLength(0);
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(held).toHaveLength(1);
+            expect(released).toHaveBeenCalledOnce();
             expect(batchSpy).not.toHaveBeenCalled();
         },
     );
 
-    it("fetches a video URL and reads the caller's own Puter file", async () => {
-        const { actor, userId } = await makeUser();
-        const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
-        const data = MP4.toString('base64');
+    it("reports a source that fails while streaming as the caller's input", async () => {
+        const { actor } = await makeUser();
+        const { released } = trackHolds();
+        // Fails past what reading ahead to sniff the type pulls in.
+        const chunks = [
+            MP4,
+            ...Array.from({ length: 8 }, () => Buffer.alloc(32 * 1024)),
+        ];
+        let pulls = 0;
         secureFetchMock.mockResolvedValueOnce(
-            new Response(MP4, { headers: { 'content-type': 'video/mp4' } }),
+            new Response(
+                new ReadableStream({
+                    pull(controller) {
+                        const chunk = chunks[pulls++];
+                        if (chunk) controller.enqueue(new Uint8Array(chunk));
+                        else controller.error(new Error('connection reset'));
+                    },
+                }),
+                { headers: { 'content-length': String(1024 * 1024) } },
+            ),
         );
         reply();
-        await withActor(actor, () =>
-            generate({ input_video: 'https://example.com/dog.mp4' }),
-        );
-        expect(secureFetchMock).toHaveBeenCalledWith(
-            'https://example.com/dog.mp4',
-            { signal: expect.any(AbortSignal) },
-        );
-        expect(timeoutSpy).toHaveBeenCalledWith(60_000);
-        expect(sent(1).body.input[0].data).toBe(data);
-
-        const path = `/${actor.user.username}/dog.mp4`;
-        await server.services.fs.write(userId, {
-            fileMetadata: {
-                path,
-                size: MP4.byteLength,
-                contentType: 'video/mp4',
-            },
-            fileContent: MP4,
+        await expect(
+            withActor(actor, () =>
+                generate({ input_video: 'https://example.com/dog.mp4' }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Failed to read input_video',
         });
-        reply();
-        await withActor(actor, () => generate({ input_video: path }));
-        expect(sent(3).body.input[0]).toEqual({
-            type: 'video',
-            mime_type: 'video/mp4',
-            data,
-        });
+        expect(released).toHaveBeenCalledOnce();
+        expect(batchSpy).not.toHaveBeenCalled();
     });
 
-    it('refuses an image as the source video before calling Gemini', async () => {
-        const { actor } = await makeUser();
+    it('refuses an image as the source video without generating', async () => {
+        const user = await makeUser();
+        const { released } = trackHolds();
+        countOnly();
         await expect(
-            withActor(actor, () => generate({ input_video: pngDataUri })),
+            withActor(user.actor, () => generate({ input_video: pngDataUri })),
         ).rejects.toMatchObject({
             statusCode: 400,
             message: 'input_video must be an MP4, QuickTime or WebM video',
         });
-        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(released).toHaveBeenCalledOnce();
     });
 
-    it('refuses a video over 32 MiB with 413 before any call', async () => {
-        const { actor } = await makeUser();
-        const big = Buffer.alloc(GEMINI_OMNI_MAX_VIDEO_BYTES + 1);
-        MP4.copy(big);
+    it('refuses a data URI over 1 MiB and a file over 32 MiB with 413', async () => {
+        const user = await makeUser();
+        const inline = Buffer.alloc(1024 * 1024 + 1);
+        MP4.copy(inline);
         await expect(
-            withActor(actor, () =>
+            withActor(user.actor, () =>
                 generate({
-                    input_video: `data:video/mp4;base64,${big.toString('base64')}`,
+                    input_video: `data:video/mp4;base64,${inline.toString('base64')}`,
                 }),
             ),
         ).rejects.toMatchObject({
@@ -1034,6 +1136,18 @@ describe('GeminiVideoProvider source video', () => {
             legacyCode: 'input_too_large',
         });
         expect(fetchSpy).not.toHaveBeenCalled();
+
+        const big = Buffer.alloc(GEMINI_OMNI_MAX_VIDEO_BYTES + 1);
+        MP4.copy(big);
+        const path = await writeVideo(user, 'big.mp4', big);
+        countOnly();
+        await expect(
+            withActor(user.actor, () => generate({ input_video: path })),
+        ).rejects.toMatchObject({
+            statusCode: 413,
+            legacyCode: 'input_too_large',
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 });
 
