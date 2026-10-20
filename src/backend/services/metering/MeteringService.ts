@@ -91,11 +91,20 @@ export interface ActorSubscriptionStatus {
     provisional: boolean;
 }
 
+/**
+ * A resolver's answer. A `provisional` one still wins, but is cached only for
+ * the fallback window, as when a lookup behind it failed.
+ */
+export type SubscriptionAnswer =
+    string | { id: string; provisional: boolean } | null | undefined;
+
 export type SubscriptionResolver = (
     actor: Actor,
-) => Promise<string | null | undefined> | string | null | undefined;
+) => Promise<SubscriptionAnswer> | SubscriptionAnswer;
 
-type ResolverOutcome = { id: string | null | undefined } | { error: unknown };
+type ResolverOutcome =
+    | { id: string | null | undefined; provisional?: boolean }
+    | { error: unknown };
 
 /** One usage type's amount, pre-aggregated across one call. */
 type TypeAmounts = { units: number; cost: number; count: number };
@@ -697,7 +706,7 @@ export class MeteringService extends PuterService {
                 userId,
                 actorUsageKey,
                 actorUsages,
-                actorSubscription.monthUsageAllowance,
+                actorSubscription,
                 actorAddons,
                 totalBatchCost,
             );
@@ -1906,6 +1915,8 @@ export class MeteringService extends PuterService {
         // Purchased credits are spendable, so the allowance alone warns early.
         const capacity =
             (monthUsageAllowance || 0) + (addons?.purchasedCredits || 0);
+        // Never had any budget, so there is no crossing to announce.
+        if (!(capacity > 0)) return;
         const state =
             remaining <= 0
                 ? 'exhausted'
@@ -2187,11 +2198,7 @@ export class MeteringService extends PuterService {
         policy: SubscriptionPolicy,
         month: string = this.monthYearString(),
     ): Promise<{ policy: SubscriptionPolicy; failed: boolean }> {
-        if (
-            isFreeSubscription(policy.id) ||
-            policy.id === UNLIMITED_SUBSCRIPTION ||
-            !(policy.monthUsageAllowance > 0)
-        ) {
+        if (!MeteringService.takesMonthAllowance(policy)) {
             return { policy, failed: false };
         }
         try {
@@ -2217,6 +2224,17 @@ export class MeteringService extends PuterService {
             );
             return { policy, failed: true };
         }
+    }
+
+    /** Free, unlimited and allowance-less plans never take a month override. */
+    private static takesMonthAllowance(
+        policy: Pick<SubscriptionPolicy, 'id' | 'monthUsageAllowance'>,
+    ): boolean {
+        return (
+            !isFreeSubscription(policy.id) &&
+            policy.id !== UNLIMITED_SUBSCRIPTION &&
+            policy.monthUsageAllowance > 0
+        );
     }
 
     #monthAllowanceKey(
@@ -2402,6 +2420,14 @@ export class MeteringService extends PuterService {
         if (!Number.isFinite(value) || value <= 0) {
             throw new Error('Month allowance must be a positive number');
         }
+        // An unregistered plan is judged by its id alone.
+        const policy = this.getRegisteredPolicy(policyId) ?? {
+            id: policyId,
+            monthUsageAllowance: value,
+        };
+        if (!MeteringService.takesMonthAllowance(policy)) {
+            throw new Error(`Plan ${policyId} never takes a month allowance`);
+        }
         const month = opts.month ?? this.monthYearString();
         const parsed = /^(\d{4})-(\d{2})$/.exec(month);
         if (!parsed) throw new Error('Month must be YYYY-MM');
@@ -2539,7 +2565,10 @@ export class MeteringService extends PuterService {
     ): Promise<ResolverOutcome>[] {
         return resolvers.map(async (resolver): Promise<ResolverOutcome> => {
             try {
-                return { id: await resolver(actor) };
+                const answer = await resolver(actor);
+                if (typeof answer === 'string') return { id: answer };
+                if (!answer) return { id: null };
+                return { id: answer.id, provisional: answer.provisional };
             } catch (error) {
                 return { error };
             }
@@ -2563,7 +2592,12 @@ export class MeteringService extends PuterService {
                     '[metering] subscription resolver failed',
                     outcome.error,
                 );
-            } else if (outcome.id) return { id: outcome.id, failed };
+            } else if (outcome.id) {
+                return {
+                    id: outcome.id,
+                    failed: failed || !!outcome.provisional,
+                };
+            }
         }
         return { id: null, failed };
     }
@@ -2773,10 +2807,11 @@ export class MeteringService extends PuterService {
         userId: string,
         actorUsageKey: string,
         usageRecord: UsageByType,
-        monthUsageAllowance: number,
+        subscription: SubscriptionPolicy,
         addons: UsageAddons,
         incrementCost: number,
     ): Promise<number> {
+        const { monthUsageAllowance } = subscription;
         if (incrementCost <= 0) {
             return MeteringService.allowanceUsedFrom(
                 usageRecord,
@@ -2808,6 +2843,18 @@ export class MeteringService extends PuterService {
         const overage = incrementCost - allowanceCharge;
 
         const writes: Promise<unknown>[] = [];
+        // Recorded, so a later plan with an allowance doesn't count this spend.
+        if (
+            subscription.noAllowance &&
+            usageRecord.allowanceUsed === undefined
+        ) {
+            writes.push(
+                this.stores.meteringBuffer.incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap: { allowanceUsed: 0 },
+                }),
+            );
+        }
         if (baseline + allowanceCharge > 0) {
             writes.push(
                 this.stores.meteringBuffer.incr({

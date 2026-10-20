@@ -326,6 +326,43 @@ describe('MeteringService', () => {
             ).toBe(7);
         });
 
+        it('lets a provisional answer win, but only for the fallback window', async () => {
+            target.registerPolicy({
+                id: 'provisional-plan',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+            });
+            target.registerPolicy({
+                id: 'later-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            });
+            const first = vi.fn(async () => ({
+                id: 'provisional-plan',
+                provisional: true,
+            }));
+            target.registerDefaultSubscriptionResolver(first, { priority: 10 });
+            target.registerDefaultSubscriptionResolver(
+                async () => 'later-default',
+            );
+
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status.policy.id).toBe('provisional-plan');
+            expect(status.provisional).toBe(true);
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                dateNow.mockReturnValue(now + fallbackMs + 1);
+                await target.getActorSubscription(actor);
+                expect(first).toHaveBeenCalledTimes(2);
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
         it('uses the first non-empty subscription resolver', async () => {
             const customPolicy = {
                 id: 'custom-paid',
@@ -2486,11 +2523,11 @@ describe('MeteringService', () => {
         });
 
         it('leaves free policies alone without reading for an override', async () => {
-            await target.setMonthAllowance(
-                actor.user.uuid!,
-                DEFAULT_FREE_SUBSCRIPTION,
-                1,
-            );
+            // Written directly: `setMonthAllowance` refuses a free plan.
+            await server.stores.kv.set({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:allowance:${DEFAULT_FREE_SUBSCRIPTION}:${currentMonthString()}`,
+                value: 1,
+            });
             const getSpy = vi.spyOn(server.stores.kv, 'get');
 
             const policy = await target.getActorSubscription(actor);
@@ -2576,6 +2613,31 @@ describe('MeteringService', () => {
                         'month-paid',
                         bad,
                     ),
+                ).rejects.toThrow();
+            }
+        });
+
+        it('refuses an allowance for a plan that never takes one', async () => {
+            target.registerPolicy({
+                id: 'month-free',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 0,
+                free: true,
+            });
+            target.registerPolicy({
+                id: 'month-none',
+                monthUsageAllowance: 0,
+                monthlyStorageAllowance: 0,
+                noAllowance: true,
+            });
+            for (const id of [
+                'month-free',
+                'month-none',
+                DEFAULT_FREE_SUBSCRIPTION,
+                UNLIMITED_SUBSCRIPTION,
+            ]) {
+                await expect(
+                    target.setMonthAllowance(actor.user.uuid!, id, 1_000),
                 ).rejects.toThrow();
             }
         });
@@ -3020,43 +3082,93 @@ describe('MeteringService', () => {
                 expect(await target.hasEnoughCredits(actor, 1)).toBe(false);
             });
 
-            it('spends purchased credit', async () => {
+            it('spends purchased credit, and only that', async () => {
                 onNoAllowancePlan();
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
                 await target.updateAddonCredit(actor.user.uuid!, 5_000);
                 expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+                await target.incrementUsage(actor, 'kv:read', 1, 2_000);
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(2_000);
             });
 
-            it('announces exhaustion once and raises no overuse alarm', async () => {
-                onNoAllowancePlan();
-                await target.updateAddonCredit(actor.user.uuid!, 1_000);
+            const creditStates = () => {
                 const states: string[] = [];
                 const seen = (_key: string, event: { state: string }) => {
                     states.push(event.state);
                 };
                 server.clients.event.on('metering.credit-state', seen as never);
-                const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+                return {
+                    states,
+                    stop: () =>
+                        server.clients.event.off(
+                            'metering.credit-state',
+                            seen as never,
+                        ),
+                };
+            };
+
+            it('announces nothing for an actor that never had budget', async () => {
+                onNoAllowancePlan();
+                const { states, stop } = creditStates();
                 try {
-                    for (let i = 0; i < 5; i++) {
+                    expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                    await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+                    await new Promise((r) => setTimeout(r, 20));
+                    expect(states).toEqual([]);
+                } finally {
+                    stop();
+                }
+            });
+
+            it('announces exhaustion once when purchased credit runs out', async () => {
+                onNoAllowancePlan();
+                await target.updateAddonCredit(actor.user.uuid!, 1_000);
+                const { states, stop } = creditStates();
+                try {
+                    for (let i = 0; i < 3; i++) {
                         await target.incrementUsage(actor, 'kv:read', 1, 1_000);
                     }
-                    expect(await target.hasAnyUsageCached(actor)).toBe(false);
                     await waitFor(() =>
                         expect(states.filter((s) => s === 'exhausted')).toEqual(
                             ['exhausted'],
                         ),
                     );
-                    expect(
-                        alarmSpy.mock.calls.some((call) =>
-                            String(call[0]).includes('usage exceeded'),
-                        ),
-                    ).toBe(false);
                 } finally {
-                    alarmSpy.mockRestore();
-                    server.clients.event.off(
-                        'metering.credit-state',
-                        seen as never,
-                    );
+                    stop();
                 }
+            });
+
+            it('leaves the whole allowance to a plan switched to later in the month', async () => {
+                onNoAllowancePlan();
+                await target.updateAddonCredit(actor.user.uuid!, 5_000);
+                await target.incrementUsage(actor, 'kv:read', 1, 3_000);
+
+                const later = {
+                    id: 'test-later-allowance',
+                    monthUsageAllowance: 10_000,
+                    monthlyStorageAllowance: 0,
+                };
+                target.registerPolicy(later);
+                internals.subscriptionResolvers.length = 0;
+                target.registerSubscriptionResolver(
+                    () => 'test-later-allowance',
+                );
+                target.invalidateActorSubscription(actor.user.uuid!);
+
+                // Credit already paid for the earlier spend.
+                expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                    10_000 + 2_000,
+                );
+                await target.incrementUsage(actor, 'kv:read', 1, 4_000);
+                expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                    6_000 + 2_000,
+                );
+                expect(
+                    (await target.getActorAddons(actor))
+                        .consumedPurchaseCredits,
+                ).toBe(3_000);
             });
         });
 
