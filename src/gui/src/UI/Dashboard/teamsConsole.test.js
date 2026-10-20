@@ -53,6 +53,18 @@ describe('memberStatesFromAudit', () => {
         expect(states).toEqual({});
     });
 
+    it('reads accounts named like Object.prototype members', () => {
+        const states = memberStatesFromAudit([
+            entry('disable', 'constructor', '2026-02-01T00:00:00Z'),
+            entry('disable', 'toString', '2026-02-01T00:00:00Z'),
+        ]);
+        expect(states.constructor.disabled).toBe(true);
+        expect(states.toString.disabled).toBe(true);
+        expect(annotateMembers([member('constructor'), member('valueOf')], [
+            entry('disable', 'constructor', '2026-02-01T00:00:00Z'),
+        ]).map(m => m.disabled)).toEqual([true, false]);
+    });
+
     it('survives an empty or missing log', () => {
         expect(memberStatesFromAudit([])).toEqual({});
         expect(memberStatesFromAudit(undefined)).toEqual({});

@@ -80,7 +80,7 @@ describe('the owner view', () => {
         const input = $w.find('.dashboard-switch input.teams-directory-check');
         expect(input).toHaveLength(1);
         expect(input.is(':checked')).toBe(false);
-        expect($w.find('.teams-directory-note').text()).toBe('teams_directory_off_note');
+        expect($w.find('.teams-directory .teams-directory-note').text()).toBe('teams_directory_off_note');
     });
 
     it('lists accounts with a status pill and folds the audit state in', () => {
@@ -159,6 +159,106 @@ describe('the member view', () => {
         expect($w.find('.teams-form')).toHaveLength(0);
         expect($w.find('.dashboard-danger-zone')).toHaveLength(0);
         expect($w.find('.teams-panel h3').first().text()).toContain('teams_roster');
+    });
+});
+
+describe('a new account\'s one-time password', () => {
+    it('stays on screen through a refresh until dismissed', async () => {
+        const $w = await mount();
+        globalThis.puter.teams.createMember = vi.fn(async () => ({ username: 'newbie', temporaryPassword: 'pw-123' }));
+        $w.find('.teams-new-username').val('newbie');
+        $w.find('.teams-form').trigger('submit');
+        await flush();
+        await flush();
+        expect($w.find('.teams-credential-value').text()).toBe('pw-123');
+
+        // Coming back to the tab reloads and repaints it.
+        await TabTeams.onActivate($w);
+        await flush();
+        expect($w.find('.teams-credential-value').text()).toBe('pw-123');
+        expect($w.find('.teams-credential').css('display')).not.toBe('none');
+
+        $w.find('.teams-credential-dismiss').trigger('click');
+        await TabTeams.onActivate($w);
+        await flush();
+        expect($w.find('.teams-credential-value')).toHaveLength(0);
+    });
+});
+
+describe('a change made while the tab is loading', () => {
+    it('is shown once that load finishes, not overwritten by it', async () => {
+        const on = { ...team, directoryEnabled: true };
+        const $w = await mount({ teams: [on] });
+        // A revisit starts a slow load that read the directory as still on.
+        let release;
+        globalThis.puter.teams.list = vi.fn(() => new Promise(resolve => { release = () => resolve([on]); }));
+        TabTeams.onActivate($w);
+        // Meanwhile the owner turns it off.
+        globalThis.puter.teams.update = vi.fn(async () => ({}));
+        $w.find('.teams-directory-check').prop('checked', false).trigger('change');
+        await flush();
+        const listAfterChange = vi.fn(async () => [{ ...team, directoryEnabled: false }]);
+        const stale = release;
+        globalThis.puter.teams.list = listAfterChange;
+        stale();
+        for ( let i = 0; i < 8; i++ ) await flush();
+        expect(listAfterChange).toHaveBeenCalled();
+        expect($w.find('.teams-directory-check').is(':checked')).toBe(false);
+    });
+});
+
+describe('re-enabling an account', () => {
+    it('sends one request for a double click', async () => {
+        const $w = await mount();
+        globalThis.puter.teams.enableMember = vi.fn(async () => ({}));
+        const $btn = $w.find('.teams-enable[data-username="elliot"]');
+        expect($btn).toHaveLength(1);
+        $btn.trigger('click');
+        $btn.trigger('click');
+        await flush();
+        await flush();
+        expect(globalThis.puter.teams.enableMember).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('loading a team', () => {
+    it('reads the record and the roster at the same time', async () => {
+        const $w = await mount();
+        let releaseAudit;
+        globalThis.puter.teams.listAudit = vi.fn(() => new Promise(resolve => { releaseAudit = () => resolve(audit); }));
+        globalThis.puter.teams.listMembers = vi.fn(async () => members);
+        TabTeams.onActivate($w);
+        await flush();
+        const rosterAskedWhileRecordLoads = globalThis.puter.teams.listMembers.mock.calls.length > 0;
+        releaseAudit();
+        await flush();
+        await flush();
+        expect(rosterAskedWhileRecordLoads).toBe(true);
+        expect($w.find('.teams-hero')).toHaveLength(1);
+    });
+});
+
+describe('keyboard focus across a repaint', () => {
+    it('stays on the control that was used', async () => {
+        const on = { ...team, directoryEnabled: true };
+        const $w = await mount({ teams: [on] });
+        globalThis.puter.teams.update = vi.fn(async () => ({}));
+        globalThis.puter.teams.list = vi.fn(async () => [{ ...team, directoryEnabled: false }]);
+        $w.find('.teams-directory-check')[0].focus();
+        $w.find('.teams-directory-check').prop('checked', false).trigger('change');
+        for ( let i = 0; i < 6; i++ ) await flush();
+        expect(document.activeElement.classList.contains('teams-directory-check')).toBe(true);
+        expect(document.activeElement.isConnected).toBe(true);
+    });
+
+    it('returns to the same account\'s action', async () => {
+        const $w = await mount();
+        globalThis.puter.teams.enableMember = vi.fn(async () => ({}));
+        const $btn = $w.find('.teams-enable[data-username="elliot"]');
+        $btn[0].focus();
+        $btn.trigger('click');
+        for ( let i = 0; i < 6; i++ ) await flush();
+        expect(document.activeElement.getAttribute('data-username')).toBe('elliot');
     });
 });
 

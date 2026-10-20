@@ -37,7 +37,7 @@ import {
 const SECTION = '.dashboard-section-teams';
 
 /** What the console last loaded, so a redraw needs no second round trip. */
-let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], auditPage: 0, plan: null };
+let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], auditPage: 0, plan: null, credential: null };
 
 // Paged for reading, not fetching: member state is derived from the whole
 // record, so it is already loaded.
@@ -45,6 +45,8 @@ const AUDIT_ROWS_PER_PAGE = 10;
 
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
+/** One more load, queued behind `loadPromise` by a change made during it. */
+let reloadPromise = null;
 
 /** Every dialog here is the dashboard's overlay card, mounted in the window. */
 const dialog = ($el_window, opts) => UIDashboardDialog({ $container: $el_window, ...opts });
@@ -268,7 +270,11 @@ const renderAddAccount = () => {
     h += `<button type="submit" class="button button-primary teams-add-btn">${i18n('teams_add_account')}</button>`;
     h += '</form>';
     h += `<p class="teams-field-help">${i18n('teams_add_account_email_hint')}</p>`;
-    h += '<div class="teams-credential" role="status" aria-live="polite" style="display:none;"></div>';
+    // Kept in state, not just the DOM: every refresh repaints this card.
+    const credential = state.credential?.teamUid === state.selected?.uid ? state.credential : null;
+    h += `<div class="teams-credential" role="status" aria-live="polite"${credential ? '' : ' style="display:none;"'}>`;
+    if ( credential ) h += renderCredential(credential);
+    h += '</div>';
     h += '</div>';
     return h;
 };
@@ -443,8 +449,32 @@ const renderBody = () => {
     return state.selected?.isOwner ? renderOwnerView() : renderMemberView();
 };
 
+/**
+ * Selectors that find the focused control again in a fresh render, most
+ * specific first: the same control for the same account, then any control
+ * for that account (re-enable becomes suspend), then the same control.
+ */
+const focusSelectors = (el) => {
+    const cls = [...el.classList].find(c => c.startsWith('teams-'));
+    const username = el.getAttribute('data-username');
+    const who = username === null ? '' : `[data-username="${CSS.escape(username)}"]`;
+    return [cls && who && `.${cls}${who}`, who && `button${who}`, cls && `.${cls}`].filter(Boolean);
+};
+
 const paint = ($el_window) => {
-    $el_window.find(`${SECTION} .teams-body`).html(renderBody());
+    const $body = $el_window.find(`${SECTION} .teams-body`);
+    // Every action repaints the panel; without this, keyboard focus would
+    // drop to <body> after each one.
+    const focused = document.activeElement;
+    const selectors = $body[0]?.contains(focused) && focused !== $body[0] ? focusSelectors(focused) : [];
+    $body.html(renderBody());
+    for ( const selector of selectors ) {
+        const target = $body.find(selector)[0];
+        if ( target ) {
+            target.focus({ preventScroll: true });
+            break;
+        }
+    }
 };
 
 // -- Loading --------------------------------------------------------------
@@ -453,13 +483,17 @@ const loadSelected = async () => {
     if ( ! state.selected ) return;
     // A fresh record starts at the top; auditSlice clamps a stale page anyway.
     state.auditPage = 0;
-    state.audit = state.selected.isOwner
-        ? await puter.teams.listAudit(state.selected.uid)
-        : await puter.teams.listOwnAudit(state.selected.uid);
-    // Members too: the roster is theirs to see, and the controller already
-    // withholds from them what is not.
-    state.members = await puter.teams.listMembers(state.selected.uid);
-    state.plan = state.selected.isOwner ? await loadPlan(state.selected.uid) : null;
+    const { uid, isOwner } = state.selected;
+    // Independent reads, so fetched together. Members too: the roster is
+    // theirs to see, and the controller already withholds what is not.
+    const [audit, members, plan] = await Promise.all([
+        isOwner ? puter.teams.listAudit(uid) : puter.teams.listOwnAudit(uid),
+        puter.teams.listMembers(uid),
+        isOwner ? loadPlan(uid) : null,
+    ]);
+    state.audit = audit;
+    state.members = members;
+    state.plan = plan;
 };
 
 /** Served by a billing extension; absent is a normal answer. */
@@ -527,14 +561,23 @@ const load = async ($el_window) => {
         state.selected = null;
         setTabVisible($el_window, false);
     }
+    // What this load read may predate a change; the queued load paints it.
+    if ( reloadPromise ) return;
     paint($el_window);
 };
 
 const refresh = ($el_window) => {
     if ( ! loadPromise ) {
         loadPromise = load($el_window).finally(() => { loadPromise = null; });
+        return loadPromise;
     }
-    return loadPromise;
+    // The running load may have read the team before the caller's change (an
+    // action, a team switch), so load once more after it.
+    reloadPromise ??= loadPromise.catch(() => {}).then(() => {
+        reloadPromise = null;
+        return refresh($el_window);
+    });
+    return reloadPromise;
 };
 
 // -- Actions --------------------------------------------------------------
@@ -589,9 +632,7 @@ const confirm = async ($el_window, message, label, kind = 'danger') => {
     return answer === 'yes';
 };
 
-/** Shown once and never retrievable, so it stays on screen until dismissed. */
-const showCredential = ($el_window, username, temporaryPassword) => {
-    const $box = $el_window.find(`${SECTION} .teams-credential`);
+const renderCredential = ({ username, temporaryPassword }) => {
     let h = '<div class="teams-credential-head">';
     h += `<strong>${i18n('teams_credential_heading', { username })}</strong>`;
     h += `<button type="button" class="teams-credential-dismiss" aria-label="${html_encode(i18n('close', [], false))}">${ICONS.close}</button>`;
@@ -601,7 +642,14 @@ const showCredential = ($el_window, username, temporaryPassword) => {
     h += `<button type="button" class="button button-small teams-credential-copy" data-value="${html_encode(temporaryPassword)}">${ICONS.copy}<span>${i18n('copy')}</span></button>`;
     h += '</div>';
     h += `<span class="teams-credential-note">${i18n('teams_credential_once')}</span>`;
-    $box.html(h).show();
+    return h;
+};
+
+/** Shown once and never retrievable, so it stays on screen until dismissed. */
+const showCredential = ($el_window, username, temporaryPassword) => {
+    state.credential = { teamUid: state.selected?.uid, username, temporaryPassword };
+    const $box = $el_window.find(`${SECTION} .teams-credential`);
+    $box.html(renderCredential(state.credential)).show();
     $box.find('.teams-credential-value').trigger('focus');
 };
 
@@ -674,22 +722,29 @@ const reissueCredential = async ($el_window, username) => {
     }
 };
 
+/** Accounts with a suspend/re-enable in flight; re-enable has no confirm to absorb a double click. */
+const togglingMembers = new Set();
+
 const setMemberEnabled = async ($el_window, username, enabled) => {
-    if ( ! enabled ) {
-        const ok = await confirm(
-            $el_window,
-            `<p>${i18n('teams_confirm_disable', { username })}</p>`,
-            i18n('teams_disable_account', [], false),
-        );
-        if ( ! ok ) return;
-    }
+    if ( togglingMembers.has(username) ) return;
+    togglingMembers.add(username);
     try {
+        if ( ! enabled ) {
+            const ok = await confirm(
+                $el_window,
+                `<p>${i18n('teams_confirm_disable', { username })}</p>`,
+                i18n('teams_disable_account', [], false),
+            );
+            if ( ! ok ) return;
+        }
         await (enabled
             ? puter.teams.enableMember(state.selected.uid, username)
             : puter.teams.disableMember(state.selected.uid, username));
         await refresh($el_window);
     } catch (e) {
         await showError($el_window, e);
+    } finally {
+        togglingMembers.delete(username);
     }
 };
 
@@ -849,6 +904,7 @@ const TabTeams = {
             copyCredential($(this));
         });
         $el_window.on('click', `${SECTION} .teams-credential-dismiss`, () => {
+            state.credential = null;
             $el_window.find(`${SECTION} .teams-credential`).hide().empty();
         });
         $el_window.on('click', `${SECTION} .teams-retry`, () => {
@@ -903,7 +959,8 @@ const TabTeams = {
     },
 
     onActivate ($el_window) {
-        refresh($el_window);
+        // A load already running (the one `init` started) is fresh enough.
+        if ( ! loadPromise ) refresh($el_window);
     },
 };
 

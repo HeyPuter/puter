@@ -26,7 +26,6 @@ import UIContextMenu from '../UIContextMenu.js';
 import UIWindowProgress from '../UIWindowProgress.js';
 import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
-import truncate_filename from '../../helpers/truncateFilename.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
 import { user_facing_windows } from '../../helpers/windowVisibility.js';
@@ -36,6 +35,7 @@ import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMen
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { dedupedName } from './dedupedName.js';
+import { middleTruncate } from './middleTruncate.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
@@ -63,7 +63,7 @@ const { html_encode, SelectionArea } = window;
  */
 const TabFiles = {
     id: 'files',
-    label: 'Files',
+    label: i18n('files'),
     icon: icons.files,
 
     /**
@@ -79,23 +79,23 @@ const TabFiles = {
                 </form>
                 <div class="directories">
                     <ul>
-                        <li data-folder="Home" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>Home</span></li>
-                        <li data-folder="Desktop" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
-                        <li data-folder="Documents" data-path="${html_encode(window.documents_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
-                        <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
-                        <li data-folder="Public" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>Public</span></li>
-                        <li data-folder="Videos" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>Videos</span></li>
-                        <li data-folder="Shared" data-path="${html_encode(window.shared_path)}"><img src="${html_encode(window.icons['folder-shared.svg'])}"/> <span>${i18n('shared')}</span></li>
-                        <li data-folder="Trash" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>Trash</span></li>
+                        <li data-folder="Home" tabindex="0" role="button" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>${i18n('home')}</span></li>
+                        <li data-folder="Desktop" tabindex="0" role="button" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>${i18n('desktop')}</span></li>
+                        <li data-folder="Documents" tabindex="0" role="button" data-path="${html_encode(window.docs_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>${i18n('documents')}</span></li>
+                        <li data-folder="Pictures" tabindex="0" role="button" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>${i18n('pictures')}</span></li>
+                        <li data-folder="Public" tabindex="0" role="button" data-path="${html_encode(window.public_path)}"><img src="${html_encode(window.icons['folder-public.svg'])}"/> <span>${i18n('public')}</span></li>
+                        <li data-folder="Videos" tabindex="0" role="button" data-path="${html_encode(window.videos_path)}"><img src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>${i18n('videos')}</span></li>
+                        <li data-folder="Shared" tabindex="0" role="button" data-path="${html_encode(window.shared_path)}"><img src="${html_encode(window.icons['folder-shared.svg'])}"/> <span>${i18n('shared')}</span></li>
+                        <li data-folder="Trash" tabindex="0" role="button" data-path="${html_encode(window.trash_path)}"><img src="${html_encode(window.icons['trash.svg'])}"/> <span>${i18n('trash')}</span></li>
                     </ul>
                 </div>
                 <div class="directory-contents">
                     <div class="header">
                         <div class="path">
                             <div class="path-nav-buttons">
-                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" src="${html_encode(window.icons['arrow-left-thin.svg'])}" title="${i18n('window_click_to_go_back')}">
-                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
-                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
+                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_back')}" src="${html_encode(window.icons['arrow-left-thin.svg'])}" title="${i18n('window_click_to_go_back')}">
+                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_forward')}" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
+                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_up')}" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
                             </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
@@ -621,6 +621,8 @@ const TabFiles = {
             // The refresh rebuilds the list, which would destroy an open
             // rename editor along with whatever the user has typed.
             if ( $filesTab.find('.item-name-editor-active').length > 0 ) return;
+            // So would an open menu: its actions are bound to the old rows.
+            if ( $('.context-menu, .context-menu-modal-backdrop').length > 0 ) return;
 
             // The rebuild also wipes selection, the keyboard/shift anchor,
             // and scroll position — state the user expects to survive a quick
@@ -700,8 +702,18 @@ const TabFiles = {
 
             const focused_el = document.activeElement;
 
+            // Likewise for a dialog window over the dashboard (a delete
+            // confirm, an Open picker): its buttons take Enter, not the rows.
+            const $focusedWindow = $(focused_el).closest('.window');
+            if ( $('.window-alert').length > 0 || ($focusedWindow.length && !$focusedWindow.is(_this.$el_window)) ) return;
+
             // Skip if user is typing in an input/textarea (except for Escape)
             if ( $(focused_el).is('input, textarea') && e.which !== 27 ) return;
+
+            // A focused control (toolbar button, folder, crumb) takes its own
+            // Enter/Space; the rows' open/preview must not swallow it.
+            if ( (e.which === 13 || e.which === 32)
+                && $(focused_el).is('button, a, select, [role="button"], [role="link"]') ) return;
 
             // When a context menu is open, yield control to keyboard.js
             if ( $('.context-menu').length > 0 ) {
@@ -784,6 +796,11 @@ const TabFiles = {
                 if ( $(focused_el).hasClass('item-name-editor') ) {
                     // Cancel rename - handled by item's own keyup handler
                     return;
+                }
+                // An open preview closes first; the selection it shows stays.
+                if ( _this.previewOpen ) {
+                    _this.closeImagePreview();
+                    return false;
                 }
                 $selectedRows.removeClass('selected');
                 _this.updateFooterStats();
@@ -1096,8 +1113,11 @@ const TabFiles = {
             return;
         }
 
-        // Get read URL for the actual image
+        // Get read URL for the actual image. A later call, or a close, while
+        // this one waits supersedes it.
+        const seq = this.previewSeq = (this.previewSeq ?? 0) + 1;
         const imageUrl = await puter.fs.getReadURL(filePath);
+        if ( seq !== this.previewSeq ) return;
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
@@ -1144,6 +1164,7 @@ const TabFiles = {
      * @returns {void}
      */
     closeImagePreview () {
+        this.previewSeq = (this.previewSeq ?? 0) + 1;
         $('.image-preview-popover').remove();
         $(document).off('click.imagepreview');
         this.previewOpen = false;
@@ -1162,6 +1183,15 @@ const TabFiles = {
         const _this = this;
         const fileInput = document.querySelector('#upload-file-dialog');
 
+        // The folder sidebar, crumbs, and nav arrows aren't native buttons or
+        // links; give them the keys those would have.
+        this.$el_window.on('keydown', '.files-tab [role="button"]:not(button), .files-tab [role="link"]', function (e) {
+            if ( e.key !== 'Enter' && e.key !== ' ' ) return;
+            e.preventDefault();
+            if ( $(this).attr('aria-disabled') === 'true' ) return;
+            this.click();
+        });
+
         const el_window_navbar_back_btn = document.querySelector(`.path-btn-back`);
         const el_window_navbar_forward_btn = document.querySelector(`.path-btn-forward`);
         const el_window_navbar_up_btn = document.querySelector(`.path-btn-up`);
@@ -1173,9 +1203,7 @@ const TabFiles = {
                 return;
             }
             if ( window.dashboard_nav_history_current_position > 0 ) {
-                window.dashboard_nav_history_current_position--;
-                const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                _this.renderDirectory(new_path);
+                _this.goToHistoryPosition(window.dashboard_nav_history_current_position - 1);
             }
         });
 
@@ -1191,9 +1219,7 @@ const TabFiles = {
                     html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
-                        window.dashboard_nav_history_current_position = e.value;
-                        const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                        _this.renderDirectory(new_path);
+                        _this.goToHistoryPosition(e.value);
                     },
                 });
             }
@@ -1214,9 +1240,7 @@ const TabFiles = {
                 return;
             }
             if ( window.dashboard_nav_history_current_position < window.dashboard_nav_history.length - 1 ) {
-                window.dashboard_nav_history_current_position++;
-                const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                _this.renderDirectory(target_path);
+                _this.goToHistoryPosition(window.dashboard_nav_history_current_position + 1);
             }
         });
 
@@ -1232,9 +1256,7 @@ const TabFiles = {
                     html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
-                        window.dashboard_nav_history_current_position = e.value;
-                        const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                        _this.renderDirectory(new_path);
+                        _this.goToHistoryPosition(e.value);
                     },
                 });
             }
@@ -1280,16 +1302,14 @@ const TabFiles = {
             if ( window.dashboard_nav_history_current_position <= 0 ) return false;
             const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position - 1];
             if ( ! _this.canSpringLoadInto(target_path) ) return false;
-            window.dashboard_nav_history_current_position--;
-            _this.renderDirectory(target_path);
+            _this.goToHistoryPosition(window.dashboard_nav_history_current_position - 1);
         });
 
         makeNavBtnSpringLoaded(el_window_navbar_forward_btn, () => {
             if ( window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1 ) return false;
             const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position + 1];
             if ( ! _this.canSpringLoadInto(target_path) ) return false;
-            window.dashboard_nav_history_current_position++;
-            _this.renderDirectory(target_path);
+            _this.goToHistoryPosition(window.dashboard_nav_history_current_position + 1);
         });
 
         makeNavBtnSpringLoaded(el_window_navbar_up_btn, () => {
@@ -1344,7 +1364,7 @@ const TabFiles = {
                 // start
                 start: async function () {
                     // change upload progress window message to uploading
-                    upload_progress_window.set_status('Uploading');
+                    upload_progress_window.set_status(i18n('uploading'));
                     upload_progress_window.set_progress(0);
                 },
                 // progress
@@ -1393,7 +1413,7 @@ const TabFiles = {
                                 : '';
                             return `- ${failedPath}${failedMessage}`;
                         }).join('\n');
-                        UIAlert(`Some uploads failed:\n${failedSummary}`);
+                        UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
                     }
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
@@ -1457,19 +1477,7 @@ const TabFiles = {
 
         // Restore button (for trash items)
         $actions.find('.restore-btn').on('click', async function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            for ( const row of selectedRows ) {
-                try {
-                    await _this.restoreItem(row);
-                    $(row).fadeOut(150, function () {
-                        $(this).remove();
-                    });
-                } catch ( err ) {
-                    console.error('Failed to restore item:', err);
-                }
-            }
-            _this.updateFooterStats();
-            await window.refresh_trash_state();
+            await _this.restoreRows(Array.from(document.querySelectorAll('.files-tab .row.selected')));
         });
 
         // Download button
@@ -1790,37 +1798,37 @@ const TabFiles = {
         $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
         $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
 
-        // Apply middle-truncation to file names
-        if ( this.currentView === 'list' && nameWidth ) {
-            const padding = 16; // 8px padding on each side
-            const availableWidth = nameWidth - padding;
-            $filesTab.find('.files.files-list-view .row:not(.header) .item-name').each(function () {
-                const $name = $(this);
-                const fullName = $name.closest('.row').attr('data-name');
-                if ( fullName ) {
-                    $name.text(truncateFilenameToWidth(fullName, availableWidth));
-                }
-            });
-        } else if ( this.currentView === 'list' ) {
-            // Reset to full names when column is auto-width
-            $filesTab.find('.files.files-list-view .row:not(.header) .item-name').each(function () {
-                const $name = $(this);
-                const fullName = $name.closest('.row').attr('data-name');
-                if ( fullName ) {
-                    $name.text(fullName);
-                }
-            });
-        } else if ( this.isGridView() ) {
-            // Apply middle-truncation in grid view
-            $filesTab.find('.files.files-grid-view .row .item-name').each(function () {
-                const $name = $(this);
-                const fullName = $name.closest('.row').attr('data-name');
-                if ( fullName ) {
-                    const itemWidth = $name.width() || 156;
-                    $name.text(truncateFilenameToWidth(fullName, itemWidth));
-                }
-            });
-        }
+        this.fitItemNames($filesTab.find('.files .row:not(.header) .item-name'));
+    },
+
+    /**
+     * Writes each row's name into its `.item-name`, middle-truncated to fit
+     * the name column (list view with a set width) or the tile (grid view).
+     *
+     * @param {jQuery} $names - `.item-name` elements of rows in the listing
+     * @returns {void}
+     */
+    fitItemNames ($names) {
+        const nameWidth = this.columnWidths.name;
+        const isList = this.currentView === 'list';
+        if ( ! isList && ! this.isGridView() ) return;
+        const names = $names.toArray();
+        // Grid tiles size the room: read every width before writing any
+        // text, or each write forces a layout for the next read.
+        const widths = isList ? null : names.map(el => $(el).width() || 156);
+        names.forEach((el, i) => {
+            const fullName = el.closest('.row')?.getAttribute('data-name');
+            if ( ! fullName ) return;
+            if ( ! isList ) {
+                el.textContent = truncateFilenameToWidth(fullName, widths[i]);
+            } else if ( nameWidth ) {
+                // 8px padding on each side
+                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16);
+            } else {
+                // Auto-width column: the full name, clipped by CSS
+                el.textContent = fullName;
+            }
+        });
     },
 
     /**
@@ -1882,9 +1890,9 @@ const TabFiles = {
         const _this = this;
 
         const sortOptions = [
-            { column: 'name', label: 'Name' },
-            { column: 'size', label: 'Size' },
-            { column: 'modified', label: 'Date Modified' },
+            { column: 'name', label: i18n('name') },
+            { column: 'size', label: i18n('size') },
+            { column: 'modified', label: i18n('date_modified') },
         ];
 
         const items = sortOptions.map(opt => {
@@ -2047,7 +2055,7 @@ const TabFiles = {
             bottom: 0;
             pointer-events: none;
         ">
-            No files in this directory.
+            ${i18n('folder_empty')}
         </div>`);
     },
 
@@ -2250,6 +2258,8 @@ const TabFiles = {
         if ( this.renderingDirectory ) return;
         this.renderingDirectory = true;
         const _this = this;
+        // The preview shows a row of the listing being replaced.
+        if ( this.previewOpen && target !== this.currentPath ) this.closeImagePreview();
 
         // Re-rendering the directory already on screen (after an upload, sort
         // change, undo, …) keeps the current rows visible while the fresh
@@ -2315,7 +2325,7 @@ const TabFiles = {
                 pointer-events: none;
                 text-align: center;
                 padding: 0 16px;
-            ">This folder couldn't be opened.</div>`);
+            ">${i18n('folder_open_failed')}</div>`);
             // The list was emptied above; without this the footer keeps the
             // previous directory's item count over a pane with zero rows.
             this.updateFooterStats();
@@ -3017,13 +3027,13 @@ const TabFiles = {
             // or editable was not even active at all
             if ( old_name === new_name || !new_name || new_name === '.' || new_name === '..' || !$(el_item_name_editor).hasClass('item-name-editor-active') ) {
                 if ( new_name === '.' ) {
-                    UIAlert('The name "." is not allowed, because it is a reserved name. Please choose another name.');
+                    UIAlert(i18n('reserved_name_not_allowed', { name: '.' }, false));
                 }
                 else if ( new_name === '..' ) {
-                    UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
+                    UIAlert(i18n('reserved_name_not_allowed', { name: '..' }, false));
                 }
-                $(el_item_name).html(html_encode(truncate_filename(file.name)));
                 $(el_item_name).show();
+                _this.fitItemNames($(el_item_name));
                 $(el_item_name_editor).val($(el_item).attr('data-name'));
                 $(el_item_name_editor).hide();
                 return;
@@ -3032,8 +3042,17 @@ const TabFiles = {
             $(el_item_name_editor).removeClass('item-name-editor-active');
 
             // Perform rename request
-            window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (new_name) => {
-                $(el_item_name).html(html_encode(new_name));
+            window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (fsentry) => {
+                // rename_file writes the desktop's fixed-length truncation;
+                // fit the name to this listing instead. A renamed entry may
+                // also have a new type (extension) and sort position.
+                _this.fitItemNames($(el_item_name));
+                if ( ! fsentry || ! document.body.contains(el_item) ) return;
+                $(el_item).attr('data-type', fsentry.type ?? '');
+                _this.insertAtSortedPosition($(el_item), fsentry);
+                item_icon(fsentry).then(({ image }) => {
+                    $(el_item).find('.item-icon > img').first().attr('src', image);
+                });
             });
         }
 
@@ -3483,7 +3502,7 @@ const TabFiles = {
      * @param {HTMLElement} el_item - The row element representing the trashed item
      * @returns {Promise<Object>} The result from puter.fs.move()
      */
-    async restoreItem (el_item) {
+    async restoreItem (el_item, conflict = { multiple: false, overwriteAll: false }) {
         const uid = $(el_item).attr('data-uid');
         const metadataStr = $(el_item).attr('data-metadata');
         const metadata = metadataStr ? JSON.parse(metadataStr) : {};
@@ -3499,15 +3518,72 @@ const TabFiles = {
         const destPath = path.dirname(metadata.original_path);
         const originalName = metadata.original_name;
 
-        const resp = await puter.fs.move({
-            source: uid,
-            destination: destPath,
-            newName: originalName,
-            newMetadata: {},
-            createMissingParents: true,
-        });
+        let overwrite = conflict.overwriteAll;
+        let dedupeName = false;
+        for ( ;; ) {
+            try {
+                return await puter.fs.move({
+                    source: uid,
+                    destination: destPath,
+                    newName: originalName,
+                    newMetadata: {},
+                    createMissingParents: true,
+                    overwrite,
+                    dedupeName,
+                });
+            } catch ( err ) {
+                if ( err?.code !== 'item_with_same_name_exists' ) throw err;
+                const choice = await this.askNameConflict(err.entry_name ?? originalName, conflict.multiple);
+                if ( choice === 'replace_all' ) conflict.overwriteAll = true;
+                if ( choice === 'replace' || choice === 'replace_all' ) overwrite = true;
+                else if ( choice === 'keep_both' ) dedupeName = true;
+                else return null;
+            }
+        }
+    },
 
-        return resp;
+    /**
+     * Restores Trash rows to where they were deleted from, then drops the
+     * restored ones from the listing. Skipped or failed rows stay put.
+     *
+     * @param {HTMLElement[]} rows
+     * @returns {Promise<void>}
+     */
+    async restoreRows (rows) {
+        const conflict = { multiple: rows.length > 1, overwriteAll: false };
+        const restored = [];
+        for ( const row of rows ) {
+            try {
+                if ( await this.restoreItem(row, conflict) ) restored.push(row);
+            } catch ( err ) {
+                console.error('Failed to restore item:', err);
+                UIAlert(err?.message ?? String(err));
+            }
+        }
+        await $(restored).fadeOut(150).promise();
+        $(restored).remove();
+        this.renderEmptyPlaceholderIfNeeded();
+        this.updateFooterStats();
+        await window.refresh_trash_state();
+    },
+
+    /**
+     * Asks how to resolve moving an item onto a name that is already taken.
+     *
+     * @param {string} name - The name already in use
+     * @param {boolean} multiple - Part of a batch: offer Replace all and Skip
+     * @returns {Promise<'replace' | 'replace_all' | 'keep_both' | 'skip' | 'cancel'>}
+     */
+    askNameConflict (name, multiple) {
+        return UIAlert({
+            message: `<strong>${window.html_encode(name)}</strong> already exists.`,
+            buttons: [
+                { label: i18n('replace'), type: 'primary', value: 'replace' },
+                ... multiple ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                { label: i18n('keep_both'), value: 'keep_both' },
+                ... multiple ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
+            ],
+        });
     },
 
     /**
@@ -3560,15 +3636,7 @@ const TabFiles = {
                     // Same conflict resolution as the desktop's move_items:
                     // ask, then retry with overwrite or leave the item be.
                     if ( err.code === 'item_with_same_name_exists' ) {
-                        const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                            buttons: [
-                                { label: i18n('replace'), type: 'primary', value: 'replace' },
-                                ... multiple_items ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
-                                { label: i18n('keep_both'), value: 'keep_both' },
-                                ... multiple_items ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
-                            ],
-                        });
+                        const alert_resp = await this.askNameConflict(err.entry_name, multiple_items);
                         if ( alert_resp === 'replace' ) {
                             overwrite = true;
                             retry = true;
@@ -3584,7 +3652,7 @@ const TabFiles = {
                     } else {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
-                        UIAlert(`<p>Moving <strong>${html_encode(item_name)}</strong></p>${html_encode(err.message ?? '')}`);
+                        UIAlert(`<p>${i18n('moving_file', [`<strong>${html_encode(item_name)}</strong>`], false)}</p>${html_encode(err.message ?? '')}`);
                     }
                 }
             } while ( retry );
@@ -3650,15 +3718,14 @@ const TabFiles = {
         const totalSize = this.calculateTotalSize(allRows);
         const selectedSize = this.calculateTotalSize(selectedRows);
 
-        const itemText = totalCount === 1 ? 'item' : 'items';
-        $footer.find('.files-footer-item-count').html(
-            `${totalCount} ${itemText} · ${window.byte_format(totalSize)}`,
+        const countText = count => i18n(count === 1 ? 'items_count_one' : 'items_count_other', { count }, false);
+        $footer.find('.files-footer-item-count').text(
+            `${countText(totalCount)} · ${window.byte_format(totalSize)}`,
         );
 
         if ( selectedCount > 0 ) {
-            const selectedItemText = selectedCount === 1 ? 'item' : 'items';
             $footer.find('.files-footer-selected-items')
-                .html(`${selectedCount} ${selectedItemText} selected · ${window.byte_format(selectedSize)}`)
+                .text(`${i18n('items_selected', { items: countText(selectedCount) }, false)} · ${window.byte_format(selectedSize)}`)
                 .css('display', 'inline');
             $footer.find('.files-footer-separator').css('display', 'inline');
         } else {
@@ -3711,9 +3778,9 @@ const TabFiles = {
         const _this = this;
 
         const viewOptions = [
-            { mode: 'list', label: 'List' },
-            { mode: 'grid-sm', label: 'Compact Grid' },
-            { mode: 'grid', label: 'Grid' },
+            { mode: 'list', label: i18n('view_list') },
+            { mode: 'grid-sm', label: i18n('view_compact_grid') },
+            { mode: 'grid', label: i18n('view_grid') },
         ];
 
         const items = viewOptions.map(opt => {
@@ -3833,8 +3900,7 @@ const TabFiles = {
         // Walk back through nav history to find the original path
         for ( let i = window.dashboard_nav_history_current_position - 1; i >= 0; i-- ) {
             if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
-                window.dashboard_nav_history_current_position = i;
-                this.renderDirectory(this.springLoadedOriginalPath);
+                this.goToHistoryPosition(i);
                 return;
             }
         }
@@ -3843,8 +3909,7 @@ const TabFiles = {
         // forward too.
         for ( let i = window.dashboard_nav_history_current_position + 1; i < window.dashboard_nav_history.length; i++ ) {
             if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
-                window.dashboard_nav_history_current_position = i;
-                this.renderDirectory(this.springLoadedOriginalPath);
+                this.goToHistoryPosition(i);
                 return;
             }
         }
@@ -3939,17 +4004,36 @@ const TabFiles = {
      * @returns {void}
      */
     pushNavHistory (newPath) {
+        // renderDirectory drops a navigation while another is loading, so
+        // history must not move either, or Back/Forward would point at
+        // folders that were never shown.
+        if ( this.renderingDirectory ) return;
         // If history is empty, initialize with this path
         if ( window.dashboard_nav_history.length === 0 ) {
             window.dashboard_nav_history = [newPath];
             window.dashboard_nav_history_current_position = 0;
-        } else {
-            // Truncate forward history when navigating to new location
+        } else if ( window.dashboard_nav_history[window.dashboard_nav_history_current_position] !== newPath ) {
+            // Reopening the folder on screen adds no entry: Back would lead
+            // to the same folder. Otherwise truncate forward history.
             window.dashboard_nav_history = window.dashboard_nav_history.slice(0, window.dashboard_nav_history_current_position + 1);
             window.dashboard_nav_history.push(newPath);
             window.dashboard_nav_history_current_position++;
         }
         this.updateNavButtonStates();
+    },
+
+    /**
+     * Moves to an entry of the navigation history and shows its folder,
+     * unless another folder is still loading (see pushNavHistory).
+     *
+     * @param {number} position - Index into dashboard_nav_history
+     * @returns {void}
+     */
+    goToHistoryPosition (position) {
+        if ( this.renderingDirectory ) return;
+        window.dashboard_nav_history_current_position = position;
+        this.updateNavButtonStates();
+        this.renderDirectory(window.dashboard_nav_history[position]);
     },
 
     /**
@@ -3967,24 +4051,14 @@ const TabFiles = {
         const forwardBtn = this.$el_window.find('.path-btn-forward');
         const upBtn = this.$el_window.find('.path-btn-up');
 
-        if ( window.dashboard_nav_history_current_position === 0 ) {
-            backBtn.addClass('path-btn-disabled');
-        } else {
-            backBtn.removeClass('path-btn-disabled');
-        }
+        const setDisabled = ($btn, disabled) => $btn
+            .toggleClass('path-btn-disabled', disabled)
+            .attr('aria-disabled', disabled ? 'true' : 'false');
 
-        if ( window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1 ) {
-            forwardBtn.addClass('path-btn-disabled');
-        } else {
-            forwardBtn.removeClass('path-btn-disabled');
-        }
-
+        setDisabled(backBtn, window.dashboard_nav_history_current_position === 0);
+        setDisabled(forwardBtn, window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1);
         // The Shared view has no parent either — it is a query, not a directory.
-        if ( this.currentPath === '/' || this.currentPath === window.shared_path ) {
-            upBtn.addClass('path-btn-disabled');
-        } else {
-            upBtn.removeClass('path-btn-disabled');
-        }
+        setDisabled(upBtn, this.currentPath === '/' || this.currentPath === window.shared_path);
     },
 
     /**
@@ -4089,12 +4163,7 @@ const TabFiles = {
             suggested_apps: options.suggested_apps,
             associated_app_name: options.associated_app_name,
             onRestore: async (el) => {
-                await _this.restoreItem(el);
-                $(el).fadeOut(150, function () {
-                    $(this).remove();
-                });
-                _this.updateFooterStats();
-                await window.refresh_trash_state();
+                await _this.restoreRows([el]);
             },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
@@ -4151,18 +4220,7 @@ const TabFiles = {
             items.push({
                 html: i18n('restore'),
                 onClick: async function () {
-                    for ( const row of selectedRows ) {
-                        try {
-                            await _this.restoreItem(row);
-                            $(row).fadeOut(150, function () {
-                                $(this).remove();
-                            });
-                        } catch ( err ) {
-                            console.error('Failed to restore item:', err);
-                        }
-                    }
-                    _this.updateFooterStats();
-                    await window.refresh_trash_state();
+                    await _this.restoreRows(Array.from(selectedRows));
                 },
             });
             items.push('-');
@@ -4459,10 +4517,10 @@ const TabFiles = {
         }
 
         // Publish As Website and Properties act on the folder the menu was
-        // opened on, not on the listing's selection. The filesystem root isn't
-        // a real fsentry, and Trash itself only offers Empty Trash — same as
-        // the desktop's folder menus.
-        if ( targetPath !== '/' && ! isTrashFolder ) {
+        // opened on, not on the listing's selection. The filesystem root and
+        // the Shared view aren't real fsentries, and Trash itself only offers
+        // Empty Trash — same as the desktop's folder menus.
+        if ( targetPath !== '/' && ! isTrashFolder && ! isSharedView ) {
             const targetName = path.basename(targetPath);
 
             items.push('-');
@@ -4782,7 +4840,7 @@ const TabFiles = {
         let opid;
 
         if ( destPath === window.trash_path ) {
-            UIAlert('Uploading to trash is not allowed!');
+            UIAlert(i18n('upload_to_trash_not_allowed', [], false));
             return;
         }
 
@@ -4806,7 +4864,7 @@ const TabFiles = {
                 });
             },
             start: async function () {
-                upload_progress_window.set_status('Uploading');
+                upload_progress_window.set_status(i18n('uploading'));
                 upload_progress_window.set_progress(0);
             },
             progress: async function (_operation_id, op_progress) {
@@ -4850,7 +4908,7 @@ const TabFiles = {
                             : '';
                         return `- ${failedPath}${failedMessage}`;
                     }).join('\n');
-                    UIAlert(`Some uploads failed:\n${failedSummary}`);
+                    UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
                 }
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 delete window.active_uploads[opid];
@@ -4997,15 +5055,15 @@ const TabFiles = {
 
         // The Shared view is a query, not a directory — one crumb, no ancestry.
         if ( abs_path === window.shared_path ) {
-            return `${path_seperator_html}<span class="dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+            return `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
         }
 
         // Someone else's tree is shown from the share down, not from their home.
         const shared = shared_crumbs_for(abs_path);
         if ( shared ) {
-            let str = `${path_seperator_html}<span class="dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+            let str = `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
             for ( const crumb of shared ) {
-                str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
+                str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
             }
             return str;
         }
@@ -5022,10 +5080,10 @@ const TabFiles = {
         // only renders at the root itself, where it's all there is to show.
         // Every crumb keeps its leading caret, including the first.
         let str = abs_path === '/'
-            ? `${path_seperator_html}<span class="dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
+            ? `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
             : '';
         for ( let k = 1; k < dirs.length; k++ ) {
-            str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
+            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
         }
         return str;
     },
@@ -5048,7 +5106,7 @@ const TabFiles = {
         overlay.innerHTML = `
             <div class="files-loading-container">
                 <div class="files-loading-spinner"></div>
-                <div class="files-loading-text">Working...</div>
+                <div class="files-loading-text">${i18n('working')}</div>
             </div>
         `;
 
@@ -5099,60 +5157,7 @@ function measureTextWidth (text, font = '500 13px system-ui, -apple-system, sans
  * @returns {string} Truncated filename with ellipsis in middle, or original if it fits
  */
 function truncateFilenameToWidth (filename, maxWidth, font = '500 13px system-ui, -apple-system, sans-serif') {
-    const fullWidth = measureTextWidth(filename, font);
-    if ( fullWidth <= maxWidth ) {
-        return filename;
-    }
-
-    // Find extension
-    const lastDot = filename.lastIndexOf('.');
-    const hasExtension = lastDot > 0 && lastDot < filename.length - 1;
-    const extension = hasExtension ? filename.slice(lastDot) : '';
-    const baseName = hasExtension ? filename.slice(0, lastDot) : filename;
-
-    const ellipsis = '…';
-    const ellipsisWidth = measureTextWidth(ellipsis, font);
-    const extensionWidth = measureTextWidth(extension, font);
-
-    // Available width for the base name (before and after ellipsis)
-    const availableWidth = maxWidth - ellipsisWidth - extensionWidth;
-    if ( availableWidth <= 0 ) {
-        return ellipsis + extension;
-    }
-
-    // Binary search to find how many characters fit
-    // We want roughly equal parts before and after the ellipsis
-    const targetHalfWidth = availableWidth / 2;
-
-    let startChars = 0;
-    let endChars = 0;
-
-    // Find characters for start
-    for ( let i = 1; i <= baseName.length; i++ ) {
-        if ( measureTextWidth(baseName.slice(0, i), font) > targetHalfWidth ) {
-            startChars = i - 1;
-            break;
-        }
-        startChars = i;
-    }
-
-    // Find characters for end (before extension)
-    for ( let i = 1; i <= baseName.length - startChars; i++ ) {
-        if ( measureTextWidth(baseName.slice(-i), font) > targetHalfWidth ) {
-            endChars = i - 1;
-            break;
-        }
-        endChars = i;
-    }
-
-    if ( startChars === 0 && endChars === 0 ) {
-        return ellipsis + extension;
-    }
-
-    const start = baseName.slice(0, startChars);
-    const end = endChars > 0 ? baseName.slice(-endChars) : '';
-
-    return start + ellipsis + end + extension;
+    return middleTruncate(filename, maxWidth, text => measureTextWidth(text, font));
 }
 
 export default TabFiles;
