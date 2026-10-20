@@ -45,6 +45,8 @@ const AUDIT_ROWS_PER_PAGE = 10;
 
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
+/** One more load, queued behind `loadPromise` by a change made during it. */
+let reloadPromise = null;
 
 /** Every dialog here is the dashboard's overlay card, mounted in the window. */
 const dialog = ($el_window, opts) => UIDashboardDialog({ $container: $el_window, ...opts });
@@ -531,14 +533,23 @@ const load = async ($el_window) => {
         state.selected = null;
         setTabVisible($el_window, false);
     }
+    // What this load read may predate a change; the queued load paints it.
+    if ( reloadPromise ) return;
     paint($el_window);
 };
 
 const refresh = ($el_window) => {
     if ( ! loadPromise ) {
         loadPromise = load($el_window).finally(() => { loadPromise = null; });
+        return loadPromise;
     }
-    return loadPromise;
+    // The running load may have read the team before the caller's change (an
+    // action, a team switch), so load once more after it.
+    reloadPromise ??= loadPromise.catch(() => {}).then(() => {
+        reloadPromise = null;
+        return refresh($el_window);
+    });
+    return reloadPromise;
 };
 
 // -- Actions --------------------------------------------------------------
@@ -913,7 +924,8 @@ const TabTeams = {
     },
 
     onActivate ($el_window) {
-        refresh($el_window);
+        // A load already running (the one `init` started) is fresh enough.
+        if ( ! loadPromise ) refresh($el_window);
     },
 };
 

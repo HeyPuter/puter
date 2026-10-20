@@ -185,6 +185,28 @@ describe('a new account\'s one-time password', () => {
     });
 });
 
+describe('a change made while the tab is loading', () => {
+    it('is shown once that load finishes, not overwritten by it', async () => {
+        const on = { ...team, directoryEnabled: true };
+        const $w = await mount({ teams: [on] });
+        // A revisit starts a slow load that read the directory as still on.
+        let release;
+        globalThis.puter.teams.list = vi.fn(() => new Promise(resolve => { release = () => resolve([on]); }));
+        TabTeams.onActivate($w);
+        // Meanwhile the owner turns it off.
+        globalThis.puter.teams.update = vi.fn(async () => ({}));
+        $w.find('.teams-directory-check').prop('checked', false).trigger('change');
+        await flush();
+        const listAfterChange = vi.fn(async () => [{ ...team, directoryEnabled: false }]);
+        const stale = release;
+        globalThis.puter.teams.list = listAfterChange;
+        stale();
+        for ( let i = 0; i < 8; i++ ) await flush();
+        expect(listAfterChange).toHaveBeenCalled();
+        expect($w.find('.teams-directory-check').is(':checked')).toBe(false);
+    });
+});
+
 describe('states', () => {
     it('shows a picker when there is more than one team', async () => {
         const $w = await mount({ teams: [team, { ...team, uid: 't2', name: 'Other' }] });
