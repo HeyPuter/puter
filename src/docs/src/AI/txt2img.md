@@ -35,8 +35,8 @@ Additional settings for the generation request. Available options depend on the 
 | `model` | `String` | Image model ID. See the provider defaults and model discovery below. Lookups are case-insensitive; provider-prefixed IDs select that provider. |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
-| `input_images` | `Array<String>` | Input image(s) for image-to-image. Works with every provider (see below). |
-| `input_image` | `String` | Single-image shorthand for `input_images`. |
+| `input_images` | `Array<String \| Blob>` | Input image(s) for image-to-image. Works with every provider (see below). |
+| `input_image` | `String \| Blob` | Single-image shorthand for `input_images`. |
 | `input_image_mime_type` | `String` | MIME type of the input image(s), e.g. `'image/png'`. Used as a fallback when the type cannot be detected from the input. Pass it when supplying raw base64 without a data-URI prefix. |
 
 #### Providers and model discovery
@@ -77,7 +77,11 @@ Supported shapes and sizes vary by model. Gemini and BytePlus choose the closest
 
 #### Input images (image-to-image)
 
-To pass input images for image-to-image, use `input_images`, which works with every provider. For a single image, `input_image` is a shorthand. Each entry can be a **public URL**, a **data-URI**, or **raw base64**, and a URL works with every provider.
+To pass input images for image-to-image, use `input_images`, which works with every provider. For a single image, `input_image` is a shorthand. Each entry can be a **public URL**, a **data-URI**, **raw base64**, the **path of a file** in the user's Puter filesystem, or a **`Blob` or `File`**. Every form works with every provider.
+
+Puter reads a Puter file with the caller's access, so a file the caller can't read fails with `access_denied` before generating. The file must be a PNG, JPEG, WebP or GIF image, and the Puter files one request names can be up to 32 MiB together. `maskImage` takes the same forms.
+
+puter.js uploads a `Blob`, a `File` or a data-URI over 1 MiB to a temporary file and sends its path instead of the bytes. The file goes in `~/AppData/<appID>/.tmp/` when called from an app, or `~/.tmp/` otherwise, and counts against the user's storage until puter.js deletes it after the call, whether the call succeeds or fails. When an image can't be uploaded, for example because the user's storage is full, puter.js sends it inline instead.
 
 Raw base64 carries no MIME type of its own. When it cannot be detected from the bytes, set `input_image_mime_type`, such as `'image/png'`. Gemini rejects the request without it, and OpenAI, xAI, Cloudflare, BytePlus, and Replicate use it to label the upload.
 
@@ -144,7 +148,7 @@ Use `provider: 'cloudflare'`, a `@cf/...` model ID, or its `workers-ai:...` alia
 | `guidance` | `Number` | Prompt guidance on models other than Schnell. |
 | `negative_prompt` | `String` | Content to exclude (Phoenix, SDXL, and Inpainting). |
 | `input_image`, `input_images` | `String`, `Array<String>` | One reference image for FLUX.2 and Inpainting models. Inpainting requires an image; SDXL models reject one. |
-| `maskImage` | `String` | Mask URL, data URI, or raw base64 for Inpainting; requires an input image. |
+| `maskImage` | `String \| Blob` | Mask for Inpainting, in any [input image](#input-images-image-to-image) form; requires an input image. |
 | `strength` | `Number` | Transformation strength for Inpainting image editing. |
 
 Output encoding is selected by the model; `response_format` does not change Cloudflare output.

@@ -41,6 +41,7 @@ import type {
     MultipartCompleteInput,
     ServerUploadInput,
     SignedMultipartPartUrlsInput,
+    SignedReadInput,
     SignedUploadInput,
     SignedUploadPart,
     SignedUploadResult,
@@ -363,6 +364,35 @@ export class S3ObjectStore extends PuterStore {
                     url,
                 };
             }),
+        );
+    }
+
+    /**
+     * A presigned GET for handing one object to a third party that fetches it
+     * itself. The expiry is clamped like the upload URLs.
+     */
+    @Span('s3.createSignedReadUrl')
+    async createSignedReadUrl(
+        input: SignedReadInput,
+        region: string,
+    ): Promise<string> {
+        const presignClient = this.#getPresignClientForRegion(region);
+        // Counted at signing, like the upload URLs: the fetch never reaches us.
+        recordStorageOps('read');
+        return getSignedUrl(
+            presignClient,
+            new GetObjectCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                ...(input.contentType
+                    ? { ResponseContentType: input.contentType }
+                    : {}),
+            }),
+            {
+                expiresIn: clampSignedUploadExpirySeconds(
+                    input.expiresInSeconds,
+                ),
+            },
         );
     }
 
