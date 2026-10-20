@@ -221,6 +221,23 @@ describe('re-enabling an account', () => {
     });
 });
 
+describe('loading a team', () => {
+    it('reads the record and the roster at the same time', async () => {
+        const $w = await mount();
+        let releaseAudit;
+        globalThis.puter.teams.listAudit = vi.fn(() => new Promise(resolve => { releaseAudit = () => resolve(audit); }));
+        globalThis.puter.teams.listMembers = vi.fn(async () => members);
+        TabTeams.onActivate($w);
+        await flush();
+        const rosterAskedWhileRecordLoads = globalThis.puter.teams.listMembers.mock.calls.length > 0;
+        releaseAudit();
+        await flush();
+        await flush();
+        expect(rosterAskedWhileRecordLoads).toBe(true);
+        expect($w.find('.teams-hero')).toHaveLength(1);
+    });
+});
+
 describe('states', () => {
     it('shows a picker when there is more than one team', async () => {
         const $w = await mount({ teams: [team, { ...team, uid: 't2', name: 'Other' }] });

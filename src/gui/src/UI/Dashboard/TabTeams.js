@@ -459,13 +459,17 @@ const loadSelected = async () => {
     if ( ! state.selected ) return;
     // A fresh record starts at the top; auditSlice clamps a stale page anyway.
     state.auditPage = 0;
-    state.audit = state.selected.isOwner
-        ? await puter.teams.listAudit(state.selected.uid)
-        : await puter.teams.listOwnAudit(state.selected.uid);
-    // Members too: the roster is theirs to see, and the controller already
-    // withholds from them what is not.
-    state.members = await puter.teams.listMembers(state.selected.uid);
-    state.plan = state.selected.isOwner ? await loadPlan(state.selected.uid) : null;
+    const { uid, isOwner } = state.selected;
+    // Independent reads, so fetched together. Members too: the roster is
+    // theirs to see, and the controller already withholds what is not.
+    const [audit, members, plan] = await Promise.all([
+        isOwner ? puter.teams.listAudit(uid) : puter.teams.listOwnAudit(uid),
+        puter.teams.listMembers(uid),
+        isOwner ? loadPlan(uid) : null,
+    ]);
+    state.audit = audit;
+    state.members = members;
+    state.plan = plan;
 };
 
 /** Served by a billing extension; absent is a normal answer. */
