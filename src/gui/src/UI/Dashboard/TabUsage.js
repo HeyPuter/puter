@@ -18,6 +18,7 @@
  */
 
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
+import { isOrgSeat } from './orgSeat.js';
 import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
@@ -154,6 +155,11 @@ let planBtnRetryTimer = null;
 function setupPlanButton ($el_window, retryDelay = 250) {
     const $planBtn = $($el_window).find('.usage-plan-btn');
     clearTimeout(planBtnRetryTimer);
+    // A seat's plan is the team's; the button would only reach a refusal.
+    if ( isOrgSeat(window.user) ) {
+        $planBtn.hide();
+        return;
+    }
     // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
     // install the button has no working target, so hide it entirely rather
     // than showing a dead control. Hosted deployments can attach it *after*
