@@ -53,12 +53,12 @@ function buildRecentAppsHTML() {
                 app_info.target_link = app_info.index_url;
             }
 
-            h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
-            // Icon
-            h += `<img class="bento-recent-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
+            h += `<button type="button" class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
+            // Icon (the title names the button)
+            h += `<img class="bento-recent-app-icon" alt="" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
             // Title
             h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
-            h += '</div>';
+            h += '</button>';
         }
         h += '</div>';
     } else {

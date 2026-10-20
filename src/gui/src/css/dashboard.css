@@ -5808,10 +5808,20 @@ body.myapps-reordering .myapps-tile {
     flex-direction: row;
     align-items: center;
     padding: 8px 0;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    font: inherit;
+    color: inherit;
     cursor: pointer;
     transition: transform 0.15s ease;
     gap: 12px;
     width: 200px;
+}
+
+.dashboard .bento-recent-app:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: 2px;
 }
 
 @media (hover: hover) {
