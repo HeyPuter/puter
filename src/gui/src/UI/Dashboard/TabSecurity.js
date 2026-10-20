@@ -102,7 +102,7 @@ const TabSecurity = {
             h += '</div>';
             h += '</div>';
             h += '<label class="dashboard-switch toggle-2fa-label">';
-            h += `<input type="checkbox" class="toggle-2fa"${user.otp ? ' checked' : ''}>`;
+            h += `<input type="checkbox" class="toggle-2fa"${user.otp ? ' checked' : ''} aria-label="${html_encode(i18n('two_factor', [], false))}">`;
             h += '<span class="dashboard-switch-slider"></span>';
             h += '</label>';
             h += '</div>';
