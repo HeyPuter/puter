@@ -1462,19 +1462,7 @@ const TabFiles = {
 
         // Restore button (for trash items)
         $actions.find('.restore-btn').on('click', async function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            for ( const row of selectedRows ) {
-                try {
-                    await _this.restoreItem(row);
-                    $(row).fadeOut(150, function () {
-                        $(this).remove();
-                    });
-                } catch ( err ) {
-                    console.error('Failed to restore item:', err);
-                }
-            }
-            _this.updateFooterStats();
-            await window.refresh_trash_state();
+            await _this.restoreRows(Array.from(document.querySelectorAll('.files-tab .row.selected')));
         });
 
         // Download button
@@ -3488,7 +3476,7 @@ const TabFiles = {
      * @param {HTMLElement} el_item - The row element representing the trashed item
      * @returns {Promise<Object>} The result from puter.fs.move()
      */
-    async restoreItem (el_item) {
+    async restoreItem (el_item, conflict = { multiple: false, overwriteAll: false }) {
         const uid = $(el_item).attr('data-uid');
         const metadataStr = $(el_item).attr('data-metadata');
         const metadata = metadataStr ? JSON.parse(metadataStr) : {};
@@ -3504,15 +3492,72 @@ const TabFiles = {
         const destPath = path.dirname(metadata.original_path);
         const originalName = metadata.original_name;
 
-        const resp = await puter.fs.move({
-            source: uid,
-            destination: destPath,
-            newName: originalName,
-            newMetadata: {},
-            createMissingParents: true,
-        });
+        let overwrite = conflict.overwriteAll;
+        let dedupeName = false;
+        for ( ;; ) {
+            try {
+                return await puter.fs.move({
+                    source: uid,
+                    destination: destPath,
+                    newName: originalName,
+                    newMetadata: {},
+                    createMissingParents: true,
+                    overwrite,
+                    dedupeName,
+                });
+            } catch ( err ) {
+                if ( err?.code !== 'item_with_same_name_exists' ) throw err;
+                const choice = await this.askNameConflict(err.entry_name ?? originalName, conflict.multiple);
+                if ( choice === 'replace_all' ) conflict.overwriteAll = true;
+                if ( choice === 'replace' || choice === 'replace_all' ) overwrite = true;
+                else if ( choice === 'keep_both' ) dedupeName = true;
+                else return null;
+            }
+        }
+    },
 
-        return resp;
+    /**
+     * Restores Trash rows to where they were deleted from, then drops the
+     * restored ones from the listing. Skipped or failed rows stay put.
+     *
+     * @param {HTMLElement[]} rows
+     * @returns {Promise<void>}
+     */
+    async restoreRows (rows) {
+        const conflict = { multiple: rows.length > 1, overwriteAll: false };
+        const restored = [];
+        for ( const row of rows ) {
+            try {
+                if ( await this.restoreItem(row, conflict) ) restored.push(row);
+            } catch ( err ) {
+                console.error('Failed to restore item:', err);
+                UIAlert(err?.message ?? String(err));
+            }
+        }
+        await $(restored).fadeOut(150).promise();
+        $(restored).remove();
+        this.renderEmptyPlaceholderIfNeeded();
+        this.updateFooterStats();
+        await window.refresh_trash_state();
+    },
+
+    /**
+     * Asks how to resolve moving an item onto a name that is already taken.
+     *
+     * @param {string} name - The name already in use
+     * @param {boolean} multiple - Part of a batch: offer Replace all and Skip
+     * @returns {Promise<'replace' | 'replace_all' | 'keep_both' | 'skip' | 'cancel'>}
+     */
+    askNameConflict (name, multiple) {
+        return UIAlert({
+            message: `<strong>${window.html_encode(name)}</strong> already exists.`,
+            buttons: [
+                { label: i18n('replace'), type: 'primary', value: 'replace' },
+                ... multiple ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                { label: i18n('keep_both'), value: 'keep_both' },
+                ... multiple ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
+            ],
+        });
     },
 
     /**
@@ -3565,15 +3610,7 @@ const TabFiles = {
                     // Same conflict resolution as the desktop's move_items:
                     // ask, then retry with overwrite or leave the item be.
                     if ( err.code === 'item_with_same_name_exists' ) {
-                        const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                            buttons: [
-                                { label: i18n('replace'), type: 'primary', value: 'replace' },
-                                ... multiple_items ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
-                                { label: i18n('keep_both'), value: 'keep_both' },
-                                ... multiple_items ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
-                            ],
-                        });
+                        const alert_resp = await this.askNameConflict(err.entry_name, multiple_items);
                         if ( alert_resp === 'replace' ) {
                             overwrite = true;
                             retry = true;
@@ -4094,12 +4131,7 @@ const TabFiles = {
             suggested_apps: options.suggested_apps,
             associated_app_name: options.associated_app_name,
             onRestore: async (el) => {
-                await _this.restoreItem(el);
-                $(el).fadeOut(150, function () {
-                    $(this).remove();
-                });
-                _this.updateFooterStats();
-                await window.refresh_trash_state();
+                await _this.restoreRows([el]);
             },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
@@ -4156,18 +4188,7 @@ const TabFiles = {
             items.push({
                 html: i18n('restore'),
                 onClick: async function () {
-                    for ( const row of selectedRows ) {
-                        try {
-                            await _this.restoreItem(row);
-                            $(row).fadeOut(150, function () {
-                                $(this).remove();
-                            });
-                        } catch ( err ) {
-                            console.error('Failed to restore item:', err);
-                        }
-                    }
-                    _this.updateFooterStats();
-                    await window.refresh_trash_state();
+                    await _this.restoreRows(Array.from(selectedRows));
                 },
             });
             items.push('-');
