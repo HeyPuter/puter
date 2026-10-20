@@ -26,7 +26,6 @@ import UIContextMenu from '../UIContextMenu.js';
 import UIWindowProgress from '../UIWindowProgress.js';
 import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
-import truncate_filename from '../../helpers/truncateFilename.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
 import { user_facing_windows } from '../../helpers/windowVisibility.js';
@@ -1783,37 +1782,34 @@ const TabFiles = {
         $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
         $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
 
-        // Apply middle-truncation to file names
-        if ( this.currentView === 'list' && nameWidth ) {
-            const padding = 16; // 8px padding on each side
-            const availableWidth = nameWidth - padding;
-            $filesTab.find('.files.files-list-view .row:not(.header) .item-name').each(function () {
-                const $name = $(this);
-                const fullName = $name.closest('.row').attr('data-name');
-                if ( fullName ) {
-                    $name.text(truncateFilenameToWidth(fullName, availableWidth));
-                }
-            });
-        } else if ( this.currentView === 'list' ) {
-            // Reset to full names when column is auto-width
-            $filesTab.find('.files.files-list-view .row:not(.header) .item-name').each(function () {
-                const $name = $(this);
-                const fullName = $name.closest('.row').attr('data-name');
-                if ( fullName ) {
-                    $name.text(fullName);
-                }
-            });
-        } else if ( this.isGridView() ) {
-            // Apply middle-truncation in grid view
-            $filesTab.find('.files.files-grid-view .row .item-name').each(function () {
-                const $name = $(this);
-                const fullName = $name.closest('.row').attr('data-name');
-                if ( fullName ) {
-                    const itemWidth = $name.width() || 156;
-                    $name.text(truncateFilenameToWidth(fullName, itemWidth));
-                }
-            });
-        }
+        this.fitItemNames($filesTab.find('.files .row:not(.header) .item-name'));
+    },
+
+    /**
+     * Writes each row's name into its `.item-name`, middle-truncated to fit
+     * the name column (list view with a set width) or the tile (grid view).
+     *
+     * @param {jQuery} $names - `.item-name` elements of rows in the listing
+     * @returns {void}
+     */
+    fitItemNames ($names) {
+        const nameWidth = this.columnWidths.name;
+        const isList = this.currentView === 'list';
+        const isGrid = this.isGridView();
+        $names.each(function () {
+            const $name = $(this);
+            const fullName = $name.closest('.row').attr('data-name');
+            if ( ! fullName ) return;
+            if ( isList && nameWidth ) {
+                // 8px padding on each side
+                $name.text(truncateFilenameToWidth(fullName, nameWidth - 16));
+            } else if ( isList ) {
+                // Auto-width column: the full name, clipped by CSS
+                $name.text(fullName);
+            } else if ( isGrid ) {
+                $name.text(truncateFilenameToWidth(fullName, $name.width() || 156));
+            }
+        });
     },
 
     /**
@@ -3015,8 +3011,8 @@ const TabFiles = {
                 else if ( new_name === '..' ) {
                     UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
                 }
-                $(el_item_name).html(html_encode(truncate_filename(file.name)));
                 $(el_item_name).show();
+                _this.fitItemNames($(el_item_name));
                 $(el_item_name_editor).val($(el_item).attr('data-name'));
                 $(el_item_name_editor).hide();
                 return;
@@ -3025,8 +3021,17 @@ const TabFiles = {
             $(el_item_name_editor).removeClass('item-name-editor-active');
 
             // Perform rename request
-            window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (new_name) => {
-                $(el_item_name).html(html_encode(new_name));
+            window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (fsentry) => {
+                // rename_file writes the desktop's fixed-length truncation;
+                // fit the name to this listing instead. A renamed entry may
+                // also have a new type (extension) and sort position.
+                _this.fitItemNames($(el_item_name));
+                if ( ! fsentry || ! document.body.contains(el_item) ) return;
+                $(el_item).attr('data-type', fsentry.type ?? '');
+                _this.insertAtSortedPosition($(el_item), fsentry);
+                item_icon(fsentry).then(({ image }) => {
+                    $(el_item).find('.item-icon > img').first().attr('src', image);
+                });
             });
         }
 
