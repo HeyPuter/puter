@@ -435,7 +435,18 @@ const TabHome = {
     // precisely to pull new state (subscription change, returning from the
     // billing portal) — those must never be served a cached decision.
     async loadUsageData($el_window, { force = false } = {}) {
-        if (this._usageLoadInFlight) return this._usageLoadInFlight;
+        if (this._usageLoadInFlight) {
+            if (!force) return this._usageLoadInFlight;
+            // The running load may have read the state before the change
+            // that forced this one, so run once more after it.
+            this._usageForcedReload ??= this._usageLoadInFlight
+                .catch(() => {})
+                .then(() => {
+                    this._usageForcedReload = null;
+                    return this.loadUsageData($el_window, { force: true });
+                });
+            return this._usageForcedReload;
+        }
         if (
             !force &&
             this._usageLoadedAt &&
