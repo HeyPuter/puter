@@ -1186,9 +1186,7 @@ const TabFiles = {
                 return;
             }
             if ( window.dashboard_nav_history_current_position > 0 ) {
-                window.dashboard_nav_history_current_position--;
-                const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                _this.renderDirectory(new_path);
+                _this.goToHistoryPosition(window.dashboard_nav_history_current_position - 1);
             }
         });
 
@@ -1204,9 +1202,7 @@ const TabFiles = {
                     html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
-                        window.dashboard_nav_history_current_position = e.value;
-                        const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                        _this.renderDirectory(new_path);
+                        _this.goToHistoryPosition(e.value);
                     },
                 });
             }
@@ -1227,9 +1223,7 @@ const TabFiles = {
                 return;
             }
             if ( window.dashboard_nav_history_current_position < window.dashboard_nav_history.length - 1 ) {
-                window.dashboard_nav_history_current_position++;
-                const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                _this.renderDirectory(target_path);
+                _this.goToHistoryPosition(window.dashboard_nav_history_current_position + 1);
             }
         });
 
@@ -1245,9 +1239,7 @@ const TabFiles = {
                     html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
-                        window.dashboard_nav_history_current_position = e.value;
-                        const new_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position];
-                        _this.renderDirectory(new_path);
+                        _this.goToHistoryPosition(e.value);
                     },
                 });
             }
@@ -1293,16 +1285,14 @@ const TabFiles = {
             if ( window.dashboard_nav_history_current_position <= 0 ) return false;
             const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position - 1];
             if ( ! _this.canSpringLoadInto(target_path) ) return false;
-            window.dashboard_nav_history_current_position--;
-            _this.renderDirectory(target_path);
+            _this.goToHistoryPosition(window.dashboard_nav_history_current_position - 1);
         });
 
         makeNavBtnSpringLoaded(el_window_navbar_forward_btn, () => {
             if ( window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1 ) return false;
             const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position + 1];
             if ( ! _this.canSpringLoadInto(target_path) ) return false;
-            window.dashboard_nav_history_current_position++;
-            _this.renderDirectory(target_path);
+            _this.goToHistoryPosition(window.dashboard_nav_history_current_position + 1);
         });
 
         makeNavBtnSpringLoaded(el_window_navbar_up_btn, () => {
@@ -3891,8 +3881,7 @@ const TabFiles = {
         // Walk back through nav history to find the original path
         for ( let i = window.dashboard_nav_history_current_position - 1; i >= 0; i-- ) {
             if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
-                window.dashboard_nav_history_current_position = i;
-                this.renderDirectory(this.springLoadedOriginalPath);
+                this.goToHistoryPosition(i);
                 return;
             }
         }
@@ -3901,8 +3890,7 @@ const TabFiles = {
         // forward too.
         for ( let i = window.dashboard_nav_history_current_position + 1; i < window.dashboard_nav_history.length; i++ ) {
             if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
-                window.dashboard_nav_history_current_position = i;
-                this.renderDirectory(this.springLoadedOriginalPath);
+                this.goToHistoryPosition(i);
                 return;
             }
         }
@@ -3997,6 +3985,10 @@ const TabFiles = {
      * @returns {void}
      */
     pushNavHistory (newPath) {
+        // renderDirectory drops a navigation while another is loading, so
+        // history must not move either, or Back/Forward would point at
+        // folders that were never shown.
+        if ( this.renderingDirectory ) return;
         // If history is empty, initialize with this path
         if ( window.dashboard_nav_history.length === 0 ) {
             window.dashboard_nav_history = [newPath];
@@ -4008,6 +4000,20 @@ const TabFiles = {
             window.dashboard_nav_history_current_position++;
         }
         this.updateNavButtonStates();
+    },
+
+    /**
+     * Moves to an entry of the navigation history and shows its folder,
+     * unless another folder is still loading (see pushNavHistory).
+     *
+     * @param {number} position - Index into dashboard_nav_history
+     * @returns {void}
+     */
+    goToHistoryPosition (position) {
+        if ( this.renderingDirectory ) return;
+        window.dashboard_nav_history_current_position = position;
+        this.updateNavButtonStates();
+        this.renderDirectory(window.dashboard_nav_history[position]);
     },
 
     /**
