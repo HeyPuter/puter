@@ -92,7 +92,6 @@ describe('klingRequest', () => {
         [1303, 429, 429],
         [1302, 429, 429],
         [1201, 400, 400],
-        [1203, 404, 400],
         [5000, 500, 500],
         [5001, 503, 503],
     ])('maps code %i (HTTP %i) to status %i', async (code, http, status) => {
@@ -111,6 +110,23 @@ describe('klingRequest', () => {
             legacyCode: 'upstream_credits_exhausted',
         });
     });
+
+    it.each([1202, 1203])(
+        'reports code %i as an alerted Puter-side failure, not a bad request',
+        async (code) => {
+            respond(
+                { code, message: "model_name 'kling-nope' is not supported" },
+                code === 1203 ? 404 : 400,
+            );
+            const err = await klingRequest('k', 'GET', '/x').catch((e) => e);
+            expect(translateProviderError(err)).toMatchObject({
+                statusCode: 502,
+                legacyCode: 'upstream_failed',
+                alarmSeverity: 'warning',
+                fields: { provider: 'kling', upstreamCode: String(code) },
+            });
+        },
+    );
 
     it('turns a content-safety block into moderation_flagged', async () => {
         respond({ code: 1301, message: 'risk' }, 400);

@@ -62,6 +62,24 @@ const klingError = (
     message: string,
     status: number,
 ) => {
+    // 1202 and 1203 name a method or model Kling doesn't serve. Puter picks
+    // both, so the catalog has drifted from Kling's: our fault, not the
+    // caller's, and worth someone's attention.
+    if (code === 1202 || code === 1203) {
+        return new HttpError(
+            502,
+            'Kling does not support the model Puter requested',
+            {
+                legacyCode: 'upstream_failed',
+                alarmSeverity: 'warning',
+                fields: {
+                    provider: 'kling',
+                    upstreamCode: String(code),
+                    upstreamMessage: sanitizeUpstreamMessage(message),
+                },
+            },
+        );
+    }
     // 1301 is Kling's content-safety block at submit time.
     if (code === 1301) {
         return new HttpError(
