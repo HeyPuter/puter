@@ -847,6 +847,42 @@ describe('ai media inputs staged through Puter files', () => {
         ).resolves.toBeTruthy();
     });
 
+    it('signs a signed-out website visitor in before choosing the app data path', async () => {
+        const fs = stageFs();
+        fakePuter.env = 'web';
+        fakePuter.authToken = undefined;
+        fakePuter.appID = undefined;
+        fakePuter.ui = {
+            authenticateWithPuter: vi.fn(async () => {
+                fakePuter.authToken = 'signed-in-token';
+                fakePuter.appID = 'site-app';
+            }),
+        };
+        const image = new Blob(['png'], { type: 'image/png' });
+
+        await ai.txt2vid('animate', { input_reference: image, last_frame: image });
+
+        expect(fakePuter.ui.authenticateWithPuter).toHaveBeenCalledOnce();
+        for ( const [path] of fs.write.mock.calls ) {
+            expect(path).toMatch(/^~\/AppData\/site-app\/\.tmp\//);
+        }
+    });
+
+    it('sends an image inline when it cannot be written, but fails a video', async () => {
+        const fs = stageFs();
+        fs.write.mockRejectedValue({ message: 'Storage capacity limit reached', code: 'storage_limit_reached' });
+        const large = bigDataUri('image/png');
+
+        await ai.txt2img({ prompt: 'a cat', input_image: large, maskImage: new Blob(['m'], { type: 'image/png' }) });
+        expect(lastBody().args.input_image).toBe(large);
+        expect(lastBody().args.maskImage).toBe(`data:image/png;base64,${Buffer.from('m').toString('base64')}`);
+        expect(fs.delete).not.toHaveBeenCalled();
+
+        await expect(
+            ai.txt2vid('edit', { inputVideo: bigDataUri('video/mp4') }),
+        ).rejects.toMatchObject({ code: 'storage_limit_reached' });
+    });
+
     it('txt2img stages Blob input images and the mask', async () => {
         const fs = stageFs();
         FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/out.png' });

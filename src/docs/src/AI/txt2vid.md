@@ -69,7 +69,7 @@ On Together AI and Seedance, `seconds` and `size` are normalized rather than rej
 
 Providers that need inline bytes fetch URLs server-side, so a URL works on every model. Puter reads a Puter file with the caller's access, so a file the caller can't read fails with `access_denied` before generating. The Puter files one request names can be up to 32 MiB together.
 
-puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary file and sends its path instead of the bytes. The file goes in `~/AppData/<appID>/.tmp/` when called from an app, or `~/.tmp/` otherwise, and counts against the user's storage until puter.js deletes it after the call, whether the call succeeds or fails.
+puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary file and sends its path instead of the bytes. The file goes in `~/AppData/<appID>/.tmp/` when called from an app, or `~/.tmp/` otherwise, and counts against the user's storage until puter.js deletes it after the call, whether the call succeeds or fails. When an image can't be uploaded, for example because the user's storage is full, puter.js sends it inline instead. A video that can't be uploaded fails the call with the upload's error.
 
 What each provider does with image inputs:
 

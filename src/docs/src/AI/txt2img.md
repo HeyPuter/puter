@@ -81,7 +81,7 @@ To pass input images for image-to-image, use `input_images`, which works with ev
 
 Puter reads a Puter file with the caller's access, so a file the caller can't read fails with `access_denied` before generating. The file must be a PNG, JPEG, WebP or GIF image, and the Puter files one request names can be up to 32 MiB together. `maskImage` takes the same forms.
 
-puter.js uploads a `Blob`, a `File` or a data-URI over 1 MiB to a temporary file and sends its path instead of the bytes. The file goes in `~/AppData/<appID>/.tmp/` when called from an app, or `~/.tmp/` otherwise, and counts against the user's storage until puter.js deletes it after the call, whether the call succeeds or fails.
+puter.js uploads a `Blob`, a `File` or a data-URI over 1 MiB to a temporary file and sends its path instead of the bytes. The file goes in `~/AppData/<appID>/.tmp/` when called from an app, or `~/.tmp/` otherwise, and counts against the user's storage until puter.js deletes it after the call, whether the call succeeds or fails. When an image can't be uploaded, for example because the user's storage is full, puter.js sends it inline instead.
 
 Raw base64 carries no MIME type of its own. When it cannot be detected from the bytes, set `input_image_mime_type`, such as `'image/png'`. Gemini rejects the request without it, and OpenAI, xAI, Cloudflare, BytePlus, and Replicate use it to label the upload.
 

@@ -29,8 +29,11 @@ import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSService } from '../../services/fs/FSService.js';
-import { isRawBase64ImageString } from '../../util/appIcon.js';
-import { sniffImageMime, sniffVideoMime } from '../../util/mediaSniff.js';
+import {
+    decodeStrictBase64,
+    sniffImageMime,
+    sniffVideoMime,
+} from '../../util/mediaSniff.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { dataUriBytes, parseDataUri } from './dataUri.js';
 import {
@@ -65,6 +68,8 @@ const PUTER_IMAGE_MIME_TYPES = new Set([
 
 /** Covers the `ftyp` box and the EBML DocType that `sniffVideoMime` reads. */
 const VIDEO_SNIFF_BYTES = 64;
+/** Base64 characters decoded to tell raw image data from a path. */
+const BASE64_SNIFF_CHARS = 24;
 
 const badRequest = (message: string): HttpError =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
@@ -74,15 +79,16 @@ const notAVideo = (): HttpError =>
 
 /**
  * Whether a string media input names a Puter file: an absolute or `~/` path.
- * Raw base64 of a JPEG also starts with `/`, so a string that decodes to an
- * image is not a path.
+ * Raw base64 of a JPEG also starts with `/`, so a string whose head decodes to
+ * an image is not a path. Only the head is decoded, so large inputs cost
+ * nothing extra.
  */
 export function isPuterFilePath(value: unknown): value is string {
-    return (
-        typeof value === 'string' &&
-        (value.startsWith('/') || value.startsWith('~/')) &&
-        !isRawBase64ImageString(value)
-    );
+    if (typeof value !== 'string') return false;
+    if (value.startsWith('~/')) return true;
+    if (!value.startsWith('/')) return false;
+    const head = decodeStrictBase64(value.slice(0, BASE64_SNIFF_CHARS));
+    return !head || !sniffImageMime(head);
 }
 
 /**

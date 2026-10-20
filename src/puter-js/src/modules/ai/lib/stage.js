@@ -1,4 +1,4 @@
-import { uuidv4 } from '../../../lib/utils.js';
+import { blobToDataUri, uuidv4 } from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../../FileSystem/utils/getAbsolutePathForApp.js';
 import { dataUriByteLength, isBlobLike } from './args.js';
 
@@ -37,20 +37,42 @@ const dataUriToBlob = (dataUri) => {
 export const createMediaStager = (puter) => {
     /** @type {string[]} */
     const staged = [];
+    /** @type {Promise<void> | undefined} */
+    let signingIn;
 
     /**
      * @template T
      * @param {T} value
+     * @param {{ inlineOnFailure?: boolean }} [options] With `inlineOnFailure`,
+     * an input that can't be written (no write access, storage full) is sent
+     * inline as before instead of failing the call.
      * @returns {Promise<T | string>}
      */
-    const stage = async (value) => {
+    const stage = async (value, { inlineOnFailure = false } = {}) => {
         if ( !isBlobLike(value) && !isLargeDataUri(value) ) return value;
-        const blob = isBlobLike(value) ? value : dataUriToBlob(/** @type {string} */ (value));
-        const path = getAbsolutePathForApp(`.tmp/${uuidv4()}.tmp`, puter);
-        const item = await puter.fs.write(path, blob, { createMissingParents: true });
-        staged.push(item.uid);
-        return item.path;
+        // Signing in sets the app ID, and an app can only write under its own
+        // data directory, so the path is chosen after it.
+        if ( !puter.authToken && puter.env === 'web' ) {
+            await (signingIn ??= puter.ui.authenticateWithPuter());
+        }
+        try {
+            const blob = isBlobLike(value) ? value : dataUriToBlob(/** @type {string} */ (value));
+            const path = getAbsolutePathForApp(`.tmp/${uuidv4()}.tmp`, puter);
+            const item = await puter.fs.write(path, blob, { createMissingParents: true });
+            staged.push(item.uid);
+            return item.path;
+        } catch ( e ) {
+            if ( ! inlineOnFailure ) throw e;
+            return isBlobLike(value) ? await blobToDataUri(value) : value;
+        }
     };
+
+    /**
+     * Stages an image input, falling back to sending it inline.
+     * @template T
+     * @param {T} value
+     */
+    const stageImage = (value) => stage(value, { inlineOnFailure: true });
 
     const cleanup = async () => {
         if ( staged.length === 0 ) return;
@@ -62,5 +84,5 @@ export const createMediaStager = (puter) => {
         }
     };
 
-    return { stage, cleanup };
+    return { stage, stageImage, cleanup };
 };

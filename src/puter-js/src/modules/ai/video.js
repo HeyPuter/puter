@@ -34,6 +34,7 @@ import { createMediaStager } from './lib/stage.js';
  * With `inputVideo` on a model that edits video, the prompt describes the edit.
  * A Blob, File or data URI over 1 MiB given as a video or image input is
  * written to a temporary Puter file for the request and deleted afterwards.
+ * An image input that can't be written is sent inline instead.
  *
  * @this {import('./index.js').AIModule}
  * @param {string | Txt2VidOptions} [promptOrOptions]
@@ -90,18 +91,18 @@ export async function txt2vid (promptOrOptions, optionsOrTestMode) {
 
     const stager = createMediaStager(puter);
     try {
-        const { stage } = stager;
+        const { stage, stageImage } = stager;
         const [inputVideo, inputReference, lastFrame, referenceImages, frameImages] = await Promise.all([
             stage(options.input_video),
-            stage(options.input_reference),
-            stage(options.last_frame),
+            stageImage(options.input_reference),
+            stageImage(options.last_frame),
             Array.isArray(options.reference_images)
-                ? Promise.all(options.reference_images.map(stage))
+                ? Promise.all(options.reference_images.map(stageImage))
                 : options.reference_images,
             Array.isArray(options.frame_images)
                 ? Promise.all(options.frame_images.map(async (frame) =>
                     frame && typeof frame === 'object'
-                        ? { ...frame, input_image: await stage(frame.input_image) }
+                        ? { ...frame, input_image: await stageImage(frame.input_image) }
                         : frame))
                 : options.frame_images,
         ]);

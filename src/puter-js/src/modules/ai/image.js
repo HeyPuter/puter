@@ -32,7 +32,8 @@ import { createMediaStager } from './lib/stage.js';
  *   txt2img({ prompt, model, input_image, ... }, [testMode])
  *
  * A Blob, File or data URI over 1 MiB given as an input or mask image is
- * written to a temporary Puter file for the request and deleted afterwards.
+ * written to a temporary Puter file for the request and deleted afterwards,
+ * or sent inline if it can't be written.
  *
  * @this {import('./index.js').AIModule}
  * @param {string | Txt2ImgOptions} [promptOrOptions]
@@ -75,13 +76,13 @@ export async function txt2img (promptOrOptions, optionsOrTestMode) {
 
     const stager = createMediaStager(puter);
     try {
-        const { stage } = stager;
+        const { stageImage } = stager;
         const [inputImage, inputImages, maskImage] = await Promise.all([
-            stage(options.input_image),
+            stageImage(options.input_image),
             Array.isArray(options.input_images)
-                ? Promise.all(options.input_images.map(stage))
+                ? Promise.all(options.input_images.map(stageImage))
                 : options.input_images,
-            stage(options.maskImage),
+            stageImage(options.maskImage),
         ]);
         for ( const [key, value] of Object.entries({
             input_image: inputImage,

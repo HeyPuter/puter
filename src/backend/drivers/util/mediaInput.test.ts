@@ -171,6 +171,13 @@ describe('isPuterFilePath', () => {
         ]) {
             expect(isPuterFilePath(value)).toBe(false);
         }
+        // Only the head is decoded, so the rest of a large input isn't read.
+        const jpegHead = Buffer.concat([JPEG, Buffer.alloc(9)]).toString(
+            'base64',
+        );
+        expect(isPuterFilePath(`${jpegHead}not base64 after the head`)).toBe(
+            false,
+        );
         // A raw JPEG's base64 starts like an absolute path.
         expect(
             Buffer.concat([JPEG, Buffer.alloc(3)]).toString('base64'),
