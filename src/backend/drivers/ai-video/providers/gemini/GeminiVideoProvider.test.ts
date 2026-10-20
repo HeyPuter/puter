@@ -895,7 +895,7 @@ describe('GeminiVideoProvider request shape', () => {
         reply();
         await withActor(actor, () => generate());
         expect(timeoutSpy).toHaveBeenCalledWith(30_000);
-        expect(timeoutSpy).toHaveBeenCalledWith(600_000);
+        expect(timeoutSpy).toHaveBeenCalledWith(840_000);
     });
 });
 
@@ -1600,7 +1600,7 @@ describe('GeminiVideoProvider credit hold', () => {
 
         // Input plus verified 4K video usage and a separate text allowance.
         expect(HOLD).toBe(363_065_100);
-        expect(held).toEqual([{ amount: HOLD, ttlMs: 11 * 60 * 1000 }]);
+        expect(held).toEqual([{ amount: HOLD, ttlMs: 15 * 60 * 1000 }]);
         expect(heldDuringCall).toBe(HOLD);
         await vi.waitFor(async () =>
             expect(

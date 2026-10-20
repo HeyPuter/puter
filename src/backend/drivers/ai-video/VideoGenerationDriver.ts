@@ -40,6 +40,7 @@ import { ModelCatalog } from '../util/modelCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
+import { KlingVideoProvider } from './providers/kling/KlingVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
 import type {
     IGenerateVideoParams,
@@ -79,10 +80,10 @@ const tierForPixels = ({
 /**
  * Driver implementing the `puter-video-generation` interface.
  *
- * Manages multiple upstream providers (Together, BytePlus/Seedance, Gemini) and
- * handles model resolution, provider routing, and parameter normalisation. Each
- * provider is a plain `IVideoProvider` -- the driver instantiates them from
- * config on boot.
+ * Manages multiple upstream providers (Together, BytePlus/Seedance, Gemini,
+ * Kling) and handles model resolution, provider routing, and parameter
+ * normalisation. Each provider is a plain `IVideoProvider` -- the driver
+ * instantiates them from config on boot.
  *
  * Providers handle their own metering internally.
  */
@@ -96,6 +97,7 @@ export class VideoGenerationDriver extends PuterDriver {
         'together-video-generation',
         'byteplus-video-generation',
         'gemini-video-generation',
+        'kling-video-generation',
     ];
     readonly isDefault = true;
 
@@ -450,6 +452,21 @@ export class VideoGenerationDriver extends PuterDriver {
                     { apiKey: geminiKey },
                     { stores: this.stores, fs: this.services.fs, metering: m },
                 );
+        }
+
+        // One `kling` key covers video, image and TTS.
+        const klingCfg = (providers['kling-video-generation'] ??
+            providers['kling']) as Record<string, unknown> | undefined;
+        const klingKey = readProviderKey(klingCfg);
+        if (klingKey) {
+            this.#providers['kling-video-generation'] = new KlingVideoProvider(
+                {
+                    apiKey: klingKey,
+                    apiBaseUrl: klingCfg?.apiBaseUrl as string | undefined,
+                },
+                m,
+                { stores: this.stores, fs: this.services.fs },
+            );
         }
     }
 
