@@ -254,6 +254,14 @@ const TabAccount = {
                 on_close: () => $el_window.off('file_opened', onAvatarPicked),
             });
         });
+        // Every avatar on the page (matches helpers.js session refresh); null
+        // falls back to the default.
+        function showProfilePicture (picture) {
+            const url = picture ?? window.icons['profile.svg'];
+            $('.profile-pic').css('background-image', `url(${ html_encode(url) })`);
+            $('.profile-image').css('background-image', `url(${ html_encode(url) })`);
+            $('.profile-image').toggleClass('profile-image-has-picture', !! picture);
+        }
         function onAvatarPicked (e) {
             $el_window.off('file_opened', onAvatarPicked);
             const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
@@ -263,13 +271,23 @@ const TabAccount = {
                 picture: puter.fs.read(selectedFile.path),
                 $container: $el_window,
                 returnFocusTo: $el_window.find('.dashboard-section-account .change-profile-picture').get(0),
-                onSave: (dataUrl) => {
-                    // update profile picture everywhere (matches helpers.js session refresh)
-                    $('.profile-pic').css('background-image', `url(${ html_encode(dataUrl) })`);
-                    $('.profile-image').css('background-image', `url(${ html_encode(dataUrl) })`);
-                    $('.profile-image').addClass('profile-image-has-picture');
-                    $el_window.find('.dashboard-profile-remove-picture').prop('hidden', false);
-                    update_profile(window.user.username, { picture: dataUrl });
+                onSave: async (dataUrl) => {
+                    const previous = window.user?.profile?.picture ?? null;
+                    const $remove = $el_window.find('.dashboard-section-account .dashboard-profile-remove-picture');
+                    const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
+                    // Shown at once; Remove waits so it can't race the upload.
+                    showProfilePicture(dataUrl);
+                    $remove.prop('hidden', false).prop('disabled', true);
+                    // update_profile resolves with no profile when the request failed.
+                    const profile = await update_profile(window.user.username, { picture: dataUrl });
+                    $remove.prop('disabled', false);
+                    if ( ! profile ) {
+                        showProfilePicture(previous);
+                        $remove.prop('hidden', ! previous);
+                        $hint.text(i18n('profile_picture_save_failed', [], false));
+                        return;
+                    }
+                    $hint.text(i18n('profile_picture_hint', [], false));
                 },
             });
         }
@@ -285,11 +303,7 @@ const TabAccount = {
                 return;
             }
             $hint.text(i18n('profile_picture_hint', [], false));
-            // fall back to the default avatar everywhere the picture was shown
-            const defaultPicture = window.icons['profile.svg'];
-            $('.profile-pic').css('background-image', `url(${ html_encode(defaultPicture) })`);
-            $('.profile-image').css('background-image', `url(${ html_encode(defaultPicture) })`);
-            $('.profile-image').removeClass('profile-image-has-picture');
+            showProfilePicture(null);
             $btn.prop('hidden', true);
             $el_window.find('.dashboard-section-account .change-profile-picture').trigger('focus');
         });

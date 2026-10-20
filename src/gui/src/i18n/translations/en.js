@@ -356,6 +356,7 @@ const en = {
         profile_picture_hint: 'Click the avatar to change your profile picture',
         profile_picture_load_failed: 'This image could not be opened. Please try another file.',
         profile_picture_remove_failed: 'Your photo could not be removed. Please try again.',
+        profile_picture_save_failed: 'Your photo could not be saved. Please try again.',
         properties: 'Properties',
         public: 'Public',
         publish: 'Publish',
