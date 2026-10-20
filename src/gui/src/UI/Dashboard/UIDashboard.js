@@ -154,7 +154,7 @@ async function UIDashboard (options) {
             h += '<div class="dashboard-user-options">';
                 h += '<div class="dashboard-user-btn">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
-                    h += `<span class="dashboard-user-name">${window.html_encode(window.user?.username || 'User')}</span>`;
+                    h += `<span class="dashboard-user-name username">${window.html_encode(window.user?.username || 'User')}</span>`;
                     h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>';
                 h += '</div>';
             h += '</div>';

@@ -47,7 +47,7 @@ const TabAccount = {
         h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" role="button" tabindex="0" aria-label="${i18n('change_profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
         h += '</div>';
         h += '<div class="dashboard-profile-info">';
-        h += `<h3>${html_encode(window.user?.username || 'User')}</h3>`;
+        h += `<h3 class="username">${html_encode(window.user?.username || 'User')}</h3>`;
         h += `<p>${html_encode(window.user?.email || '')}</p>`;
         h += `<span class="dashboard-profile-hint">${i18n('profile_picture_hint')}</span>`;
         // Shown only while there is a picture to remove.
