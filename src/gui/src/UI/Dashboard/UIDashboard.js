@@ -656,6 +656,8 @@ async function UIDashboard (options) {
     const $tooltip = $('<div class="dashboard-sidebar-tooltip"></div>').appendTo('body');
     $el_window.on('mouseenter', '.dashboard-sidebar-item[data-tooltip]', function () {
         if ( ! $el_window.find('.dashboard-sidebar').hasClass('collapsed') ) return;
+        // The drawer ignores the collapse and shows its labels.
+        if ( window.matchMedia('(max-width: 768px)').matches ) return;
         const rect = this.getBoundingClientRect();
         $tooltip.text($(this).attr('data-tooltip'));
         $tooltip.css({

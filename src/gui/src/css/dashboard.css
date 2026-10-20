@@ -348,60 +348,64 @@ body {
     color: var(--dashboard-text);
 }
 
-/* Collapsed sidebar state */
-.dashboard-sidebar.collapsed {
-    width: 50px;
-    min-width: 50px;
-    padding: 16px 6px;
-}
+/* Collapsed sidebar state. Desktop only: below the drawer breakpoint the
+   collapse toggle is hidden, so a remembered collapse would strand the
+   drawer as an unlabeled icon strip. */
+@media (min-width: 769px) {
+    .dashboard-sidebar.collapsed {
+        width: 50px;
+        min-width: 50px;
+        padding: 16px 6px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-header {
-    justify-content: center;
-    padding: 4px 0 12px;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-header {
+        justify-content: center;
+        padding: 4px 0 12px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-logo,
-.dashboard-sidebar.collapsed .dashboard-sidebar-team {
-    display: none;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-logo,
+    .dashboard-sidebar.collapsed .dashboard-sidebar-team {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
-    display: none;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
-    display: block;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+        display: block;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-item {
-    justify-content: center;
-    padding: 10px;
-    gap: 0;
-    overflow: hidden;
-    font-size: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-item {
+        justify-content: center;
+        padding: 10px;
+        gap: 0;
+        overflow: hidden;
+        font-size: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
-    flex-shrink: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
+        flex-shrink: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-separator {
-    margin: 8px 4px;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-separator {
+        margin: 8px 4px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-options {
-    padding-top: 8px;
-}
+    .dashboard-sidebar.collapsed .dashboard-user-options {
+        padding-top: 8px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-btn {
-    justify-content: center;
-    padding: 10px;
-    gap: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-user-btn {
+        justify-content: center;
+        padding: 10px;
+        gap: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-name,
-.dashboard-sidebar.collapsed .dashboard-user-chevron {
-    display: none;
+    .dashboard-sidebar.collapsed .dashboard-user-name,
+    .dashboard-sidebar.collapsed .dashboard-user-chevron {
+        display: none;
+    }
 }
 
 /* Tooltip for collapsed sidebar */
@@ -7373,13 +7377,15 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     box-shadow: 0 0 0 2px var(--dashboard-sidebar-background);
 }
 
-.dashboard-sidebar.collapsed .dashboard-notifications-badge,
-.dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
-    display: none;
-}
+@media (min-width: 769px) {
+    .dashboard-sidebar.collapsed .dashboard-notifications-badge,
+    .dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
-    display: block;
+    .dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
+        display: block;
+    }
 }
 
 /* Bell rings once when the count goes up */
