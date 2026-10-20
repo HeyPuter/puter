@@ -539,7 +539,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                 await revokeAppSessions(appUid);
             } catch ( e ) {
                 console.error('Uninstalled the app but could not end its sessions:', e);
-                UIAlert(i18n('uninstall_sessions_failed', [displayName]));
+                UIAlert(i18n('uninstall_sessions_failed', [displayName], false));
             }
         }).catch(async err => {
             console.error('Failed to uninstall app:', err);
@@ -552,7 +552,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                 self._apps.splice(Math.min(removedIndex, self._apps.length), 0, removedApp);
                 self.renderApps($el_window, { preservePage: true, instant: true });
             }
-            UIAlert(`Couldn't uninstall ${html_encode(displayName)}. Please try again.`);
+            UIAlert(`Couldn't uninstall ${displayName}. Please try again.`);
         });
     });
 }
