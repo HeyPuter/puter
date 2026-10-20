@@ -4490,10 +4490,10 @@ const TabFiles = {
         }
 
         // Publish As Website and Properties act on the folder the menu was
-        // opened on, not on the listing's selection. The filesystem root isn't
-        // a real fsentry, and Trash itself only offers Empty Trash — same as
-        // the desktop's folder menus.
-        if ( targetPath !== '/' && ! isTrashFolder ) {
+        // opened on, not on the listing's selection. The filesystem root and
+        // the Shared view aren't real fsentries, and Trash itself only offers
+        // Empty Trash — same as the desktop's folder menus.
+        if ( targetPath !== '/' && ! isTrashFolder && ! isSharedView ) {
             const targetName = path.basename(targetPath);
 
             items.push('-');
