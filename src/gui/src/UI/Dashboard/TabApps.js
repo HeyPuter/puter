@@ -1771,12 +1771,19 @@ const TabApps = {
 
         // Escape closes from anywhere — a click on the scrim leaves focus on
         // no element in particular, and the key must still work there. Not
-        // mid-drag, where Escape already means "cancel this drag".
+        // mid-drag, where Escape already means "cancel this drag". A menu,
+        // modal, or alert above the folder takes that Escape, but its own
+        // handler removes it before this one runs, so check in capture.
+        this._groupEscCapture = e => {
+            this._groupEscOwnedAbove = e.key === 'Escape'
+                && $('.context-menu, .window-alert, .myapps-modal-overlay').length > 0;
+        };
         this._groupEscHandler = e => {
-            if ( e.key !== 'Escape' || this._drag ) return;
+            if ( e.key !== 'Escape' || this._drag || this._groupEscOwnedAbove ) return;
             if ( $el_window.find('.myapps-modal-overlay').length ) return;
             this._closeGroup($el_window);
         };
+        document.addEventListener('keydown', this._groupEscCapture, true);
         document.addEventListener('keydown', this._groupEscHandler);
 
         $overlay.on('keydown', function (e) {
@@ -2022,6 +2029,7 @@ const TabApps = {
         }
         clearTimeout(this._createdGroupTimer);
         if ( this._groupEscHandler ) {
+            document.removeEventListener('keydown', this._groupEscCapture, true);
             document.removeEventListener('keydown', this._groupEscHandler);
             this._groupEscHandler = null;
         }
