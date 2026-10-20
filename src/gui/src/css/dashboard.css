@@ -1500,15 +1500,19 @@ input.myapps-group-name:focus {
     z-index: 300;
 }
 .myapps-modal {
+    /* Mounted outside .dashboard's border-box rule; the caps keep the card
+       inside a 16px gutter on narrow phones */
+    box-sizing: border-box;
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 12px;
     padding: 24px;
-    min-width: 320px;
-    max-width: 400px;
+    min-width: min(370px, calc(100vw - 32px));
+    max-width: min(450px, calc(100vw - 32px));
     box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
 }
 .myapps-modal h3 {
+    overflow-wrap: anywhere;
     margin: 0 0 8px;
     font-size: 16px;
     font-weight: 600;
