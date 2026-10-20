@@ -3122,22 +3122,29 @@ const TabApps = {
                 return { apps: all, complete: true };
             };
 
-            const [installedResult, launchRes, savedOrderRaw, removedAppsRaw, groupsRaw] = await Promise.all([
+            const [installedResult, fetchedLaunchData, savedOrderRaw, removedAppsRaw, groupsRaw] = await Promise.all([
                 fetchAllInstalledApps(),
+                // The recommended list only adds tiles: if it fails (network,
+                // a proxy's HTML error page), the installed apps still show,
+                // with the last list that did load. null marks the failure.
                 fetch(
                     `${window.api_origin}/get-launch-apps?icon_size=128`,
                     {
                         headers: { 'Authorization': `Bearer ${window.auth_token}` },
                         method: 'GET',
                     },
-                ),
+                ).then(res => res.ok ? res.json() : null).catch(err => {
+                    console.error('Failed to fetch launch apps:', err);
+                    return null;
+                }),
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
                 puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => null),
                 puter.kv.get(APP_GROUPS_KV_KEY).catch(() => null),
             ]);
 
             const installedApps = installedResult.apps;
-            const launchData = await launchRes.json();
+            if ( fetchedLaunchData ) this._lastLaunchData = fetchedLaunchData;
+            const launchData = fetchedLaunchData ?? this._lastLaunchData;
 
             // Uninstall only revokes permissions, and the recommended list
             // is a global hardcoded set that knows nothing about per-user
@@ -3162,7 +3169,7 @@ const TabApps = {
             // showed merely-visited sites as if installed. Anything the user
             // actually uses appears via installedApps (opening an app grants
             // it a permission). Recents still power the Home tab.
-            const launchApps = (launchData.recommended || [])
+            const launchApps = (launchData?.recommended || [])
                 .filter(app => ! removedNames.has(app?.name))
                 .map(app => ({
                     name: app.name,
