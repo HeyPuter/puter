@@ -124,15 +124,31 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 |-------|-------|
 | Prompt | 4,000 characters |
 | Starting image | One PNG, JPEG or WebP image, 5 MiB. A URL is fetched with a 30-second timeout |
-| Input tokens, prompt and image together | 131,072 |
+| Source video (`inputVideo`) | One MP4, QuickTime or WebM video, 32 MiB and 10 seconds, or 1 MiB as a `data:` URI. A URL is fetched with a 60-second timeout |
+| Input tokens, prompt and image or video together | 131,072 |
 | Requested output tokens | 65,536 |
 | Input token count | 30-second timeout, 64 KiB reply |
 | Generation | 10-minute timeout, reply and clip included. 64 MiB reply |
-| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. Held for up to 11 minutes |
+| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. A source video isn't counted and adds 16,000 input tokens, about $0.02. Held for up to 11 minutes |
 
-A longer prompt, a larger image, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image file or `data:` URI over 5 MiB) before generation starts. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
+A longer prompt, a larger image or video, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image over 5 MiB, a video over 32 MiB, or a `data:` URI video over 1 MiB) before generation starts. A source video over 10 seconds fails with `400 upstream_bad_request` from Google. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
+
+FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 15 minutes, and a URL is passed as is. Together AI fetches either one.
+
+### Puter file media inputs
+
+Image and video inputs to [`txt2img()`](/AI/txt2img/) and [`txt2vid()`](/AI/txt2vid/) can name files in the user's Puter filesystem:
+
+| Limit | Value |
+|-------|-------|
+| Image files per request | 32 |
+| Image files per request, combined size | 32 MiB |
+| Image file formats | PNG, JPEG, WebP or GIF |
+| Source video file | See the model's source video limits above |
+
+puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary Puter file for the call. It counts against the user's storage until puter.js deletes it after the call.
 
 ### Remote chat image inlining
 

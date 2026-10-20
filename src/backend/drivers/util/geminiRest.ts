@@ -51,6 +51,7 @@ export async function postGeminiJson<T extends object>(
         maxBytes,
         timeoutMs,
         signal,
+        media,
         tooLarge = (max) =>
             geminiUpstreamFailure(`${label} response exceeds ${max} bytes`),
     }: {
@@ -58,9 +59,12 @@ export async function postGeminiJson<T extends object>(
         maxBytes: number;
         timeoutMs: number;
         signal?: AbortSignal;
+        /** Streams into `body` in place of its placeholder string. */
+        media?: StreamedBase64;
         tooLarge?: (maxBytes: number) => Error;
     },
 ): Promise<T> {
+    const streamed = media ? jsonWithStreamedBase64(body, media) : undefined;
     // Non-2xx answers and timeouts are classified at the driver boundary.
     const response = await upstreamFetch(
         'gemini',
@@ -70,10 +74,14 @@ export async function postGeminiJson<T extends object>(
             headers: {
                 'x-goog-api-key': apiKey,
                 'Content-Type': 'application/json',
+                ...(streamed
+                    ? { 'Content-Length': String(streamed.byteLength) }
+                    : {}),
             },
-            body: JSON.stringify(body),
+            body: streamed?.stream ?? JSON.stringify(body),
+            ...(streamed ? { duplex: 'half' } : {}),
             signal,
-        },
+        } as RequestInit,
         { providerLabel: 'Gemini', timeoutMs },
     );
     const raw = await readBoundedBody(response, maxBytes, tooLarge);
@@ -87,6 +95,66 @@ export async function postGeminiJson<T extends object>(
         throw geminiUpstreamFailure(`${label} returned an unreadable response`);
     }
     return parsed as T;
+}
+
+/** Bytes sent as the base64 value of one string in a JSON request body. */
+export interface StreamedBase64 {
+    /** The string in the body the bytes replace; it must appear once. */
+    placeholder: string;
+    chunks: AsyncIterable<Buffer> | Iterable<Buffer>;
+    /** Exact byte count `chunks` yields. */
+    byteLength: number;
+}
+
+/**
+ * `body` as JSON with `media.placeholder` replaced by the base64 of
+ * `media.chunks`, encoded as the chunks arrive so the file is never held whole,
+ * and the exact length of the result.
+ */
+export function jsonWithStreamedBase64(
+    body: object,
+    media: StreamedBase64,
+): { stream: ReadableStream<Uint8Array>; byteLength: number } {
+    const json = JSON.stringify(body);
+    const quoted = JSON.stringify(media.placeholder);
+    const at = json.indexOf(quoted);
+    if (at === -1 || json.indexOf(quoted, at + 1) !== -1) {
+        throw new Error('The media placeholder must appear once in the body');
+    }
+    // The placeholder's quotes stay around the base64.
+    const prefix = Buffer.from(json.slice(0, at + 1));
+    const suffix = Buffer.from(json.slice(at + quoted.length - 1));
+
+    async function* parts(): AsyncGenerator<Uint8Array> {
+        yield prefix;
+        // Base64 encodes whole 3-byte groups; a partial group waits for the next chunk.
+        let carry: Buffer = Buffer.alloc(0);
+        for await (const chunk of media.chunks) {
+            const bytes = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+            const whole = bytes.length - (bytes.length % 3);
+            if (whole)
+                yield Buffer.from(bytes.subarray(0, whole).toString('base64'));
+            carry = bytes.subarray(whole);
+        }
+        if (carry.length) yield Buffer.from(carry.toString('base64'));
+        yield suffix;
+    }
+
+    const iterator = parts();
+    return {
+        stream: new ReadableStream<Uint8Array>({
+            async pull(controller) {
+                const next = await iterator.next();
+                if (next.done) controller.close();
+                else controller.enqueue(next.value);
+            },
+            async cancel() {
+                await iterator.return(undefined);
+            },
+        }),
+        byteLength:
+            prefix.length + Math.ceil(media.byteLength / 3) * 4 + suffix.length,
+    };
 }
 
 export const geminiTokenCount = (value: unknown): number | undefined =>

@@ -599,4 +599,22 @@ describe('loadFileInput web URL', () => {
         expect(state.cancelled).toBe(true);
         expect(state.pulls).toBeLessThan(chunks.length);
     });
+
+    it('cancels the body of a failed response', async () => {
+        const { actor } = await makeUser();
+        const { body, state } = chunkedBody([Buffer.alloc(32)]);
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(body, { status: 404 }),
+        );
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/missing.mp4', {
+                acceptWebInput: true,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Failed to fetch URL (status 404)',
+        });
+        expect(state.cancelled).toBe(true);
+    });
 });

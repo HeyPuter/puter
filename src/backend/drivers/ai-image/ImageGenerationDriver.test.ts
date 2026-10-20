@@ -40,10 +40,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { v4 as uuidv4 } from 'uuid';
 import { runWithContext } from '../../core/context.js';
-import { SYSTEM_ACTOR } from '../../core/actor.js';
+import { type Actor, SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './providers/cloudflare/models.js';
 import cloudflareModelSearchFixture from './providers/cloudflare/fixtures/model-search.json';
 import { GEMINI_IMAGE_GENERATION_MODELS } from './providers/gemini/models.js';
@@ -1024,6 +1026,126 @@ describe('ImageGenerationDriver.generate ratio normalization', () => {
 
         const sent = googleAIGenerateContentMock.mock.calls[0]![0];
         expect(sent.config.imageConfig.aspectRatio).toBe('16:9');
+    });
+});
+
+// ── Puter file image inputs ───────────────────────────────────────
+
+describe('ImageGenerationDriver.generate Puter file inputs', () => {
+    const PNG_BASE64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+    const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
+        const username = `image-media-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            created,
+        );
+        const user = (await server.stores.user.getById(created.id))!;
+        return {
+            userId: user.id,
+            actor: {
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    };
+
+    const writeImage = async (
+        { actor, userId }: { actor: Actor; userId: number },
+        name: string,
+    ) => {
+        const path = `/${actor.user.username}/${name}`;
+        const bytes = Buffer.from(PNG_BASE64, 'base64');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: bytes.byteLength,
+                contentType: 'application/octet-stream',
+            },
+            fileContent: bytes,
+        });
+        return path;
+    };
+
+    const generateAs = (actor: Actor, args: Record<string, unknown>) =>
+        Promise.resolve(
+            runWithContext({ actor }, () =>
+                driver.generate({
+                    provider: 'gemini',
+                    model: 'gemini-3-pro-image',
+                    prompt: 'hi',
+                    ...args,
+                } as never),
+            ),
+        );
+
+    beforeEach(() => {
+        vi.spyOn(server.services.metering, 'hasEnoughCredits').mockResolvedValue(
+            true,
+        );
+    });
+
+    it("sends Puter file images to the provider, leaving the caller's array and the audit log on the paths", async () => {
+        const user = await makeUser();
+        const path = await writeImage(user, 'input.tmp');
+        const inputImages = [path];
+        googleAIGenerateContentMock.mockResolvedValueOnce({
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            { inlineData: { data: 'aW1n', mimeType: 'image/png' } },
+                        ],
+                    },
+                },
+            ],
+        });
+
+        await generateAs(user.actor, { input_images: inputImages });
+
+        const sent = JSON.stringify(
+            googleAIGenerateContentMock.mock.calls[0]![0].contents,
+        );
+        expect(sent).toContain(PNG_BASE64);
+        expect(sent).not.toContain(path);
+        expect(inputImages).toEqual([path]);
+        const [, log] = eventEmitSpy.mock.calls.find(
+            ([eventName]) => eventName === 'ai.log.image',
+        )!;
+        expect(
+            (log as { parameters: { input_images: string[] } }).parameters
+                .input_images,
+        ).toEqual([path]);
+        expect(secureFetchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses another user's image before calling the provider", async () => {
+        const owner = await makeUser();
+        const intruder = await makeUser();
+        const path = await writeImage(owner, 'private.png');
+        const status = await generateAs(intruder.actor, {
+            input_image: path,
+        }).then(
+            () => null,
+            (err: { statusCode?: number }) => err.statusCode,
+        );
+        expect([403, 404]).toContain(status);
+        expect(googleAIGenerateContentMock).not.toHaveBeenCalled();
     });
 });
 
