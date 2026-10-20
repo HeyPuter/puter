@@ -62,8 +62,9 @@ const AUDIT_REASON_KEYS = {
  * @returns {Record<string, { disabled: boolean, reason: string | null, at: string }>}
  */
 export function memberStatesFromAudit (entries) {
+    // No prototype, so usernames like `constructor` aren't already "in" it.
     /** @type {Record<string, { disabled: boolean, reason: string | null, at: string }>} */
-    const states = {};
+    const states = Object.create(null);
     for ( const entry of entries ?? [] ) {
         const username = entry?.username;
         if ( ! username || username in states ) continue;
