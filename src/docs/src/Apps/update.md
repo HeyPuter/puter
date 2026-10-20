@@ -17,7 +17,7 @@ The name of the app to update.
 
 #### `attributes` (required)
 An object containing the attributes to update. The object can contain the following properties:
-- `name` (optional): The new name of the app. This name must be unique to the user's apps. If an app with this name already exists, the promise will be rejected.
+- `name` (optional): The new name of the app. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected.
 - `indexURL` (optional): The new URL of the app's index page. This URL must be accessible to the user.
 - `title` (optional): The new title of the app.
 - `description` (optional): The new description of the app aimed at the end user.

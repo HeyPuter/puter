@@ -158,7 +158,8 @@ The promise rejects with `{ message, code }`:
 | `events_background_consent_required` | The subscription targets `worker` and the user hasn't granted `events:background`. |
 | `events_context_too_large` | The serialized `context` is over 4 KB. |
 | `events_context_invalid` | `context` is not JSON-serializable. |
-| `invalid_targets` | An unknown target, `push` with `single`, or `worker` with no app. |
+| `invalid_targets` | `targets` is empty or not an array, it has an unknown target, it has `push` with `single`, an app's `single` subscription leaves out `worker`, or it has `worker` with no app. |
+| `bad_request` | `delivery` isn't `'broadcast'` or `'single'`, or `handlerName` isn't a string or is over 128 characters. |
 | `invalid_expires_at` | `expiresAt` is not a future time. |
 | `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |

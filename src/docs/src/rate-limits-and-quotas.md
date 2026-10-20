@@ -541,7 +541,7 @@ When the holder's balance runs out, deliveries stop and persistent subscriptions
 
 ### Networking
 
-[`puter.net`](/Networking/) sockets connect through a relay that takes a single-use token. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
+[`puter.net`](/Networking/) sockets connect through a relay that takes a token. Each token is valid for 24 hours, or until the session that created it ends. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
 
 | Limit                     | Paid | Free | Anonymous |
 | ------------------------- | ---- | ---- | --------- |
