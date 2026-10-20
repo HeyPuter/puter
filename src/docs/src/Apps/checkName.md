@@ -4,7 +4,7 @@ description: Check whether an app name is still available.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Checks whether an app name is available to you, without creating anything. Useful before calling [`puter.apps.create()`](/Apps/create/), which rejects when the name is already taken.
+Checks whether an app name is free, without creating anything. App names are unique across all Puter accounts, so a name is free only when no app on any account uses it. Useful before calling [`puter.apps.create()`](/Apps/create/), which rejects when the name is already taken.
 
 ## Syntax
 

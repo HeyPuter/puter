@@ -4,7 +4,7 @@ import { invalidRequest } from './lib/validate.js';
 /** @typedef {import('./types.js').CheckAppNameResult} CheckAppNameResult */
 
 /**
- * Checks whether an app name is available to the user.
+ * Checks whether an app name is free, meaning no app on any account uses it.
  *
  * @this {import('./index.js').AppsModule}
  * @param {string} name
