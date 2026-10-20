@@ -700,6 +700,11 @@ const TabFiles = {
 
             const focused_el = document.activeElement;
 
+            // Likewise for a dialog window over the dashboard (a delete
+            // confirm, an Open picker): its buttons take Enter, not the rows.
+            const $focusedWindow = $(focused_el).closest('.window');
+            if ( $('.window-alert').length > 0 || ($focusedWindow.length && !$focusedWindow.is(_this.$el_window)) ) return;
+
             // Skip if user is typing in an input/textarea (except for Escape)
             if ( $(focused_el).is('input, textarea') && e.which !== 27 ) return;
 
