@@ -3993,8 +3993,9 @@ const TabFiles = {
         if ( window.dashboard_nav_history.length === 0 ) {
             window.dashboard_nav_history = [newPath];
             window.dashboard_nav_history_current_position = 0;
-        } else {
-            // Truncate forward history when navigating to new location
+        } else if ( window.dashboard_nav_history[window.dashboard_nav_history_current_position] !== newPath ) {
+            // Reopening the folder on screen adds no entry: Back would lead
+            // to the same folder. Otherwise truncate forward history.
             window.dashboard_nav_history = window.dashboard_nav_history.slice(0, window.dashboard_nav_history_current_position + 1);
             window.dashboard_nav_history.push(newPath);
             window.dashboard_nav_history_current_position++;
