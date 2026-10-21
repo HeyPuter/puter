@@ -630,6 +630,11 @@ window.update_auth_data = async (auth_token, user) => {
     // ----------------------------------------------------
     user.profile = {};
     puter.auth.getProfile().then((profile) => {
+        window.user.profile.displayName = profile?.displayName ?? null;
+        window.user.profile.bio = profile?.bio ?? null;
+        if ( profile?.displayName ) {
+            $('.dashboard-profile-display-name').text(profile.displayName);
+        }
         if ( profile?.picture ) {
             window.user.profile.picture = html_encode(profile.picture);
             $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
