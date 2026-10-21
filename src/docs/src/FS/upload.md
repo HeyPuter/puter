@@ -71,7 +71,7 @@ When the signed batch-write endpoint is unavailable and the SDK falls back to th
 
 ## Uploading directories
 
-Directory uploads (dropped directory entries, or `createFileParent`) work on every platform: nested paths are recreated under the destination, and files sharing a name stay apart in the directories they came from. They rely on the signed batch-write endpoint, so against a backend that doesn't have one the SDK falls back to the older batch endpoint, which cannot create directories — the upload rejects with `batch_upload_failed`, and the directories have to be created with [`puter.fs.mkdir()`](/FS/mkdir/) and the files uploaded into them.
+Directory uploads (dropped directory entries, or `createFileParent`) work on every platform. Nested paths are recreated under the destination, and files sharing a name stay apart in the directories they came from. When signed batch writes are unavailable, the SDK uses the older batch endpoint and creates the directories before writing their files.
 
 ## Thumbnails
 
