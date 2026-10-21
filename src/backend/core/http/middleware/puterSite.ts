@@ -25,7 +25,6 @@ import type { puterServices } from '../../../services';
 import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
-import type { SubdomainRow } from '../../../stores/subdomain/SubdomainStore';
 import type { IConfig, LayerInstances } from '../../../types';
 import { awaitLater } from '../../../util/concurrency';
 import { makeActor } from '../../actor';
@@ -142,6 +141,16 @@ const SUBDOMAIN_404 = `<div style="font-size: 20px;
         display: flex;
         justify-content: center;
         flex-direction: column;"><h1 style="margin:0; color:#727272;">404</h1><p style="margin-top:10px;">Subdomain or site is not pointing to a directory.</p></div>`;
+interface SubdomainRow {
+    id: number;
+    uuid: string;
+    subdomain: string;
+    user_id: number | null;
+    root_dir_id: number | null;
+    associated_app_id: number | null;
+    domain?: string | null;
+    protected?: number | null;
+}
 
 interface AppRow {
     id: number;
@@ -246,7 +255,7 @@ export const createPuterSiteMiddleware = (
 
         const site = (await layers.stores.subdomain.getBySubdomain(
             subdomain,
-        )) as SubdomainRow | null;
+        )) as unknown as SubdomainRow | null;
         if (!site || site.user_id === null || site.user_id === undefined) {
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
@@ -529,32 +538,13 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        // Delegated publications depend on their current share authority.
-        // Account-owned roots keep their direct path without extra lookups.
-        const publisherApp =
-            site.app_owner == null
-                ? null
-                : Number(associatedApp?.id) === Number(site.app_owner)
-                  ? associatedApp
-                  : await layers.stores.app.getById(Number(site.app_owner));
-        const ownAppDataPath = publisherApp
-            ? `/${owner.username}/AppData/${publisherApp.uid}`
-            : null;
-        const ownAppData =
-            rootEntry.userId === site.user_id &&
-            ownAppDataPath &&
-            (rootEntry.path === ownAppDataPath ||
-                rootEntry.path.startsWith(`${ownAppDataPath}/`));
-        if (site.app_owner != null && !publisherApp) {
-            res.status(404)
-                .type('text/html; charset=UTF-8')
-                .send(SUBDOMAIN_404);
-            return;
-        }
-        if (
-            rootEntry.userId !== site.user_id ||
-            (publisherApp && !ownAppData)
-        ) {
+        // A site rooted in someone else's directory stands on the `manage`
+        // grant that authorized publishing it, and serves that whole subtree
+        // with the ACL bypassed — so the grant is re-read on every request.
+        // Trash is its own check: a grant is keyed on the node, not its
+        // location, so it survives the owner deleting the directory. Sites
+        // rooted in their publisher's own tree skip all of this.
+        if (rootEntry.userId !== site.user_id) {
             let stillPublishable = false;
             if (!isTrashedPath(rootEntry.path)) {
                 try {
@@ -565,9 +555,6 @@ export const createPuterSiteMiddleware = (
                                 uuid: owner.uuid,
                                 username: owner.username,
                             },
-                            app: publisherApp
-                                ? { id: publisherApp.id, uid: publisherApp.uid }
-                                : null,
                         }),
                         {
                             path: rootEntry.path,
