@@ -3316,6 +3316,29 @@ describe('FSService reads', () => {
         consoleError.mockRestore();
     });
 
+    it('reports 416 when the range starts past the end of the object', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/short.txt`,
+            'abc',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('range not satisfiable'), {
+                    name: 'InvalidRange',
+                }),
+            );
+
+        const error = await caught(() =>
+            fs.readContent(entry, { range: 'bytes=10-' }),
+        );
+        expect(error.statusCode).toBe(416);
+        expect(await entryAt(user, '/Documents/short.txt')).not.toBeNull();
+
+        getObjectStream.mockRestore();
+    });
+
     it('propagates a non-NoSuchKey storage failure unchanged', async () => {
         const entry = await writeFile(
             user,

@@ -102,6 +102,7 @@ import {
     type GuiItemEventName,
     loadLegacyAssociatedApps,
     replacedByMove,
+    resolveReadRange,
     resolveV1Selector,
     signEntry,
     signingConfigFromAppConfig,
@@ -1287,10 +1288,7 @@ export class LegacyFSController extends PuterController {
             });
         }
 
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = resolveReadRange(req.headers.range, query);
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -1803,10 +1801,7 @@ export class LegacyFSController extends PuterController {
         }
 
         // File: stream bytes with Range support.
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = resolveReadRange(req.headers.range, query);
         const download = await this.services.fs.readContent(entry, {
             range,
         });
