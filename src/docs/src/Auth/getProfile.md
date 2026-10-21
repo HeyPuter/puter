@@ -4,7 +4,7 @@ description: Read a user's profile, returning null when it is not available.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns a user's profile: their picture, display name, and bio. A user can always read their own profile. Another user's profile is available only while that user is on a paid plan; otherwise the method resolves to `null`, the same as for a user who does not exist.
+Returns a user's profile: their picture, display name, and bio. Users set these on the [Account page](https://puter.com/dashboard#account) of their Puter dashboard. A user can always read their own profile. Another user's profile is available only while that user is on a paid plan; otherwise the method resolves to `null`, the same as for a user who does not exist.
 
 ## Syntax
 

@@ -22,6 +22,7 @@ import UIWindowChangeEmail from '../Settings/UIWindowChangeEmail.js';
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion.js';
 import UIWindowCopyToken from '../UIWindowCopyToken.js';
+import UIWindowEditProfile from '../UIWindowEditProfile.js';
 import UIWindow from '../UIWindow.js';
 import UIProfilePictureCropModal from './UIProfilePictureCropModal.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
@@ -58,6 +59,20 @@ const TabAccount = {
 
         // Account settings cards
         h += '<div class="dashboard-settings-grid">';
+
+        // Display name and bio card
+        h += '<div class="dashboard-card dashboard-settings-card">';
+        h += '<div class="dashboard-settings-card-content">';
+        h += '<div class="dashboard-settings-card-icon">';
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4M14 14h4"/></svg>';
+        h += '</div>';
+        h += '<div class="dashboard-settings-card-info">';
+        h += `<strong>${i18n('profile')}</strong>`;
+        h += `<span class="dashboard-profile-display-name">${html_encode(window.user?.profile?.displayName || i18n('profile_empty', [], false))}</span>`;
+        h += '</div>';
+        h += '</div>';
+        h += `<button class="button edit-profile">${i18n('edit_profile')}</button>`;
+        h += '</div>';
 
         // Username card
         h += '<div class="dashboard-card dashboard-settings-card">';
@@ -163,6 +178,22 @@ const TabAccount = {
     },
 
     init ($el_window) {
+        $el_window.find('.dashboard-section-account .edit-profile').on('click', function (e) {
+            UIWindowEditProfile({
+                window_options: {
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
+                },
+                onSave: (profile) => {
+                    $el_window.find('.dashboard-section-account .dashboard-profile-display-name')
+                        .text(profile.displayName || i18n('profile_empty', [], false));
+                },
+            });
+        });
         $el_window.find('.dashboard-section-account .change-password').on('click', function (e) {
             UIWindowChangePassword({
                 window_options: {
