@@ -37,10 +37,9 @@
 //
 // Newer undici reads the `.2` slot and older undici the `.1` slot, and both
 // copies can share the process, so every present slot gets wrapped.
-const DISPATCHER_SLOTS = [
-    Symbol.for('undici.globalDispatcher.2'),
-    Symbol.for('undici.globalDispatcher.1'),
-];
+const PRIMARY_SLOT = Symbol.for('undici.globalDispatcher.2');
+const LEGACY_SLOT = Symbol.for('undici.globalDispatcher.1');
+const DISPATCHER_SLOTS = [PRIMARY_SLOT, LEGACY_SLOT];
 const globalSlots = globalThis as unknown as Record<symbol, unknown>;
 
 void fetch('data:text/plain,dispatcher-guard').catch(() => {
@@ -84,6 +83,33 @@ const withOutboundTimeouts =
             },
             handler,
         );
+
+// Newer undici negotiates HTTP/2, whose 256 KB default per-stream receive
+// window caps a download at about window / RTT. That undici keeps a wrapper of
+// its Agent in the legacy slot, so swap in a same-class Agent with larger
+// windows and re-wrap it there.
+const H2_WINDOWS = {
+    initialWindowSize: 4 * 1024 * 1024,
+    connectionWindowSize: 16 * 1024 * 1024,
+};
+type DispatcherClass = new (options: unknown) => ComposableDispatcher;
+const primary = globalSlots[PRIMARY_SLOT] as ComposableDispatcher | undefined;
+const legacy = globalSlots[LEGACY_SLOT] as ComposableDispatcher | undefined;
+if (
+    primary &&
+    legacy &&
+    primary !== legacy &&
+    primary.constructor.name === 'Agent' &&
+    !wrappedDispatchers.has(primary)
+) {
+    const agent = new (primary.constructor as DispatcherClass)({
+        h2Options: H2_WINDOWS,
+    });
+    globalSlots[PRIMARY_SLOT] = agent;
+    globalSlots[LEGACY_SLOT] = new (legacy.constructor as DispatcherClass)(
+        agent,
+    );
+}
 
 for (const slot of DISPATCHER_SLOTS) {
     const claimed = globalSlots[slot] as ComposableDispatcher | undefined;

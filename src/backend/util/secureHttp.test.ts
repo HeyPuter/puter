@@ -165,6 +165,74 @@ describe('global fetch dispatcher isolation', () => {
             server.close();
         }
     });
+
+    describe('HTTP/2 receive windows', () => {
+        // Stand-ins shaped like undici's: compose() returns a wrapper that
+        // records what it wraps.
+        class Agent {
+            options: unknown;
+            constructor(options?: unknown) {
+                this.options = options;
+            }
+            compose() {
+                return { wraps: this };
+            }
+        }
+        class Dispatcher1Wrapper {
+            agent: Agent;
+            constructor(agent: Agent) {
+                this.agent = agent;
+            }
+            compose() {
+                return { wraps: this };
+            }
+        }
+        const globalSlots = globalThis as unknown as Record<symbol, unknown>;
+        const PRIMARY = Symbol.for('undici.globalDispatcher.2');
+        const LEGACY = Symbol.for('undici.globalDispatcher.1');
+        const runGuardWith = async (primary: unknown, legacy: unknown) => {
+            const before = [globalSlots[PRIMARY], globalSlots[LEGACY]];
+            globalSlots[PRIMARY] = primary;
+            globalSlots[LEGACY] = legacy;
+            try {
+                vi.resetModules();
+                await import('./nodeFetchDispatcherGuard.js');
+                return {
+                    primary: (globalSlots[PRIMARY] as { wraps: unknown }).wraps,
+                    legacy: (globalSlots[LEGACY] as { wraps: unknown }).wraps,
+                };
+            } finally {
+                [globalSlots[PRIMARY], globalSlots[LEGACY]] = before;
+            }
+        };
+
+        it('swaps in an Agent with 4 MB stream / 16 MB connection windows', async () => {
+            const original = new Agent();
+            const slots = await runGuardWith(
+                original,
+                new Dispatcher1Wrapper(original),
+            );
+            expect(slots.primary).toBeInstanceOf(Agent);
+            expect(slots.primary).not.toBe(original);
+            expect((slots.primary as Agent).options).toEqual({
+                h2Options: {
+                    initialWindowSize: 4 * 1024 * 1024,
+                    connectionWindowSize: 16 * 1024 * 1024,
+                },
+            });
+            expect(slots.legacy).toBeInstanceOf(Dispatcher1Wrapper);
+            expect((slots.legacy as Dispatcher1Wrapper).agent).toBe(
+                slots.primary,
+            );
+        });
+
+        it('keeps a dispatcher both slots share', async () => {
+            const shared = new Agent();
+            const slots = await runGuardWith(shared, shared);
+            expect(slots.primary).toBe(shared);
+            expect(slots.legacy).toBe(shared);
+        });
+    });
 });
 
 describe('secureHttp URL validation', () => {
