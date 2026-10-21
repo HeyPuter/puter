@@ -1,4 +1,4 @@
-// This test checks everything in WorkerDriver up to the cloudflare level. 
+// This test checks everything in WorkerDriver up to the cloudflare level.
 // Full deployments are not tested as this would require Cloudflare Workerd,
 //  however the interactions with the Puter API are
 import {
@@ -13,10 +13,18 @@ import {
 import { Actor, makeActor as resolveActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
-import { setupTestServer } from '../../testUtil.js';
+import {
+    setupPuterTestEnv,
+    setupTestServer,
+    type PuterTestEnv,
+} from '../../testUtil.js';
 import { decodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import { INTERNAL_ADMISSION_BYPASS } from './WorkerDriver.js';
+import { resolveCallableMethods } from '../meta.js';
+import {
+    INTERNAL_ADMIN_DESTROY,
+    INTERNAL_ADMISSION_BYPASS,
+} from './WorkerDriver.js';
 import type { WorkerDriver } from './WorkerDriver.js';
 
 describe('WorkerDriver', () => {
@@ -252,7 +260,10 @@ describe('WorkerDriver', () => {
         it('lets an app bind a worker to an app it created', async () => {
             const { generated, builderActor } = await seedApps();
             await expect(
-                inCtx(() => deploy(generated.uid, 'wk-sandboxed'), builderActor),
+                inCtx(
+                    () => deploy(generated.uid, 'wk-sandboxed'),
+                    builderActor,
+                ),
             ).rejects.toMatchObject({ statusCode: 503 });
         });
 
@@ -266,14 +277,20 @@ describe('WorkerDriver', () => {
         it('rejects an app binding a worker to an app it did not create', async () => {
             const { unrelated, builderActor } = await seedApps();
             await expect(
-                inCtx(() => deploy(unrelated.uid, 'wk-unrelated'), builderActor),
+                inCtx(
+                    () => deploy(unrelated.uid, 'wk-unrelated'),
+                    builderActor,
+                ),
             ).rejects.toMatchObject({ statusCode: 403 });
         });
 
         it('rejects an app binding a worker to an unknown app', async () => {
             const { builderActor } = await seedApps();
             await expect(
-                inCtx(() => deploy('app-does-not-exist', 'wk-ghost'), builderActor),
+                inCtx(
+                    () => deploy('app-does-not-exist', 'wk-ghost'),
+                    builderActor,
+                ),
             ).rejects.toMatchObject({ statusCode: 403 });
         });
 
@@ -906,7 +923,9 @@ describe('WorkerDriver', () => {
             try {
                 for (const body of forgeries) {
                     const forged = JSON.parse(body) as Record<string, unknown>;
-                    expect(Object.getOwnPropertySymbols(forged)).toHaveLength(0);
+                    expect(Object.getOwnPropertySymbols(forged)).toHaveLength(
+                        0,
+                    );
                     await expect(
                         runWithContext({ actor: unverified() }, () =>
                             strictDriver.create({
@@ -925,5 +944,141 @@ describe('WorkerDriver', () => {
                 await strictServer.shutdown();
             }
         });
+    });
+});
+
+// Boots local workerd mode, which sticks for the rest of this file: runs last.
+describe('WorkerDriver operator teardown on local workerd', () => {
+    let env: PuterTestEnv;
+    let driver: WorkerDriver;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({
+            workers: { localServer: true },
+        } as never);
+        driver = env.server.drivers.workers as unknown as WorkerDriver;
+    }, 60_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    const seedWorker = async (label: string) => {
+        const owner = await env.server.stores.user.create({
+            username: `wklocal-${label}`,
+            uuid: `wklocal-uuid-${label}`,
+            password: null,
+            email: null,
+        });
+        const row = await env.server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: `workers.puter.${label}`,
+            rootDirId: null,
+            associatedAppId: null,
+        });
+        return { owner, row };
+    };
+
+    /** A worker deployed for real through the driver, so Miniflare holds it. */
+    const deployLocal = async (label: string) => {
+        const owner = await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        );
+        const ownerActor = resolveActor({
+            user: {
+                uuid: owner!.uuid,
+                id: owner!.id,
+                username: owner!.username,
+                email: `${owner!.username}@test.com`,
+                email_confirmed: true,
+            },
+        });
+        const path = `/${owner!.username}/${label}.js`;
+        const source = `router.get('/', () => new Response('${label}'));`;
+        await runWithContext({ actor: ownerActor }, () =>
+            env.server.services.fs.write(owner!.id, {
+                fileMetadata: {
+                    path,
+                    size: Buffer.byteLength(source),
+                    contentType: 'application/javascript',
+                    overwrite: true,
+                },
+                fileContent: Buffer.from(source),
+            }),
+        );
+        const deployed = (await runWithContext({ actor: ownerActor }, () =>
+            driver.create({ appId: '', workerName: label, filePath: path }),
+        )) as { success?: boolean };
+        expect(deployed.success).toBe(true);
+        const row = await env.server.stores.subdomain.getBySubdomain(
+            `workers.puter.${label}`,
+            { primary: true },
+        );
+        return { owner: owner!, row: row! };
+    };
+
+    it('takes the local script down, drops the row, and reports the owner', async () => {
+        const { owner, row } = await deployLocal('torn');
+        const local = env.server.services.localworkerservice;
+        const deleteLocal = vi.spyOn(local, 'cfDeleteLocal');
+        const served = await local.cfCallLocal(
+            'torn',
+            new Request('http://worker.localhost/'),
+        );
+        expect(await served.text()).toBe('torn');
+
+        const result = await driver[INTERNAL_ADMIN_DESTROY]({
+            uuid: row.uuid,
+        });
+
+        expect(deleteLocal).toHaveBeenCalledWith('torn');
+        expect(result).toEqual({
+            subdomain: 'workers.puter.torn',
+            userId: owner.id,
+            workerName: 'torn',
+        });
+        expect(
+            await env.server.stores.subdomain.getByUuid(row.uuid, {
+                primary: true,
+            }),
+        ).toBeNull();
+        // The Miniflare instance is disposed with the row: nothing answers now.
+        const after = await local.cfCallLocal(
+            'torn',
+            new Request('http://worker.localhost/'),
+        );
+        expect(after.status).toBe(404);
+    }, 60_000);
+
+    it('is absent from the callable surface and unreachable over /drivers/call', async () => {
+        const { row } = await seedWorker('kept');
+        expect(resolveCallableMethods(driver).has('destroy')).toBe(true);
+
+        for (const method of [
+            String(INTERNAL_ADMIN_DESTROY.description),
+            'INTERNAL_ADMIN_DESTROY',
+            `Symbol(${INTERNAL_ADMIN_DESTROY.description})`,
+        ]) {
+            expect(resolveCallableMethods(driver).has(method)).toBe(false);
+            const res = await fetch(new URL('/drivers/call', env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${env.users.user.token}`,
+                    Origin: env.apiOrigin,
+                },
+                body: JSON.stringify({
+                    interface: 'workers',
+                    method,
+                    args: { uuid: row.uuid },
+                }),
+            });
+            expect(res.status, method).toBe(404);
+        }
+        expect(
+            await env.server.stores.subdomain.getByUuid(row.uuid, {
+                primary: true,
+            }),
+        ).toBeTruthy();
     });
 });
