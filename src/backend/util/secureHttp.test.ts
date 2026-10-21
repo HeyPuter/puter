@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import diagnosticsChannel from 'node:diagnostics_channel';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Agent as UndiciAgent } from 'undici';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { configContainer } from '../exports.js';
@@ -137,6 +140,29 @@ describe('global fetch dispatcher isolation', () => {
             expect(seen[1].headersTimeout).toBe(1234);
         } finally {
             globalSlots[SLOT] = before;
+        }
+    });
+
+    it('sends plain fetch() requests out with the 10-minute timeouts', async () => {
+        const created: { headersTimeout?: number; bodyTimeout?: number }[] = [];
+        const onCreate = (message: unknown) => {
+            created.push((message as { request: (typeof created)[0] }).request);
+        };
+        const server = createServer((_req, res) => res.end('ok'));
+        await new Promise<void>((resolve) =>
+            server.listen(0, '127.0.0.1', resolve),
+        );
+        diagnosticsChannel.subscribe('undici:request:create', onCreate);
+        try {
+            const { port } = server.address() as AddressInfo;
+            const response = await fetch(`http://127.0.0.1:${port}/`);
+            expect(await response.text()).toBe('ok');
+            expect(created).toHaveLength(1);
+            expect(created[0].headersTimeout).toBe(10 * 60 * 1000);
+            expect(created[0].bodyTimeout).toBe(10 * 60 * 1000);
+        } finally {
+            diagnosticsChannel.unsubscribe('undici:request:create', onCreate);
+            server.close();
         }
     });
 });
