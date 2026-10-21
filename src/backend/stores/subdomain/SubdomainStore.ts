@@ -63,8 +63,7 @@ export type CascadeRow = Pick<
 //   - name / identity: `subdomain` — v1 marks this `immutable: true`; rename
 //     would orphan DNS + ACL wiring tied to the old name.
 //   - ownership: `user_id`, `app_owner` — set via `create` (or reclaimed in
-//     place by `reclaimByUuid`), never via patch. Account root reassignment
-//     clears app ownership through a trusted store option.
+//     place by `reclaimByUuid`), never via patch.
 //     Flipping either hands the site to another user / app.
 //   - access gate: `protected` — clearing this lets a future caller delete
 //     or rename a protected site (e.g. `puter-app-icons`). The driver itself
@@ -611,11 +610,8 @@ export class SubdomainStore extends PuterStore {
         patch: Record<string, unknown>,
         {
             userId,
-            claimForAccount = false,
         }: {
             userId?: number | undefined;
-            /** The account explicitly selected a different publication root. */
-            claimForAccount?: boolean;
         } = {},
     ) {
         const allowed: Record<string, unknown> = {};
@@ -623,19 +619,11 @@ export class SubdomainStore extends PuterStore {
             if (READ_ONLY_COLUMNS.has(k)) continue;
             allowed[k] = v;
         }
-        if (Object.keys(allowed).length === 0)
-            return this.getByUuid(uuid, { userId });
+        const keys = Object.keys(allowed);
+        if (keys.length === 0) return this.getByUuid(uuid, { userId });
 
         // Rename drops the old cache key.
         const before = await this.getByUuid(uuid, { userId });
-        if (
-            claimForAccount &&
-            allowed.root_dir_id !== undefined &&
-            allowed.root_dir_id !== before?.root_dir_id
-        ) {
-            allowed.app_owner = null;
-        }
-        const keys = Object.keys(allowed);
 
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => allowed[k]);
