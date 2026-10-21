@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import diagnosticsChannel from 'node:diagnostics_channel';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Agent as UndiciAgent } from 'undici';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { configContainer } from '../exports.js';
@@ -138,6 +141,97 @@ describe('global fetch dispatcher isolation', () => {
         } finally {
             globalSlots[SLOT] = before;
         }
+    });
+
+    it('sends plain fetch() requests out with the 10-minute timeouts', async () => {
+        const created: { headersTimeout?: number; bodyTimeout?: number }[] = [];
+        const onCreate = (message: unknown) => {
+            created.push((message as { request: (typeof created)[0] }).request);
+        };
+        const server = createServer((_req, res) => res.end('ok'));
+        await new Promise<void>((resolve) =>
+            server.listen(0, '127.0.0.1', resolve),
+        );
+        diagnosticsChannel.subscribe('undici:request:create', onCreate);
+        try {
+            const { port } = server.address() as AddressInfo;
+            const response = await fetch(`http://127.0.0.1:${port}/`);
+            expect(await response.text()).toBe('ok');
+            expect(created).toHaveLength(1);
+            expect(created[0].headersTimeout).toBe(10 * 60 * 1000);
+            expect(created[0].bodyTimeout).toBe(10 * 60 * 1000);
+        } finally {
+            diagnosticsChannel.unsubscribe('undici:request:create', onCreate);
+            server.close();
+        }
+    });
+
+    describe('HTTP/2 receive windows', () => {
+        // Stand-ins shaped like undici's: compose() returns a wrapper that
+        // records what it wraps.
+        class Agent {
+            options: unknown;
+            constructor(options?: unknown) {
+                this.options = options;
+            }
+            compose() {
+                return { wraps: this };
+            }
+        }
+        class Dispatcher1Wrapper {
+            agent: Agent;
+            constructor(agent: Agent) {
+                this.agent = agent;
+            }
+            compose() {
+                return { wraps: this };
+            }
+        }
+        const globalSlots = globalThis as unknown as Record<symbol, unknown>;
+        const PRIMARY = Symbol.for('undici.globalDispatcher.2');
+        const LEGACY = Symbol.for('undici.globalDispatcher.1');
+        const runGuardWith = async (primary: unknown, legacy: unknown) => {
+            const before = [globalSlots[PRIMARY], globalSlots[LEGACY]];
+            globalSlots[PRIMARY] = primary;
+            globalSlots[LEGACY] = legacy;
+            try {
+                vi.resetModules();
+                await import('./nodeFetchDispatcherGuard.js');
+                return {
+                    primary: (globalSlots[PRIMARY] as { wraps: unknown }).wraps,
+                    legacy: (globalSlots[LEGACY] as { wraps: unknown }).wraps,
+                };
+            } finally {
+                [globalSlots[PRIMARY], globalSlots[LEGACY]] = before;
+            }
+        };
+
+        it('swaps in an Agent with 4 MB stream / 16 MB connection windows', async () => {
+            const original = new Agent();
+            const slots = await runGuardWith(
+                original,
+                new Dispatcher1Wrapper(original),
+            );
+            expect(slots.primary).toBeInstanceOf(Agent);
+            expect(slots.primary).not.toBe(original);
+            expect((slots.primary as Agent).options).toEqual({
+                h2Options: {
+                    initialWindowSize: 4 * 1024 * 1024,
+                    connectionWindowSize: 16 * 1024 * 1024,
+                },
+            });
+            expect(slots.legacy).toBeInstanceOf(Dispatcher1Wrapper);
+            expect((slots.legacy as Dispatcher1Wrapper).agent).toBe(
+                slots.primary,
+            );
+        });
+
+        it('keeps a dispatcher both slots share', async () => {
+            const shared = new Agent();
+            const slots = await runGuardWith(shared, shared);
+            expect(slots.primary).toBe(shared);
+            expect(slots.legacy).toBe(shared);
+        });
     });
 });
 
